@@ -30,12 +30,11 @@ donos:
       - "src/sustemporal/store.py"
       - "src/sustemporal/gates.py"
       - "src/sustemporal/runtime_info.py"
-      - "src/sustemporal/logging.py"
+      - "src/sustemporal/log.py"
+      - "src/sustemporal/errors.py"
       - "src/sustemporal/duck.py"
-      - "src/sustemporal/interfaces.py"
       - "src/sustemporal/ingest/__init__.py"
       - "src/sustemporal/ingest/registry.py"
-      - "src/sustemporal/ingest/cli.py"
       - "src/sustemporal/contracts/__init__.py"
       - "src/sustemporal/contracts/base.py"
       - "src/sustemporal/contracts/records.py"
@@ -47,7 +46,7 @@ donos:
       - "tests/unit/test_limites_codigo.py"
       - "tests/unit/test_check_ownership.py"
       - "tests/unit/test_interfaces.py"
-      - "tests/unit/contracts_schema_snapshot.json"
+      - "tests/unit/test_cli.py"
   S1:
     branches: ["claude/s1-*"]
     caminhos:
@@ -78,6 +77,7 @@ donos:
       - "src/sustemporal/ingest/cnes.py"
       - "src/sustemporal/ingest/coverage.py"
       - "src/sustemporal/ingest/territorio.py"
+      - "src/sustemporal/ingest/cli.py"
       - "src/sustemporal/reporting/report.py"
       - "src/sustemporal/reporting/cli.py"
       - "catalog/layouts/cnes.yaml"

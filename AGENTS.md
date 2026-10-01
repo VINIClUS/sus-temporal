@@ -35,7 +35,10 @@ sobre o plano quanto ao escopo científico.
 
 ## Engenharia
 - Python 3.12, uv (`uv sync --locked`), pacote em `src/sustemporal/`, CLI `sustemporal`.
-- Contratos em `sustemporal.contracts` (pydantic v2, `frozen`, `strict`, `extra="forbid"`).
+- Contratos em `sustemporal.contracts` (pydantic v2, `frozen`, `extra="forbid"`; pydantic v2 não
+  converte número em texto). Use os tipos de `contracts/base.py` (`Inteiro`, `DecimalExato`,
+  `ValorMonetario`, `Booleano`, `InstanteUTC`, códigos com padrão) em vez de `int`/`float`/`bool`
+  crus: eles recusam float, bool disfarçado e instantes sem UTC.
 - Limites: função ≤ 50 linhas, complexidade ≤ 10, aninhamento ≤ 3, arquivo ≤ 500 linhas, linha
   ≤ 100 colunas, ≤ 5 parâmetros (teste `tests/unit/test_limites_codigo.py` + ruff).
 - Códigos sempre texto, com zeros à esquerda (CNES 7 dígitos, procedimento 10, CBO `[0-9A-Z]{6}`,
@@ -52,8 +55,10 @@ sobre o plano quanto ao escopo científico.
 - Nada de LLM para atribuir causas, criar rótulos ou redigir texto de explicação.
 
 ## Proveniência
-Todo leiaute, código, vigência ou trecho normativo carrega rótulo: `OFICIAL_DOCUMENTO`,
-`OFICIAL_ARQUIVO`, `SECUNDARIA`, `INFERIDA_PILOTO`, `A_CONFIRMAR`. Fontes secundárias e
+Todo leiaute, código, vigência ou trecho normativo carrega `Proveniencia` (`OFICIAL_DOCUMENTO`,
+`OFICIAL_ARQUIVO`, `OFICIAL_VISTO_EM_BUSCA`, `SECUNDARIA`, `INFERIDA`, `INFERIDA_PILOTO`) e
+`Confirmacao` (`CONFIRMADO` ou `A_CONFIRMAR`). Fatos observados pelo CnesData (rótulo
+`EMPIRICA_CNESDATA` nos docs) contam como `SECUNDARIA` nos catálogos. Fontes secundárias e
 inferências nunca são apresentadas como oficiais. Registro de fontes: `docs/references/`.
 
 ## Testes

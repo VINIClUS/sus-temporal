@@ -1,0 +1,10 @@
+* text=auto eol=lf
+docs/plan/** -text
+docs/spec/*.pdf binary
+*.dbc binary
+*.dbf binary
+*.DBC binary
+*.DBF binary
+*.parquet binary
+*.zip binary
+*.pdf binary

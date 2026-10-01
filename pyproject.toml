@@ -1,0 +1,134 @@
+[project]
+name = "sus-temporal"
+version = "0.1.0"
+description = "Validação temporal e explicável de dados administrativos do SUS (CNES, SIGTAP e SIA)."
+readme = "README.md"
+requires-python = "==3.12.*"
+dependencies = [
+    "datasus-dbc~=0.1.3",
+    "dbc-to-dbf~=1.0.1",
+    "dbfread~=2.0.7",
+    "duckdb~=1.5.6",
+    "numpy~=2.5.3",
+    "prov~=3.2.2",
+    "pyarrow~=25.0.1",
+    "pydantic~=2.13.5",
+    "pyyaml~=6.0.3",
+    "scikit-learn~=1.9.1",
+]
+
+[project.scripts]
+sustemporal = "sustemporal.cli:main"
+
+[dependency-groups]
+dev = [
+    "hypothesis~=6.168.3",
+    "mypy~=2.3.1",
+    "pyasynchat~=1.0.5",
+    "pyasyncore~=1.0.5",
+    "pyftpdlib~=2.2.0",
+    "pytest~=9.1.1",
+    "pytest-cov~=7.1.0",
+    "pytest-socket~=0.8.1",
+    "pytest-timeout~=2.4.0",
+    "ruff~=0.16.10",
+    "types-pyyaml>=6.0.12.20260906",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sustemporal"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests", "scripts"]
+extend-exclude = [".claude"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "N", "UP", "B", "A", "C4", "C90", "DTZ", "T10", "T20", "ISC", "PIE",
+    "PT", "RSE", "RET", "SLF", "SIM", "TID", "TC", "ARG", "ERA", "PL", "RUF", "PERF", "S",
+]
+ignore = [
+    "ISC001",
+    "RUF001",
+    "RUF002",
+    "RUF003",
+    "PLR2004",
+    "PLC0415",
+    "N818",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S603", "S607", "SLF001", "ARG001", "ARG002", "PLR0913"]
+"scripts/**" = ["S603", "S607"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 8
+max-positional-args = 5
+max-branches = 10
+max-statements = 50
+
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "sustemporal.contracts.base.ContratoBase",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+files = ["src", "scripts"]
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[[tool.mypy.overrides]]
+module = ["dbfread.*", "datasus_dbc.*", "dbc_to_dbf.*", "sklearn.*", "pyarrow.*", "pyftpdlib.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+    "--allow-hosts=127.0.0.1,::1",
+    "-m",
+    "not network and not real_data and not perf",
+]
+timeout = 300
+xfail_strict = true
+markers = [
+    "network: requer rede externa; nunca roda no CI",
+    "real_data: requer dados reais em SUSTEMPORAL_REAL_DATA_DIR; nunca roda no CI",
+    "perf: medição de desempenho; roda sob demanda",
+    "slow: teste lento; roda no CI",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["sustemporal"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+exclude_also = ["if TYPE_CHECKING:", "raise NotImplementedError"]

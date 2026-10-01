@@ -1,0 +1,18 @@
+# Documentos-base preservados byte a byte. Estado PENDENTE: arquivo ainda não recebido;
+# o teste test_original_spec_hash_preserved impede adicioná-lo sem registrar o SHA-256.
+versao: 1
+documentos:
+  - id: esboco_original
+    caminho: docs/spec/esboco_original.pdf
+    titulo: "Esboco_Validacao_Temporal_SUS_Vinicius_Santana(3).pdf"
+    estado: PENDENTE
+    sha256: null
+    tamanho_bytes: null
+    observacao: "Especificação-base (4 páginas, §§1–8); não anexada na sessão de implementação."
+  - id: plano_implementacao
+    caminho: docs/plan/Plano_Implementacao_Validacao_Temporal_SUS.md
+    titulo: "Validação temporal e explicável de dados administrativos do SUS — Plano de implementação"
+    estado: PRESERVADO
+    sha256: "eec084bb70d1d18475eaa2547942b1029ddc0ba6382daf21409960fabd6a4b00"
+    tamanho_bytes: 46643
+    observacao: "Cópia byte a byte do arquivo anexado pelo pesquisador em 2026-10-01."

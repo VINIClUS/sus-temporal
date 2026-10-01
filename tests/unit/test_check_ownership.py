@@ -1,10 +1,9 @@
 from pathlib import Path
 
 import pytest
-
 from scripts.check_ownership import (
-    EspecificacaoPropriedade,
     Dono,
+    EspecificacaoPropriedade,
     carregar_especificacao,
     dono_do_branch,
     encontrar_violacoes,
@@ -23,6 +22,7 @@ def especificacao() -> EspecificacaoPropriedade:
         },
         somente_humanos=("experiments/decisions/*.yaml",),
         excecoes_humanos=("experiments/decisions/MODELO_*.yaml",),
+        integradores=("ORQ",),
     )
 
 
@@ -47,6 +47,11 @@ def test_arquivo_proprio_e_permitido(especificacao: EspecificacaoPropriedade) ->
 def test_arquivo_sem_dono_e_compartilhado(especificacao: EspecificacaoPropriedade) -> None:
     alterados = ["tests/unit/test_fetch.py", "docs/pendencias/T02.md"]
     assert encontrar_violacoes(alterados, "S1", especificacao) == []
+
+
+def test_integrador_pode_alterar_caminho_de_sessao(especificacao: EspecificacaoPropriedade) -> None:
+    alterados = ["src/sustemporal/acquisition/fetch.py", "src/sustemporal/ingest/dbc.py"]
+    assert encontrar_violacoes(alterados, "ORQ", especificacao) == []
 
 
 def test_decisao_humana_e_violacao_para_agente(especificacao: EspecificacaoPropriedade) -> None:

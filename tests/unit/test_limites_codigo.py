@@ -68,7 +68,10 @@ def test_arquivo_respeita_limites(arquivo: Path) -> None:
 
 
 def test_detector_de_aninhamento_conta_elif_no_mesmo_nivel() -> None:
-    fonte = "def f(x):\n    if x:\n        pass\n    elif x > 1:\n        pass\n    else:\n        pass\n"
+    fonte = (
+        "def f(x):\n    if x:\n        pass\n    elif x > 1:\n        pass\n"
+        "    else:\n        pass\n"
+    )
     funcao = next(_funcoes(ast.parse(fonte)))
     assert _profundidade(funcao.body, 0) == 1
 

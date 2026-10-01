@@ -118,3 +118,15 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
+
+
+def arquivos_alterados(raiz: Path, ponto: str) -> list[str]:
+    raise NotImplementedError
+
+
+def branch_atual(raiz: Path) -> str:
+    raise NotImplementedError
+
+
+def verificar(raiz: Path, branch: str, base: str) -> int:
+    raise NotImplementedError

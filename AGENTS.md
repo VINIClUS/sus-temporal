@@ -29,8 +29,8 @@ sobre o plano quanto ao escopo científico.
 |---|---|
 | Arquivo ausente, truncado ou com leiaute incompatível | Quarentena/inconclusão; conjunto vazio nunca vira ausência cadastral |
 | Mesmo arquivo coletado de novo ou conteúdo antigo reaparecendo | Nova observação; não nova versão de conteúdo; histórico preservado |
-| Atendimento e processamento em competências diferentes (inclusive borda de 2018) | Resolver só as dependências necessárias; nunca escolher o mês vizinho |
-| Linhas repetidas, agregadas ou sem identificador longitudinal | Preservar multiplicidade; não inventar paciente, reapresentação ou vínculo |
+| Atendimento e processamento em competências diferentes (inclusive borda de 2018) | Resolver as dependências realmente necessárias; nunca escolher automaticamente o mês vizinho |
+| Linhas repetidas, agregadas ou sem identificador longitudinal | Preservar multiplicidades; não inventar paciente, reapresentação ou vínculo entre competências |
 | Contrafactual remove uma violação e cria outra, ou depende de informação local | Revalidar o conjunto afetado; declarar condições pendentes e limite de minimalidade |
 
 ## Engenharia
@@ -40,7 +40,10 @@ sobre o plano quanto ao escopo científico.
   `ValorMonetario`, `Booleano`, `InstanteUTC`, códigos com padrão) em vez de `int`/`float`/`bool`
   crus: eles recusam float, bool disfarçado e instantes sem UTC.
 - Limites: função ≤ 50 linhas, complexidade ≤ 10, aninhamento ≤ 3, arquivo ≤ 500 linhas, linha
-  ≤ 100 colunas, ≤ 5 parâmetros (teste `tests/unit/test_limites_codigo.py` + ruff).
+  ≤ 100 colunas, ≤ 5 parâmetros posicionais (extras só keyword-only com default). Verificados por
+  `tests/unit/test_limites_codigo.py` e ruff; supressões (`# ruff: noqa`, `noqa: C901/PLR09`,
+  `# mypy: ignore-errors`, `# type: ignore` sem código) são proibidas, e arquivos de configuração de
+  ferramentas (`ruff.toml`, `pytest.ini`, `conftest.py` novo, `setup.cfg`…) são só do orquestrador.
 - Códigos sempre texto, com zeros à esquerda (CNES 7 dígitos, procedimento 10, CBO `[0-9A-Z]{6}`,
   município 6 ou 7 dígitos como tipos distintos). Nunca `int()` em código.
 - Dinheiro em `Decimal`/DECIMAL; nunca float em somatório monetário.
@@ -75,14 +78,17 @@ inferências nunca são apresentadas como oficiais. Registro de fontes: `docs/re
 ## Comandos
 ```bash
 uv sync --locked
-bash scripts/ci.sh                      # ruff, format, mypy, propriedade, pytest
+bash scripts/ci.sh                      # ruff, format, mypy, propriedade, pytest (perfil Hypothesis ci)
 uv run pytest tests/unit -q             # recorte
-uv run sustemporal --help               # CLI (após PR-B)
+uv run python ...                       # sempre via uv (python3 do sistema é 3.11)
+uv run sustemporal --help               # CLI
 ```
 
 ## Git e PRs
-- Branch por sessão `claude/sN-<slug>`; orquestrador em `claude/determined-ritchie-b9o2qg`
-  ou `claude/orq-*`. Commits `<tipo>(<escopo>): <descrição>`.
+- Branch por sessão `claude/sN-<slug>` (definido pelo orquestrador ao criar a sessão); orquestrador
+  em `claude/determined-ritchie-b9o2qg` ou `claude/orq-*`. Branch `claude/*` sem dono no mapa de
+  propriedade reprova no CI. Commits `<tipo>(<escopo>): <descrição>`.
+- Push forçado, remoção de branch e qualquer push para `main` são bloqueados por hook.
 - Nunca force-push, rebase de commits publicados, commit direto em `main` ou merge de PR por
   sessões-filhas. Atualizar com `git fetch origin && git merge --no-edit origin/main`.
 - PR em rascunho até ficar pronto (rascunho não roda CI); corpo segue

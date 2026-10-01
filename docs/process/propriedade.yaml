@@ -1,15 +1,31 @@
-# Propriedade de arquivos por sessão. Checada no CI por scripts/check_ownership.py.
-# Padrões fnmatch: "*" também atravessa "/". Arquivo sem dono listado é compartilhado.
+# Propriedade de arquivos por sessão. Checada no CI por scripts/check_ownership.py, que lê
+# este arquivo a partir da base do PR (um branch não altera as regras que o julgam).
+# Padrões fnmatch: "*" também atravessa "/". Ordem de checagem: somente_humanos →
+# integradores (podem tudo, exceto o que é só humano) → reservados_integradores (nome de
+# arquivo em qualquer pasta) → caminhos próprios → caminhos de outro dono → compartilhado.
+# src/, catalog/ e config/ são fechados: o que não é de uma sessão é do orquestrador.
 versao: 1
-# Integradores podem alterar qualquer caminho, exceto os reservados a humanos.
 integradores: ["ORQ"]
+reservados_integradores:
+  - "pyproject.toml"
+  - "uv.lock"
+  - "ruff.toml"
+  - ".ruff.toml"
+  - "conftest.py"
+  - "pytest.ini"
+  - "setup.cfg"
+  - "setup.py"
+  - "tox.ini"
+  - "mypy.ini"
+  - ".mypy.ini"
+  - ".coveragerc"
+  - "sitecustomize.py"
+  - "usercustomize.py"
+  - ".python-version"
 donos:
   ORQ:
     branches: ["claude/determined-ritchie-b9o2qg", "claude/orq-*"]
     caminhos:
-      - "pyproject.toml"
-      - "uv.lock"
-      - ".python-version"
       - ".gitignore"
       - ".gitattributes"
       - ".github/*"
@@ -17,36 +33,36 @@ donos:
       - "scripts/*"
       - "AGENTS.md"
       - "CLAUDE.md"
+      - "README.md"
       - "docs/process/*"
       - "docs/plan/*"
       - "docs/spec/*"
       - "docs/decisions/*"
       - "docs/references/*"
-      - "src/sustemporal/__init__.py"
-      - "src/sustemporal/cli.py"
-      - "src/sustemporal/config.py"
-      - "src/sustemporal/yamlio.py"
-      - "src/sustemporal/hashing.py"
-      - "src/sustemporal/store.py"
-      - "src/sustemporal/gates.py"
-      - "src/sustemporal/runtime_info.py"
-      - "src/sustemporal/log.py"
-      - "src/sustemporal/errors.py"
-      - "src/sustemporal/duck.py"
-      - "src/sustemporal/ingest/__init__.py"
-      - "src/sustemporal/ingest/registry.py"
-      - "src/sustemporal/contracts/__init__.py"
-      - "src/sustemporal/contracts/base.py"
-      - "src/sustemporal/contracts/records.py"
-      - "src/sustemporal/contracts/config.py"
-      - "tests/conftest.py"
-      - "tests/*/conftest.py"
+      - "src/*"
+      - "catalog/*"
+      - "config/*"
       - "tests/fixtures/sintetico/*"
       - "tests/unit/test_contracts.py"
+      - "tests/unit/test_contratos_base.py"
+      - "tests/unit/test_contratos_records.py"
+      - "tests/unit/test_contratos_experiment_config.py"
       - "tests/unit/test_limites_codigo.py"
       - "tests/unit/test_check_ownership.py"
+      - "tests/unit/test_check_ownership_git.py"
+      - "tests/unit/test_hook_push.py"
       - "tests/unit/test_interfaces.py"
       - "tests/unit/test_cli.py"
+      - "tests/unit/test_gates.py"
+      - "tests/unit/test_store.py"
+      - "tests/unit/test_runtime_info.py"
+      - "tests/unit/test_hashing.py"
+      - "tests/unit/test_duck.py"
+      - "tests/unit/test_catalogo.py"
+      - "tests/unit/test_snapshot_contratos.py"
+      - "tests/unit/snapshots/contratos_base.json"
+      - "tests/unit/snapshots/contratos_records.json"
+      - "tests/unit/snapshots/contratos_config.json"
   S1:
     branches: ["claude/s1-*"]
     caminhos:
@@ -58,6 +74,15 @@ donos:
       - "catalog/policies/*"
       - "config/watch.yaml"
       - "docs/method/temporal.md"
+      - "tests/unit/snapshots/contratos_temporal.json"
+      - "tests/unit/snapshots/contratos_artifacts.json"
+      - "tests/unit/test_contratos_temporal.py"
+      - "tests/unit/test_contratos_artifacts.py"
+      - "tests/integration/test_acquisition.py"
+      - "tests/unit/test_temporal_selector.py"
+      - "tests/integration/test_republications.py"
+      - "tests/fixtures/aquisicao_*"
+      - "tests/fixtures/temporal_*"
   S2:
     branches: ["claude/s2-*"]
     caminhos:
@@ -70,6 +95,9 @@ donos:
       - "catalog/schemas/sia_pa*.yaml"
       - "tests/fixtures/dbc_encoder.py"
       - "tests/fixtures/dbf_writer.py"
+      - "tests/fixtures/dbc/*"
+      - "tests/fixtures/sia_pa_*"
+      - "tests/integration/test_sia_pa.py"
   S3:
     branches: ["claude/s3-*"]
     caminhos:
@@ -89,6 +117,11 @@ donos:
       - "config/pilot.yaml"
       - "docs/method/observability.md"
       - "docs/runbooks/piloto_local.md"
+      - "tests/fixtures/sigtap_*"
+      - "tests/fixtures/cnes_*"
+      - "tests/fixtures/piloto_*"
+      - "tests/integration/test_reference_sources.py"
+      - "tests/integration/test_pilot_report.py"
   S4:
     branches: ["claude/s4-*"]
     caminhos:
@@ -98,6 +131,11 @@ donos:
       - "catalog/familias.yaml"
       - "catalog/schemas/motor.yaml"
       - "docs/method/model.md"
+      - "tests/unit/snapshots/contratos_rules.json"
+      - "tests/unit/test_contratos_rules.py"
+      - "tests/fixtures/regras_*"
+      - "tests/differential/test_rules.py"
+      - "tests/metamorphic/test_rules.py"
   S5:
     branches: ["claude/s5-*"]
     caminhos:
@@ -113,6 +151,12 @@ donos:
       - "config/cohort.yaml"
       - "config/splits.yaml"
       - "experiments/frozen/README.md"
+      - "tests/unit/snapshots/contratos_experiment.json"
+      - "tests/unit/snapshots/contratos_evaluation.json"
+      - "tests/fixtures/protocolo_*"
+      - "tests/integration/test_no_leakage.py"
+      - "tests/unit/test_metrics.py"
+      - "tests/integration/test_freeze.py"
   S6:
     branches: ["claude/s6-*"]
     caminhos:
@@ -124,6 +168,11 @@ donos:
       - "src/sustemporal/explanation/templates/*"
       - "src/sustemporal/evaluation/ablation.py"
       - "docs/method/explicacoes.md"
+      - "tests/unit/snapshots/contratos_explanation.json"
+      - "tests/unit/test_contratos_explanation.py"
+      - "tests/fixtures/explicacao_*"
+      - "tests/integration/test_baselines.py"
+      - "tests/unit/test_provenance.py"
   S7:
     branches: ["claude/s7-*"]
     caminhos:
@@ -131,6 +180,10 @@ donos:
       - "src/sustemporal/explanation/counterfactual*"
       - "catalog/operations.yaml"
       - "docs/method/contrafactuais.md"
+      - "tests/unit/snapshots/contratos_counterfactual.json"
+      - "tests/unit/test_contratos_counterfactual.py"
+      - "tests/fixtures/contrafactual_*"
+      - "tests/unit/test_counterfactual.py"
   S8:
     branches: ["claude/s8-*"]
     caminhos:
@@ -141,6 +194,10 @@ donos:
       - "src/sustemporal/evaluation/performance.py"
       - "docs/method/annotation.md"
       - "docs/method/valores.md"
+      - "tests/unit/snapshots/contratos_annotation.json"
+      - "tests/fixtures/anotacao_*"
+      - "tests/integration/test_annotation_blinding.py"
+      - "tests/unit/test_values.py"
   S9:
     branches: ["claude/s9-*"]
     caminhos:
@@ -148,7 +205,10 @@ donos:
       - "docs/method/claims.md"
       - "docs/runbooks/reproducao.md"
       - "docs/PENDENCIAS.md"
+      - "tests/fixtures/reproducao_*"
+      - "tests/integration/test_reproduce_offline.py"
 somente_humanos:
-  - "experiments/decisions/*.yaml"
+  - "experiments/decisions/*"
 excecoes_humanos:
-  - "experiments/decisions/MODELO_*.yaml"
+  - "experiments/decisions/MODELO_*"
+  - "experiments/decisions/README.md"

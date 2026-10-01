@@ -1,4 +1,5 @@
 import ast
+import re
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -43,8 +44,10 @@ def _profundidade(instrucoes: list[ast.stmt], nivel: int) -> int:
 def _profundidade_bloco(no: ast.stmt, nivel: int) -> int:
     if isinstance(no, ast.If):
         corpo = _profundidade(no.body, nivel)
-        if len(no.orelse) == 1 and isinstance(no.orelse[0], ast.If):
-            return max(corpo, _profundidade_bloco(no.orelse[0], nivel))
+        senao = no.orelse
+        elif_ = len(senao) == 1 and isinstance(senao[0], ast.If)
+        if elif_ and senao[0].col_offset == no.col_offset:
+            return max(corpo, _profundidade_bloco(senao[0], nivel))
         return max(corpo, _profundidade(no.orelse, nivel))
     if isinstance(no, ast.Match):
         return max((_profundidade(caso.body, nivel) for caso in no.cases), default=nivel)
@@ -83,3 +86,31 @@ def test_detector_de_aninhamento_acusa_quatro_niveis() -> None:
     )
     funcao = next(_funcoes(ast.parse(fonte)))
     assert _profundidade(funcao.body, 0) == 4
+
+
+def test_detector_conta_else_seguido_de_if_como_aninhamento() -> None:
+    fonte = "def f(x):\n    if x:\n        pass\n    else:\n        if x > 1:\n            pass\n"
+    funcao = next(_funcoes(ast.parse(fonte)))
+    assert _profundidade(funcao.body, 0) == 2
+
+
+def test_detector_conta_try_e_match() -> None:
+    fonte = (
+        "def f(x):\n    try:\n        match x:\n            case 1:\n"
+        "                for i in x:\n                    pass\n    except ValueError:\n"
+        "        pass\n"
+    )
+    funcao = next(_funcoes(ast.parse(fonte)))
+    assert _profundidade(funcao.body, 0) == 3
+
+
+_SUPRESSOES_PROIBIDAS = re.compile(
+    r"#\s*(ruff:\s*noqa|mypy:\s*ignore-errors|type:\s*ignore\s*$|noqa:[^\n]*(C901|PLR09))",
+    re.MULTILINE,
+)
+
+
+@pytest.mark.parametrize("arquivo", _arquivos(), ids=lambda p: str(p.relative_to(RAIZ)))
+def test_arquivo_nao_desliga_limites(arquivo: Path) -> None:
+    texto = arquivo.read_text(encoding="utf-8")
+    assert not _SUPRESSOES_PROIBIDAS.search(texto), "supressao_de_limite_proibida"

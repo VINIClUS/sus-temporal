@@ -8,7 +8,8 @@ e um de mutações.
 ## Roteiro do revisor
 1. Ler corpo e diff; conferir o cartão da tarefa e as seções do plano citadas.
 2. Conferir propriedade de arquivos e mudanças de contrato (só aditivas, salvo PR do orquestrador).
-3. Em worktree no head do PR: `uv sync --locked` e `bash scripts/ci.sh`.
+3. Em worktree no head do PR: `uv sync --locked` e
+   `PROPRIEDADE_BRANCH=<branch do PR> bash scripts/ci.sh` (o worktree fica em HEAD destacado).
 4. Reexecutar o commit de testes: os testes nomeados falham de forma pertinente.
 5. Para cada critério de aceite e linha do Foco de revisão: o teste distingue o certo do errado?
 6. Aplicar 3–5 mutações dirigidas; os testes devem falhar. Exemplos:

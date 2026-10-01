@@ -68,6 +68,7 @@ def test_lista_de_alterados_preserva_acentos(repo: Path) -> None:
 
 def test_renomear_arquivo_de_outro_dono_e_violacao(repo: Path) -> None:
     _git(repo, "checkout", "-q", "-b", "claude/s1-x")
+    (repo / "src" / "a").mkdir(parents=True)
     _git(repo, "mv", "src/b/existente.py", "src/a/movido.py")
     _git(repo, "commit", "-q", "-m", "mv")
     assert verificar(repo, "claude/s1-x", "main") == 1

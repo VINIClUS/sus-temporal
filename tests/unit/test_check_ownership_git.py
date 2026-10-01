@@ -2,7 +2,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-
 from scripts.check_ownership import arquivos_alterados, branch_atual, verificar
 
 ESPECIFICACAO = """versao: 1
@@ -127,9 +126,7 @@ def test_base_ausente_falha_com_erro_explicito(repo: Path) -> None:
         verificar(repo, "claude/s1-x", "origin/nao-existe")
 
 
-def test_variavel_de_ambiente_define_o_branch(
-    repo: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_variavel_de_ambiente_define_o_branch(repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("PROPRIEDADE_BRANCH", "claude/s2-y")
     monkeypatch.setenv("GITHUB_HEAD_REF", "claude/s1-x")
     assert branch_atual(repo) == "claude/s2-y"

@@ -1,6 +1,6 @@
 * text=auto eol=lf
 docs/plan/** -text
-docs/spec/** binary
+docs/spec/*.pdf binary
 *.dbc binary
 *.dbf binary
 *.DBC binary

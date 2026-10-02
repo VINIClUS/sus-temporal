@@ -1,21 +1,78 @@
-"""Protocolo: decisões de portão rastreáveis e manifestos de partição completos."""
+"""Protocolo: decisões de portão, partições, congelamento, atributos, execuções e amostras."""
+
+from datetime import timedelta
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from sustemporal.contracts import experiment
+from sustemporal.contracts.annotation import Estrato
+from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.experiment import (
     A_DEFINIR,
+    EstadoExecucao,
     FreezeManifest,
     Particao,
     Portao,
     SplitManifest,
 )
+from sustemporal.contracts.records import EsquemaCanonico, PapelColuna
 from sustemporal.contracts.rules import FamiliaRegra
-from tests.unit.test_contratos_experiment_config import _campos_freeze, _decisao, _split
+from tests.unit.test_contratos_experiment_config import (
+    _ART_A,
+    _EXPLORATORIO,
+    _INSTANTE,
+    _amostra,
+    _campos_freeze,
+    _codigo,
+    _decisao,
+    _esquema,
+    _features,
+    _run_config,
+    _run_result,
+    _split,
+)
 
+RAIZ = Path(__file__).resolve().parents[2]
 _HASH = f"lh1:{'c' * 64}"
 _LINHAS = dict.fromkeys(Particao, 1)
 _HASHES = dict.fromkeys(Particao, _HASH)
+_ESQUEMAS_DO_CATALOGO = [
+    EsquemaCanonico.de_yaml(caminho)
+    for caminho in sorted((RAIZ / "catalog/schemas").glob("*.yaml"))
+]
+_TRECHOS_DE_ERRO_OU_APROVACAO = (
+    "indica",
+    "rotulo",
+    "contradic",
+    "codoco",
+    "flqt",
+    "fler",
+    "flidade",
+    "aprovad",
+)
+_PAPEIS_FORA_DA_LISTA_POSITIVA = {PapelColuna.DIAGNOSTICO, PapelColuna.BRUTO, PapelColuna.MOTIVO}
+_PILOTO = {
+    "competencias_processamento": ("201801", "202212"),
+    "territorio": "t",
+    "familias_fontes": (),
+}
+_COORTE = {
+    "cohort_id": "drs_xi",
+    "uf": "SP",
+    "territorio": "t",
+    "inicio": "201801",
+    "fim": "202512",
+}
+
+
+class _CongelamentoComCampoNovo(FreezeManifest):
+    x: str | None = None
+
+
+class _ConfigComCampoNovo(RunConfig):
+    x: str | None = None
 
 
 def _manifesto(**campos: object) -> SplitManifest:
@@ -74,3 +131,134 @@ def test_manifesto_exige_contagem_e_hash_de_cada_particao_declarada(
     }
     with pytest.raises(ValidationError, match="split_manifesto_particoes_divergentes"):
         _manifesto(**{campo: incompleto})
+
+
+def test_campo_opcional_novo_nao_muda_o_freeze_id() -> None:
+    original = FreezeManifest.criar(**_campos_freeze())
+    assert _CongelamentoComCampoNovo.criar(**_campos_freeze()).freeze_id == original.freeze_id
+
+
+def test_campo_opcional_novo_nao_muda_o_config_hash() -> None:
+    campos = {"versao": "1", "semente": 7}
+    novo = _ConfigComCampoNovo.model_validate(campos)
+    assert novo.config_hash == RunConfig.model_validate(campos).config_hash
+
+
+def test_lista_negativa_cobre_rotulos_e_diagnosticos_de_erro_e_aprovacao_do_catalogo() -> None:
+    proibidas = getattr(experiment, "COLUNAS_PROIBIDAS_EM_ATRIBUTOS", frozenset())
+    colunas = [coluna for esquema in _ESQUEMAS_DO_CATALOGO for coluna in esquema.colunas]
+    esperadas = {
+        coluna.nome
+        for coluna in colunas
+        if coluna.papel is PapelColuna.ROTULO
+        or (
+            coluna.papel in _PAPEIS_FORA_DA_LISTA_POSITIVA
+            and any(trecho in coluna.nome for trecho in _TRECHOS_DE_ERRO_OU_APROVACAO)
+        )
+    }
+    exemplos = {"pa_indica", "pa_codoco", "pa_flqt", "pa_fler", "quantidade_aprovada"}
+    assert exemplos | {"valor_aprovado", "rotulo"} <= esperadas
+    assert esperadas <= proibidas
+    atributos = {coluna.nome for coluna in colunas if coluna.papel is PapelColuna.ATRIBUTO}
+    assert not proibidas & atributos
+
+
+@pytest.mark.parametrize(
+    "coluna",
+    [
+        "pa_indica",
+        "PA_INDICA",
+        "pa_codoco",
+        "quantidade_aprovada",
+        "valor_aprovado_bruto",
+        "rotulo",
+    ],
+)
+def test_feature_spec_recusa_rotulo_e_campos_de_erro_ou_aprovacao(coluna: str) -> None:
+    with pytest.raises(ValidationError, match="feature_com_coluna_proibida"):
+        _features(coluna)
+
+
+@pytest.mark.parametrize(
+    ("features", "erro"),
+    [
+        (_features("qtd_aprovada"), "feature_coluna_nao_atributo"),
+        (_features("row_id"), "feature_coluna_nao_atributo"),
+        (_features("inexistente"), "feature_coluna_nao_atributo"),
+        (_features("idade", schema_id="cnes_pf.v1"), "feature_sem_esquema"),
+    ],
+)
+def test_validar_features_exige_coluna_atributo_do_esquema(
+    features: experiment.FeatureSpec, erro: str
+) -> None:
+    validar = getattr(experiment, "validar_features", None)
+    assert validar is not None
+    assert validar(_features("idade"), [_esquema()]) is None
+    with pytest.raises(ValueError, match=erro):
+        validar(features, [_esquema()])
+
+
+@pytest.mark.parametrize(
+    "campos",
+    [
+        {"datasets": ()},
+        {"metricas": ()},
+        {"comparacoes_primarias": ()},
+        {"catalogos_sha256": {}},
+        {"split": None},
+        {"features": None},
+    ],
+)
+def test_congelamento_exige_insumos_do_protocolo(campos: dict[str, object]) -> None:
+    assert FreezeManifest.criar(**_campos_freeze()).split is not None
+    with pytest.raises(ValidationError):
+        FreezeManifest.criar(**_campos_freeze(**campos))
+
+
+def test_congelamento_recusa_codigo_sujo() -> None:
+    with pytest.raises(ValidationError, match="congelamento_com_codigo_sujo"):
+        FreezeManifest.criar(**_campos_freeze(codigo=_codigo(sujo=True)))
+
+
+def test_config_confirmatoria_exige_rede_desligada() -> None:
+    assert _run_config().runtime.rede_permitida is False
+    with pytest.raises(ValidationError, match="confirmatorio_exige_rede_desligada"):
+        _run_config(runtime={"rede_permitida": True})
+
+
+def test_piloto_fica_dentro_da_particao_de_desenvolvimento() -> None:
+    assert _run_config(piloto=_PILOTO, particoes=_split(), **_EXPLORATORIO).piloto is not None
+    fora = _PILOTO | {"competencias_processamento": ("201801", "202301")}
+    with pytest.raises(ValidationError, match="piloto_fora_do_desenvolvimento"):
+        _run_config(piloto=fora, particoes=_split(), **_EXPLORATORIO)
+
+
+@pytest.mark.parametrize(("inicio", "fim"), [("201901", "202512"), ("201801", "202412")])
+def test_particoes_ficam_dentro_do_intervalo_da_coorte(inicio: str, fim: str) -> None:
+    assert _run_config(coorte=_COORTE, particoes=_split(), **_EXPLORATORIO).coorte is not None
+    coorte = _COORTE | {"inicio": inicio, "fim": fim}
+    with pytest.raises(ValidationError, match="particoes_fora_da_coorte"):
+        _run_config(coorte=coorte, particoes=_split(), **_EXPLORATORIO)
+
+
+def test_execucao_concluida_nao_tem_falhas() -> None:
+    assert _run_result(falhas=2, estado=EstadoExecucao.PARCIAL).falhas == 2
+    with pytest.raises(ValidationError, match="execucao_concluida_com_falhas"):
+        _run_result(falhas=1)
+
+
+def test_execucao_nao_conclui_antes_de_iniciar() -> None:
+    assert _run_result(concluido_em=_INSTANTE).concluido_em == _INSTANTE
+    with pytest.raises(ValidationError, match="execucao_conclusao_antes_do_inicio"):
+        _run_result(concluido_em=_INSTANTE - timedelta(seconds=1))
+
+
+def test_amostra_exige_soma_dos_estratos_igual_ao_numero_de_casos() -> None:
+    with pytest.raises(ValidationError, match="amostra_estratos_divergem_dos_casos"):
+        _amostra(casos=(f"{_ART_A}#1",))
+
+
+def test_amostra_recusa_estrato_repetido() -> None:
+    estrato = Estrato(nome="BPA_I", populacao=100, amostra=1, prob_inclusao="0.01")
+    with pytest.raises(ValidationError, match="estrato_repetido"):
+        _amostra(estratos=(estrato, estrato))

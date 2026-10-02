@@ -1,10 +1,11 @@
-"""Regras: decisão G0 rastreável, avaliações conformes com insumos e agregados sem repetição."""
+"""Regras: decisão G0 rastreável, avaliações sustentadas por insumos e agregados sem repetição."""
 
 import pytest
 from pydantic import ValidationError
 
 from sustemporal.contracts.rules import (
     AgregadoRegistro,
+    Aplicabilidade,
     EstadoAvaliacao,
     EstadoRegra,
     FamiliaCandidata,
@@ -83,3 +84,16 @@ def test_evidencias_da_avaliacao_sao_identificadores_nao_vazios(
 def test_agregado_rejeita_regra_repetida_ou_em_dois_grupos(campos: dict[str, object]) -> None:
     with pytest.raises(ValidationError, match="agregado_regra_repetida"):
         AgregadoRegistro.model_validate({"run_id": "run_1", "row_id": _ROW} | campos)
+
+
+def test_nao_aplicavel_exige_evidencia_da_nao_aplicabilidade() -> None:
+    demonstrada = {"aplicabilidade": Aplicabilidade.NAO_APLICAVEL_DEMONSTRADA}
+    assert _avaliacao(EstadoAvaliacao.NAO_APLICAVEL, **demonstrada).evidence_ids == ("ev_ausencia",)
+    with pytest.raises(ValidationError, match="nao_aplicavel_sem_evidencia"):
+        _avaliacao(EstadoAvaliacao.NAO_APLICAVEL, evidence_ids=(), **demonstrada)
+
+
+def test_regra_exige_campos_necessarios() -> None:
+    assert _regra().campos_necessarios == ("cnes", "cbo")
+    with pytest.raises(ValidationError, match="regra_sem_campos_necessarios"):
+        _regra(campos_necessarios=())

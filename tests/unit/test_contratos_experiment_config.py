@@ -42,6 +42,11 @@ from sustemporal.contracts.experiment import (
 )
 from sustemporal.contracts.records import ColunaCanonica, EsquemaCanonico, PapelColuna
 from sustemporal.contracts.temporal import CompetenciaAtendimento
+from tests.fixtures.sintetico.contratos import (
+    dataset_sintetico,
+    features_sinteticas,
+    split_sintetico,
+)
 
 _SHA = "a" * 64
 _FREEZE = f"frz_{'b' * 64}"
@@ -133,7 +138,9 @@ def _campos_freeze(**campos: object) -> dict[str, object]:
         "codigo": _codigo(),
         "ambiente": _ambiente(),
         "catalogos_sha256": {"regras": _SHA},
-        "datasets": (),
+        "datasets": (dataset_sintetico(),),
+        "split": split_sintetico(),
+        "features": features_sinteticas(),
         "bootstrap": _HOLM,
         "metricas": ("cobertura_rejeicoes",),
         "comparacoes_primarias": ("M_TEMP_x_B_ATEND", "M_TEMP_x_B_PROC"),
@@ -276,14 +283,14 @@ def test_manifesto_rejeita_artefato_de_teste_ja_inspecionado() -> None:
 
 
 def test_colunas_proibidas_sinaliza_tudo_que_nao_e_atributo() -> None:
-    features = _features("idade", "pa_indica", "qtd_aprovada", "motivo_glosa", "row_id", "nova")
-    proibidas = ("pa_indica", "qtd_aprovada", "motivo_glosa", "row_id", "nova")
+    features = _features("idade", "qtd_aprovada", "motivo_glosa", "row_id", "nova")
+    proibidas = ("qtd_aprovada", "motivo_glosa", "row_id", "nova")
     assert features.colunas_proibidas(_esquema()) == proibidas
     assert _features("idade").colunas_proibidas(_esquema()) == ()
 
 
 def test_colunas_proibidas_avalia_apenas_atributos_do_esquema_informado() -> None:
-    assert _features("pa_indica", schema_id="cnes_pf.v1").colunas_proibidas(_esquema()) == ()
+    assert _features("motivo_glosa", schema_id="cnes_pf.v1").colunas_proibidas(_esquema()) == ()
 
 
 @pytest.mark.parametrize(
@@ -306,8 +313,8 @@ def test_execucao_exploratoria_dispensa_congelamento() -> None:
 
 def test_freeze_id_e_derivado_do_conteudo_e_estavel() -> None:
     congelamento = FreezeManifest.criar(**_campos_freeze())
-    conteudo = congelamento.model_dump(mode="json", exclude={"freeze_id"})
-    assert congelamento.freeze_id == f"frz_{hash_canonico(conteudo)}"
+    conteudo = congelamento.model_dump(mode="json", exclude={"freeze_id"}, exclude_none=True)
+    assert congelamento.freeze_id == f"frz_{hash_canonico({'v': 1, 'conteudo': conteudo})}"
     assert FreezeManifest.model_validate_json(congelamento.model_dump_json()) == congelamento
     adulterado = congelamento.model_dump() | {"metricas": ("outra_metrica",)}
     with pytest.raises(ValidationError, match="freeze_id_nao_corresponde_ao_conteudo"):

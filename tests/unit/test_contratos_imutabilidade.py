@@ -11,6 +11,11 @@ from sustemporal.contracts.experiment import (
     CorrecaoMultiplicidade,
     FreezeManifest,
 )
+from tests.fixtures.sintetico.contratos import (
+    dataset_sintetico,
+    features_sinteticas,
+    split_sintetico,
+)
 
 _SHA = "a" * 64
 
@@ -22,7 +27,9 @@ def _manifesto() -> FreezeManifest:
         codigo=CodeVersion(commit="c" * 40, sujo=False, versao_pacote="0.1.0"),
         ambiente=Ambiente(python="3.12.11", plataforma="linux", pacotes={"duckdb": "1.5.6"}),
         catalogos_sha256={"regras": _SHA},
-        datasets=(),
+        datasets=(dataset_sintetico(),),
+        split=split_sintetico(),
+        features=features_sinteticas(),
         bootstrap=BootstrapSpec(correcao=CorrecaoMultiplicidade.HOLM),
         metricas=("cobertura_rejeicoes",),
         comparacoes_primarias=("M_TEMP_x_B_ATEND",),

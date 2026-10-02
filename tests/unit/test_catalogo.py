@@ -52,7 +52,6 @@ ATRIBUTOS_SIA_PA = frozenset(
     {
         "cnes",
         "municipio_estabelecimento",
-        "tipo_unidade",
         "competencia_processamento",
         "competencia_atendimento",
         "procedimento",
@@ -82,6 +81,7 @@ DIAGNOSTICOS_SIA_PA = frozenset(
         "pa_dif_val",
         "pa_ufdif",
         "pa_mndif",
+        "tipo_unidade",
     }
 )
 TRECHOS_POS_PROCESSAMENTO = (
@@ -204,6 +204,7 @@ def test_sia_pa_campo_normalizado_guarda_bruto_e_motivo() -> None:
         if tipo in {TipoCanonico.INTEIRO, TipoCanonico.DECIMAL}
     }
     normalizados = (ATRIBUTOS_SIA_PA - {"idade_unidade"}) | (numericos - {"indice_registro"})
+    normalizados |= {"tipo_unidade"}
     for nome in normalizados:
         assert papeis.get(f"{nome}_bruto") is PapelColuna.BRUTO, nome
         assert papeis.get(f"{nome}_motivo") is PapelColuna.MOTIVO, nome

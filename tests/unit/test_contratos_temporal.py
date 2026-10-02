@@ -70,7 +70,7 @@ def _selecao(
     base = {
         "fonte": FamiliaFonte.CNES_PF,
         "base": BaseTemporal.PROCESSAMENTO,
-        "competencia_requerida": None,
+        "competencia_requerida": "201801",
         "estado": estado,
         "artifact_ids": artefatos,
         "motivo": "criterio_documentado",
@@ -330,8 +330,8 @@ def test_selecao_rejeita_artifact_id_malformado() -> None:
 
 def test_snapshot_id_e_derivado_do_conteudo() -> None:
     snapshot = SnapshotSet.criar(**_campos_snapshot())
-    conteudo = snapshot.model_dump(mode="json", exclude={"snapshot_id"})
-    assert snapshot.snapshot_id == f"snap_{hash_canonico(conteudo)}"
+    conteudo = snapshot.model_dump(mode="json", exclude={"snapshot_id"}, exclude_none=True)
+    assert snapshot.snapshot_id == f"snap_{hash_canonico({'v': 1, 'conteudo': conteudo})}"
     assert SnapshotSet.criar(**_campos_snapshot()).snapshot_id == snapshot.snapshot_id
 
 

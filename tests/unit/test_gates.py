@@ -5,13 +5,32 @@ from pathlib import Path
 import pytest
 
 from sustemporal import gates
-from sustemporal.contracts.base import OrigemDados
+from sustemporal.contracts.base import DocRef, FamiliaFonte, OrigemDados
 from sustemporal.contracts.config import RunConfig, RuntimeConfig
-from sustemporal.contracts.experiment import Portao
+from sustemporal.contracts.experiment import ModoExecucao, Portao
+from sustemporal.contracts.temporal import (
+    BaseTemporal,
+    CriterioTemporal,
+    MetodoId,
+    PoliticaTemporal,
+    TipoPolitica,
+)
 from sustemporal.errors import PortaoRecusado
 from sustemporal.gates import carregar_decisoes, exigir_confirmatorio_valido, exigir_portao
 
 FREEZE = "frz_" + "a" * 64
+_CRITERIO = CriterioTemporal(fonte=FamiliaFonte.CNES_PF, base=BaseTemporal.PROCESSAMENTO)
+
+
+def _documento(estado: str) -> DocRef:
+    sha256 = "e" * 64 if estado == "PRESERVADO" else None
+    return DocRef(
+        doc_id="portaria_sas",
+        titulo="Portaria",
+        estado=estado,
+        sha256=sha256,
+        proveniencia="OFICIAL_DOCUMENTO",
+    )
 
 
 def _decisao(diretorio: Path, nome: str, conteudo: str) -> None:
@@ -186,6 +205,33 @@ def test_arquivo_de_decisao_em_link_simbolico_e_recusado(tmp_path: Path, nome: s
     (decisoes / nome).symlink_to(externo)
     with pytest.raises(PortaoRecusado, match="decisoes_em_link_simbolico"):
         carregar_decisoes(decisoes, Portao.G0)
+
+
+def _politica(
+    politica_id: str, tipo: TipoPolitica, documento: DocRef | None = None
+) -> PoliticaTemporal:
+    criterios = () if tipo is TipoPolitica.NAO_RESOLVIDA else (_CRITERIO,)
+    return PoliticaTemporal(
+        politica_id=politica_id,
+        tipo=tipo,
+        metodo=MetodoId.M_TEMP,
+        criterios=criterios,
+        documento=documento,
+    )
+
+
+def test_confirmatorio_recusa_politica_nao_resolvida_ou_com_documento_pendente() -> None:
+    exigir = getattr(gates, "exigir_politicas_resolvidas", None)
+    assert exigir is not None
+    nao_resolvida = _politica("pol_nao_resolvida", TipoPolitica.NAO_RESOLVIDA)
+    pendente = _politica("pol_pendente", TipoPolitica.DOCUMENTADA, _documento("PENDENTE"))
+    preservada = _politica("pol_preservada", TipoPolitica.DOCUMENTADA, _documento("PRESERVADO"))
+    exploratoria = _politica("pol_exploratoria", TipoPolitica.ALTERNATIVA_EXPLORATORIA)
+    exigir([nao_resolvida, pendente], ModoExecucao.EXPLORATORIO)
+    exigir([preservada, exploratoria], ModoExecucao.CONFIRMATORIO)
+    for politica in (nao_resolvida, pendente):
+        with pytest.raises(PortaoRecusado, match=politica.politica_id):
+            exigir([preservada, politica], ModoExecucao.CONFIRMATORIO)
 
 
 def test_ancestral_relativo_em_link_simbolico_e_recusado(

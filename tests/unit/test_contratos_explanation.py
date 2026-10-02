@@ -52,7 +52,7 @@ def _evidencia(evidence_id: str = "ev_ausencia", **campos: object) -> Evidence:
         "parametros": {"cnes": "0012345", "cbo": "225125", "competencia": "201801"},
         "dataset_id": f"ds_{'c' * 64}",
         "hash_logico": f"lh1:{'d' * 64}",
-        "artifact_ids": (_ART,),
+        "artifact_ids": (_ART_SELECIONADO,),
         "cobertura": EstadoCobertura.DISPONIVEL,
         "integridade": EstadoIntegridade.OK,
         "n_resultados": 0,
@@ -254,3 +254,24 @@ def test_explicacao_rejeita_avaliacao_de_outro_registro() -> None:
 def test_bundle_rejeita_avaliacao_de_outra_execucao() -> None:
     with pytest.raises(ValidationError, match="explicacao_mistura_execucoes"):
         _bundle(avaliacoes=(_avaliacao(run_id="run_2"),))
+
+
+def test_evidencia_de_ausencia_exige_limitacao_de_que_ausencia_nao_prova_inexistencia() -> None:
+    so_causa = (Limitacao.RESULTADO_NAO_E_CAUSA_OFICIAL,)
+    vinculo = _evidencia(tipo=TipoEvidencia.VINCULO_ENCONTRADO, n_resultados=1)
+    conforme = _avaliacao(EstadoAvaliacao.CONFORME)
+    assert _bundle(avaliacoes=(conforme,), evidencias=(vinculo,), limitacoes=so_causa).limitacoes
+    with pytest.raises(ValidationError, match="explicacao_ausencia_sem_limitacao"):
+        _bundle(limitacoes=so_causa)
+
+
+@pytest.mark.parametrize("estado", [EstadoAvaliacao.VIOLACAO, EstadoAvaliacao.INCONCLUSIVO])
+def test_evidencia_citada_usa_so_artefatos_das_selecoes_da_avaliacao(
+    estado: EstadoAvaliacao,
+) -> None:
+    de_outra_versao = _evidencia(artifact_ids=(_ART_SELECIONADO, _ART))
+    assert _bundle(avaliacoes=(_avaliacao(estado),)).evidencias[0].artifact_ids == (
+        _ART_SELECIONADO,
+    )
+    with pytest.raises(ValidationError, match="evidencia_fora_das_selecoes"):
+        _bundle(avaliacoes=(_avaliacao(estado),), evidencias=(de_outra_versao,))

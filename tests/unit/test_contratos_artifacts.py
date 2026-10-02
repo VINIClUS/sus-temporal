@@ -20,7 +20,7 @@ from sustemporal.contracts.artifacts import (
     TipoLinhaManifesto,
     calcular_artifact_id,
 )
-from sustemporal.contracts.base import CanalPublicacao, FamiliaFonte
+from sustemporal.contracts.base import CanalPublicacao, FamiliaFonte, hash_canonico
 
 _SHA_A = "a" * 64
 _SHA_B = "b" * 64
@@ -31,6 +31,18 @@ _SEM_CONTEUDO = [
     ResultadoTentativa.INTERROMPIDO,
     ResultadoTentativa.RECUSADO_OFFLINE,
 ]
+
+
+class _ChaveComCampoNovo(ChaveArtefato):
+    x: str | None = None
+
+
+class _LinhaComCampoNovo(LinhaManifesto):
+    x: str | None = None
+
+
+class _RequisicaoComCampoNovo(SourceRequest):
+    x: str | None = None
 
 
 def _chave(**campos: object) -> ChaveArtefato:
@@ -117,12 +129,10 @@ def test_versao_rejeita_artifact_id_que_nao_corresponde(artifact_id: str) -> Non
 @pytest.mark.parametrize(
     "alteracao",
     [
-        {"canal": CanalPublicacao.PRELIMINAR},
+        {"fonte": FamiliaFonte.CNES_ST},
         {"competencia_arquivo": "201802"},
         {"uf": "PR"},
-        {"nome_original": "PASP1801A.dbc"},
         {"parte": "a"},
-        {"versao_publicacao": "2"},
     ],
 )
 @given(sha256=_HEX64)
@@ -132,6 +142,46 @@ def test_mesmo_conteudo_com_chave_diferente_gera_id_diferente(
     assert calcular_artifact_id(_chave(**alteracao), sha256) != calcular_artifact_id(
         _chave(), sha256
     )
+
+
+@pytest.mark.parametrize(
+    "alteracao",
+    [
+        {"canal": CanalPublicacao.PRELIMINAR},
+        {"canal": CanalPublicacao.IMPORTACAO_MANUAL},
+        {"nome_original": "PASP1801A.dbc"},
+        {"versao_publicacao": "2"},
+    ],
+)
+def test_mesmo_conteudo_e_chave_logica_por_outro_canal_ou_rotulo_e_a_mesma_versao(
+    alteracao: dict[str, object],
+) -> None:
+    assert calcular_artifact_id(_chave(**alteracao), _SHA_A) == calcular_artifact_id(
+        _chave(), _SHA_A
+    )
+
+
+def test_artifact_id_e_hash_do_dicionario_logico_versionado() -> None:
+    logico = {"v": 1, "fonte": "SIA_PA", "uf": "SP", "competencia_arquivo": "201801"}
+    esperado = f"art_{hash_canonico(logico | {'parte': None, 'sha256': _SHA_A})}"
+    assert calcular_artifact_id(_chave(), _SHA_A) == esperado
+
+
+def test_campo_opcional_novo_nao_muda_o_artifact_id() -> None:
+    campos = _chave().model_dump()
+    novo = _ChaveComCampoNovo.model_validate(campos)
+    assert calcular_artifact_id(novo, _SHA_A) == calcular_artifact_id(_chave(), _SHA_A)
+
+
+def test_campo_opcional_novo_nao_muda_o_hash_da_linha_do_manifesto() -> None:
+    campos = _linha(2).model_dump()
+    assert _LinhaComCampoNovo.model_validate(campos).sha256() == _linha(2).sha256()
+
+
+def test_campo_opcional_novo_nao_muda_o_hash_da_requisicao() -> None:
+    requisicao = _requisicao("https://datasus.saude.gov.br/PASP1801.dbc")
+    novo = _RequisicaoComCampoNovo.model_validate(requisicao.model_dump())
+    assert novo.sha256() == requisicao.sha256()
 
 
 @given(primeiro=_HEX64, segundo=_HEX64)

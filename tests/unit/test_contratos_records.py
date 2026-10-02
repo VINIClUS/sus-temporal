@@ -6,6 +6,7 @@ from pydantic import ValidationError
 from sustemporal.contracts.base import (
     Confirmacao,
     FamiliaFonte,
+    MotivoAusencia,
     OrigemDados,
     Proveniencia,
     ValorNormalizado,
@@ -169,6 +170,16 @@ def test_campo_atributo_aceita_qualquer_tipo_canonico(tipo: TipoCanonico) -> Non
 def test_campo_rejeita_largura_zero() -> None:
     with pytest.raises(ValidationError, match="campo_largura_invalida"):
         _campo(largura=0)
+
+
+def test_campo_do_leiaute_declara_sentinelas_e_unidade() -> None:
+    assert {"sentinelas", "unidade"} <= set(CampoLeiaute.model_fields)
+    assert (_campo().sentinelas, _campo().unidade) == ({}, None)
+    idade = _campo(papel=PapelColuna.ATRIBUTO, sentinelas={"9999": "SENTINELA"}, unidade="MESES")
+    assert idade.sentinelas == {"9999": MotivoAusencia.SENTINELA}
+    assert idade.unidade == "MESES"
+    with pytest.raises(ValidationError):
+        _campo(sentinelas={"9999": "INVENTADO"})
 
 
 @pytest.mark.parametrize("chave", [("nao_existe",), ()])

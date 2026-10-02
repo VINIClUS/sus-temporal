@@ -4,6 +4,7 @@ from hypothesis import strategies as st
 from pydantic import ValidationError
 
 from sustemporal.contracts.base import DocRef
+from sustemporal.contracts.config import OrcamentoContrafactual
 from sustemporal.contracts.counterfactual import (
     AlvoOperacao,
     Autoridade,
@@ -21,9 +22,13 @@ from sustemporal.contracts.counterfactual import (
 _IMUTAVEIS = ["cid", "cid_principal", "cid_secundario", "idade", "sexo", "data_atendimento"]
 
 
-def _docref() -> DocRef:
+def _docref(proveniencia: str = "OFICIAL_DOCUMENTO", confirmacao: str = "CONFIRMADO") -> DocRef:
     return DocRef(
-        doc_id="manual_cnes", titulo="Manual CNES", estado="PENDENTE", proveniencia="SECUNDARIA"
+        doc_id="manual_cnes",
+        titulo="Manual CNES",
+        estado="PENDENTE",
+        proveniencia=proveniencia,
+        confirmacao=confirmacao,
     )
 
 
@@ -231,3 +236,55 @@ def test_custo_do_candidato_cobre_ao_menos_uma_unidade_por_operacao(
 def test_custo_negativo_nao_certifica_minimalidade() -> None:
     with pytest.raises(ValidationError, match="candidato_custo_invalido"):
         _resultado(solucoes=(_candidato(custo=-1),), custo_max_explorado_completo=0)
+
+
+@pytest.mark.parametrize(
+    "campos",
+    [
+        {"autoridade": Autoridade.DESCONHECIDA},
+        {"referencia": _docref(proveniencia="SECUNDARIA")},
+        {"referencia": _docref(proveniencia="INFERIDA")},
+        {"referencia": _docref(confirmacao="A_CONFIRMAR")},
+        {"referencia": _docref(proveniencia="OFICIAL_VISTO_EM_BUSCA", confirmacao="A_CONFIRMAR")},
+    ],
+)
+def test_governanca_municipal_exige_autoridade_e_referencia_oficial_confirmada(
+    campos: dict[str, object],
+) -> None:
+    fora = _operacao(governanca=Governanca.FORA_DA_GOVERNANCA_MUNICIPAL, **campos)
+    assert fora.governanca is Governanca.FORA_DA_GOVERNANCA_MUNICIPAL
+    with pytest.raises(ValidationError, match="governanca_municipal_sem_documentacao"):
+        _operacao(**campos)
+
+
+@pytest.mark.parametrize("schema_id", ["sigtap_procedimento.v1", "cobertura.v1", "territorio.v1"])
+def test_operacao_so_altera_cadastro_do_cnes(schema_id: str) -> None:
+    assert _operacao("cnes_estab_cbo.v1").alvo.schema_id == "cnes_estab_cbo.v1"
+    with pytest.raises(ValidationError, match="operacao_fora_do_cadastro_cnes"):
+        _operacao(schema_id)
+
+
+def test_candidato_executavel_sob_condicoes_declara_as_condicoes() -> None:
+    sob_condicoes = Executabilidade.POTENCIALMENTE_EXECUTAVEL_SOB_CONDICOES
+    with pytest.raises(ValidationError, match="candidato_executavel_sem_condicoes"):
+        _candidato(executabilidade=sob_condicoes)
+
+
+def test_candidato_registra_as_regras_revalidadas() -> None:
+    assert "regras_revalidadas" in Candidato.model_fields
+    assert _candidato().regras_revalidadas == ("ESTAB_CBO_001",)
+    for invalidas in ((), ("regra_minuscula",)):
+        with pytest.raises(ValidationError):
+            _candidato(regras_revalidadas=invalidas)
+
+
+@pytest.mark.parametrize(
+    "campos", [{"max_operacoes": 0}, {"max_candidatos": 0}, {"max_operacoes": -1}]
+)
+@pytest.mark.parametrize("modelo", [Orcamento, OrcamentoContrafactual])
+def test_orcamento_exige_valores_positivos(
+    modelo: type[Orcamento | OrcamentoContrafactual], campos: dict[str, object]
+) -> None:
+    assert modelo.model_validate({"max_operacoes": 1, "max_candidatos": 1}).max_operacoes == 1
+    with pytest.raises(ValidationError, match="orcamento_invalido"):
+        modelo.model_validate(campos)

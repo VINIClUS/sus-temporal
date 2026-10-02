@@ -47,7 +47,6 @@ def test_missing_input_is_not_violation() -> None:
     from sustemporal.contracts import (
         AgregadoRegistro,
         Aplicabilidade,
-        EstadoAvaliacao,
         MotivoInconclusao,
         RuleEvaluation,
         decidir_estado,
@@ -55,29 +54,30 @@ def test_missing_input_is_not_violation() -> None:
 
     faltante = [MotivoInconclusao.ARQUIVO_AUSENTE]
     assert decidir_estado(Aplicabilidade.APLICAVEL, False, True, faltante) == "INCONCLUSIVO"
+    assert decidir_estado(Aplicabilidade.APLICAVEL, False, True, []) == "INCONCLUSIVO"
     assert decidir_estado(Aplicabilidade.APLICAVEL, True, True, faltante) == "INCONCLUSIVO"
     assert decidir_estado(Aplicabilidade.DESCONHECIDA, True, True, []) == "INCONCLUSIVO"
-    with pytest.raises(ValidationError):
-        RuleEvaluation.model_validate(
-            _avaliacao(
-                estado="VIOLACAO",
-                insumos_completos=False,
-                incompatibilidade_demonstrada=True,
-                motivos=["ARQUIVO_AUSENTE"],
+    for motivos in (["ARQUIVO_AUSENTE"], []):
+        with pytest.raises(ValidationError, match="estado_incoerente"):
+            RuleEvaluation.model_validate(
+                _avaliacao(
+                    estado="VIOLACAO",
+                    insumos_completos=False,
+                    incompatibilidade_demonstrada=True,
+                    motivos=motivos,
+                )
             )
-        )
     inconclusiva = RuleEvaluation.model_validate(
         _avaliacao(
             estado="INCONCLUSIVO",
             insumos_completos=False,
-            incompatibilidade_demonstrada=None,
+            incompatibilidade_demonstrada=True,
             motivos=["ARQUIVO_AUSENTE"],
         )
     )
     agregado = AgregadoRegistro.agregar(inconclusiva.run_id, inconclusiva.row_id, [inconclusiva])
     assert agregado.resultado == "ABSTENCAO"
     assert agregado.violacoes == ()
-    assert EstadoAvaliacao.VIOLACAO not in {inconclusiva.estado}
 
 
 def test_observation_time_is_not_reference_period() -> None:

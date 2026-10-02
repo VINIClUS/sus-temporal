@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
-from tests.fixtures.regras_cenario import ESQUEMA_DA_FONTE, CenarioRegras, artefato
+from tests.fixtures.regras_cenario import ESQUEMA_DA_FONTE, CenarioRegras, artefato, coerente
 
 __all__ = [
     "ART_CNES",
@@ -117,12 +117,14 @@ def _auxiliares() -> dict[str, tuple[dict[str, object], ...]]:
 
 def cenario_base(*registros: dict[str, str | None]) -> CenarioRegras:
     linhas = registros or (registro(),)
-    return CenarioRegras(
-        registros=linhas,
-        auxiliares=_auxiliares(),
-        selecoes=selecoes_para(linhas),
-        cobertura=cobertura_completa(),
-        integridade=dict.fromkeys((ART_SIGTAP, ART_CNES, ART_SIA), EstadoIntegridade.OK),
+    return coerente(
+        CenarioRegras(
+            registros=linhas,
+            auxiliares=_auxiliares(),
+            selecoes=selecoes_para(linhas),
+            cobertura=cobertura_completa(),
+            integridade=dict.fromkeys((ART_SIGTAP, ART_CNES, ART_SIA), EstadoIntegridade.OK),
+        )
     )
 
 

@@ -31,6 +31,7 @@ from sustemporal.rules.saidas import (
 )
 from tests.fixtures.regras_cenario import (
     CenarioRegras,
+    coerente,
     materializar,
     politica,
     snapshot_vazio,
@@ -110,7 +111,7 @@ def test_versao_selecionada_fora_do_conjunto_carregado_e_arquivo_ausente(tmp_pat
 
 
 def test_politica_nao_resolvida_se_abstem_sem_violacao(tmp_path: Path) -> None:
-    cenario = cenario_base(registro(cbo="999999")).com(politica=politica(MetodoId.M_TEMP))
+    cenario = coerente(cenario_base(registro(cbo="999999")).com(politica=politica(MetodoId.M_TEMP)))
     avaliacoes = avaliacoes_por_chave(executar(tmp_path, cenario))
     assert {a["estado"] for a in avaliacoes.values()} == {"INCONCLUSIVO"}
     assert all("POLITICA_NAO_RESOLVIDA" in a["motivos"] for a in avaliacoes.values())

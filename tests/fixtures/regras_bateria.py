@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.temporal import MetodoId
-from tests.fixtures.regras_cenario import CenarioRegras, artefato, politica
+from tests.fixtures.regras_cenario import CenarioRegras, artefato, coerente, politica
 from tests.fixtures.regras_exemplos import (
     ART_CNES,
     ART_SIA,
@@ -148,4 +148,4 @@ def _cenarios() -> dict[str, CenarioRegras]:
     }
 
 
-BATERIA = _cenarios()
+BATERIA = {nome: coerente(cenario) for nome, cenario in _cenarios().items()}

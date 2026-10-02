@@ -15,6 +15,7 @@ from tests.fixtures.regras_cenario import (
     ESQUEMA_DA_FONTE,
     CenarioRegras,
     artefato,
+    coerente,
     politica,
 )
 from tests.fixtures.regras_exemplos import FAMILIA_DA_REGRA
@@ -178,16 +179,19 @@ def cenarios(draw: st.DrawFn) -> CenarioRegras:
     ausentes = draw(st.sets(st.sampled_from(("cbo", "cnes", "competencia_atendimento"))))
     omitidos = draw(st.sets(st.sampled_from(sorted(COLUNAS_AUXILIARES)), max_size=1))
     lacunas = draw(st.integers(min_value=0, max_value=3)) == 0
-    return CenarioRegras(
-        registros=registros,
-        auxiliares=draw(_auxiliares()),
-        selecoes=tuple(selecoes),
-        cobertura=draw(_cobertura()),
-        integridade=draw(_integridade()),
-        politica=politica(draw(st.sampled_from((MetodoId.B_ATEND, MetodoId.M_TEMP)))),
-        colunas_ausentes_registro=frozenset(ausentes) if lacunas else frozenset(),
-        auxiliares_omitidos=frozenset(omitidos) if lacunas else frozenset(),
-        artefatos_auxiliar=draw(_artefatos_registrados()),
+    metodo = draw(st.sampled_from((MetodoId.B_ATEND, MetodoId.B_PROC, MetodoId.M_TEMP)))
+    return coerente(
+        CenarioRegras(
+            registros=registros,
+            auxiliares=draw(_auxiliares()),
+            selecoes=tuple(selecoes),
+            cobertura=draw(_cobertura()),
+            integridade=draw(_integridade()),
+            politica=politica(metodo),
+            colunas_ausentes_registro=frozenset(ausentes) if lacunas else frozenset(),
+            auxiliares_omitidos=frozenset(omitidos) if lacunas else frozenset(),
+            artefatos_auxiliar=draw(_artefatos_registrados()),
+        )
     )
 
 

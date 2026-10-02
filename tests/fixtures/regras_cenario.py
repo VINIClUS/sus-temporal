@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING
 
@@ -33,6 +34,7 @@ __all__ = [
     "ESQUEMA_DA_FONTE",
     "CenarioRegras",
     "artefato",
+    "coerente",
     "materializar",
     "para_referencia",
     "politica",
@@ -122,6 +124,38 @@ class CenarioRegras:
 
     def com(self, **campos: object) -> CenarioRegras:
         return replace(self, **campos)
+
+
+_COMPETENCIA = re.compile(r"[0-9]{4}(0[1-9]|1[0-2])")
+_COLUNA_DA_BASE = {
+    "ATENDIMENTO": "competencia_atendimento",
+    "PROCESSAMENTO": "competencia_processamento",
+}
+
+
+def _selecao_coerente(
+    selecao: dict[str, str | None], registro: dict[str, str | None] | None, cenario: CenarioRegras
+) -> dict[str, str | None]:
+    criterios = {str(c.fonte): c for c in cenario.politica.criterios}
+    criterio = criterios.get(str(selecao["fonte"]))
+    coluna = _COLUNA_DA_BASE[str(criterio.base)] if criterio else None
+    valor = registro.get(coluna) if registro and coluna else None
+    if coluna in cenario.colunas_ausentes_registro:
+        valor = None
+    if criterio is None or valor is None or not _COMPETENCIA.fullmatch(valor):
+        nao_resolvida = {"estado": "NAO_RESOLVIDA", "base": None, "competencia_requerida": None}
+        return selecao | nao_resolvida | {"artifact_ids": ""}
+    return selecao | {"base": str(criterio.base), "competencia_requerida": valor}
+
+
+def coerente(cenario: CenarioRegras) -> CenarioRegras:
+    """Ajusta base e competência das seleções à política e aos registros (model.md §5)."""
+    registros = {str(r["row_id"]): r for r in cenario.registros}
+    selecoes = tuple(
+        _selecao_coerente(dict(s), registros.get(str(s["row_id"])), cenario)
+        for s in cenario.selecoes
+    )
+    return cenario.com(selecoes=selecoes)
 
 
 def _tipo(coluna: str) -> pa.DataType:

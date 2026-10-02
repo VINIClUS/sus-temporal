@@ -18,7 +18,7 @@ def _entrada(tmp_path: Path) -> Path:
         "dataset": dataset.model_dump(mode="json"),
         "snapshots": snapshot_vazio().model_dump(mode="json"),
         "auxiliares": [d.model_dump(mode="json") for d in insumos.auxiliares],
-        "selecoes": insumos.selecoes.model_dump(mode="json") if insumos.selecoes else None,
+        "selecoes": None,
         "cobertura": insumos.cobertura.model_dump(mode="json") if insumos.cobertura else None,
         "integridade": {a: str(e) for a, e in insumos.integridade.items()},
     }

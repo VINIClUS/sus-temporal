@@ -469,3 +469,25 @@ def test_fidelidade_com_esquema_ou_nulos_fora_do_contrato_nao_levanta(
     assert relatorio.verificado
     assert not relatorio.fiel
     assert any(d.startswith("colunas_divergentes") for d in relatorio.divergencias)
+
+
+def test_fidelidade_com_valor_fora_do_latin1_vira_divergencia() -> None:
+    dbc = dbf_para_dbc(_dbf())
+    leitura = ler_dbc(dbc).leitura
+    tabela = _adulterar(leitura.tabela, "PA_CODUNI", 0, "€012345")
+    relatorio = verificar_fidelidade(dbc, dataclasses.replace(leitura, tabela=tabela), "COMPLETA")
+    assert relatorio.verificado
+    assert not relatorio.fiel
+    assert any(d.startswith("registro_divergente") for d in relatorio.divergencias)
+
+
+@pytest.mark.parametrize("inicio", [0, 2, 9])
+def test_fidelidade_compara_inicio_dos_campos(inicio: int) -> None:
+    dbc = dbf_para_dbc(_dbf())
+    leitura = ler_dbc(dbc).leitura
+    campos = list(leitura.cabecalho.campos)
+    campos[1] = dataclasses.replace(campos[1], inicio=inicio)
+    cabecalho = dataclasses.replace(leitura.cabecalho, campos=tuple(campos))
+    relatorio = verificar_fidelidade(dbc, dataclasses.replace(leitura, cabecalho=cabecalho))
+    assert not relatorio.fiel
+    assert "campos_divergentes" in relatorio.divergencias

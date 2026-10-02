@@ -1,11 +1,16 @@
 # Propriedade de arquivos por sessão. Checada no CI por scripts/check_ownership.py, que lê
-# este arquivo a partir da base do PR (um branch não altera as regras que o julgam).
-# Padrões fnmatch: "*" também atravessa "/". Ordem de checagem: somente_humanos →
-# integradores (podem tudo, exceto o que é só humano) → reservados_integradores (nome de
-# arquivo em qualquer pasta) → caminhos próprios → caminhos de outro dono → compartilhado.
+# este arquivo a partir da base do PR (um branch não altera as regras que o julgam); no PR, o
+# próprio checador também é extraído da base.
+# Padrões fnmatch: "*" também atravessa "/". Ordem de checagem: somente_humanos (sem
+# diferenciar caixa; exceções diferenciam) → integradores (podem tudo, exceto o que é só
+# humano) → reservados_integradores (nome de arquivo em qualquer pasta) → caminhos próprios →
+# caminhos de outro dono → compartilhado.
+# Branch sem dono: em PR reprova, salvo humanos.branches; fora de PR, só claude/* reprova.
 # src/, catalog/ e config/ são fechados: o que não é de uma sessão é do orquestrador.
 versao: 1
 integradores: ["ORQ"]
+humanos:
+  branches: ["humano/*"]
 reservados_integradores:
   - "pyproject.toml"
   - "uv.lock"
@@ -22,14 +27,24 @@ reservados_integradores:
   - "sitecustomize.py"
   - "usercustomize.py"
   - ".python-version"
+  - "pytest.toml"
+  - ".pytest.toml"
+  - ".pytest.ini"
+  - "uv.toml"
+  - "pyrightconfig.json"
+  - ".pre-commit-config.yaml"
+  - "noxfile.py"
+  - ".sonarcloud.properties"
+  - "sonar-project.properties"
 donos:
   ORQ:
-    branches: ["claude/determined-ritchie-b9o2qg", "claude/orq-*"]
+    branches: ["claude/determined-ritchie-b9o2qg"]
     caminhos:
       - ".gitignore"
       - ".gitattributes"
       - ".github/*"
       - ".claude/*"
+      - ".githooks/*"
       - "scripts/*"
       - "AGENTS.md"
       - "CLAUDE.md"
@@ -51,6 +66,10 @@ donos:
       - "tests/unit/test_check_ownership.py"
       - "tests/unit/test_check_ownership_git.py"
       - "tests/unit/test_hook_push.py"
+      - "tests/unit/test_hook_pre_push.py"
+      - "tests/unit/test_hook_mcp_github.py"
+      - "tests/unit/test_config_heranca.py"
+      - "tests/unit/test_contratos_vigilancia.py"
       - "tests/unit/test_rede_bloqueada.py"
       - "tests/unit/test_interfaces.py"
       - "tests/unit/test_cli.py"
@@ -213,6 +232,7 @@ donos:
       - "tests/fixtures/reproducao_*"
       - "tests/integration/test_reproduce_offline.py"
 somente_humanos:
+  - "experiments/decisions"
   - "experiments/decisions/*"
 excecoes_humanos:
   - "experiments/decisions/MODELO_*"

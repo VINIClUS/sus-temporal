@@ -12,7 +12,8 @@ pacote de tarefas do plano (§8). Este documento é o contrato operacional de ca
 4. Testes sem rede externa e sem dados reais. Nada de LLM para causas, rótulos ou texto de
    explicação.
 5. Não criar decisões G0/G1/G2 nem alterar `docs/spec`, `docs/plan`, `pyproject.toml`, `uv.lock`,
-   `.github`, `.claude` ou `src/sustemporal/cli.py`.
+   `.github`, `.claude`, `.githooks`, `scripts` ou `src/sustemporal/cli.py`; PR que toque
+   `.github/`, `.claude/`, `.githooks/` ou `scripts/` é recusado no merge.
 6. Nenhuma afirmação empírica; o que é sintético é marcado `SINTETICO`.
 7. Não usar `subscribe_pr_activity` (o orquestrador acompanha os PRs).
 
@@ -69,6 +70,26 @@ sintéticas, stubs, fixtures).
 - `main` avançou: `git fetch origin && git merge --no-edit origin/main` → resolver → `uv sync
   --locked` → `bash scripts/ci.sh` → push. Após squash merge de um PR, continuar no MESMO branch
   depois de mesclar `origin/main`.
+
+## Guardas automáticas
+- Git: o hook PreToolUse do Bash (`.claude/hooks/bloquear_push_perigoso.py`) e o `pre-push` do
+  git (`.githooks/pre-push`, ativado pelo SessionStart com `git config core.hooksPath .githooks`)
+  recusam push forçado ou não fast-forward, remoção de ref e push para `main`. O hook do Bash
+  recusa também `git push --no-verify`, troca de `core.hooksPath` por `-c`/`--config-env`,
+  `git send-pack`, `gh pr merge` e `gh api` com `DELETE` ou caminho com `/merge`, `/merges` ou
+  `/git/refs`. Push implícito e alias persistido são resolvidos no repositório do comando (`cd`,
+  `-C`, `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`); com repositório indeterminado
+  (`$VAR`, `~`, `cd -`), push implícito e subcomando que não é builtin do git são recusados.
+- MCP do GitHub: o hook PreToolUse `.claude/hooks/bloquear_mcp_github.py` (matcher
+  `mcp__github__.*`) recusa `merge_pull_request`, `enable_pr_auto_merge` e `delete_file`, e
+  qualquer ferramenta cujo `tool_input` tenha `branch`, `ref` ou `head` igual a `main` ou
+  `refs/heads/main` (ex.: `create_or_update_file`, `push_files`, `create_branch`). `from_branch` e
+  `base` não contam: `create_pull_request` com `base: main` segue permitido. Recusa: saída 2 com
+  `mcp_bloqueado motivo=…` no stderr.
+- Exceção: só o orquestrador, com `SUSTEMPORAL_PAPEL=orquestrador` no ambiente do processo do
+  Claude Code (o hook herda esse ambiente), pode `merge_pull_request`. Sessões-filhas não definem
+  essa variável. Escrita direta em `main` continua recusada para todos.
+- Guarda que recusa uma ação legítima: comentário `BLOQUEIO:` no PR; nunca contornar.
 
 ## Contratos
 - Mudança aditiva (campo opcional com default, tipo novo no `__all__`) só no módulo de contrato que

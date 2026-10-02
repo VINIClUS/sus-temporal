@@ -132,10 +132,24 @@ def _exigir_portao_da_avaliacao(args: argparse.Namespace, config: RunConfig) -> 
     exigir_confirmatorio_valido(config, config.origem_dados or OrigemDados.SINTETICO)
 
 
+def _levantado_pelo_projeto(erro: NotImplementedError, modulo_manipulador: str) -> bool:
+    """Stub só se a exceção nasceu no mesmo pacote raiz do manipulador, não numa biblioteca."""
+    quadro = erro.__traceback__
+    while quadro is not None and quadro.tb_next is not None:
+        quadro = quadro.tb_next
+    if quadro is None:
+        return False
+    raiz = modulo_manipulador.partition(".")[0]
+    origem = str(quadro.tb_frame.f_globals.get("__name__", ""))
+    return origem == raiz or origem.startswith(f"{raiz}.")
+
+
 def _executar(funcao: Manipulador, args: argparse.Namespace, config: RunConfig) -> int:
     try:
         return int(funcao(args, config))
-    except NotImplementedError:
+    except NotImplementedError as erro:
+        if not _levantado_pelo_projeto(erro, funcao.__module__):
+            raise
         logger.error("comando_nao_implementado comando=%s", args.comando)
         return ExitCode.NAO_IMPLEMENTADO
     except ErroSustemporal as erro:

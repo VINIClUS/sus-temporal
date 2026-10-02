@@ -433,3 +433,39 @@ def test_fidelidade_com_tabela_sem_campo_do_cabecalho_nao_levanta(modo: str) -> 
     assert relatorio.verificado
     assert not relatorio.fiel
     assert any(d.startswith("colunas_divergentes") for d in relatorio.divergencias)
+
+
+def _trocar_coluna(tabela: pa.Table, nome: str, coluna: pa.Array) -> pa.Table:
+    return tabela.set_column(tabela.column_names.index(nome), nome, coluna)
+
+
+@pytest.mark.parametrize(
+    "adulterar",
+    [
+        lambda t: _trocar_coluna(t, COLUNA_INDICE, pa.array([0.0, 1.0, 2.0, 3.0])),
+        lambda t: _trocar_coluna(t, COLUNA_DELETADO, pa.array([0, 0, 0, 0], pa.int8())),
+        lambda t: _trocar_coluna(
+            t,
+            "PA_CODUNI",
+            pa.array([v.encode("latin-1") for v in t.column("PA_CODUNI").to_pylist()]),
+        ),
+        lambda t: _trocar_coluna(
+            t,
+            "PA_CODUNI",
+            pa.array([None, *t.column("PA_CODUNI").to_pylist()[1:]], pa.large_string()),
+        ),
+        lambda t: _trocar_coluna(
+            t, COLUNA_DELETADO, pa.array([None, False, False, False], pa.bool_())
+        ),
+    ],
+)
+def test_fidelidade_com_esquema_ou_nulos_fora_do_contrato_nao_levanta(
+    adulterar: Callable[[pa.Table], pa.Table],
+) -> None:
+    dbc = dbf_para_dbc(_dbf())
+    leitura = ler_dbc(dbc).leitura
+    tabela = adulterar(leitura.tabela)
+    relatorio = verificar_fidelidade(dbc, dataclasses.replace(leitura, tabela=tabela), "COMPLETA")
+    assert relatorio.verificado
+    assert not relatorio.fiel
+    assert any(d.startswith("colunas_divergentes") for d in relatorio.divergencias)

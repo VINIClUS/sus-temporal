@@ -24,6 +24,7 @@ from dbfread import DBF
 from sustemporal.contracts import EstadoIntegridade
 from sustemporal.ingest.dbf import (
     COLUNA_DELETADO,
+    COLUNA_INDICE,
     TAMANHO_BLOCO_PADRAO,
     VERSOES_DBASE,
     QuarentenaLeitura,
@@ -155,10 +156,17 @@ def _bytes_independentes(dbc: bytes, h: int) -> tuple[bytes | None, list[str]]:
         return None, [f"dbctodbf_falhou erro={type(erro).__name__}"]
     ajustado = independente[: h - 1] + producao[h - 1 : h] + independente[h:]
     if ajustado != producao:
-        return independente, [
+        return None, [
             f"bytes_divergentes producao={len(producao)} independente={len(independente)}"
         ]
     return independente, []
+
+
+def _indices_coincidem(leitura: LeituraDbf) -> list[str]:
+    indices = leitura.tabela.column(COLUNA_INDICE).to_numpy()
+    if np.array_equal(indices, np.arange(leitura.tabela.num_rows, dtype=np.int64)):
+        return []
+    return [f"indices_fisicos_divergentes linhas={leitura.tabela.num_rows}"]
 
 
 def _cabecalho_coincide(independente: bytes, leitura: LeituraDbf) -> list[str]:
@@ -194,21 +202,26 @@ def _coletar(registros: Iterable[Any], ranks: set[int]) -> tuple[int, dict[int, 
     return total, guardados
 
 
+def _referencia(
+    dbf: bytes, ranks_a: set[int], ranks_d: set[int]
+) -> tuple[list[str], tuple[int, dict[int, Any]], tuple[int, dict[int, Any]]]:
+    with tempfile.TemporaryDirectory() as pasta:
+        caminho = Path(pasta) / "referencia.dbf"
+        caminho.write_bytes(dbf)
+        ref = DBF(str(caminho), raw=True, load=False, ignore_missing_memofile=True)
+        return list(ref.field_names), _coletar(ref.records, ranks_a), _coletar(ref.deleted, ranks_d)
+
+
 def _comparar_registros(dbf: bytes, leitura: LeituraDbf, posicoes: NDArray[np.int64]) -> list[str]:
     tabela = leitura.tabela
     flags = tabela.column(COLUNA_DELETADO).to_numpy().astype(bool)
     rank_deletado = np.cumsum(flags) - flags
     rank = np.where(flags, rank_deletado, np.arange(flags.size) - rank_deletado)
     nomes = [campo.nome for campo in leitura.cabecalho.campos]
-    with tempfile.TemporaryDirectory() as pasta:
-        caminho = Path(pasta) / "referencia.dbf"
-        caminho.write_bytes(dbf)
-        ref = DBF(str(caminho), raw=True, load=False, ignore_missing_memofile=True)
-        ranks_d = {int(rank[p]) for p in posicoes if flags[p]}
-        ranks_a = {int(rank[p]) for p in posicoes if not flags[p]}
-        n_ativos, ativos = _coletar(ref.records, ranks_a)
-        n_deletados, deletados = _coletar(ref.deleted, ranks_d)
-        divergencias = [] if list(ref.field_names) == nomes else ["campos_divergentes"]
+    ranks_d = {int(rank[p]) for p in posicoes if flags[p]}
+    ranks_a = {int(rank[p]) for p in posicoes if not flags[p]}
+    nomes_ref, (n_ativos, ativos), (n_deletados, deletados) = _referencia(dbf, ranks_a, ranks_d)
+    divergencias = [] if nomes_ref == nomes else ["campos_divergentes"]
     if (n_ativos, n_deletados) != (int((~flags).sum()), int(flags.sum())):
         divergencias.append(f"contagens_divergentes ativos={n_ativos} deletados={n_deletados}")
     proprios = tabela.take(posicoes).select(nomes).to_pylist()
@@ -233,12 +246,17 @@ def verificar_fidelidade(
     if modo == "DESLIGADA":
         return RelatorioFidelidade(modo, False, 0, (), bibliotecas)
     independente, divergencias = _bytes_independentes(dbc, leitura.cabecalho.tam_cabecalho)
+    divergencias += _indices_coincidem(leitura)
     posicoes = _posicoes(leitura.tabela.num_rows, modo, amostra)
     if independente is None:
         posicoes = posicoes[:0]
     else:
         divergencias += _cabecalho_coincide(independente, leitura)
-        divergencias += _comparar_registros(independente, leitura, posicoes)
+        try:
+            divergencias += _comparar_registros(independente, leitura, posicoes)
+        except Exception as erro:
+            posicoes = posicoes[:0]
+            divergencias.append(f"dbfread_falhou erro={type(erro).__name__}")
     logger.info(
         "fidelidade_verificada modo=%s comparados=%s divergencias=%s",
         modo,

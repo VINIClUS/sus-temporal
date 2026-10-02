@@ -34,6 +34,7 @@ _PARAMETROS_POR_ESTADO: dict[EstadoAvaliacao, dict[str, object]] = {
         "incompatibilidade_demonstrada": None,
         "motivos": (MotivoInconclusao.COBERTURA_INSUFICIENTE,),
     },
+    EstadoAvaliacao.NAO_APLICAVEL: {"aplicabilidade": Aplicabilidade.NAO_APLICAVEL_DEMONSTRADA},
 }
 _AUSENCIAS_NAO_SUSTENTADAS = [
     {"cobertura": EstadoCobertura.INSUFICIENTE},
@@ -280,3 +281,9 @@ def test_evidencia_citada_usa_so_artefatos_das_selecoes_da_avaliacao(
 def test_bundle_rejeita_evidencia_repetida() -> None:
     with pytest.raises(ValidationError, match="evidencia_repetida"):
         _bundle(evidencias=(_evidencia(), _evidencia()))
+
+
+def test_bundle_rejeita_evidencia_citada_inexistente_fora_de_violacao() -> None:
+    nao_aplicavel = _avaliacao(EstadoAvaliacao.NAO_APLICAVEL, evidence_ids=("ev_inexistente",))
+    with pytest.raises(ValidationError, match="avaliacao_cita_evidencia_ausente"):
+        _bundle(avaliacoes=(nao_aplicavel,))

@@ -129,3 +129,10 @@ def test_push_implicito_noutro_diretorio_de_branch_proprio_e_permitido(
 ) -> None:
     assert _executar(f"cd {outro} && git push", repo).returncode == 0
     assert _executar(f"git -C {outro} push", repo).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "comando", ["cd /definitivamente/inexistente || git push", "git -C /nao/existe push"]
+)
+def test_push_implicito_em_diretorio_nao_resolvido_e_bloqueado(repo: Path, comando: str) -> None:
+    assert _executar(comando, repo).returncode == 2

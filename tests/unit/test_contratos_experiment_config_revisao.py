@@ -8,6 +8,7 @@ from pydantic import ValidationError
 
 from sustemporal.contracts import experiment
 from sustemporal.contracts.annotation import Estrato
+from sustemporal.contracts.base import OrigemDados
 from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.experiment import (
     A_DEFINIR,
@@ -17,8 +18,9 @@ from sustemporal.contracts.experiment import (
     Portao,
     SplitManifest,
 )
-from sustemporal.contracts.records import EsquemaCanonico, PapelColuna
+from sustemporal.contracts.records import DatasetRef, EsquemaCanonico, PapelColuna
 from sustemporal.contracts.rules import FamiliaRegra
+from tests.fixtures.sintetico.contratos import dataset_sintetico, split_sintetico
 from tests.unit.test_contratos_experiment_config import (
     _ART_A,
     _EXPLORATORIO,
@@ -275,3 +277,20 @@ def test_amostra_recusa_estrato_repetido() -> None:
 def test_split_manifest_exige_hashes_logicos(campos: dict[str, object]) -> None:
     with pytest.raises(ValidationError):
         _manifesto(**campos)
+
+
+def test_congelamento_exige_split_de_um_dataset_congelado() -> None:
+    outro = split_sintetico().model_dump() | {"dataset_hash": f"lh1:{'e' * 64}"}
+    with pytest.raises(ValidationError, match="congelamento_split_de_outro_dataset"):
+        FreezeManifest.criar(**_campos_freeze(split=SplitManifest.model_validate(outro)))
+
+
+def test_execucao_exige_datasets_da_mesma_origem() -> None:
+    real = dataset_sintetico()
+    sintetico = DatasetRef.model_validate(real.model_dump() | {"origem_dados": "SINTETICO"})
+    with pytest.raises(ValidationError, match="execucao_com_dataset_de_outra_origem"):
+        _run_result(entradas=(sintetico,))
+    with pytest.raises(ValidationError, match="execucao_com_dataset_de_outra_origem"):
+        _run_result(
+            modo="EXPLORATORIO", origem_dados=OrigemDados.SINTETICO, freeze_id=None, saidas=(real,)
+        )

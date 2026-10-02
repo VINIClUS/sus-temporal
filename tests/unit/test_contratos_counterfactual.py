@@ -289,3 +289,9 @@ def test_orcamento_exige_valores_positivos(
     assert modelo.model_validate({"max_operacoes": 1, "max_candidatos": 1}).max_operacoes == 1
     with pytest.raises(ValidationError, match="orcamento_invalido"):
         modelo.model_validate(campos)
+
+
+def test_solucao_precisa_revalidar_todas_as_regras_alvo() -> None:
+    sem_alvo = _candidato(regras_revalidadas=("OUTRA_REGRA",))
+    with pytest.raises(ValidationError, match="solucao_sem_revalidar_alvo"):
+        _resultado(regras_alvo=("ESTAB_CBO_001",), solucoes=(sem_alvo,))

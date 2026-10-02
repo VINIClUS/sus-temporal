@@ -75,11 +75,25 @@ class VigilanciaSpec(ContratoBase):
     janela_competencias: Inteiro = 6
     familias_fontes: tuple[FamiliaFonte, ...] = ()
     uf: SiglaUF = "SP"
+    cadencia_dias: Inteiro | None = None
+    duracao_meses: Inteiro | None = None
 
     @model_validator(mode="after")
     def _janela(self) -> VigilanciaSpec:
         if self.janela_competencias < 1:
             raise ValueError("vigilancia_janela_deve_ser_positiva")
+        return self
+
+    @model_validator(mode="after")
+    def _cadencia_e_duracao(self) -> VigilanciaSpec:
+        if self.cadencia_dias is not None and self.cadencia_dias < 1:
+            raise ValueError(
+                f"vigilancia_cadencia_deve_ser_positiva cadencia_dias={self.cadencia_dias}"
+            )
+        if self.duracao_meses is not None and self.duracao_meses < 1:
+            raise ValueError(
+                f"vigilancia_duracao_deve_ser_positiva duracao_meses={self.duracao_meses}"
+            )
         return self
 
 

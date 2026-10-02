@@ -57,6 +57,10 @@ Notação: `I(r)` instrumento (`instrumento`), `P(r)` procedimento, `C(r)` CBO, 
 `A(r)`/`Q(r)` competências de atendimento/processamento; `M` é o conjunto de motivos, começando
 vazio. Os passos são aplicados em ordem; "fim" encerra a avaliação de `(r, g)`.
 
+Domínio dos códigos do registro: `P(r)` fora de `^[0-9]{10}$`, `C(r)` fora de `^[0-9A-Z]{6}$`,
+`E(r)` fora de `^[0-9]{7}$` e competências fora de `^[0-9]{4}(0[1-9]|1[0-2])$` contam como nulos
+em todos os passos (campo insuficiente, vigência, chave de cobertura). `I(r)` vale como está.
+
 ### 3.1 Aplicabilidade
 1. `I(r)` nulo (ou coluna ausente): aplicabilidade `DESCONHECIDA`,
    `M = {CAMPO_INSUFICIENTE, APLICABILIDADE_DESCONHECIDA}`, `insumos_completos = falso`,
@@ -71,7 +75,9 @@ vazio. Os passos são aplicados em ordem; "fim" encerra a avaliação de `(r, g)
 4. Caso contrário, `APLICAVEL`.
 
 ### 3.2 Insumos (só com `APLICAVEL`)
-5. Política: `p.tipo = NAO_RESOLVIDA` acrescenta `POLITICA_NAO_RESOLVIDA`.
+5. Política: `p.tipo = NAO_RESOLVIDA` acrescenta `POLITICA_NAO_RESOLVIDA`. Integridade da versão
+   SIA-PA do próprio registro (`artifact_id`) em qualquer estado `QUARENTENA_*` acrescenta
+   `ARQUIVO_EM_QUARENTENA` (não informada ou `NAO_VERIFICADO` não acrescenta nada).
 6. Campos: cada `c ∈ g.campos_necessarios` ausente do conjunto SIA-PA ou nulo em `r` acrescenta
    `CAMPO_INSUFICIENTE`. Domínio da família `INSTRUMENTO_REGISTRO`: `I(r)` fora do mapa
    instrumento→registro (§4.3) acrescenta `CAMPO_INSUFICIENTE`.
@@ -95,8 +101,9 @@ vazio. Os passos são aplicados em ordem; "fim" encerra a avaliação de `(r, g)
     `VINCULO_ENCONTRADO`); ausência; aplicabilidade desconhecida
     (`DESCONHECIDA`, `M = {APLICABILIDADE_DESCONHECIDA}`); ou motivo de inconclusão.
 11. Ausência só sustenta `VIOLACAO` (`NOT EXISTS`) quando, além do escopo não vazio: a cobertura
-    `cobertura.v1` na chave `(g.familia, I(r), Q(r), base de S(r, g, f))` é `DISPONIVEL` e toda
-    versão selecionada tem integridade `OK`. Então incompatibilidade verdadeira, evidência
+    `cobertura.v1` na chave `(g.familia, I(r), Q(r), base de S(r, g, f))` é `DISPONIVEL`, toda
+    versão selecionada tem integridade `OK` e toda versão selecionada tem ao menos uma linha no
+    conjunto auxiliar. Então incompatibilidade verdadeira, evidência
     `AUSENCIA_NA_FONTE` (zero resultados, cobertura e integridade registradas). Senão
     `COBERTURA_INSUFICIENTE`, incompatibilidade nula. Chave de cobertura sem linha, `Q(r)` nulo ou
     matriz não fornecida contam como cobertura insuficiente; integridade não informada conta como
@@ -109,30 +116,36 @@ repetição.
 ## 4. Famílias do primeiro incremento (`CANDIDATA_PRE_G0`)
 
 Cada família tem exatamente uma fonte auxiliar. Predicados sobre `Esc` (as colunas citadas são as
-do esquema canônico):
+do esquema canônico). Em todas as famílias, logo depois do teste de correspondência e antes dos
+demais ramos: se existe linha de `Esc` em que cada coluna da chave é igual ao valor do registro ou
+nula, com ao menos uma nula, o resultado é `CAMPO_INSUFICIENTE` (o valor nulo poderia ser o que
+casaria; nunca vira ausência). As colunas da chave estão listadas em cada família.
 
 ### 4.1 `PROCEDIMENTO_CBO` (SIGTAP `sigtap_proc_ocupacao.v1`, unidade `OCORRENCIA`)
-Campos: `instrumento, procedimento, cbo`. `∃ co_procedimento = P(r) ∧ co_ocupacao = C(r)` →
+Campos: `instrumento, procedimento, cbo`. Chave: `co_procedimento = P(r)`, `co_ocupacao = C(r)`.
+`∃ co_procedimento = P(r) ∧ co_ocupacao = C(r)` →
 correspondência. Senão, `¬∃ co_procedimento = P(r)` → aplicabilidade desconhecida (procedimento sem
 ocupação listada; aplicabilidade `A_CONFIRMAR`). Senão → ausência (§3.3, passo 11).
 
 ### 4.2 `ESTABELECIMENTO_CBO` (CNES PF `cnes_estab_cbo.v1`, unidade `ESTABELECIMENTO_CBO`)
-Campos: `instrumento, cnes, cbo`. `∃ cnes = E(r) ∧ cbo = C(r) ∧ n_vinculos > 0` →
-correspondência. Senão, `∃ cnes = E(r) ∧ cbo = C(r) ∧ n_vinculos nulo` → `CAMPO_INSUFICIENTE`.
+Campos: `instrumento, cnes, cbo`. Chave: `cnes = E(r)`, `cbo = C(r)`, `n_vinculos > 0`.
+`∃ cnes = E(r) ∧ cbo = C(r) ∧ n_vinculos > 0` → correspondência. Senão, chave com nulo →
+`CAMPO_INSUFICIENTE` (inclui `n_vinculos` nulo).
 Senão, `¬∃ cnes = E(r)` → `COBERTURA_INSUFICIENTE` (estabelecimento fora do escopo pesquisado).
 Senão → ausência. A unidade é o par estabelecimento–CBO: registros com o mesmo par, competência e
 seleção recebem o mesmo resultado e a mesma evidência; nunca se identifica nem se infere o vínculo
 de um profissional específico, e presença num retrato mensal não data o início de um vínculo.
 
 ### 4.3 `INSTRUMENTO_REGISTRO` (SIGTAP `sigtap_proc_registro.v1`, unidade `OCORRENCIA`)
-Campos: `instrumento, procedimento`. Mapa `PA_DOCORIG → CO_REGISTRO`: `C→01, I→02, P→06, S→07,
+Campos: `instrumento, procedimento`. Chave: `co_procedimento = P(r)`,
+`co_registro = map(I(r))`. Mapa `PA_DOCORIG → CO_REGISTRO`: `C→01, I→02, P→06, S→07,
 A→08, B→09` (`INFERIDA` dos rótulos; `A_CONFIRMAR`). `∃ co_procedimento = P(r) ∧ co_registro =
 map(I(r))` → correspondência. Senão, `¬∃ co_procedimento = P(r)` → `COBERTURA_INSUFICIENTE` (o
 procedimento sem registro listado é assunto da família de vigência). Senão → ausência.
 
 ### 4.4 `VIGENCIA_PROCEDIMENTO` (SIGTAP `sigtap_procedimento.v1`, unidade `OCORRENCIA`)
-Campos: `instrumento, procedimento`. `∃ co_procedimento = P(r)` → correspondência. Senão →
-ausência.
+Campos: `instrumento, procedimento`. Chave: `co_procedimento = P(r)`. `∃ co_procedimento = P(r)`
+→ correspondência. Senão, chave com nulo → `CAMPO_INSUFICIENTE`. Senão → ausência.
 
 ### 4.5 Junções sem multiplicação
 Toda verificação é existencial (`EXISTS`/`NOT EXISTS`) ou uma contagem agregada por registro; o

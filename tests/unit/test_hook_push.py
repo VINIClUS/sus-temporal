@@ -114,6 +114,7 @@ def test_push_sem_verificacao_e_bloqueado(comando: str) -> None:
         "cat <(git push --force origin claude/s1-x)",
         "echo \"$(bash -c 'git push --no-verify origin claude/s1-x')\"",
         'echo "${X:-$(git push --no-verify origin claude/s1-x)}"',
+        'git push -u origin "$(git branch --show-current)"',
     ],
 )
 def test_substituicao_de_comando_e_inspecionada(comando: str) -> None:
@@ -128,11 +129,69 @@ def test_substituicao_de_comando_e_inspecionada(comando: str) -> None:
         'echo "$(git rev-parse HEAD)"',
         "git commit -m \"$(printf 'feat: x\\n\\ncorpo')\"",
         "git commit -m \"$(cat <<'EOF'\nfeat(x): descreve a mudança\nEOF\n)\"",
-        'git push -u origin "$(git branch --show-current)"',
         "echo $((1 + 2))",
     ],
 )
 def test_substituicao_segura_continua_permitida(comando: str) -> None:
+    assert _executar(comando).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "x=; y=; git push --no${x}-verify origin HEAD:${y}main",
+        "git push origin HEAD:$ALVO",
+        "git push --no-{verify,x} origin claude/s1-x",
+        "git push origin 'refs/heads/*:refs/heads/*'",
+        "git ${x}push --no-verify origin claude/s1-x",
+        "git {push,x} origin claude/s1-x",
+        'git -c "$CONFIG" push origin claude/s1-x',
+        "g=git; $g push --no-verify origin claude/s1-x",
+        "$g $p origin claude/s1-x",
+        "env $g push --no-verify origin claude/s1-x",
+        "uv run $g push --no-verify origin claude/s1-x",
+    ],
+)
+def test_expansao_em_push_falha_fechado(comando: str) -> None:
+    resultado = _executar(comando)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        (
+            "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.hooksPath GIT_CONFIG_VALUE_0=/dev/null "
+            "git push origin claude/s1-x"
+        ),
+        "export GIT_CONFIG_PARAMETERS=\"'core.hooksPath'='/dev/null'\"; git push origin x",
+        "env GIT_CONFIG_GLOBAL=/tmp/outro git push origin claude/s1-x",
+        "git config core.hooksPath /dev/null",
+        "git config --global core.hooksPath ''",
+        "git config --unset core.hooksPath",
+        "git config set core.hooksPath /tmp/vazio",
+    ],
+)
+def test_desvio_de_hooks_por_ambiente_ou_config_e_bloqueado(comando: str) -> None:
+    resultado = _executar(comando)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        'git commit -m "$MSG"',
+        '"$PYTHON" -m pytest -q',
+        'cp "$ORIGEM" "$DESTINO"',
+        "git config core.hooksPath .githooks",
+        "git config --get core.hooksPath",
+        'echo "$HOME"',
+        "GIT_TRACE=1 git status",
+    ],
+)
+def test_expansao_fora_de_push_continua_permitida(comando: str) -> None:
     assert _executar(comando).returncode == 0
 
 

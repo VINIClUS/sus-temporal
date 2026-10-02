@@ -51,6 +51,11 @@ def test_cabecalho_dbf_registra_contagens_tamanhos_e_byte_de_driver() -> None:
     assert dbf[cabecalho] == ord(" ")
 
 
+def test_data_do_cabecalho_em_ano_mes_dia() -> None:
+    dbf = _dbf_exemplo(data=(2018, 2, 3))
+    assert dbf[1:4] == bytes([118, 2, 3])
+
+
 def test_descritor_de_campo_tem_nome_tipo_largura_e_decimais() -> None:
     dbf = _dbf_exemplo()
     descritor = dbf[32 + 32 * 2 : 32 + 32 * 3]
@@ -81,11 +86,33 @@ def test_valores_preenchidos_conforme_o_tipo_e_zeros_preservados() -> None:
         (CampoDbf("A", "C", 3), "abcd"),
         (CampoDbf("A", "D", 7), "2018010"),
         (CampoDbf("A", "C", 2), "ŋ"),
+        (CampoDbf("NOMÉ", "C", 2), "a"),
+        (CampoDbf("A B", "C", 2), "a"),
+        (CampoDbf("A", "C", 3, 1), "a"),
     ],
 )
 def test_rejeita_campo_ou_valor_invalido(campo: CampoDbf, valor: str) -> None:
     with pytest.raises(ValueError, match="="):
         escrever_dbf([campo], [(valor,)])
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"truncar_bytes": -1},
+        {"truncar_bytes": 10_000},
+        {"data": (2018, 13, 1)},
+        {"data": (1899, 1, 1)},
+    ],
+)
+def test_rejeita_parametros_de_arquivo_invalidos(kwargs: dict[str, Any]) -> None:
+    with pytest.raises(ValueError, match="="):
+        _dbf_exemplo(**kwargs)
+
+
+def test_dbc_rejeita_dbf_menor_que_o_cabecalho() -> None:
+    with pytest.raises(ValueError, match="="):
+        dbf_para_dbc(_dbf_exemplo()[:40])
 
 
 def test_dbfread_le_registros_e_flags_de_delecao(tmp_path: Path) -> None:

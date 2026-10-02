@@ -6,6 +6,7 @@ Cada campo normalizado guarda o valor, o texto bruto (latin-1, sem aparar) e o m
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import logging
 import tempfile
@@ -90,6 +91,27 @@ def _conferir_descritor(lido: DescritorCampo, esperado: CampoLeiaute) -> None:
         )
 
 
+def _latin1(codificacao: str) -> bool:
+    try:
+        return codecs.lookup(codificacao).name == "iso8859-1"
+    except LookupError:
+        return False
+
+
+def _conferir_vigencia(artifact: ArtifactVersion, layout: LayoutSpec) -> None:
+    competencia = artifact.chave.competencia_arquivo
+    if layout.valido_de is None and layout.valido_ate is None:
+        return
+    fora = competencia is None or not (
+        (layout.valido_de is None or layout.valido_de <= competencia)
+        and (layout.valido_ate is None or competencia <= layout.valido_ate)
+    )
+    if fora:
+        raise _leiaute(
+            f"leiaute_fora_da_vigencia layout={layout.layout_id} competencia={competencia}"
+        )
+
+
 def casar_leiaute(cabecalho: CabecalhoDbf, layout: LayoutSpec) -> tuple[CampoLeiaute, ...]:
     """Campos do leiaute presentes no arquivo, na ordem física; o resto vai para quarentena.
 
@@ -97,6 +119,8 @@ def casar_leiaute(cabecalho: CabecalhoDbf, layout: LayoutSpec) -> tuple[CampoLei
     """
     if layout.formato is not FormatoLeiaute.DBF:
         raise _leiaute(f"leiaute_nao_dbf layout={layout.layout_id} formato={layout.formato}")
+    if not _latin1(layout.codificacao):
+        raise _leiaute(f"codificacao_nao_latin1 layout={layout.layout_id}")
     restantes = list(layout.campos)
     casados: list[CampoLeiaute] = []
     for posicao, lido in enumerate(cabecalho.campos):
@@ -139,6 +163,7 @@ def _exigir_integro(artifact: ArtifactVersion, layout: LayoutSpec, runtime: Runt
         raise QuarentenaLeitura(
             artifact.integridade, f"artefato_nao_integro id={artifact.artifact_id}"
         )
+    _conferir_vigencia(artifact, layout)
     if layout.fonte is not FamiliaFonte.SIA_PA or artifact.chave.fonte is not FamiliaFonte.SIA_PA:
         raise _leiaute(f"fonte_incompativel layout={layout.layout_id} id={artifact.artifact_id}")
     caminho = _caminho_seguro(artifact, Path(runtime.raiz_dados))

@@ -105,3 +105,47 @@ def test_resposta_http_cortada_e_interrupcao_com_bytes_recebidos(
     with pytest.raises(TransferenciaInterrompida) as erro:
         transport.TransporteHTTPS().baixar("https://exemplo.invalid/d.pdf", io.BytesIO(), 1000)
     assert erro.value.recebidos == 5
+
+
+def test_descompressao_recusa_origem_irregular_ou_destino_sem_diretorio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sustemporal.acquisition import descompressao
+
+    def proibido(*_a: object, **_k: object) -> None:
+        raise AssertionError("subprocesso_nao_deveria_rodar")
+
+    monkeypatch.setattr(descompressao.subprocess, "run", proibido)
+    (tmp_path / "real.dbc").write_bytes(b"x")
+    (tmp_path / "link.dbc").symlink_to(tmp_path / "real.dbc")
+    casos = [
+        (tmp_path, tmp_path / "saida.dbf"),
+        (tmp_path / "link.dbc", tmp_path / "saida.dbf"),
+        (tmp_path / "real.dbc", tmp_path / "nao_existe" / "saida.dbf"),
+    ]
+    for origem, destino in casos:
+        resultado = descompressao.descomprimir_limitado(origem, destino, 100)
+        assert resultado.desfecho is descompressao.DesfechoDescompressao.INVALIDO
+
+
+def test_descompressao_roda_filho_isolado_com_caminhos_absolutos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import os
+    import subprocess
+
+    from sustemporal.acquisition import descompressao
+
+    chamadas: list[list[str]] = []
+
+    def capturar(comando: list[str], **_k: object) -> subprocess.CompletedProcess[str]:
+        chamadas.append(comando)
+        return subprocess.CompletedProcess(comando, 0, "", "")
+
+    monkeypatch.setattr(descompressao.subprocess, "run", capturar)
+    (tmp_path / "a.dbc").write_bytes(b"x")
+    monkeypatch.chdir(tmp_path)
+    descompressao.descomprimir_limitado(type(tmp_path)("a.dbc"), type(tmp_path)("a.dbf"), 100)
+    (comando,) = chamadas
+    assert "-I" in comando
+    assert all(os.path.isabs(c) for c in comando[-2:])

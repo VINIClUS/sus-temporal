@@ -1,0 +1,31 @@
+schema_id: sigtap_registro.v1
+descricao: >-
+  Domínio dos instrumentos de registro do SIGTAP (tb_registro): uma linha por competência, código e
+  versão de conteúdo de cada zip TabelaUnificada_{AAAAMM}_v{geração}.zip (O10, O11), arquivo de
+  largura fixa em ISO-8859-1 lido com o *_layout.txt do próprio zip. Leiaute 2026-02 CO_REGISTRO
+  1–2, NO_REGISTRO 3–52, DT_COMPETENCIA 53–58 (S16, SECUNDARIA). Duplicatas exatas do arquivo
+  entram na reconciliação; A_CONFIRMAR.
+chave: [dt_competencia, co_registro, artifact_id]
+colunas:
+  - nome: dt_competencia
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: >-
+      DT_COMPETENCIA: competência AAAAMM da tabela.
+  - nome: co_registro
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: >-
+      CO_REGISTRO: instrumento de registro, 2 dígitos com zeros à esquerda.
+  - nome: artifact_id
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: Versão de conteúdo do zip da Tabela Unificada.
+  - nome: no_registro
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      NO_REGISTRO: nome do instrumento, aparado à direita; vazio vira nulo.

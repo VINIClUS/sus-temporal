@@ -28,6 +28,60 @@ _ALVOS_PROIBIDOS = {"main", "heads/main", "refs/heads/main"}
 _OPCOES_PUSH_COM_VALOR = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 _ORIGENS_IMPLICITAS = {"HEAD", "@"}
 _COMANDOS_DE_DIRETORIO = {"cd", "pushd"}
+_SUBCOMANDOS_NATIVOS = frozenset(
+    [
+        "add",
+        "am",
+        "apply",
+        "archive",
+        "bisect",
+        "blame",
+        "branch",
+        "cat-file",
+        "checkout",
+        "cherry-pick",
+        "clean",
+        "clone",
+        "commit",
+        "config",
+        "describe",
+        "diff",
+        "fetch",
+        "for-each-ref",
+        "format-patch",
+        "gc",
+        "grep",
+        "hash-object",
+        "init",
+        "log",
+        "ls-files",
+        "ls-remote",
+        "ls-tree",
+        "merge",
+        "mv",
+        "notes",
+        "pull",
+        "rebase",
+        "reflog",
+        "remote",
+        "reset",
+        "restore",
+        "rev-list",
+        "rev-parse",
+        "rm",
+        "shortlog",
+        "show",
+        "show-ref",
+        "stash",
+        "status",
+        "submodule",
+        "switch",
+        "symbolic-ref",
+        "tag",
+        "update-ref",
+        "worktree",
+    ]
+)
 _INDETERMINADO = "\x00indeterminado"
 _ALIAS_DESCONHECIDO = "\x00alias_desconhecido"
 
@@ -121,10 +175,17 @@ def _push_perigoso(tokens: list[str], posicao_git: int, diretorio: str | None) -
     if subcomando.lower() in aliases:
         return _alias_perigoso(aliases[subcomando.lower()], resto, diretorio)
     if subcomando != "push":
-        return False
+        return _alias_persistido_perigoso(subcomando, resto, diretorio)
     if any(_argumento_perigoso(token) for token in resto):
         return True
     return _destino_implicito_perigoso(_posicionais_push(resto), diretorio)
+
+
+def _alias_persistido_perigoso(subcomando: str, resto: list[str], diretorio: str | None) -> bool:
+    if subcomando in _SUBCOMANDOS_NATIVOS or diretorio == _INDETERMINADO:
+        return False
+    expansao = _git(diretorio, "config", "--get", f"alias.{subcomando}")
+    return bool(expansao) and _alias_perigoso(expansao, resto, diretorio)
 
 
 def _posicionais_push(argumentos: list[str]) -> list[str]:

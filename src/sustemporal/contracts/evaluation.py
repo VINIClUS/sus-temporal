@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation, localcontext
+from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import model_validator
@@ -14,6 +14,8 @@ from sustemporal.contracts.base import (
     InstanteUTC,
     InteiroNaoNegativo,
     OrigemDados,
+    ReferenciaDecisao,
+    razao_confere,
 )
 from sustemporal.contracts.experiment import FreezeId, ModoExecucao
 from sustemporal.contracts.records import DatasetRef
@@ -40,21 +42,6 @@ class TipoMetrica(StrEnum):
     ESTATISTICA = "ESTATISTICA"
 
 
-def _razao_confere(numerador: int, denominador: int, valor: Decimal) -> bool:
-    expoente = valor.as_tuple().exponent
-    if not isinstance(expoente, int):
-        return False
-    with localcontext() as contexto:
-        contexto.prec = 200
-        try:
-            razao = (Decimal(numerador) / Decimal(denominador)).quantize(
-                Decimal(1).scaleb(expoente), rounding=ROUND_HALF_EVEN
-            )
-        except InvalidOperation:
-            return False
-    return razao == valor
-
-
 class ValorMetrica(ContratoBase):
     nome: Identificador
     tipo: TipoMetrica = TipoMetrica.RAZAO
@@ -73,7 +60,7 @@ class ValorMetrica(ContratoBase):
         if (
             self.tipo is TipoMetrica.RAZAO
             and self.valor is not None
-            and not _razao_confere(self.numerador, self.denominador, self.valor)
+            and not razao_confere(self.numerador, self.denominador, self.valor)
         ):
             raise ValueError(
                 f"metrica_valor_diverge_da_razao nome={self.nome} numerador={self.numerador} "
@@ -87,7 +74,7 @@ class EvaluationReport(ContratoBase):
     modo: ModoExecucao
     origem_dados: OrigemDados
     freeze_id: FreezeId | None = None
-    decisao_g2: str | None = None
+    decisao_g2: ReferenciaDecisao | None = None
     runs: tuple[str, ...] = ()
     metricas: tuple[ValorMetrica, ...] = ()
     tabelas: tuple[DatasetRef, ...] = ()
@@ -100,4 +87,6 @@ class EvaluationReport(ContratoBase):
             raise ValueError(f"relatorio_sintetico_confirmatorio report={self.report_id}")
         if self.modo is ModoExecucao.CONFIRMATORIO and not (self.freeze_id and self.decisao_g2):
             raise ValueError(f"relatorio_confirmatorio_sem_freeze_ou_g2 report={self.report_id}")
+        if any(tabela.origem_dados is not self.origem_dados for tabela in self.tabelas):
+            raise ValueError(f"relatorio_com_tabela_de_outra_origem report={self.report_id}")
         return self

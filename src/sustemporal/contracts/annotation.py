@@ -12,6 +12,7 @@ from sustemporal.contracts.base import (
     Identificador,
     Inteiro,
     InteiroNaoNegativo,
+    razao_confere,
 )
 from sustemporal.contracts.experiment import FreezeId
 
@@ -26,10 +27,14 @@ class Estrato(ContratoBase):
 
     @model_validator(mode="after")
     def _coerencia(self) -> Estrato:
+        if self.populacao == 0:
+            raise ValueError(f"estrato_populacao_vazia estrato={self.nome}")
         if self.amostra > self.populacao:
             raise ValueError(f"estrato_amostra_maior_que_populacao estrato={self.nome}")
         if not Decimal(0) < self.prob_inclusao <= Decimal(1):
             raise ValueError(f"estrato_probabilidade_invalida estrato={self.nome}")
+        if not razao_confere(self.amostra, self.populacao, self.prob_inclusao):
+            raise ValueError(f"estrato_probabilidade_diverge_da_fracao estrato={self.nome}")
         return self
 
 

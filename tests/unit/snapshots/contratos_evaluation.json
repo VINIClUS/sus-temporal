@@ -293,6 +293,7 @@
    "decisao_g2": {
     "anyOf": [
      {
+      "pattern": "^experiments/decisions/[A-Za-z0-9_.-]+\\.ya?ml$",
       "type": "string"
      },
      {

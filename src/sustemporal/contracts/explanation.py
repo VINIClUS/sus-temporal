@@ -62,6 +62,8 @@ class Evidence(ContratoBase):
     def _coerencia(self) -> Evidence:
         if self.tipo is TipoEvidencia.AUSENCIA_NA_FONTE and self.n_resultados != 0:
             raise ValueError(f"ausencia_com_resultados evidencia={self.evidence_id}")
+        if self.tipo is TipoEvidencia.AUSENCIA_NA_FONTE and not self.artifact_ids:
+            raise ValueError(f"ausencia_sem_artefato evidencia={self.evidence_id}")
         if self.tipo is TipoEvidencia.VINCULO_ENCONTRADO and self.n_resultados == 0:
             raise ValueError(f"vinculo_sem_resultados evidencia={self.evidence_id}")
         return self

@@ -6,7 +6,7 @@ import hashlib
 import json
 import re
 from datetime import UTC, date, datetime, timedelta
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation, localcontext
 from enum import StrEnum
 from typing import Annotated, Any, Literal, NoReturn, Self
 
@@ -60,6 +60,7 @@ __all__ = [
     "hash_canonico",
     "hash_identidade",
     "json_canonico",
+    "razao_confere",
 ]
 
 
@@ -284,6 +285,22 @@ def json_canonico(conteudo: object) -> str:
 
 def hash_canonico(conteudo: object) -> str:
     return hashlib.sha256(json_canonico(conteudo).encode("utf-8")).hexdigest()
+
+
+def razao_confere(numerador: int, denominador: int, valor: Decimal) -> bool:
+    """O valor é numerador/denominador arredondado (meio-par) na escala do próprio valor."""
+    expoente = valor.as_tuple().exponent
+    if not isinstance(expoente, int) or denominador == 0:
+        return False
+    with localcontext() as contexto:
+        contexto.prec = 200
+        try:
+            razao = (Decimal(numerador) / Decimal(denominador)).quantize(
+                Decimal(1).scaleb(expoente), rounding=ROUND_HALF_EVEN
+            )
+        except InvalidOperation:
+            return False
+    return razao == valor
 
 
 def conteudo_identidade(modelo: BaseModel, *, excluir: set[str] | None = None) -> dict[str, object]:

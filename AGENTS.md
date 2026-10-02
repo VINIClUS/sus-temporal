@@ -87,8 +87,8 @@ uv run sustemporal --help               # CLI
 
 ## Git e PRs
 - Branch por sessão `claude/sN-<slug>` (definido pelo orquestrador ao criar a sessão); orquestrador
-  em `claude/determined-ritchie-b9o2qg` ou `claude/orq-*`. Branch `claude/*` sem dono no mapa de
-  propriedade reprova no CI. Commits `<tipo>(<escopo>): <descrição>`.
+  só em `claude/determined-ritchie-b9o2qg`; humanos em `humano/*`. Em PR, branch sem dono no mapa
+  de propriedade reprova no CI, salvo `humano/*`. Commits `<tipo>(<escopo>): <descrição>`.
 - Push forçado, remoção de branch e qualquer push para `main` são bloqueados em duas camadas: o
   hook PreToolUse do Bash e o `pre-push` do git em `.githooks/` (o SessionStart roda
   `git config core.hooksPath .githooks`; o `pre-push` também recusa push não fast-forward). O hook
@@ -104,7 +104,8 @@ uv run sustemporal --help               # CLI
   sessões-filhas. Atualizar com `git fetch origin && git merge --no-edit origin/main`.
 - PR em rascunho até ficar pronto (rascunho não roda CI); corpo segue
   `.github/pull_request_template.md`.
-- Propriedade de arquivos: `docs/process/propriedade.yaml` (checada no CI).
+- Propriedade de arquivos: `docs/process/propriedade.yaml` (checada no CI; no PR, mapa e checador
+  vêm da base, `origin/<base>`).
 - Dependências: só o orquestrador altera `pyproject.toml`/`uv.lock`.
 - Pendências humanas ou de dados reais: `docs/pendencias/TNN.md`.
 

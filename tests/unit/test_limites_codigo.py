@@ -114,3 +114,32 @@ _SUPRESSOES_PROIBIDAS = re.compile(
 def test_arquivo_nao_desliga_limites(arquivo: Path) -> None:
     texto = arquivo.read_text(encoding="utf-8")
     assert not _SUPRESSOES_PROIBIDAS.search(texto), "supressao_de_limite_proibida"
+
+
+SONAR = RAIZ / ".sonarcloud.properties"
+_PREFIXO_SUPRESSAO_SONAR = "sonar.issue.ignore.multicriteria"
+
+
+def _propriedades_sonar() -> dict[str, str]:
+    pares = (
+        linha.partition("=")
+        for linha in SONAR.read_text(encoding="utf-8").splitlines()
+        if linha.strip() and not linha.lstrip().startswith("#")
+    )
+    return {chave.strip(): valor.strip() for chave, _, valor in pares}
+
+
+def test_supressao_do_sonar_e_escopada_por_regra_e_caminho_com_revisao() -> None:
+    propriedades = _propriedades_sonar()
+    grupos = [g.strip() for g in propriedades.get(_PREFIXO_SUPRESSAO_SONAR, "").split(",")]
+    escopos = {
+        (
+            propriedades.get(f"{_PREFIXO_SUPRESSAO_SONAR}.{grupo}.ruleKey", "*"),
+            propriedades.get(f"{_PREFIXO_SUPRESSAO_SONAR}.{grupo}.resourceKey", "*"),
+        )
+        for grupo in grupos
+        if grupo
+    }
+    assert ("python:S5332", "src/sustemporal/acquisition/transport.py") in escopos
+    assert not any("*" in regra or "*" in caminho for regra, caminho in escopos)
+    assert re.search(r"Revisar em \d{4}-\d{2}-\d{2}", SONAR.read_text(encoding="utf-8"))

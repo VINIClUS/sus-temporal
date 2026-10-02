@@ -422,8 +422,10 @@ def verificar_fidelidade(
         divergencias += [] if independente is None else _cabecalho_coincide(independente, leitura)
     elif independente is None:
         posicoes = posicoes[:0]
+    elif cabecalho := _cabecalho_coincide(independente, leitura):
+        posicoes = posicoes[:0]
+        divergencias += cabecalho
     else:
-        divergencias += _cabecalho_coincide(independente, leitura)
         try:
             novas, comparados = _comparar_registros(independente, leitura, posicoes)
             divergencias += novas

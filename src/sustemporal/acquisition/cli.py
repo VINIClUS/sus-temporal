@@ -128,15 +128,19 @@ def _conteudo_integro(store: Path, versao: ArtifactVersion) -> bool:
 
 
 def _ja_obtidas(manifesto: Path, store: Path) -> set[str]:
-    """Pedidos já obtidos cujos bytes guardados ainda conferem; os demais são refeitos."""
+    """Pedidos cuja observação mais recente é OBTIDO com bytes guardados ainda íntegros.
+
+    A observação mais recente decide: uma versão antiga íntegra não cobre a mais nova perdida.
+    """
     estado = Manifesto(manifesto).ler()
+    recentes = {o.request_sha256: o for o in estado.observacoes}
     obtidas: set[str] = set()
-    for observacao in estado.observacoes:
+    for pedido, observacao in recentes.items():
         versao = estado.versoes.get(observacao.artifact_id or "")
         if observacao.resultado is not ResultadoTentativa.OBTIDO or versao is None:
             continue
         if _conteudo_integro(store, versao):
-            obtidas.add(observacao.request_sha256)
+            obtidas.add(pedido)
         else:
             logger.warning(
                 "conteudo_guardado_ausente_ou_divergente artefato=%s", versao.artifact_id

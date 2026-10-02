@@ -28,6 +28,8 @@ _VERSOES_DBF = {0x03, 0x83}
 _TERMINADOR_DBF = 0x0D
 _FIM_DBF = b"\x1a"
 _CABECALHO_DBF_MINIMO = 33
+# dBASE III: 32 bytes fixos + 32 por campo + terminador 0x0D (H = 33 + 32·n).
+_DESCRITOR_DBF = 32
 _CAUDA_PDF = 1024
 _BRANCOS_PDF = b" \t\r\n\x00\x0c"
 _ASSINATURAS_ZIP = (b"PK\x03\x04", b"PK\x05\x06")
@@ -108,7 +110,8 @@ def _cabecalho_dbf(amostra: _Amostra) -> tuple[int, int, int] | Veredito:
     if inicio[0] not in _VERSOES_DBF:
         return _inesperado(f"versao_dbf_desconhecida byte={inicio[0]:#04x}")
     registros, cabecalho, registro = struct.unpack_from("<IHH", inicio, 4)
-    if cabecalho < _CABECALHO_DBF_MINIMO or registro < 1:
+    desalinhado = (cabecalho - _CABECALHO_DBF_MINIMO) % _DESCRITOR_DBF != 0
+    if cabecalho < _CABECALHO_DBF_MINIMO or desalinhado or registro < 1:
         return _inesperado(f"cabecalho_dbf_invalido cabecalho={cabecalho} registro={registro}")
     if tamanho < cabecalho:
         return _truncado(f"cabecalho_dbf_truncado cabecalho={cabecalho} tamanho={tamanho}")

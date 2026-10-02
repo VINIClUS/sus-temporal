@@ -111,6 +111,17 @@ def _verificar(textos: list[str]) -> EstadoManifesto:
     return EstadoManifesto(tuple(linhas))
 
 
+def _maior_prefixo_valido(textos: list[str], minimo: int) -> int:
+    """Maior número de linhas (≥ `minimo`) que formam um manifesto válido e transações completas."""
+    for tamanho in range(len(textos), minimo, -1):
+        try:
+            _verificar(textos[:tamanho])
+        except ManifestoCorrompido:
+            continue
+        return tamanho
+    return minimo
+
+
 def _termina_em_versao(textos: list[str]) -> bool:
     if not textos:
         return False
@@ -139,12 +150,20 @@ class Manifesto:
         self.caminho = caminho
         self.ancora = caminho.with_name(f"{caminho.name}.ancora")
 
-    def _partes(self) -> tuple[str, str]:
+    def _partes(self) -> tuple[str, bytes]:
+        """Linhas completas decodificadas e a cauda sem quebra final, em bytes crus.
+
+        A cauda pode terminar no meio de um caractere UTF-8 (escrita interrompida).
+        """
         if not self.caminho.exists():
-            return "", ""
-        texto = self.caminho.read_text(encoding="utf-8")
-        corte = texto.rfind("\n") + 1
-        return texto[:corte], texto[corte:]
+            return "", b""
+        dados = self.caminho.read_bytes()
+        corte = dados.rfind(b"\n") + 1
+        try:
+            completas = dados[:corte].decode("utf-8")
+        except UnicodeDecodeError as erro:
+            raise ManifestoCorrompido(f"manifesto_linha_nao_utf8 caminho={self.caminho}") from erro
+        return completas, dados[corte:]
 
     def _ler_ancora(self) -> tuple[object, object]:
         try:
@@ -197,36 +216,37 @@ class Manifesto:
         """Separa a transação interrompida: linhas após a âncora mais o fragmento final.
 
         Age quando há fragmento ou quando o arquivo termina numa VERSAO sem sua OBSERVACAO;
-        as linhas até a âncora precisam passar na verificação.
+        as linhas até a âncora precisam passar na verificação, e as transações completas
+        depois dela (âncora atrasada por queda) ficam no manifesto.
         """
         completas, fragmento = self._partes()
         textos = completas.splitlines()
         if not fragmento and not _termina_em_versao(textos):
             return
         sequencia = self._sequencia_ancorada(len(textos))
-        confirmadas = textos[:sequencia]
-        self._conferir_ancora(_verificar(confirmadas))
-        sufixo = "".join(f"{texto}\n" for texto in textos[sequencia:]) + fragmento
-        destino = self._guardar_fragmento(sequencia, sufixo)
+        self._conferir_ancora(_verificar(textos[:sequencia]))
+        mantidas = _maior_prefixo_valido(textos, sequencia)
+        sufixo = "".join(f"{texto}\n" for texto in textos[mantidas:]).encode() + fragmento
+        destino = self._guardar_fragmento(mantidas, sufixo)
         _sincronizar_diretorio(self.caminho.parent)
-        tamanho = sum(len(f"{texto}\n".encode()) for texto in confirmadas)
+        tamanho = sum(len(f"{texto}\n".encode()) for texto in textos[:mantidas])
         with self.caminho.open("r+b") as arquivo:
             os.ftruncate(arquivo.fileno(), tamanho)
             os.fsync(arquivo.fileno())
         _sincronizar_diretorio(self.caminho.parent)
         logger.warning("manifesto_fragmento_separado destino=%s", destino)
 
-    def _guardar_fragmento(self, sequencia: int, sufixo: str) -> Path:
-        """Grava sem sobrescrever: o nome leva a sequência ancorada e o hash do conteúdo."""
-        resumo = hashlib.sha256(sufixo.encode("utf-8")).hexdigest()[:16]
+    def _guardar_fragmento(self, sequencia: int, sufixo: bytes) -> Path:
+        """Grava sem sobrescrever: o nome leva a sequência mantida e o hash do conteúdo."""
+        resumo = hashlib.sha256(sufixo).hexdigest()[:16]
         destino = self.caminho.with_name(f"{self.caminho.name}.fragmento.{sequencia}.{resumo}")
         try:
-            with destino.open("x", encoding="utf-8") as arquivo:
+            with destino.open("xb") as arquivo:
                 arquivo.write(sufixo)
                 arquivo.flush()
                 os.fsync(arquivo.fileno())
         except FileExistsError as existente:
-            if destino.read_text(encoding="utf-8") != sufixo:
+            if destino.read_bytes() != sufixo:
                 raise ManifestoCorrompido(
                     f"manifesto_fragmento_divergente destino={destino}"
                 ) from existente

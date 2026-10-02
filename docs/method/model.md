@@ -209,7 +209,14 @@ falha de carga (`FalhaOperacional`, execução `FALHOU`); no conjunto auxiliar �
 `EstadoIntegridade` também é falha de carga. Chave nula ou repetida no conjunto SIA-PA (`row_id`)
 ou na seleção (`row_id, rule_id, fonte`) é falha de carga; a matriz de cobertura com coluna
 ausente, tipo divergente ou chave nula não é utilizável (conta como não fornecida). Linhas
-auxiliares com chave nula seguem a regra de `CAMPO_INSUFICIENTE` do §4. Códigos são sempre texto e nunca são convertidos de
+auxiliares com chave nula seguem a regra de `CAMPO_INSUFICIENTE` do §4.
+
+Arquivo de conjunto auxiliar ou de cobertura ausente, truncado ou ilegível (erro de E/S ou de
+formato na leitura) torna a fonte inutilizável, nunca a execução inteira: o auxiliar ausente dá
+`ARQUIVO_AUSENTE` e o ilegível `ARQUIVO_EM_QUARENTENA` para as regras que dependem dele (passo 8),
+e a matriz de cobertura ilegível conta como não fornecida. Regras independentes seguem normalmente.
+Falha de programa (por exemplo, dois conjuntos para o mesmo `schema_id`) continua sendo
+`FalhaOperacional`. Códigos são sempre texto e nunca são convertidos de
 número.
 
 No modo confirmatório, antes de qualquer avaliação, o motor exige dados `REAL` e a decisão humana

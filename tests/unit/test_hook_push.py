@@ -297,6 +297,39 @@ def test_gh_api_de_remocao_ou_merge_e_bloqueado(comando: str) -> None:
 @pytest.mark.parametrize(
     "comando",
     [
+        "gh api graphql -f 'query=mutation { mergePullRequest(input: {}) { clientMutationId } }'",
+        "gh api graphql --input /tmp/consulta.json",
+        "gh api graphql -F query=@/tmp/consulta.graphql",
+        "gh api -X PUT repos/o/r/contents/x.txt -f message=m -f content=YQ== -f branch=main",
+        "gh api repos/o/r/contents/x.txt -f message=m -f content=YQ==",
+        "gh api -X POST repos/o/r/git/commits -f message=m",
+        "gh api -X POST repos/o/r/branches/x/rename -f new_name=main",
+        "gh repo delete VINIClUS/sus-temporal --yes",
+        "gh repo archive VINIClUS/sus-temporal --yes",
+    ],
+)
+def test_gh_graphql_e_escrita_direta_sao_bloqueados(comando: str) -> None:
+    resultado = _executar(comando)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "gh api graphql -f query='query { viewer { login } }'",
+        "gh api repos/o/r/contents/README.md",
+        "gh api repos/o/r/branches",
+        "gh repo view VINIClUS/sus-temporal",
+    ],
+)
+def test_gh_de_leitura_continua_permitido(comando: str) -> None:
+    assert _executar(comando).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
         "gh pr view 12",
         "gh pr create --draft --title x --body y",
         "gh pr checks 12",

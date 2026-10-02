@@ -54,6 +54,17 @@
       "default": null,
       "title": "Parte"
      },
+     "tipo_conteudo": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/TipoConteudo"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
      "uf": {
       "anyOf": [
        {
@@ -129,9 +140,18 @@
      "FALHA_TRANSPORTE",
      "INTERROMPIDO",
      "CONTEUDO_INVALIDO",
-     "RECUSADO_OFFLINE"
+     "RECUSADO_OFFLINE",
+     "FALHA_ARMAZENAMENTO"
     ],
     "title": "ResultadoTentativa",
+    "type": "string"
+   },
+   "TipoConteudo": {
+    "description": "Conteúdo produzido pela própria coleta; ausente (None) é arquivo publicado pela fonte.",
+    "enum": [
+     "LISTAGEM_DIRETORIO"
+    ],
+    "title": "TipoConteudo",
     "type": "string"
    }
   },
@@ -276,6 +296,17 @@
       "default": null,
       "title": "Parte"
      },
+     "tipo_conteudo": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/TipoConteudo"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
      "uf": {
       "anyOf": [
        {
@@ -389,6 +420,14 @@
     ],
     "title": "MembroArquivo",
     "type": "object"
+   },
+   "TipoConteudo": {
+    "description": "Conteúdo produzido pela própria coleta; ausente (None) é arquivo publicado pela fonte.",
+    "enum": [
+     "LISTAGEM_DIRETORIO"
+    ],
+    "title": "TipoConteudo",
+    "type": "string"
    }
   },
   "additionalProperties": false,
@@ -485,6 +524,14 @@
     ],
     "title": "FamiliaFonte",
     "type": "string"
+   },
+   "TipoConteudo": {
+    "description": "Conteúdo produzido pela própria coleta; ausente (None) é arquivo publicado pela fonte.",
+    "enum": [
+     "LISTAGEM_DIRETORIO"
+    ],
+    "title": "TipoConteudo",
+    "type": "string"
    }
   },
   "additionalProperties": false,
@@ -527,6 +574,17 @@
     ],
     "default": null,
     "title": "Parte"
+   },
+   "tipo_conteudo": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/TipoConteudo"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
    },
    "uf": {
     "anyOf": [
@@ -773,6 +831,17 @@
       "default": null,
       "title": "Parte"
      },
+     "tipo_conteudo": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/TipoConteudo"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
      "uf": {
       "anyOf": [
        {
@@ -914,9 +983,18 @@
      "FALHA_TRANSPORTE",
      "INTERROMPIDO",
      "CONTEUDO_INVALIDO",
-     "RECUSADO_OFFLINE"
+     "RECUSADO_OFFLINE",
+     "FALHA_ARMAZENAMENTO"
     ],
     "title": "ResultadoTentativa",
+    "type": "string"
+   },
+   "TipoConteudo": {
+    "description": "Conteúdo produzido pela própria coleta; ausente (None) é arquivo publicado pela fonte.",
+    "enum": [
+     "LISTAGEM_DIRETORIO"
+    ],
+    "title": "TipoConteudo",
     "type": "string"
    },
    "TipoLinhaManifesto": {
@@ -1094,6 +1172,17 @@
       "default": null,
       "title": "Parte"
      },
+     "tipo_conteudo": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/TipoConteudo"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
      "uf": {
       "anyOf": [
        {
@@ -1165,6 +1254,14 @@
      "DOCUMENTO"
     ],
     "title": "MotivoRequisicao",
+    "type": "string"
+   },
+   "TipoConteudo": {
+    "description": "Conteúdo produzido pela própria coleta; ausente (None) é arquivo publicado pela fonte.",
+    "enum": [
+     "LISTAGEM_DIRETORIO"
+    ],
+    "title": "TipoConteudo",
     "type": "string"
    }
   },

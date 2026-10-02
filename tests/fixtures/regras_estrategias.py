@@ -28,7 +28,7 @@ ARTEFATOS = (artefato(1), artefato(2), artefato(3))
 _ARTEFATO_SIA = artefato(9)
 _INSTRUMENTOS = ("C", "C", "I", "Z", None)
 _PROCEDIMENTOS = ("0301010072", "0202020202", None)
-_CBOS = ("225125", "223505", None)
+_CBOS = ("225125", "223505", None, "22512")
 _CNES = ("1234567", "7654321", None)
 _COMPETENCIAS = ("202001", "202002", None)
 _ESTADOS_SELECAO = (
@@ -51,12 +51,12 @@ _VALORES = {
     "artifact_id": ARTEFATOS[:2],
     "dt_competencia": ("202001",),
     "competencia_arquivo": ("202001",),
-    "co_procedimento": _PROCEDIMENTOS[:2],
-    "co_ocupacao": _CBOS[:2],
-    "cnes": _CNES[:2],
-    "cbo": _CBOS[:2],
+    "co_procedimento": (*_PROCEDIMENTOS[:2], *_PROCEDIMENTOS[:2], None),
+    "co_ocupacao": (*_CBOS[:2], *_CBOS[:2], None),
+    "cnes": (*_CNES[:2], *_CNES[:2], None),
+    "cbo": (*_CBOS[:2], *_CBOS[:2], None),
     "n_vinculos": (0, 1, 2, None),
-    "co_registro": ("01", "02"),
+    "co_registro": ("01", "02", "01", "02", None),
 }
 
 
@@ -152,8 +152,9 @@ def _integridade() -> st.SearchStrategy[dict[str, EstadoIntegridade]]:
     estados = st.sampled_from(
         (*(EstadoIntegridade.OK,) * 4, EstadoIntegridade.QUARENTENA_TRUNCADO, None)
     )
-    return st.tuples(*[estados for _ in ARTEFATOS]).map(
-        lambda valores: {a: e for a, e in zip(ARTEFATOS, valores, strict=True) if e is not None}
+    versoes = (*ARTEFATOS, _ARTEFATO_SIA)
+    return st.tuples(*[estados for _ in versoes]).map(
+        lambda valores: {a: e for a, e in zip(versoes, valores, strict=True) if e is not None}
     )
 
 

@@ -7,6 +7,7 @@ from sustemporal.contracts.temporal import MetodoId
 from tests.fixtures.regras_cenario import CenarioRegras, artefato, politica
 from tests.fixtures.regras_exemplos import (
     ART_CNES,
+    ART_SIA,
     ART_SIGTAP,
     COMPETENCIA,
     REGRAS,
@@ -58,6 +59,19 @@ def _escopo_vazio() -> CenarioRegras:
     return cenario.com(selecoes=selecoes, artefatos_auxiliar=registrados)
 
 
+def _versao_parcialmente_vazia() -> CenarioRegras:
+    cenario = _base()
+    selecoes = tuple(
+        selecao(str(s["row_id"]), str(s["rule_id"]), artefatos=f"{ART_SIGTAP};{_VAZIO}")
+        if s["fonte"] == "SIGTAP"
+        else s
+        for s in cenario.selecoes
+    )
+    registrados = dict.fromkeys(cenario.auxiliares, (ART_SIGTAP, ART_CNES, _VAZIO))
+    integridade = cenario.integridade | {_VAZIO: EstadoIntegridade.OK}
+    return cenario.com(selecoes=selecoes, artefatos_auxiliar=registrados, integridade=integridade)
+
+
 def _selecoes_variadas() -> CenarioRegras:
     cenario = _base()
     estados = ("AUSENTE", "INCOMPLETA", "EM_QUARENTENA", "FORA_DO_CORTE", "NAO_RESOLVIDA")
@@ -78,6 +92,36 @@ def _selecoes_variadas() -> CenarioRegras:
     return cenario.com(selecoes=tuple(selecoes[: -len(REGRAS)]))
 
 
+def _chaves_nulas() -> CenarioRegras:
+    cenario = cenario_base(*_linhas(), registro(90, cbo="22512"), registro(91, cnes=""))
+    sigtap = {"artifact_id": ART_SIGTAP, "dt_competencia": COMPETENCIA}
+    nulas: dict[str, tuple[dict[str, object], ...]] = {
+        "sigtap_proc_ocupacao.v1": (
+            sigtap | {"co_procedimento": "0301010072", "co_ocupacao": None},
+        ),
+        "cnes_estab_cbo.v1": (
+            {
+                "artifact_id": ART_CNES,
+                "competencia_arquivo": COMPETENCIA,
+                "cnes": None,
+                "cbo": "999999",
+                "n_vinculos": 1,
+            },
+        ),
+        "sigtap_proc_registro.v1": (sigtap | {"co_procedimento": None, "co_registro": "02"},),
+        "sigtap_procedimento.v1": (sigtap | {"co_procedimento": None},),
+    }
+    auxiliares = {nome: linhas + nulas[nome] for nome, linhas in cenario.auxiliares.items()}
+    return cenario.com(auxiliares=auxiliares)
+
+
+def _sia_em_quarentena() -> CenarioRegras:
+    cenario = _base()
+    return cenario.com(
+        integridade=cenario.integridade | {ART_SIA: EstadoIntegridade.QUARENTENA_LEIAUTE}
+    )
+
+
 def _cenarios() -> dict[str, CenarioRegras]:
     base = _base()
     ausentes = {
@@ -93,11 +137,14 @@ def _cenarios() -> dict[str, CenarioRegras]:
         "sem_matriz_de_cobertura": base.com(cobertura=None),
         "integridade_ruim": _integridade_ruim(),
         "escopo_vazio": _escopo_vazio(),
+        "versao_parcialmente_vazia": _versao_parcialmente_vazia(),
         "selecoes_variadas": _selecoes_variadas(),
         "politica_nao_resolvida": base.com(politica=politica(MetodoId.M_TEMP)),
         "auxiliar_omitido": base.com(auxiliares_omitidos=frozenset({"sigtap_procedimento.v1"})),
         "leiaute_incompativel": base.com(colunas_ausentes_auxiliar=ausentes),
         "coluna_ausente": base.com(colunas_ausentes_registro=frozenset({"cnes"})),
+        "chaves_nulas_e_codigos_fora_do_padrao": _chaves_nulas(),
+        "sia_em_quarentena": _sia_em_quarentena(),
     }
 
 

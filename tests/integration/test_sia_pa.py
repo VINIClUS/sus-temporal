@@ -120,6 +120,9 @@ def test_registros_agregados_bpa_c_preservados_sem_inventar_paciente(tmp_path: P
     assert linha["instrumento"] == "C"
     assert linha["quantidade_apresentada"] == 37
     assert linha["quantidade_aprovada"] == 37
+    assert linha["idade"] is None
+    assert linha["idade_motivo"] == "DESCONHECIDO"
+    assert linha["idade_bruto"] == "999"
 
 
 def test_rotulos_0_5_6(tmp_path: Path) -> None:
@@ -167,6 +170,8 @@ def test_codigo_desconhecido_vira_desconhecido_com_bruto_preservado(tmp_path: Pa
             ),
         ),
         ({"PA_INDICA": "5"}, ""),
+        ({"PA_INDICA": "6", "PA_QTDPRO": "3", "PA_QTDAPR": "3", "PA_VALAPR": "4.00"}, ""),
+        ({"PA_INDICA": "6", "PA_QTDPRO": "3", "PA_QTDAPR": "2", "PA_VALAPR": "10.00"}, ""),
         ({"PA_INDICA": "0", "PA_QTDAPR": "", "PA_VALAPR": ""}, ""),
     ],
 )
@@ -416,3 +421,11 @@ def test_label_pa_herda_origem_e_artefatos(tmp_path: Path) -> None:
     assert rotulos.linhas == 2
     assert pq.read_schema(rotulos.caminho).names == [c.nome for c in ESQUEMA_ROTULOS.colunas]
     assert all(linha["contradicoes"] == "" for linha in linhas)
+
+
+def test_perfil_recusa_codebook_com_codigo_fora_do_padrao(tmp_path: Path) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()])
+    codebook = tmp_path / "codebook.yaml"
+    codebook.write_text('codigos:\n  "5 OR 1=1": APROVADO_TOTAL\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="codebook_codigo_invalido"):
+        perfil_pa(ref, _saida(tmp_path, "perfil"), codebook=codebook)

@@ -55,6 +55,7 @@ def _executar(comando: str) -> subprocess.CompletedProcess[str]:
         "git -c alias.p=push p origin main",
         "P=push git --config-env=alias.p=P p origin main",
         "git --config-env alias.p=P p -f origin claude/s1-x",
+        "git -c alias.push=status push origin main",
     ],
 )
 def test_push_perigoso_e_bloqueado(comando: str) -> None:
@@ -83,6 +84,107 @@ def test_push_perigoso_e_bloqueado(comando: str) -> None:
     ],
 )
 def test_comando_seguro_e_permitido(comando: str) -> None:
+    assert _executar(comando).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "git push --no-verify origin claude/s1-x",
+        "git push origin claude/s1-x --no-verify",
+        "git push --no-verif -u origin claude/s1-x",
+        "git -c alias.p='push --no-verify' p origin claude/s1-x",
+        "bash -c 'git push --no-verify origin claude/s1-x'",
+    ],
+)
+def test_push_sem_verificacao_e_bloqueado(comando: str) -> None:
+    resultado = _executar(comando)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "git -c core.hooksPath=/dev/null push origin claude/s1-x",
+        "git -c CORE.HOOKSPATH= push origin claude/s1-x",
+        "git -c core.hooksPath=/tmp/vazio commit -m x",
+        "git --config-env=core.hooksPath=VAZIO push origin claude/s1-x",
+        "git --config-env core.hooksPath=VAZIO push origin claude/s1-x",
+        "git -c alias.p='-c core.hooksPath=/dev/null push' p origin claude/s1-x",
+    ],
+)
+def test_hooks_path_sobrescrito_e_bloqueado(comando: str) -> None:
+    resultado = _executar(comando)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "git send-pack ../remoto.git refs/heads/claude/s1-x",
+        "git -C repo send-pack --force ../remoto.git main",
+        "uv run git send-pack ../remoto.git claude/s1-x",
+    ],
+)
+def test_send_pack_e_bloqueado(comando: str) -> None:
+    resultado = _executar(comando)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "gh pr merge 12 --squash",
+        "gh pr merge --auto --squash 12",
+        "gh pr -R VINIClUS/sus-temporal merge 12",
+        "uv run gh pr merge 12",
+        "bash -c 'gh pr merge 12 --squash'",
+        "gh pr view 12 && gh pr merge 12",
+    ],
+)
+def test_merge_de_pr_pelo_gh_e_bloqueado(comando: str) -> None:
+    resultado = _executar(comando)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "gh api -X DELETE repos/o/r/issues/1/labels/x",
+        "gh api --method DELETE repos/o/r/branches/x/protection",
+        "gh api --method=delete repos/o/r/hooks/1",
+        "gh api -XDELETE repos/o/r/hooks/1",
+        "gh api repos/o/r/merges -f base=main -f head=claude/s1-x",
+        "gh api -X PUT repos/o/r/pulls/12/merge",
+        "gh api repos/o/r/git/refs -f ref=refs/heads/x -f sha=abc",
+        "gh api -X PATCH /repos/o/r/git/refs/heads/main -f sha=abc -F force=true",
+        "gh api https://api.github.com/repos/o/r/pulls/12/merge -X PUT",
+    ],
+)
+def test_gh_api_de_remocao_ou_merge_e_bloqueado(comando: str) -> None:
+    resultado = _executar(comando)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "gh pr view 12",
+        "gh pr create --draft --title x --body y",
+        "gh pr checks 12",
+        "gh api repos/o/r/pulls/12",
+        "gh api repos/o/r/pulls/12/comments -f body=ok",
+        "gh api -X GET repos/o/r/commits/abc/check-runs",
+        "git -c core.editor=true commit -m x",
+        "git -c core.hooksPathx=1 status",
+    ],
+)
+def test_gh_e_git_seguros_continuam_permitidos(comando: str) -> None:
     assert _executar(comando).returncode == 0
 
 

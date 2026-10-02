@@ -20,6 +20,7 @@ from sustemporal.contracts import (
     LayoutSpec,
 )
 from sustemporal.contracts.artifacts import calcular_artifact_id
+from sustemporal.store import caminho_conteudo
 from sustemporal.yamlio import carregar_yaml
 from tests.fixtures.dbc_encoder import dbf_para_dbc
 from tests.fixtures.dbf_writer import CampoDbf, escrever_dbf
@@ -141,7 +142,8 @@ def artefato_pa(
 ) -> ArtifactVersion:
     sha256 = hashlib.sha256(dbc).hexdigest()
     nome = f"PASP{competencia[2:]}{parte}.dbc"
-    caminho = pasta / f"{sha256}.dbc"
+    caminho = caminho_conteudo(pasta, sha256, "dbc")
+    caminho.parent.mkdir(parents=True, exist_ok=True)
     caminho.write_bytes(dbc)
     chave = ChaveArtefato(
         fonte=FamiliaFonte.SIA_PA,

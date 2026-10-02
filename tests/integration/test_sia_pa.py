@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import duckdb
@@ -34,7 +35,6 @@ from sustemporal.ingest.sia_pa import normalize_pa, perfil_pa
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from pathlib import Path
 
     from sustemporal.contracts import ArtifactVersion, LayoutSpec
 
@@ -46,6 +46,12 @@ def _saida(tmp_path: Path, nome: str = "saida") -> Path:
     pasta = tmp_path / nome
     pasta.mkdir(exist_ok=True)
     return pasta
+
+
+def _runtime(tmp_path: Path, **campos: Any) -> RuntimeConfig:
+    return RuntimeConfig.model_validate(
+        {"raiz_dados": str(_saida(tmp_path, "artefatos")), **campos}
+    )
 
 
 def _artefato(
@@ -67,7 +73,7 @@ def _normalizar(
         artefato,
         layout or leiaute_pa(),
         _saida(tmp_path),
-        runtime=runtime,
+        runtime=runtime or _runtime(tmp_path),
         origem_dados=OrigemDados.SINTETICO,
     )
     return ref, pq.read_table(ref.caminho).to_pylist()
@@ -222,7 +228,13 @@ def test_dbc_truncado_vai_para_quarentena_sem_dataset(tmp_path: Path) -> None:
     artefato = _artefato(tmp_path, [registro_pa()] * 3, truncar_bytes=10)
     saida = _saida(tmp_path)
     with pytest.raises(QuarentenaLeitura) as erro:
-        normalize_pa(artefato, leiaute_pa(), saida, origem_dados=OrigemDados.SINTETICO)
+        normalize_pa(
+            artefato,
+            leiaute_pa(),
+            saida,
+            runtime=_runtime(tmp_path),
+            origem_dados=OrigemDados.SINTETICO,
+        )
     assert erro.value.estado is EstadoIntegridade.QUARENTENA_TRUNCADO
     assert list(saida.iterdir()) == []
 
@@ -234,7 +246,7 @@ def test_artefato_ja_em_quarentena_nao_e_lido(tmp_path: Path) -> None:
         integridade=EstadoIntegridade.QUARENTENA_CHECKSUM,
     )
     with pytest.raises(QuarentenaLeitura) as erro:
-        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path))
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
     assert erro.value.estado is EstadoIntegridade.QUARENTENA_CHECKSUM
 
 
@@ -274,7 +286,7 @@ def test_leiaute_incompativel_vai_para_quarentena(tmp_path: Path, alteracao: str
     registro = {**registro_pa(), "PA_NOVO": "x"}
     artefato = _artefato(tmp_path, [registro], campos=_campos_com(alteracao))
     with pytest.raises(QuarentenaLeitura) as erro:
-        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path))
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
     assert erro.value.estado is EstadoIntegridade.QUARENTENA_LEIAUTE
 
 
@@ -357,7 +369,13 @@ def test_hash_logico_e_linhas_conferem_com_a_relacao(tmp_path: Path) -> None:
 
 def test_dataset_registra_origem_sintetica_e_artefato(tmp_path: Path) -> None:
     artefato = _artefato(tmp_path, [registro_pa()], deletados={0})
-    ref = normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), origem_dados=OrigemDados.SINTETICO)
+    ref = normalize_pa(
+        artefato,
+        leiaute_pa(),
+        _saida(tmp_path),
+        runtime=_runtime(tmp_path),
+        origem_dados=OrigemDados.SINTETICO,
+    )
     assert ref.origem_dados is OrigemDados.SINTETICO
     assert ref.artifact_ids == (artefato.artifact_id,)
     assert ref.schema_id == "sia_pa.v1"
@@ -372,7 +390,9 @@ def test_fidelidade_desligada_le_por_arquivo_com_o_mesmo_resultado(tmp_path: Pat
     registros = [registro_pa(), registro_pa(PA_INDICA="6")]
     completa, _ = _normalizar(tmp_path, registros)
     desligada, _ = _normalizar(
-        _saida(tmp_path, "b"), registros, runtime=RuntimeConfig(verificacao_fidelidade="DESLIGADA")
+        _saida(tmp_path, "b"),
+        registros,
+        runtime=_runtime(_saida(tmp_path, "b"), verificacao_fidelidade="DESLIGADA"),
     )
     assert desligada.hash_logico == completa.hash_logico
 
@@ -445,8 +465,51 @@ def test_dbc_que_descomprime_alem_do_declarado_vai_para_quarentena(
     dbf = bytearray(escrever_dbf(campos, linhas, com_eof=False))
     struct.pack_into("<I", dbf, 4, 1)
     artefato = artefato_pa(_saida(tmp_path, "artefatos"), dbf_para_dbc(bytes(dbf)))
-    runtime = RuntimeConfig.model_validate({"verificacao_fidelidade": modo})
+    runtime = _runtime(tmp_path, verificacao_fidelidade=modo)
     with pytest.raises(QuarentenaLeitura) as erro:
         normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=runtime)
     assert erro.value.estado is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
     assert erro.value.motivo.startswith("dbf_excede_tamanho_declarado")
+
+
+def _quarentena_caminho(tmp_path: Path, artefato: ArtifactVersion, raiz: Path) -> None:
+    runtime = RuntimeConfig.model_validate({"raiz_dados": str(raiz)})
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=runtime)
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CAMINHO_INSEGURO
+    assert list(_saida(tmp_path).iterdir()) == []
+
+
+def test_conteudo_fora_da_raiz_de_dados_nao_e_lido(tmp_path: Path) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()])
+    _quarentena_caminho(tmp_path, artefato, _saida(tmp_path, "outra_raiz"))
+
+
+def test_caminho_divergente_do_enderecamento_por_conteudo_nao_e_lido(tmp_path: Path) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()])
+    raiz = _saida(tmp_path, "artefatos")
+    copia = raiz / "copia.dbc"
+    copia.write_bytes(Path(artefato.caminho_conteudo).read_bytes())
+    desviado = artefato.model_copy(update={"caminho_conteudo": str(copia)})
+    _quarentena_caminho(tmp_path, desviado, raiz)
+
+
+def test_caminho_com_subida_de_diretorio_nao_e_lido(tmp_path: Path) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()])
+    raiz = _saida(tmp_path, "artefatos")
+    caminho = Path(artefato.caminho_conteudo)
+    torto = raiz / "sha256" / ".." / ".." / "artefatos" / caminho.relative_to(raiz)
+    desviado = artefato.model_copy(update={"caminho_conteudo": str(torto) + "/../x.dbc"})
+    _quarentena_caminho(tmp_path, desviado, raiz)
+
+
+def test_link_simbolico_para_fora_da_raiz_nao_e_lido(tmp_path: Path) -> None:
+    fora = _artefato(_saida(tmp_path, "fora"), [registro_pa()])
+    raiz = _saida(tmp_path, "artefatos")
+    caminho = raiz / Path(fora.caminho_conteudo).relative_to(
+        _saida(_saida(tmp_path, "fora"), "artefatos")
+    )
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    caminho.symlink_to(fora.caminho_conteudo)
+    desviado = fora.model_copy(update={"caminho_conteudo": str(caminho)})
+    _quarentena_caminho(tmp_path, desviado, raiz)

@@ -89,11 +89,6 @@ class Auxiliar:
     leiaute: str
 
 
-def _colunas_do_parquet(con: duckdb.DuckDBPyConnection, caminho: str) -> set[str]:
-    descricao = con.execute("DESCRIBE SELECT * FROM read_parquet($c)", {"c": caminho}).fetchall()
-    return {str(linha[0]) for linha in descricao}
-
-
 def _tipos_do_parquet(con: duckdb.DuckDBPyConnection, caminho: str) -> dict[str, str]:
     descricao = con.execute("DESCRIBE SELECT * FROM read_parquet($c)", {"c": caminho}).fetchall()
     return {str(linha[0]): str(linha[1]) for linha in descricao}
@@ -113,6 +108,17 @@ def _incompativeis(
         for nome in colunas
         if nome in fisicos and not _tipo_compativel(tipos[nome], fisicos[nome])
     )
+
+
+def _conferir_tipos(
+    con: duckdb.DuckDBPyConnection, caminho: str, schema_id: str, colunas: Collection[str]
+) -> tuple[set[str], list[str]]:
+    """Verificador único: colunas presentes e as de tipo físico diferente do esquema canônico.
+
+    Aplicado a toda tabela de entrada antes de qualquer projeção ou cast.
+    """
+    fisicos = _tipos_do_parquet(con, caminho)
+    return set(fisicos), _incompativeis(colunas, fisicos, _tipos(schema_id))
 
 
 def _tipos(schema_id: str) -> dict[str, str]:
@@ -166,14 +172,12 @@ def carregar_registros(
     tipos = _tipos("sia_pa.v1")
     usadas = dict.fromkeys(COLUNAS_BASE_REGISTRO)
     usadas.update(dict.fromkeys(campo for regra in regras for campo in regra.campos_necessarios))
-    fisicos = _tipos_do_parquet(con, dataset.caminho)
-    presentes = set(fisicos)
+    presentes, incompativeis = _conferir_tipos(con, dataset.caminho, "sia_pa.v1", usadas)
     faltantes = [nome for nome in _OBRIGATORIAS_REGISTRO if nome not in presentes]
     if faltantes:
         raise ValueError(f"registros_sem_coluna_obrigatoria colunas={faltantes}")
-    nao_textuais = _incompativeis(usadas, fisicos, tipos)
-    if nao_textuais:
-        raise ValueError(f"registros_com_codigo_nao_textual colunas={nao_textuais}")
+    if incompativeis:
+        raise ValueError(f"registros_com_tipo_incompativel colunas={incompativeis}")
     projecao = _projecao_registros(list(usadas), presentes, tipos)
     dominios = {
         f"dominio_{nome}": padrao
@@ -196,10 +200,14 @@ def carregar_selecoes(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> No
         ValueError: coluna ausente ou chave (row_id, rule_id, fonte) repetida.
     """
     tipos = _tipos("selecao_versoes.v1")
-    presentes = _colunas_do_parquet(con, dataset.caminho)
+    presentes, incompativeis = _conferir_tipos(
+        con, dataset.caminho, "selecao_versoes.v1", _COLUNAS_SELECAO
+    )
     faltantes = sorted(set(_COLUNAS_SELECAO) - presentes)
     if faltantes:
         raise ValueError(f"selecoes_sem_coluna colunas={faltantes}")
+    if incompativeis:
+        raise ValueError(f"selecoes_com_tipo_incompativel colunas={incompativeis}")
     partes = []
     for nome in _COLUNAS_SELECAO:
         citado = identificador_seguro(nome, tipos)
@@ -283,15 +291,17 @@ def carregar_cobertura(con: duckdb.DuckDBPyConnection, dataset: DatasetRef | Non
         ValueError: coluna ausente ou chave repetida.
     """
     tipos = _tipos("cobertura.v1")
-    fisicos = _tipos_do_parquet(con, dataset.caminho) if dataset else {}
-    incompativeis = _incompativeis(_COLUNAS_COBERTURA, fisicos, tipos)
+    presentes, incompativeis = (
+        _conferir_tipos(con, dataset.caminho, "cobertura.v1", _COLUNAS_COBERTURA)
+        if dataset
+        else (set(), [])
+    )
     if dataset is None or incompativeis:
         if incompativeis:
             logger.warning("cobertura_nao_utilizavel colunas=%s", incompativeis)
         colunas = ", ".join(f"{identificador_seguro(c, tipos)} VARCHAR" for c in _COLUNAS_COBERTURA)
         con.execute(f"CREATE OR REPLACE TEMP TABLE cobertura ({colunas})")
         return
-    presentes = set(fisicos)
     faltantes = sorted(set(_COLUNAS_COBERTURA) - presentes)
     if faltantes:
         raise ValueError(f"cobertura_sem_coluna colunas={faltantes}")
@@ -307,7 +317,18 @@ def carregar_cobertura(con: duckdb.DuckDBPyConnection, dataset: DatasetRef | Non
 def carregar_integridade(
     con: duckdb.DuckDBPyConnection, integridade: Mapping[str, EstadoIntegridade]
 ) -> None:
-    """Cria `integridade` e `mapa_registro` (constantes da execução)."""
+    """Cria `integridade` e `mapa_registro` (constantes da execução).
+
+    Raises:
+        ValueError: chave que não é texto ou estado que não é `EstadoIntegridade`.
+    """
+    invalidos = sorted(
+        repr(artefato)
+        for artefato, estado in integridade.items()
+        if not isinstance(artefato, str) or not isinstance(estado, EstadoIntegridade)
+    )
+    if invalidos:
+        raise ValueError(f"integridade_com_tipo_incompativel artefatos={invalidos}")
     con.execute("CREATE OR REPLACE TEMP TABLE integridade (artifact_id VARCHAR, estado VARCHAR)")
     linhas = sorted((artefato, str(estado)) for artefato, estado in integridade.items())
     if linhas:
@@ -335,12 +356,15 @@ def preparar_auxiliar(
     if len(candidatos) > 1:
         raise ValueError(f"auxiliar_repetido schema_id={requisito.schema_id}")
     dataset = candidatos[0] if candidatos else None
-    fisicos = _tipos_do_parquet(con, dataset.caminho) if dataset else {}
-    presentes = set(fisicos)
+    presentes, incompativeis = (
+        _conferir_tipos(con, dataset.caminho, requisito.schema_id, colunas)
+        if dataset
+        else (set(), [])
+    )
     leiaute = "OK"
     if dataset is None:
         leiaute = "ARQUIVO_AUSENTE"
-    elif not set(colunas) <= presentes or _incompativeis(colunas, fisicos, tipos):
+    elif not set(colunas) <= presentes or incompativeis:
         leiaute = "LEIAUTE_INCOMPATIVEL"
     projecao = _projecao(colunas, presentes if leiaute == "OK" else set(), tipos)
     origem = "read_parquet($c)" if leiaute == "OK" else "(SELECT 1) WHERE false"

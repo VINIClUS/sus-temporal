@@ -201,8 +201,16 @@ mesmos parâmetros (por exemplo, o mesmo par estabelecimento–CBO) citam a mesm
 `NAO_APLICAVEL` cita uma evidência `APLICABILIDADE` sobre o próprio registro (instrumento fora da
 lista da regra ou competência fora da vigência).
 
-Coluna de código do conjunto SIA-PA com tipo físico não textual é falha de carga
-(`FalhaOperacional`, execução `FALHOU`): códigos são sempre texto e nunca são convertidos de número.
+Toda tabela de entrada passa por um único verificador de tipos físicos contra o esquema canônico
+antes de qualquer projeção ou conversão. Divergência no conjunto SIA-PA ou na seleção fornecida é
+falha de carga (`FalhaOperacional`, execução `FALHOU`); no conjunto auxiliar é
+`LEIAUTE_INCOMPATIVEL`; na cobertura, a matriz não é utilizável. Integridade com estado fora de
+`EstadoIntegridade` também é falha de carga. Códigos são sempre texto e nunca são convertidos de
+número.
+
+No modo confirmatório, antes de qualquer avaliação, o motor exige dados `REAL` e a decisão humana
+G2 do congelamento (`exigir_confirmatorio_valido`), além de política resolvida; a recusa é
+`PortaoRecusado`, nunca `INCONCLUSIVO`.
 
 `out/<run_id>/` recebe `avaliacoes.parquet`, `evidencias.parquet`, `agregados_registro.parquet`,
 `selecao_versoes.parquet` e `falhas.parquet` (esquemas em `catalog/schemas/`) e cada um vira um

@@ -10,7 +10,7 @@ from sustemporal.contracts.base import hash_canonico
 from sustemporal.contracts.experiment import EstadoExecucao, RunResult, TipoExecucao
 from sustemporal.contracts.temporal import TipoPolitica
 from sustemporal.duck import conectar, identificador_seguro
-from sustemporal.gates import exigir_politicas_resolvidas
+from sustemporal.gates import exigir_confirmatorio_valido, exigir_politicas_resolvidas
 from sustemporal.rules.catalog import (
     catalogo_sha256,
     requisito_auxiliar,
@@ -186,6 +186,19 @@ def _executar(
     return True
 
 
+def _exigir_portoes(
+    config: RunConfig,
+    dataset: DatasetRef,
+    insumos: InsumosAvaliacao,
+    politica: PoliticaTemporal,
+    iniciado: datetime,
+) -> None:
+    exigir_confirmatorio_valido(
+        config, dataset.origem_dados, diretorio=insumos.diretorio_decisoes, hoje=iniciado.date()
+    )
+    exigir_politicas_resolvidas([politica], config.modo)
+
+
 def evaluate_rules(
     dataset: DatasetRef,
     snapshots: SnapshotSet,
@@ -208,7 +221,7 @@ def evaluate_rules(
     iniciado = relogio()
     regras = _exigir_regras_unicas(rules)
     politica = politica_da_execucao(insumos, config, regras)
-    exigir_politicas_resolvidas([politica], config.modo)
+    _exigir_portoes(config, dataset, insumos, politica, iniciado)
     _exigir_mesma_origem(dataset, insumos)
     run_id = calcular_run_id(dataset, snapshots, regras, config, insumos)
     destino = out / run_id

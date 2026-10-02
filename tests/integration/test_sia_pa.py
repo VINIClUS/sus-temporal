@@ -28,10 +28,10 @@ from sustemporal.contracts import (
     PapelColuna,
     RuntimeConfig,
 )
-from sustemporal.evaluation.labels import label_pa
+from sustemporal.evaluation.labels import label_pa, perfil_pa
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.dbf import QuarentenaLeitura
-from sustemporal.ingest.sia_pa import normalize_pa, perfil_pa
+from sustemporal.ingest.sia_pa import normalize_pa
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

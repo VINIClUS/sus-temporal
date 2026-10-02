@@ -8,10 +8,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import re
 import tempfile
 from contextlib import closing
-from dataclasses import dataclass
 from importlib import metadata
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -42,7 +40,6 @@ from sustemporal.ingest.dbf import (
     ler_dbf_arquivo,
 )
 from sustemporal.store import caminho_conteudo
-from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
     import duckdb
@@ -54,7 +51,6 @@ logger = logging.getLogger(__name__)
 
 RAIZ_CATALOGO = Path(__file__).resolve().parents[3] / "catalog"
 ESQUEMA_PA = RAIZ_CATALOGO / "schemas" / "sia_pa.yaml"
-CODEBOOK_PA = RAIZ_CATALOGO / "labels" / "sia_pa.yaml"
 TABELA = "sia_pa"
 
 PADROES: dict[str, str] = {
@@ -75,25 +71,8 @@ PADROES: dict[str, str] = {
 CAMPOS_DESCARTADOS = frozenset(
     {"pa_cnpjcpf", "pa_cnpjmnt", "pa_cnpj_cc", "pa_autoriz", "pa_cnsmed", "pa_fntorc"}
 )
-DIMENSOES_PERFIL = (
-    "competencia_processamento",
-    "competencia_atendimento",
-    "instrumento",
-    "cnes",
-)
 _INTEIRO = r"^-?[0-9]+$"
-_CODIGO_INDICA = re.compile(r"[0-9A-Za-z]{1,4}")
 _SEM_LINHAGEM = frozenset({"row_id", "indice_registro"})
-
-
-@dataclass(frozen=True)
-class PerfilPa:
-    """Perfil por estrato do bruto e do canônico, com reconciliação das contagens."""
-
-    caminho: str
-    linhas: int
-    totais: dict[tuple[str, str], int]
-    reconciliado: bool
 
 
 def _leiaute(motivo: str) -> QuarentenaLeitura:
@@ -340,7 +319,7 @@ def _multiplicidade(con: duckdb.DuckDBPyConnection, colunas: list[str]) -> Multi
     )
 
 
-def _gravar(con: duckdb.DuckDBPyConnection, tabela: str, destino: Path) -> None:
+def gravar_parquet(con: duckdb.DuckDBPyConnection, tabela: str, destino: Path) -> None:
     temporario = destino.with_name(f".{destino.name}.tmp")
     con.table(tabela).write_parquet(str(temporario))
     temporario.replace(destino)
@@ -363,7 +342,7 @@ def _materializar(
     multiplicidade = _multiplicidade(con, colunas)
     dataset_id = calcular_dataset_id(canonico.schema_id, hash_logico, (artifact_id,))
     destino = out / f"{dataset_id}.parquet"
-    _gravar(con, TABELA, destino)
+    gravar_parquet(con, TABELA, destino)
     return hash_logico, multiplicidade, dataset_id, destino
 
 
@@ -441,80 +420,3 @@ def carregar_conferido(
     if hash_logico_relacao(con, tabela, colunas) != dataset.hash_logico:
         raise ValueError(f"dataset_divergente dataset_id={dataset.dataset_id} motivo=hash")
     return colunas
-
-
-def _codigos_indica(codebook: Path) -> list[str]:
-    conteudo = carregar_yaml(codebook)
-    if not isinstance(conteudo, dict) or not isinstance(conteudo.get("codigos"), dict):
-        raise ValueError(f"codebook_invalido caminho={codebook}")
-    codigos = sorted(str(codigo) for codigo in conteudo["codigos"])
-    invalidos = [codigo for codigo in codigos if not _CODIGO_INDICA.fullmatch(codigo)]
-    if invalidos or not codigos:
-        raise ValueError(f"codebook_codigo_invalido codigos={compactar(invalidos)}")
-    return codigos
-
-
-def _sql_perfil(codigos: list[str], colunas: set[str]) -> tuple[str, dict[str, object]]:
-    parametros: dict[str, object] = {"codigos": codigos}
-    indica = "trim(pa_indica, ' ')"
-    apelidos = [identificador_seguro(f"indica_{c}", {f"indica_{c}"}) for c in codigos]
-    contagens = [
-        f"count(*) FILTER (WHERE {indica} = $c{i}) AS {apelido}"
-        for i, apelido in enumerate(apelidos)
-    ]
-    parametros.update({f"c{i}": c for i, c in enumerate(codigos)})
-    contagens.append(
-        f"count(*) FILTER (WHERE pa_indica IS NULL OR NOT list_contains($codigos, {indica})) "
-        "AS indica_outros"
-    )
-    blocos = []
-    for dimensao in DIMENSOES_PERFIL:
-        for origem, coluna in (("BRUTO", f"{dimensao}_bruto"), ("CANONICO", dimensao)):
-            citada = identificador_seguro(coluna, colunas)
-            parametros[f"d_{coluna}"] = dimensao
-            parametros[f"o_{coluna}"] = origem
-            blocos.append(
-                f"SELECT $d_{coluna} AS dimensao, $o_{coluna} AS origem, {citada} AS valor, "  # noqa: S608
-                f"count(*) AS linhas, count(*) FILTER (WHERE deletado) AS deletados, "
-                f"{', '.join(contagens)} FROM {TABELA} GROUP BY {citada}"
-            )
-    ordem = " ORDER BY dimensao, origem, valor NULLS FIRST"
-    return " UNION ALL ".join(blocos) + ordem, parametros
-
-
-def perfil_pa(
-    dataset: DatasetRef,
-    out: Path,
-    *,
-    runtime: RuntimeConfig | None = None,
-    codebook: Path | None = None,
-) -> PerfilPa:
-    """Contagens por competência, instrumento e estabelecimento, do bruto e do canônico.
-
-    Cada estrato conta linhas, deletados e o PA_INDICA bruto pelos códigos do codebook (os
-    demais em `indica_outros`); os totais de cada dimensão e origem devem reconciliar com o
-    número de linhas do dataset.
-    """
-    codigos = _codigos_indica(codebook or CODEBOOK_PA)
-    canonico = EsquemaCanonico.de_yaml(ESQUEMA_PA)
-    with closing(conectar(runtime or RuntimeConfig())) as con:
-        colunas = carregar_conferido(con, dataset, canonico, TABELA)
-        sql, parametros = _sql_perfil(codigos, set(colunas))
-        con.execute(f"CREATE TABLE perfil AS {sql}", parametros)
-        destino = out / f"{dataset.dataset_id}.perfil.parquet"
-        _gravar(con, "perfil", destino)
-        indicas = " + ".join(
-            identificador_seguro(f"indica_{c}", {f"indica_{c}"}) for c in [*codigos, "outros"]
-        )
-        linhas = con.execute(
-            "SELECT dimensao, origem, sum(linhas), sum(deletados), "  # noqa: S608
-            f"bool_and(linhas = {indicas}) FROM perfil GROUP BY dimensao, origem"
-        ).fetchall()
-    totais = {(str(d), str(o)): int(n) for d, o, n, *_ in linhas}
-    deletados = dataset.reconciliacao.deletados if dataset.reconciliacao else None
-    reconciliado = all(
-        n == dataset.linhas and indica and deletados in {None, int(d)}
-        for _, _, n, d, indica in linhas
-    )
-    logger.info("perfil_sia_pa dataset=%s reconciliado=%s", dataset.dataset_id, reconciliado)
-    return PerfilPa(str(destino), dataset.linhas, totais, reconciliado)

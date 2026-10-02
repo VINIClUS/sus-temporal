@@ -185,6 +185,8 @@ class CounterfactualSearchResult(ContratoBase):
             raise ValueError(f"busca_excedeu_orcamento bundle={self.bundle_id}")
         if any(not s.resolve_alvo or s.novas_violacoes for s in self.solucoes):
             raise ValueError(f"solucao_nao_revalidada bundle={self.bundle_id}")
+        if any(not set(self.regras_alvo) <= set(s.regras_revalidadas) for s in self.solucoes):
+            raise ValueError(f"solucao_sem_revalidar_alvo bundle={self.bundle_id}")
         if any(len(s.operacoes) > self.orcamento.max_operacoes for s in self.solucoes):
             raise ValueError(f"solucao_excede_operacoes bundle={self.bundle_id}")
         sem_prova = Minimalidade.SOLUCAO_SEM_PROVA_DE_MINIMALIDADE

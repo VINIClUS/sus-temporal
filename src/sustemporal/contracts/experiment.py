@@ -360,6 +360,9 @@ class RunResult(ContratoBase):
             )
         if self.concluido_em is not None and self.concluido_em < self.iniciado_em:
             raise ValueError(f"execucao_conclusao_antes_do_inicio run={self.run_id}")
+        datasets = (*self.entradas, *self.saidas)
+        if any(dataset.origem_dados is not self.origem_dados for dataset in datasets):
+            raise ValueError(f"execucao_com_dataset_de_outra_origem run={self.run_id}")
         if self.modo is not ModoExecucao.CONFIRMATORIO:
             return self
         if self.freeze_id is None or self.codigo.sujo or self.origem_dados is not OrigemDados.REAL:
@@ -404,6 +407,10 @@ class FreezeManifest(ContratoBase):
             raise ValueError("congelamento_com_valor_a_definir")
         if self.codigo.sujo:
             raise ValueError(f"congelamento_com_codigo_sujo commit={self.codigo.commit}")
+        if self.split.dataset_hash not in {dataset.hash_logico for dataset in self.datasets}:
+            raise ValueError(
+                f"congelamento_split_de_outro_dataset dataset_hash={self.split.dataset_hash}"
+            )
         if self.freeze_id == _PROVISORIO and (info.context or {}).get(_PROVISORIO):
             return self
         if self.freeze_id != self.id_do_conteudo():

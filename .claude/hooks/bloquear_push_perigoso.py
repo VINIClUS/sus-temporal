@@ -159,7 +159,8 @@ def _destino_implicito_perigoso(posicionais: list[str], diretorio: str | None) -
         return False
     if diretorio == _INDETERMINADO:
         return True
-    if _git(diretorio, "rev-parse", "--abbrev-ref", "HEAD") == "main":
+    ramo = _git(diretorio, "rev-parse", "--abbrev-ref", "HEAD")
+    if ramo == "main" or (diretorio is not None and not ramo):
         return True
     upstream = _git(diretorio, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
     return not refspecs and upstream.endswith("/main")

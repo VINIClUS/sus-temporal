@@ -122,8 +122,18 @@ class ExplanationBundle(ContratoBase):
             raise ValueError(f"evidencia_repetida bundle={self.bundle_id}")
         self._referencias_resolvem()
         self._violacoes_sustentadas()
+        self._evidencias_citadas_existem()
         self._evidencias_nas_selecoes()
         return self
+
+    def _evidencias_citadas_existem(self) -> None:
+        conhecidas = {evidencia.evidence_id for evidencia in self.evidencias}
+        for avaliacao in self.avaliacoes:
+            if not set(avaliacao.evidence_ids) <= conhecidas:
+                raise ValueError(
+                    f"avaliacao_cita_evidencia_ausente bundle={self.bundle_id} "
+                    f"regra={avaliacao.rule_id}"
+                )
 
     def _referencias_resolvem(self) -> None:
         conhecidas = {e.evidence_id for e in self.evidencias}

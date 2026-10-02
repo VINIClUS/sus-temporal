@@ -491,3 +491,26 @@ def test_fidelidade_compara_inicio_dos_campos(inicio: int) -> None:
     relatorio = verificar_fidelidade(dbc, dataclasses.replace(leitura, cabecalho=cabecalho))
     assert not relatorio.fiel
     assert "campos_divergentes" in relatorio.divergencias
+
+
+def test_fidelidade_exige_terminador_original_antes_de_mascarar_reescrita() -> None:
+    dbc_valido = dbf_para_dbc(_dbf())
+    leitura = ler_dbc(dbc_valido).leitura
+    sem_terminador = bytearray(dbc_valido)
+    h = struct.unpack_from("<H", sem_terminador, 8)[0]
+    sem_terminador[h - 1] = 0x00
+    relatorio = verificar_fidelidade(bytes(sem_terminador), leitura, "COMPLETA")
+    assert not relatorio.fiel
+    assert any(d.startswith("terminador_ausente") for d in relatorio.divergencias)
+
+
+def test_fidelidade_conta_so_registros_realmente_comparados() -> None:
+    dbc = dbf_para_dbc(_dbf())
+    leitura = ler_dbc(dbc).leitura
+    extra = leitura.tabela.slice(3, 1)
+    indice = extra.column_names.index(COLUNA_INDICE)
+    extra = extra.set_column(indice, COLUNA_INDICE, pa.array([4], pa.int64()))
+    tabela = pa.concat_tables([leitura.tabela, extra]).combine_chunks()
+    relatorio = verificar_fidelidade(dbc, dataclasses.replace(leitura, tabela=tabela), "COMPLETA")
+    assert not relatorio.fiel
+    assert relatorio.registros_comparados == 4

@@ -57,7 +57,7 @@ DIMENSOES_PERFIL = (
     "cnes",
 )
 CODEBOOK_PA = RAIZ_CATALOGO / "labels" / "sia_pa.yaml"
-_CODIGO_INDICA = re.compile(r"[0-9A-Za-z]{1,4}")
+_CODIGO_INDICA = re.compile(r"[0-9a-z]{1,4}")
 
 CONTRADICOES = (
     "APROVADO_PARCIAL_SEM_REDUCAO",
@@ -96,6 +96,11 @@ class Codebook(ContratoBase):
 
     @model_validator(mode="after")
     def _vocabulario_fechado(self) -> Codebook:
+        if self.campo != "PA_INDICA":
+            raise ValueError(f"codebook_campo_invalido campo={self.campo}")
+        invalidos = sorted(c for c in self.codigos if not _CODIGO_INDICA.fullmatch(c))
+        if invalidos:
+            raise ValueError(f"codebook_codigo_invalido codigos={compactar(invalidos)}")
         if tuple(sorted(self.contradicoes)) != CONTRADICOES:
             raise ValueError(f"codebook_contradicoes_fora_do_vocabulario id={self.codebook_id}")
         if CodigoRotulo.DESCONHECIDO in self.codigos.values():

@@ -149,7 +149,8 @@ def _caminho_seguro(artifact: ArtifactVersion, raiz_dados: Path) -> Path:
         )
     raiz = raiz_dados.resolve()
     esperado = caminho_conteudo(raiz, artifact.sha256, extensao)
-    resolvido = Path(artifact.caminho_conteudo).resolve()
+    informado = Path(artifact.caminho_conteudo)
+    resolvido = (informado if informado.is_absolute() else raiz / informado).resolve()
     if resolvido != esperado or not resolvido.is_relative_to(raiz):
         raise QuarentenaLeitura(
             EstadoIntegridade.QUARENTENA_CAMINHO_INSEGURO,
@@ -178,20 +179,16 @@ def _exigir_integro(artifact: ArtifactVersion, layout: LayoutSpec, runtime: Runt
 
 def _ler(artifact: ArtifactVersion, caminho: Path, runtime: RuntimeConfig) -> LeituraDbf:
     """Lê os bytes uma vez; a mesma cópia vai à descompressão limitada e à fidelidade."""
-    if artifact.formato is FormatoArquivo.DBF:
-        return ler_dbf_arquivo(caminho)
-    if artifact.formato is not FormatoArquivo.DBC:
-        raise QuarentenaLeitura(
-            EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO, f"formato={artifact.formato}"
-        )
     dados = caminho.read_bytes()
     if hashlib.sha256(dados).hexdigest() != artifact.sha256:
         raise QuarentenaLeitura(
             EstadoIntegridade.QUARENTENA_CHECKSUM, f"sha256_divergente id={artifact.artifact_id}"
         )
     with tempfile.TemporaryDirectory() as nome_pasta:
-        copia = Path(nome_pasta) / "artefato.dbc"
+        copia = Path(nome_pasta) / f"artefato.{_EXTENSOES[artifact.formato]}"
         copia.write_bytes(dados)
+        if artifact.formato is FormatoArquivo.DBF:
+            return ler_dbf_arquivo(copia)
         leitura = ler_dbc_arquivo(copia, dir_temporario=Path(nome_pasta)).leitura
     modo = runtime.verificacao_fidelidade
     if modo == "DESLIGADA":

@@ -158,3 +158,95 @@ def test_alias_persistido_seguro_e_permitido(repo: Path) -> None:
     _git(repo, "checkout", "-q", "-b", "claude/s1-x")
     _git(repo, "config", "alias.p", "push")
     assert _executar("git p origin claude/s1-x", repo).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "modelo",
+    [
+        "git --git-dir={repo}/.git push",
+        "git --git-dir {repo}/.git push",
+        "git --git-dir={repo}/.git --work-tree={repo} push origin HEAD",
+        "git --work-tree={repo} --git-dir={repo}/.git push -u origin",
+        "cd {pai} && git --git-dir=local/.git push",
+        "GIT_DIR={repo}/.git git push",
+        "env GIT_DIR={repo}/.git git push origin HEAD",
+        "export GIT_DIR={repo}/.git && git push",
+    ],
+)
+def test_push_implicito_no_repositorio_de_git_dir_e_bloqueado(
+    repo: Path, outro: Path, modelo: str
+) -> None:
+    comando = modelo.format(repo=repo, pai=repo.parent)
+    assert _executar(comando, outro).returncode == 2
+
+
+@pytest.mark.parametrize(
+    "modelo",
+    [
+        "git --git-dir={outro}/.git push",
+        "git --git-dir {outro}/.git --work-tree {outro} push origin HEAD",
+        "GIT_DIR={outro}/.git git push",
+    ],
+)
+def test_push_implicito_com_git_dir_de_branch_proprio_e_permitido(
+    repo: Path, outro: Path, modelo: str
+) -> None:
+    assert _executar(modelo.format(outro=outro), repo).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "git --git-dir=$REPO/.git push",
+        "git --git-dir ~/x/.git push",
+        "git --work-tree=$W push",
+        "GIT_DIR=$G git push",
+        "git --git-dir=/definitivamente/inexistente/.git push",
+    ],
+)
+def test_push_implicito_com_git_dir_indeterminado_ou_invalido_e_bloqueado(
+    outro: Path, comando: str
+) -> None:
+    assert _executar(comando, outro).returncode == 2
+
+
+@pytest.mark.parametrize("separador", ["=", " "])
+def test_alias_persistido_no_repositorio_de_git_dir_e_resolvido(
+    repo: Path, outro: Path, separador: str
+) -> None:
+    _git(repo, "config", "alias.p", "push -f")
+    comando = f"git --git-dir{separador}{repo}/.git p origin claude/s1-x"
+    assert _executar(comando, outro).returncode == 2
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        'cd "$REPO" && git p',
+        "cd ~/x && git p origin claude/s1-x",
+        'git -C "$REPO" p',
+        "cd - && git p",
+        "git --git-dir=$G p",
+    ],
+)
+def test_subcomando_nao_nativo_em_diretorio_indeterminado_e_bloqueado(
+    outro: Path, comando: str
+) -> None:
+    resultado = _executar(comando, outro)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        'cd "$REPO" && git status',
+        'cd "$REPO" && git merge-base HEAD origin/main',
+        'git -C "$REPO" log -1',
+        'cd "$REPO" && git revert --no-edit HEAD',
+    ],
+)
+def test_subcomando_nativo_em_diretorio_indeterminado_e_permitido(
+    outro: Path, comando: str
+) -> None:
+    assert _executar(comando, outro).returncode == 0

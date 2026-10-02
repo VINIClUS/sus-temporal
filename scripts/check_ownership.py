@@ -1,4 +1,7 @@
-"""Verifica a propriedade de arquivos de um branch contra docs/process/propriedade.yaml."""
+"""Verifica a propriedade de arquivos de um branch contra docs/process/propriedade.yaml.
+
+Roda isolado (biblioteca padrão e PyYAML), inclusive copiado para fora de `scripts/`.
+"""
 
 from __future__ import annotations
 
@@ -18,7 +21,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-RAIZ = Path(__file__).resolve().parents[1]
 CAMINHO_ESPECIFICACAO = "docs/process/propriedade.yaml"
 PREFIXO_AGENTES = "claude/"
 
@@ -36,6 +38,7 @@ class EspecificacaoPropriedade:
     excecoes_humanos: tuple[str, ...] = field(default=())
     integradores: tuple[str, ...] = field(default=())
     reservados_integradores: tuple[str, ...] = field(default=())
+    humanos: tuple[str, ...] = field(default=())
 
 
 class ErroPropriedade(Exception):
@@ -46,28 +49,56 @@ def _casa(caminho: str, padroes: Iterable[str]) -> bool:
     return any(fnmatchcase(caminho, padrao) for padrao in padroes)
 
 
-def _textos(bruto: dict[str, object], chave: str) -> tuple[str, ...]:
-    valores = bruto.get(chave) or []
-    if not isinstance(valores, list):
+def _casa_sem_caixa(caminho: str, padroes: Iterable[str]) -> bool:
+    return _casa(caminho.casefold(), (padrao.casefold() for padrao in padroes))
+
+
+def _mapa(valor: object, chave: str) -> dict[str, object]:
+    if valor is None:
+        return {}
+    if not isinstance(valor, dict) or not all(isinstance(nome, str) for nome in valor):
         raise ErroPropriedade(f"especificacao_invalida chave={chave}")
-    return tuple(str(valor) for valor in valores)
+    return valor
+
+
+def _textos(valor: object, chave: str) -> tuple[str, ...]:
+    if valor is None:
+        return ()
+    if not isinstance(valor, list) or not all(isinstance(item, str) for item in valor):
+        raise ErroPropriedade(f"especificacao_invalida chave={chave}")
+    return tuple(valor)
+
+
+def _dono(nome: str, dados: object) -> Dono:
+    campos = _mapa(dados, f"donos.{nome}")
+    if "branches" not in campos or "caminhos" not in campos:
+        raise ErroPropriedade(f"especificacao_invalida chave=donos.{nome}")
+    return Dono(
+        branches=_textos(campos["branches"], f"donos.{nome}.branches"),
+        caminhos=_textos(campos["caminhos"], f"donos.{nome}.caminhos"),
+    )
+
+
+def _ler_yaml(texto: str) -> dict[str, object]:
+    try:
+        return _mapa(yaml.safe_load(texto), "raiz")
+    except yaml.YAMLError as erro:
+        raise ErroPropriedade(f"especificacao_ilegivel erro={erro}") from erro
 
 
 def especificacao_de_texto(texto: str) -> EspecificacaoPropriedade:
-    bruto = yaml.safe_load(texto)
-    donos = {
-        str(nome): Dono(
-            branches=tuple(str(b) for b in dados["branches"]),
-            caminhos=tuple(str(c) for c in dados["caminhos"]),
-        )
-        for nome, dados in bruto["donos"].items()
-    }
+    bruto = _ler_yaml(texto)
+    donos = _mapa(bruto.get("donos"), "donos")
+    humanos = _mapa(bruto.get("humanos"), "humanos")
     return EspecificacaoPropriedade(
-        donos=donos,
-        somente_humanos=_textos(bruto, "somente_humanos"),
-        excecoes_humanos=_textos(bruto, "excecoes_humanos"),
-        integradores=_textos(bruto, "integradores"),
-        reservados_integradores=_textos(bruto, "reservados_integradores"),
+        donos={nome: _dono(nome, dados) for nome, dados in donos.items()},
+        somente_humanos=_textos(bruto.get("somente_humanos"), "somente_humanos"),
+        excecoes_humanos=_textos(bruto.get("excecoes_humanos"), "excecoes_humanos"),
+        integradores=_textos(bruto.get("integradores"), "integradores"),
+        reservados_integradores=_textos(
+            bruto.get("reservados_integradores"), "reservados_integradores"
+        ),
+        humanos=_textos(humanos.get("branches"), "humanos.branches"),
     )
 
 
@@ -87,7 +118,7 @@ def _reservado(caminho: str, especificacao: EspecificacaoPropriedade) -> bool:
 
 
 def _viola(caminho: str, dono: str, especificacao: EspecificacaoPropriedade) -> bool:
-    if _casa(caminho, especificacao.somente_humanos):
+    if _casa_sem_caixa(caminho, especificacao.somente_humanos):
         return not _casa(caminho, especificacao.excecoes_humanos)
     if dono in especificacao.integradores:
         return False
@@ -112,12 +143,24 @@ def _git(raiz: Path, *argumentos: str) -> str:
     return resultado.stdout
 
 
+def raiz_do_repositorio(diretorio: Path) -> Path:
+    try:
+        return Path(_git(diretorio, "rev-parse", "--show-toplevel").strip())
+    except (OSError, subprocess.CalledProcessError) as erro:
+        raise ErroPropriedade(f"repositorio_ausente diretorio={diretorio}") from erro
+
+
 def branch_atual(raiz: Path) -> str:
     for variavel in ("PROPRIEDADE_BRANCH", "GITHUB_HEAD_REF"):
         valor = os.environ.get(variavel)
         if valor:
             return valor
     return _git(raiz, "rev-parse", "--abbrev-ref", "HEAD").strip()
+
+
+def em_contexto_de_pr() -> bool:
+    evento_de_pr = os.environ.get("GITHUB_EVENT_NAME") == "pull_request"
+    return evento_de_pr or bool(os.environ.get("PROPRIEDADE_BRANCH"))
 
 
 def _ponto_de_base(raiz: Path, base: str) -> str:
@@ -140,16 +183,25 @@ def especificacao_da_base(raiz: Path, ponto: str) -> EspecificacaoPropriedade:
     return especificacao_de_texto(texto)
 
 
-def verificar(raiz: Path, branch: str, base: str) -> int:
+def _branch_sem_dono(
+    branch: str, especificacao: EspecificacaoPropriedade, *, contexto_pr: bool
+) -> int:
+    if _casa(branch, especificacao.humanos):
+        logger.info("propriedade_ignorada motivo=branch_humano branch=%s", branch)
+        return 0
+    if not contexto_pr and not branch.startswith(PREFIXO_AGENTES):
+        logger.info("propriedade_ignorada motivo=fora_de_pr branch=%s", branch)
+        return 0
+    logger.error("propriedade_violada motivo=branch_sem_dono branch=%s", branch)
+    return 1
+
+
+def verificar(raiz: Path, branch: str, base: str, *, contexto_pr: bool = True) -> int:
     ponto = _ponto_de_base(raiz, base)
     especificacao = especificacao_da_base(raiz, ponto)
     dono = dono_do_branch(branch, especificacao)
     if dono is None:
-        if branch.startswith(PREFIXO_AGENTES):
-            logger.error("propriedade_violada motivo=branch_sem_dono branch=%s", branch)
-            return 1
-        logger.info("propriedade_ignorada motivo=branch_humano branch=%s", branch)
-        return 0
+        return _branch_sem_dono(branch, especificacao, contexto_pr=contexto_pr)
     violacoes = encontrar_violacoes(arquivos_alterados(raiz, ponto), dono, especificacao)
     for caminho in violacoes:
         logger.error("propriedade_violada dono=%s caminho=%s", dono, caminho)
@@ -164,7 +216,8 @@ def main() -> int:
         return 0
     base = f"origin/{os.environ.get('GITHUB_BASE_REF') or 'main'}"
     try:
-        return verificar(RAIZ, branch_atual(RAIZ), base)
+        raiz = raiz_do_repositorio(Path.cwd())
+        return verificar(raiz, branch_atual(raiz), base, contexto_pr=em_contexto_de_pr())
     except ErroPropriedade as erro:
         logger.error("propriedade_erro %s", erro)
         return 1

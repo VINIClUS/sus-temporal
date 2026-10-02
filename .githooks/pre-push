@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""Hook pre-push do git: recusa push para main, remoção de ref e push não fast-forward."""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+
+_REF_PROTEGIDA = "refs/heads/main"
+_CAMPOS_POR_LINHA = 4
+
+
+def _nulo(sha: str) -> bool:
+    return set(sha) == {"0"}
+
+
+def _ancestral(antigo: str, novo: str) -> bool:
+    try:
+        resultado = subprocess.run(
+            ["git", "merge-base", "--is-ancestor", antigo, novo],
+            capture_output=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return resultado.returncode == 0
+
+
+def motivo_de_recusa(campos: list[str]) -> str | None:
+    if len(campos) != _CAMPOS_POR_LINHA:
+        return "entrada_invalida"
+    _, sha_local, ref_remota, sha_remoto = campos
+    if ref_remota == _REF_PROTEGIDA:
+        return "push_para_main"
+    if _nulo(sha_local):
+        return "remocao"
+    if not _nulo(sha_remoto) and not _ancestral(sha_remoto, sha_local):
+        return "nao_fast_forward"
+    return None
+
+
+def main() -> int:
+    recusado = False
+    for linha in sys.stdin.read().splitlines():
+        campos = linha.split()
+        if not campos:
+            continue
+        motivo = motivo_de_recusa(campos)
+        if motivo is not None:
+            ref_remota = campos[2] if len(campos) > 2 else "-"
+            sys.stderr.write(f"push_bloqueado motivo={motivo} ref_remota={ref_remota}\n")
+            recusado = True
+    return 1 if recusado else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

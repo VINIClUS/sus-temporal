@@ -29,6 +29,17 @@ jobs:
         with:
           version: "0.8.17"
           python-version: "3.12"
+      - name: Ownership checked by the base branch checker
+        if: github.event_name == 'pull_request'
+        env:
+          # Transição: o checador de bases anteriores ao PR-C deriva a raiz de __file__; com
+          # GIT_DIR ele enxerga este checkout mesmo rodando de $RUNNER_TEMP.
+          GIT_DIR: ${{ github.workspace }}/.git
+        # Antes de instalar o projeto do PR: nada do branch (build, dependências, config do uv)
+        # roda antes do checador confiável.
+        run: |
+          git show "origin/${GITHUB_BASE_REF}:scripts/check_ownership.py" > "$RUNNER_TEMP/check_ownership.py"
+          uv run --no-project --no-config --with "pyyaml==6.0.3" python "$RUNNER_TEMP/check_ownership.py"
       - name: Install dependencies
         run: uv sync --locked
       - name: Lint, types, ownership and tests

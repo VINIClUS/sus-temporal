@@ -1,6 +1,7 @@
 """Catálogo versionado: esquemas canônicos, famílias candidatas, território e configurações."""
 
 import re
+import shutil
 from collections import Counter
 from itertools import pairwise
 from pathlib import Path
@@ -405,9 +406,11 @@ def test_particoes_ordenadas_disjuntas_e_contiguas_sobre_a_coorte() -> None:
 
 
 def test_particoes_sobrepostas_sao_recusadas_ao_carregar(tmp_path: Path) -> None:
-    sobreposta = tmp_path / "splits.yaml"
+    for nome in ("runtime.yaml", "splits.yaml"):
+        shutil.copy(CONFIGS / nome, tmp_path / nome)
+    sobreposta = tmp_path / "sobreposta.yaml"
     sobreposta.write_text(
-        f"base: {CONFIGS / 'splits.yaml'}\n"
+        "base: splits.yaml\n"
         "particoes:\n"
         "  intervalos:\n"
         "    - {particao: DESENVOLVIMENTO, inicio: 201801, fim: 202301}\n"

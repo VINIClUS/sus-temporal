@@ -32,6 +32,13 @@ evidência e correção sugerida; tabela de mutações (mutação → teste que 
 5. Contratos: só mudanças aditivas, ou PR do orquestrador.
 6. Sem dados reais, saídas volumosas ou fixtures acima de 200 KB.
 7. Nada em `experiments/decisions/`, `docs/spec/` ou `docs/plan/` sem o pesquisador.
+8. PR de sessão-filha que toque `.github/`, `.claude/`, `.githooks/` ou `scripts/` é recusado,
+   mesmo com CI verde: workflow, hooks e scripts do próprio PR rodam no CI dele e poderiam
+   afrouxar as checagens que o julgam. Esses caminhos mudam só em PR do orquestrador.
+
+SonarCloud: o quality gate está vermelho por uma linha de base invisível neste ambiente (issue
+#5). Até a linha de base ser tratada, a nota do SonarCloud não bloqueia merge; os demais critérios
+seguem valendo.
 
 Merge por squash, título `<tipo>(<escopo>): …`. Depois do merge, o orquestrador avisa as sessões
 afetadas ("MAIN ATUALIZADO"). CI vermelho em `main` congela novos merges até a correção.

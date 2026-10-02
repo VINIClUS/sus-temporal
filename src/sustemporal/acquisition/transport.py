@@ -269,6 +269,7 @@ class TransporteHTTPS:
                 raise RecursoNaoEncontrado(f"http_ausente codigo={erro.code}") from erro
             raise _falha(erro, gravador.recebidos) from erro
         except http.client.IncompleteRead as erro:
+            gravador(erro.partial)
             raise TransferenciaInterrompida(
                 f"http_resposta_incompleta erro={erro!r}", gravador.recebidos
             ) from erro

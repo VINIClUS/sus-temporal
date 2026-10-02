@@ -11,7 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
+from sustemporal.acquisition.cli import CATALOGO_PADRAO, NOME_MANIFESTO_AQUISICAO
+from sustemporal.acquisition.sources import carregar_catalogo
 from sustemporal.contracts.artifacts import EstadoIntegridade, ResultadoTentativa
 from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.temporal import (
@@ -39,6 +40,7 @@ __all__ = [
     "motivo_pendencia",
     "motivo_sem_criterio",
     "nao_resolvida",
+    "partes_esperadas_do_catalogo",
     "selecionar_versao",
     "select_snapshots",
     "unir_snapshots",
@@ -251,6 +253,22 @@ def _selecao_do_registro(
     return selecionar_versao(registro, criterio, requerida, uf=uf, corte=corte)
 
 
+def partes_esperadas_do_catalogo(
+    config: RunConfig,
+) -> dict[tuple[FamiliaFonte, str], frozenset[str]]:
+    """Partes declaradas no catálogo de fontes da execução (`catalogos.fontes`), por competência.
+
+    Raises:
+        ConfigInvalida: catálogo ilegível ou inválido.
+    """
+    catalogo = carregar_catalogo(Path(config.catalogos.get("fontes", str(CATALOGO_PADRAO))))
+    return {
+        (item.fonte, competencia): frozenset(partes)
+        for item in catalogo.fontes
+        for competencia, partes in item.partes_esperadas.items()
+    }
+
+
 def _uf_da_execucao(config: RunConfig) -> str | None:
     """UF do piloto ou da vigilância; sem nenhuma, só fontes nacionais são consultadas."""
     if config.piloto is not None:
@@ -285,7 +303,9 @@ def select_snapshots(
         politica = carregar_politica(politica_id, politicas or DIRETORIO_POLITICAS)
     if registro is None:
         caminho = Path(config.runtime.raiz_manifestos) / NOME_MANIFESTO_AQUISICAO
-        registro = RegistroTemporal.de_manifesto(caminho)
+        registro = RegistroTemporal.de_manifesto(
+            caminho, partes_esperadas=partes_esperadas_do_catalogo(config)
+        )
     uf = _uf_da_execucao(config)
     corte = config.corte_observacao
     contexto = (registro, uf, corte)

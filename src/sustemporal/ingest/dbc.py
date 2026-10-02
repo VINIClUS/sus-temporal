@@ -255,6 +255,13 @@ def _fim_dcl_independente(dbc: bytes) -> list[str]:
     return [f"bytes_apos_fim_dcl tamanho={len(dbc)}"]
 
 
+def _colunas_coincidem(leitura: LeituraDbf) -> list[str]:
+    esperadas = [COLUNA_INDICE, COLUNA_DELETADO, *(c.nome for c in leitura.cabecalho.campos)]
+    if leitura.tabela.column_names == esperadas:
+        return []
+    return [f"colunas_divergentes colunas={compactar(leitura.tabela.column_names)}"]
+
+
 def _indices_coincidem(leitura: LeituraDbf) -> list[str]:
     indices = leitura.tabela.column(COLUNA_INDICE).to_numpy()
     if np.array_equal(indices, np.arange(leitura.tabela.num_rows, dtype=np.int64)):
@@ -375,9 +382,13 @@ def verificar_fidelidade(
     if modo == "DESLIGADA":
         return RelatorioFidelidade(modo, False, 0, (), bibliotecas)
     independente, divergencias = _bytes_independentes(dbc, leitura.cabecalho.tam_cabecalho)
-    divergencias += _indices_coincidem(leitura)
+    colunas = _colunas_coincidem(leitura)
+    divergencias += colunas or _indices_coincidem(leitura)
     posicoes = _posicoes(leitura.tabela.num_rows, modo, amostra)
-    if independente is None:
+    if colunas:
+        posicoes = posicoes[:0]
+        divergencias += [] if independente is None else _cabecalho_coincide(independente, leitura)
+    elif independente is None:
         posicoes = posicoes[:0]
     else:
         divergencias += _cabecalho_coincide(independente, leitura)

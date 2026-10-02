@@ -219,3 +219,41 @@ def test_acquire_com_listagem_ausente_ou_vazia_nao_sai_ok(
     catalogo.write_text(texto, encoding="utf-8")
     config = _config(tmp_path, catalogo)
     assert cli.main(["acquire", "--config", str(config)]) == ExitCode.FALHA_OPERACIONAL
+
+
+def test_manifesto_zerado_com_ancora_presente_e_corrompido(tmp_path: Path) -> None:
+    caminho = _tres_registros(tmp_path)
+    caminho.write_text("", encoding="utf-8")
+    with pytest.raises(ManifestoCorrompido, match="ancora"):
+        Manifesto(caminho).ler()
+    with pytest.raises(ManifestoCorrompido):
+        fetch_source(_local(tmp_path, dbc_sintetico("D"), FormatoArquivo.DBC), caminho.parent)
+
+
+def test_queda_antes_da_primeira_ancora_nao_bloqueia_o_manifesto(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = tmp_path / "store"
+
+    def cair(*_args: object) -> None:
+        raise KeyboardInterrupt
+
+    with monkeypatch.context() as contexto:
+        contexto.setattr(Manifesto, "_gravar_ancora", cair)
+        with pytest.raises(KeyboardInterrupt):
+            fetch_source(_local(tmp_path, dbc_sintetico("A"), FormatoArquivo.DBC), store)
+    observacao = fetch_source(_local(tmp_path, dbc_sintetico("B"), FormatoArquivo.DBC), store)
+    assert Manifesto(store / "manifesto.jsonl").ler().observacoes[-1] == observacao
+
+
+@pytest.mark.parametrize("conteudo", [b"%PDF-", b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n"])
+def test_pdf_sem_marcador_final_fica_em_quarentena(tmp_path: Path, conteudo: bytes) -> None:
+    observacao = fetch_source(_local(tmp_path, conteudo, FormatoArquivo.PDF), tmp_path / "store")
+    versao = _versao(tmp_path / "store", observacao.artifact_id)
+    assert versao.integridade is EstadoIntegridade.QUARENTENA_TRUNCADO
+
+
+def test_pdf_com_marcador_final_e_obtido(tmp_path: Path) -> None:
+    conteudo = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
+    observacao = fetch_source(_local(tmp_path, conteudo, FormatoArquivo.PDF), tmp_path / "store")
+    assert observacao.resultado is ResultadoTentativa.OBTIDO

@@ -41,6 +41,8 @@ _TRECHOS_PROIBIDOS_GH_API = ("/merge", "/git/refs")
 _ORIGENS_IMPLICITAS = {"HEAD", "@"}
 _COMANDOS_DE_DIRETORIO = {"cd", "pushd"}
 _CARACTERES_INDETERMINADOS = "$~`"
+_ABERTURAS_DE_SUBSTITUICAO = ("$(", "`", "<(", ">(")
+_SINTAXE_DE_SUBSTITUICAO = re.compile(r"\$\(|[<>]\(|[`\"'()]")
 _SUBCOMANDOS_NATIVOS = frozenset(
     [
         "add",
@@ -396,8 +398,13 @@ def _contexto_do_segmento(segmento: list[str], contexto: _Contexto) -> _Contexto
     return None
 
 
-def comando_perigoso(comando: str, contexto: _Contexto | None = None) -> bool:
-    atual = contexto or _Contexto()
+def _achatado(comando: str) -> str:
+    """Remove aspas e delimitadores de substituição, expondo os comandos internos."""
+    return _SINTAXE_DE_SUBSTITUICAO.sub(" ", comando)
+
+
+def _segmentos_perigosos(comando: str, contexto: _Contexto) -> bool:
+    atual = contexto
     for segmento in _segmentos(_tokens(comando)):
         novo = _contexto_do_segmento(segmento, atual)
         if novo is not None:
@@ -405,6 +412,14 @@ def comando_perigoso(comando: str, contexto: _Contexto | None = None) -> bool:
         elif any(_executavel_perigoso(segmento, p, atual) for p in range(len(segmento))):
             return True
     return False
+
+
+def comando_perigoso(comando: str, contexto: _Contexto | None = None) -> bool:
+    atual = contexto or _Contexto()
+    substitui = any(abertura in comando for abertura in _ABERTURAS_DE_SUBSTITUICAO)
+    if substitui and _segmentos_perigosos(_achatado(comando), atual):
+        return True
+    return _segmentos_perigosos(comando, atual)
 
 
 def main() -> int:

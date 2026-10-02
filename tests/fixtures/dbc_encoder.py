@@ -82,5 +82,9 @@ def comprimir_dcl_literais(dados: bytes, dicionario: int = 6) -> bytes:
 
 def dbf_para_dbc(dbf: bytes, dicionario: int = 6) -> bytes:
     """DBC = cabeçalho DBF [0, H) + 4 bytes de CRC zerados + fluxo DCL do restante."""
+    if len(dbf) < 10:
+        raise ValueError(f"dbf_curto tamanho={len(dbf)}")
     (tam_cabecalho,) = struct.unpack_from("<H", dbf, 8)
+    if len(dbf) < tam_cabecalho:
+        raise ValueError(f"dbf_menor_que_cabecalho tamanho={len(dbf)} cabecalho={tam_cabecalho}")
     return dbf[:tam_cabecalho] + bytes(4) + comprimir_dcl_literais(dbf[tam_cabecalho:], dicionario)

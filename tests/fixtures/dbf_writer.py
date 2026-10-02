@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -13,6 +14,7 @@ TIPOS_SUPORTADOS = frozenset("CNDL")
 _LARGURA_FIXA = {"D": 8, "L": 1}
 _TERMINADOR = b"\x0d"
 _EOF = b"\x1a"
+_NOME_CAMPO = re.compile(r"[A-Z0-9_]{1,10}")
 
 
 @dataclass(frozen=True)
@@ -24,16 +26,26 @@ class CampoDbf:
 
 
 def _validar_campo(campo: CampoDbf) -> None:
-    nome = campo.nome.encode("ascii")
-    if not 1 <= len(nome) <= 10:
+    if not _NOME_CAMPO.fullmatch(campo.nome):
         raise ValueError(f"campo_nome_invalido nome={campo.nome}")
     if campo.tipo not in TIPOS_SUPORTADOS:
         raise ValueError(f"campo_tipo_invalido nome={campo.nome} tipo={campo.tipo}")
     fixa = _LARGURA_FIXA.get(campo.tipo)
     if not 1 <= campo.largura <= 254 or (fixa is not None and campo.largura != fixa):
         raise ValueError(f"campo_largura_invalida nome={campo.nome} largura={campo.largura}")
-    if not 0 <= campo.decimais < max(campo.largura, 1):
+    limite = campo.largura if campo.tipo == "N" else 1
+    if not 0 <= campo.decimais < limite:
         raise ValueError(f"campo_decimais_invalido nome={campo.nome} decimais={campo.decimais}")
+
+
+def _validar_arquivo(data: tuple[int, int, int], byte_driver: int, truncar_bytes: int) -> None:
+    ano, mes, dia = data
+    if not (1900 <= ano <= 2155 and 1 <= mes <= 12 and 1 <= dia <= 31):
+        raise ValueError(f"data_invalida data={data}")
+    if not 0 <= byte_driver <= 255:
+        raise ValueError(f"byte_driver_invalido byte_driver={byte_driver}")
+    if truncar_bytes < 0:
+        raise ValueError(f"truncar_bytes_negativo truncar_bytes={truncar_bytes}")
 
 
 def _descritor(campo: CampoDbf) -> bytes:
@@ -89,6 +101,7 @@ def escrever_dbf(
     truncar_bytes: int = 0,
 ) -> bytes:
     """Monta um DBF dBASE III em memória; valores em latin-1, sem conversão."""
+    _validar_arquivo(data, byte_driver, truncar_bytes)
     for campo in campos:
         _validar_campo(campo)
     fora = [i for i in deletados if not 0 <= i < len(registros)]
@@ -98,4 +111,6 @@ def escrever_dbf(
     dbf = _cabecalho(campos, len(registros), byte_driver, data) + corpo
     if com_eof:
         dbf += _EOF
-    return dbf[: len(dbf) - truncar_bytes] if truncar_bytes else dbf
+    if truncar_bytes > len(dbf):
+        raise ValueError(f"truncar_bytes_excede_arquivo truncar_bytes={truncar_bytes}")
+    return dbf[: len(dbf) - truncar_bytes]

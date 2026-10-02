@@ -275,3 +275,8 @@ def test_evidencia_citada_usa_so_artefatos_das_selecoes_da_avaliacao(
     )
     with pytest.raises(ValidationError, match="evidencia_fora_das_selecoes"):
         _bundle(avaliacoes=(_avaliacao(estado),), evidencias=(de_outra_versao,))
+
+
+def test_bundle_rejeita_evidencia_repetida() -> None:
+    with pytest.raises(ValidationError, match="evidencia_repetida"):
+        _bundle(evidencias=(_evidencia(), _evidencia()))

@@ -53,6 +53,8 @@ def _executar(comando: str) -> subprocess.CompletedProcess[str]:
         "eval 'git push --force origin claude/s1-x'",
         "git -c alias.p=push p -f origin claude/s1-x",
         "git -c alias.p=push p origin main",
+        "P=push git --config-env=alias.p=P p origin main",
+        "git --config-env alias.p=P p -f origin claude/s1-x",
     ],
 )
 def test_push_perigoso_e_bloqueado(comando: str) -> None:

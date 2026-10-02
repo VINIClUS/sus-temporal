@@ -110,7 +110,7 @@ def test_portao_recusado_retorna_codigo_4(
     config_valida: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _apontar(monkeypatch, "evaluate", "executar_portao")
-    argumentos = ["evaluate", "--freeze", FREEZE, "--config", str(config_valida)]
+    argumentos = ["evaluate", "--freeze", FREEZE, "--exploratory", "--config", str(config_valida)]
     assert cli.main(argumentos) == ExitCode.PORTAO_RECUSADO
 
 
@@ -150,7 +150,7 @@ def _registrar_decisao(raiz: Path, nome: str, conteudo: str) -> None:
 
 @pytest.mark.parametrize("freeze", ["latest", "../x", f"frz_{'A' * 64}", "frz_curto"])
 def test_freeze_fora_do_padrao_e_recusado_pelo_parser(config_valida: Path, freeze: str) -> None:
-    valido = ["evaluate", "--freeze", FREEZE, "--config", str(config_valida)]
+    valido = ["evaluate", "--freeze", FREEZE, "--exploratory", "--config", str(config_valida)]
     assert cli.main(valido) == ExitCode.NAO_IMPLEMENTADO
     with pytest.raises(SystemExit):
         cli.main(["evaluate", "--freeze", freeze, "--config", str(config_valida)])
@@ -186,3 +186,40 @@ def test_evaluate_confirmatorio_exige_g2_antes_do_manipulador(
     assert manipuladores_falsos.CHAMADAS == []
     _registrar_decisao(tmp_path, "g2.yaml", G2_ABRIR)
     assert cli.main(argumentos) == ExitCode.OK
+
+
+def test_evaluate_sem_exploratory_exige_g2_mesmo_com_config_exploratoria(
+    config_valida: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _apontar(monkeypatch, "evaluate", "executar_ok")
+    monkeypatch.chdir(tmp_path)
+    argumentos = ["evaluate", "--freeze", FREEZE, "--config", str(config_valida)]
+    assert cli.main(argumentos) == ExitCode.PORTAO_RECUSADO
+    assert manipuladores_falsos.CHAMADAS == []
+    assert cli.main([*argumentos, "--exploratory"]) == ExitCode.OK
+
+
+def test_evaluate_exploratory_com_config_confirmatoria_e_recusado(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _apontar(monkeypatch, "evaluate", "executar_ok")
+    monkeypatch.chdir(tmp_path)
+    _registrar_decisao(tmp_path, "g2.yaml", G2_ABRIR)
+    config = tmp_path / "confirmatoria.yaml"
+    config.write_text(CONFIG_CONFIRMATORIA, encoding="utf-8")
+    argumentos = ["evaluate", "--freeze", FREEZE, "--exploratory", "--config", str(config)]
+    assert cli.main(argumentos) == ExitCode.PORTAO_RECUSADO
+    assert manipuladores_falsos.CHAMADAS == []
+
+
+def test_evaluate_confirmatorio_exige_o_freeze_da_config(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _apontar(monkeypatch, "evaluate", "executar_ok")
+    monkeypatch.chdir(tmp_path)
+    _registrar_decisao(tmp_path, "g2.yaml", G2_ABRIR)
+    config = tmp_path / "confirmatoria.yaml"
+    config.write_text(CONFIG_CONFIRMATORIA, encoding="utf-8")
+    outro = f"frz_{'b' * 64}"
+    assert cli.main(["evaluate", "--freeze", outro, "--config", str(config)]) == 4
+    assert manipuladores_falsos.CHAMADAS == []

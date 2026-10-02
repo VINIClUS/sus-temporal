@@ -262,3 +262,16 @@ def test_amostra_recusa_estrato_repetido() -> None:
     estrato = Estrato(nome="BPA_I", populacao=100, amostra=1, prob_inclusao="0.01")
     with pytest.raises(ValidationError, match="estrato_repetido"):
         _amostra(estratos=(estrato, estrato))
+
+
+@pytest.mark.parametrize(
+    "campos",
+    [
+        {"dataset_hash": "x"},
+        {"dataset_hash": "a" * 64},
+        {"hash_por_particao": dict.fromkeys(Particao, "nao-e-hash")},
+    ],
+)
+def test_split_manifest_exige_hashes_logicos(campos: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        _manifesto(**campos)

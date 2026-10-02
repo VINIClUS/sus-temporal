@@ -118,6 +118,9 @@ def _descritores(cabecalho: bytes) -> tuple[DescritorCampo, ...]:
     nomes = [campo.nome for campo in campos]
     if not campos or len(set(nomes)) != len(nomes):
         raise _leiaute(f"campos_vazios_ou_repetidos campos={nomes}")
+    reservados = sorted(set(nomes) & {COLUNA_INDICE, COLUNA_DELETADO})
+    if reservados:
+        raise _leiaute(f"campo_com_nome_reservado campos={reservados}")
     return tuple(campos)
 
 

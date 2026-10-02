@@ -204,12 +204,13 @@ def _coletar(registros: Iterable[Any], ranks: set[int]) -> tuple[int, dict[int, 
 
 def _referencia(
     dbf: bytes, ranks_a: set[int], ranks_d: set[int]
-) -> tuple[list[str], tuple[int, dict[int, Any]], tuple[int, dict[int, Any]]]:
+) -> tuple[list[tuple[str, str, int, int]], tuple[int, dict[int, Any]], tuple[int, dict[int, Any]]]:
     with tempfile.TemporaryDirectory() as pasta:
         caminho = Path(pasta) / "referencia.dbf"
         caminho.write_bytes(dbf)
         ref = DBF(str(caminho), raw=True, load=False, ignore_missing_memofile=True)
-        return list(ref.field_names), _coletar(ref.records, ranks_a), _coletar(ref.deleted, ranks_d)
+        descritores = [(f.name, f.type, f.length, f.decimal_count) for f in ref.fields]
+        return descritores, _coletar(ref.records, ranks_a), _coletar(ref.deleted, ranks_d)
 
 
 def _comparar_registros(dbf: bytes, leitura: LeituraDbf, posicoes: NDArray[np.int64]) -> list[str]:
@@ -220,8 +221,11 @@ def _comparar_registros(dbf: bytes, leitura: LeituraDbf, posicoes: NDArray[np.in
     nomes = [campo.nome for campo in leitura.cabecalho.campos]
     ranks_d = {int(rank[p]) for p in posicoes if flags[p]}
     ranks_a = {int(rank[p]) for p in posicoes if not flags[p]}
-    nomes_ref, (n_ativos, ativos), (n_deletados, deletados) = _referencia(dbf, ranks_a, ranks_d)
-    divergencias = [] if nomes_ref == nomes else ["campos_divergentes"]
+    descritores_ref, (n_ativos, ativos), (n_deletados, deletados) = _referencia(
+        dbf, ranks_a, ranks_d
+    )
+    descritores = [(c.nome, c.tipo, c.largura, c.decimais) for c in leitura.cabecalho.campos]
+    divergencias = [] if descritores_ref == descritores else ["campos_divergentes"]
     if (n_ativos, n_deletados) != (int((~flags).sum()), int(flags.sum())):
         divergencias.append(f"contagens_divergentes ativos={n_ativos} deletados={n_deletados}")
     proprios = tabela.take(posicoes).select(nomes).to_pylist()

@@ -11,7 +11,7 @@ from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.experiment import EstadoExecucao
 from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.engine import evaluate_rules
-from tests.fixtures.regras_cenario import materializar, snapshot_vazio
+from tests.fixtures.regras_cenario import materializar, reemitir_insumo, snapshot_vazio
 from tests.fixtures.regras_execucao import avaliacoes_por_chave, tabela
 from tests.fixtures.regras_exemplos import ART_SIGTAP, cenario_base, registro
 
@@ -42,6 +42,7 @@ def test_toda_tabela_de_entrada_confere_tipo_fisico(
     entradas = [dataset, *insumos.auxiliares, insumos.selecoes, insumos.cobertura]
     alvo = next(d for d in entradas if d is not None and d.schema_id == tabela_alvo)
     _reescrever_inteiro(alvo.caminho, coluna)
+    dataset, insumos = reemitir_insumo(dataset, insumos, tabela_alvo)
     resultado = evaluate_rules(
         dataset,
         snapshot_vazio(),

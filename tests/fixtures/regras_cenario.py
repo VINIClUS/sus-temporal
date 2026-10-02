@@ -20,6 +20,7 @@ from sustemporal.contracts.temporal import (
     TipoPolitica,
 )
 from sustemporal.hashing import hash_logico_linhas
+from sustemporal.rules.catalog import carregar_esquema
 from sustemporal.rules.insumos import InsumosAvaliacao
 from sustemporal.rules.reference import CenarioReferencia, ConjuntoAuxiliar
 
@@ -38,6 +39,8 @@ __all__ = [
     "materializar",
     "para_referencia",
     "politica",
+    "reemitir",
+    "reemitir_insumo",
     "snapshot_vazio",
 ]
 
@@ -162,11 +165,46 @@ def _tipo(coluna: str) -> pa.DataType:
     return pa.int64() if coluna in _INTEIRAS else pa.string()
 
 
-def _gravar(caminho: Path, colunas: tuple[str, ...], linhas: list[dict[str, object]]) -> str:
+def _gravar(caminho: Path, colunas: tuple[str, ...], linhas: list[dict[str, object]]) -> None:
     esquema = pa.schema([(coluna, _tipo(coluna)) for coluna in colunas])
     tabela = pa.Table.from_pylist([{c: linha.get(c) for c in colunas} for linha in linhas], esquema)
     pq.write_table(tabela, caminho)
-    return hash_logico_linhas(colunas, [tuple(linha.get(c) for c in colunas) for linha in linhas])
+
+
+def _conteudo(caminho: str, schema_id: str) -> tuple[str, int]:
+    """Hash lógico das colunas do esquema presentes no arquivo, na ordem do esquema."""
+    tabela = pq.read_table(caminho)
+    colunas = [c.nome for c in carregar_esquema(schema_id).colunas if c.nome in tabela.column_names]
+    valores = [tabela.column(c).to_pylist() for c in colunas]
+    linhas = [tuple(coluna[i] for coluna in valores) for i in range(tabela.num_rows)]
+    return hash_logico_linhas(colunas, linhas), tabela.num_rows
+
+
+def reemitir(ref: DatasetRef) -> DatasetRef:
+    """DatasetRef coerente com o conteúdo atual do arquivo (para testes que o alteram)."""
+    hash_logico, linhas = _conteudo(ref.caminho, ref.schema_id)
+    return ref.model_copy(
+        update={
+            "hash_logico": hash_logico,
+            "linhas": linhas,
+            "dataset_id": calcular_dataset_id(ref.schema_id, hash_logico, ref.artifact_ids),
+        }
+    )
+
+
+def reemitir_insumo(
+    dataset: DatasetRef, insumos: InsumosAvaliacao, schema_id: str
+) -> tuple[DatasetRef, InsumosAvaliacao]:
+    """Reemite o DatasetRef do esquema dado, onde quer que esteja nos insumos."""
+    if dataset.schema_id == schema_id:
+        return reemitir(dataset), insumos
+    auxiliares = tuple(reemitir(d) if d.schema_id == schema_id else d for d in insumos.auxiliares)
+    selecoes, cobertura = insumos.selecoes, insumos.cobertura
+    if selecoes is not None and selecoes.schema_id == schema_id:
+        selecoes = reemitir(selecoes)
+    if cobertura is not None and cobertura.schema_id == schema_id:
+        cobertura = reemitir(cobertura)
+    return dataset, replace(insumos, auxiliares=auxiliares, selecoes=selecoes, cobertura=cobertura)
 
 
 def _dataset(
@@ -176,13 +214,14 @@ def _dataset(
     linhas: list[dict[str, object]],
     artefatos: tuple[str, ...],
 ) -> DatasetRef:
-    hash_logico = _gravar(caminho, colunas, linhas)
+    _gravar(caminho, colunas, linhas)
+    hash_logico, quantidade = _conteudo(str(caminho), schema_id)
     return DatasetRef(
         dataset_id=calcular_dataset_id(schema_id, hash_logico, artefatos),
         schema_id=schema_id,
         caminho=str(caminho),
         hash_logico=hash_logico,
-        linhas=len(linhas),
+        linhas=quantidade,
         artifact_ids=artefatos,
         origem_dados=OrigemDados.SINTETICO,
         produzido_por="fixture_regras_sintetica",

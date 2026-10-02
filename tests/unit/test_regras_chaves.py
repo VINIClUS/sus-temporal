@@ -11,7 +11,7 @@ from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.experiment import EstadoExecucao, RunResult
 from sustemporal.rules import engine
 from sustemporal.rules.catalog import carregar_regras
-from tests.fixtures.regras_cenario import materializar, snapshot_vazio
+from tests.fixtures.regras_cenario import materializar, reemitir_insumo, snapshot_vazio
 from tests.fixtures.regras_execucao import avaliacoes_por_chave, executar, tabela
 from tests.fixtures.regras_exemplos import cenario_base, registro
 
@@ -33,6 +33,7 @@ def _avaliar(tmp_path: Path, schema_id: str, coluna: str) -> RunResult:
     entradas = [dataset, insumos.selecoes, insumos.cobertura]
     alvo = next(d for d in entradas if d is not None and d.schema_id == schema_id)
     _anular_primeira(alvo.caminho, coluna)
+    dataset, insumos = reemitir_insumo(dataset, insumos, schema_id)
     return engine.evaluate_rules(
         dataset,
         snapshot_vazio(),
@@ -73,6 +74,7 @@ def test_cobertura_sem_coluna_nao_e_utilizavel(tmp_path: Path) -> None:
     assert insumos.cobertura is not None
     caminho = insumos.cobertura.caminho
     pq.write_table(pq.read_table(caminho).drop_columns(["estado"]), caminho)
+    dataset, insumos = reemitir_insumo(dataset, insumos, "cobertura.v1")
     resultado = engine.evaluate_rules(
         dataset,
         snapshot_vazio(),

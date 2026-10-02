@@ -13,7 +13,7 @@ from sustemporal.contracts.temporal import MetodoId
 from sustemporal.rules import saidas
 from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.engine import evaluate_rules
-from tests.fixtures.regras_cenario import materializar, politica, snapshot_vazio
+from tests.fixtures.regras_cenario import materializar, politica, reemitir_insumo, snapshot_vazio
 from tests.fixtures.regras_execucao import avaliacoes_por_chave, executar, tabela
 from tests.fixtures.regras_exemplos import ART_SIGTAP, cenario_base, registro, selecao
 
@@ -92,6 +92,7 @@ def _reescrever_inteiro(caminho: str, coluna: str, valor: int) -> None:
 def test_codigo_numerico_no_sia_e_falha_de_carga(tmp_path: Path, coluna: str, valor: int) -> None:
     dataset, insumos = materializar(cenario_base(), tmp_path / "entrada")
     _reescrever_inteiro(dataset.caminho, coluna, valor)
+    dataset, insumos = reemitir_insumo(dataset, insumos, "sia_pa.v1")
     resultado = evaluate_rules(
         dataset,
         snapshot_vazio(),
@@ -110,6 +111,7 @@ def test_codigo_numerico_no_auxiliar_e_leiaute_incompativel(tmp_path: Path) -> N
     dataset, insumos = materializar(cenario_base(), tmp_path / "entrada")
     ocupacao = next(d for d in insumos.auxiliares if d.schema_id == "sigtap_proc_ocupacao.v1")
     _reescrever_inteiro(ocupacao.caminho, "co_ocupacao", 225125)
+    dataset, insumos = reemitir_insumo(dataset, insumos, "sigtap_proc_ocupacao.v1")
     resultado = evaluate_rules(
         dataset,
         snapshot_vazio(),
@@ -126,6 +128,7 @@ def test_cobertura_com_competencia_numerica_nunca_fica_disponivel(tmp_path: Path
     dataset, insumos = materializar(cenario_base(registro(cbo="999999")), tmp_path / "entrada")
     assert insumos.cobertura is not None
     _reescrever_inteiro(insumos.cobertura.caminho, "competencia", 202001)
+    dataset, insumos = reemitir_insumo(dataset, insumos, "cobertura.v1")
     resultado = evaluate_rules(
         dataset,
         snapshot_vazio(),

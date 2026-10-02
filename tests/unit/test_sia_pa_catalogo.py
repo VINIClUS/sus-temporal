@@ -135,3 +135,11 @@ def test_casar_leiaute_recusa_incompativel(campos: list[CampoDbf]) -> None:
         casar_leiaute(cabecalho, leiaute_pa())
     assert erro.value.estado is EstadoIntegridade.QUARENTENA_LEIAUTE
     assert re.fullmatch(r"[a-z_]+( [a-z_]+=\S+)*", erro.value.motivo)
+
+
+def test_casar_leiaute_recusa_leiaute_que_nao_e_dbf() -> None:
+    cabecalho = ler_dbc(dbc_pa([registro_pa()])).leitura.cabecalho
+    largura_fixa = leiaute_pa().model_copy(update={"formato": "LARGURA_FIXA"})
+    with pytest.raises(QuarentenaLeitura) as erro:
+        casar_leiaute(cabecalho, largura_fixa)
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_LEIAUTE

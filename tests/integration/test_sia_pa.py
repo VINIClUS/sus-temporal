@@ -513,3 +513,27 @@ def test_link_simbolico_para_fora_da_raiz_nao_e_lido(tmp_path: Path) -> None:
     caminho.symlink_to(fora.caminho_conteudo)
     desviado = fora.model_copy(update={"caminho_conteudo": str(caminho)})
     _quarentena_caminho(tmp_path, desviado, raiz)
+
+
+def test_label_pa_recusa_parquet_com_tipo_fisico_trocado(tmp_path: Path) -> None:
+    import pyarrow as pa
+
+    ref, _ = _normalizar(tmp_path, [registro_pa()] * 2)
+    tabela = pq.read_table(ref.caminho)
+    indice = tabela.column_names.index("quantidade_apresentada")
+    texto = tabela.column(indice).cast(pa.string())
+    pq.write_table(tabela.set_column(indice, "quantidade_apresentada", texto), ref.caminho)
+    with pytest.raises(ValueError, match="dataset_divergente"):
+        label_pa(ref, CAMINHO_CODEBOOK, _saida(tmp_path, "rotulos"))
+
+
+def test_perfil_identifica_o_codebook_usado(tmp_path: Path) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()])
+    outro = tmp_path / "outro.yaml"
+    outro.write_text('codigos:\n  "5": APROVADO_TOTAL\n', encoding="utf-8")
+    padrao = perfil_pa(ref, _saida(tmp_path, "perfil"))
+    alternativo = perfil_pa(ref, _saida(tmp_path, "perfil"), codebook=outro)
+    assert padrao.caminho != alternativo.caminho
+    assert padrao.codebook_sha256 != alternativo.codebook_sha256
+    assert Path(padrao.caminho).exists()
+    assert Path(alternativo.caminho).exists()

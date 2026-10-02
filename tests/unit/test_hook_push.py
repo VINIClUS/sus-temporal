@@ -182,6 +182,24 @@ def test_desvio_de_hooks_por_ambiente_ou_config_e_bloqueado(comando: str) -> Non
 @pytest.mark.parametrize(
     "comando",
     [
+        "x='git push --no-verify origin HEAD:main'; eval \"$x\"",
+        "printf '%s\\n' 'git push --no-verify origin HEAD:main' | bash",
+        "echo 'git status' | bash",
+        "bash -s < /tmp/programa.sh",
+        "sh <<< 'git status'",
+        "python3 -c \"import subprocess; subprocess.run(['git','push','--no-verify','o','x'])\"",
+        "node -e \"require('child_process').execSync('git -c core.hooksPath=/dev/null push o x')\"",
+    ],
+)
+def test_programa_dinamico_ou_pela_entrada_e_bloqueado(comando: str) -> None:
+    resultado = _executar(comando)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
         'git commit -m "$MSG"',
         '"$PYTHON" -m pytest -q',
         'cp "$ORIGEM" "$DESTINO"',
@@ -192,6 +210,12 @@ def test_desvio_de_hooks_por_ambiente_ou_config_e_bloqueado(comando: str) -> Non
         '[ -n "$X" ] && echo sim',
         '[[ -z "$(git status --porcelain)" ]] || echo sujo',
         "{ echo a; echo b; } > saida.txt",
+        "bash scripts/ci.sh",
+        "bash .claude/hooks/session-start.sh",
+        "which bash",
+        "bash <<'EOF'\ngit status\nEOF",
+        "eval 'git status'",
+        'uv run python -c "print(1)"',
     ],
 )
 def test_expansao_fora_de_push_continua_permitida(comando: str) -> None:

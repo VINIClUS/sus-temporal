@@ -116,6 +116,11 @@ def descomprimir_dbc(dados: bytes) -> tuple[bytes, MetadadosDbc]:
     """DBF descomprimido pelo datasus-dbc, sem reescrever bytes do cabeçalho."""
     tam_cabecalho, flag, dicionario = _conferir_envelope(dados)
     dbf = _descomprimir(dados)
+    if len(dbf) < tam_cabecalho:
+        raise QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_TRUNCADO,
+            f"dbf_menor_que_cabecalho tamanho={len(dbf)} cabecalho={tam_cabecalho}",
+        )
     if dbf[:tam_cabecalho] != dados[:tam_cabecalho]:
         raise _inesperado(f"cabecalho_alterado_na_descompressao cabecalho={tam_cabecalho}")
     pos_cabecalho = dados[tam_cabecalho : tam_cabecalho + _TAM_POS_CABECALHO]
@@ -154,6 +159,25 @@ def _bytes_independentes(dbc: bytes, h: int) -> tuple[bytes | None, list[str]]:
             f"bytes_divergentes producao={len(producao)} independente={len(independente)}"
         ]
     return independente, []
+
+
+def _cabecalho_coincide(independente: bytes, leitura: LeituraDbf) -> list[str]:
+    cabecalho = leitura.cabecalho
+    lido = (
+        leitura.tamanho_bytes,
+        cabecalho.data_atualizacao,
+        cabecalho.n_registros,
+        cabecalho.tam_cabecalho,
+        cabecalho.tam_registro,
+        cabecalho.byte_driver,
+    )
+    if len(independente) < 32:
+        return [f"cabecalho_divergente independente={len(independente)}"]
+    n, h, r = struct.unpack_from("<IHH", independente, 4)
+    referencia = (len(independente), independente[1:4], n, h, r, independente[29])
+    if lido != referencia:
+        return [f"cabecalho_divergente lido={lido} independente={referencia}"]
+    return []
 
 
 def _posicoes(n: int, modo: VerificacaoFidelidade, amostra: int) -> NDArray[np.int64]:
@@ -210,7 +234,10 @@ def verificar_fidelidade(
         return RelatorioFidelidade(modo, False, 0, (), bibliotecas)
     independente, divergencias = _bytes_independentes(dbc, leitura.cabecalho.tam_cabecalho)
     posicoes = _posicoes(leitura.tabela.num_rows, modo, amostra)
-    if independente is not None:
+    if independente is None:
+        posicoes = posicoes[:0]
+    else:
+        divergencias += _cabecalho_coincide(independente, leitura)
         divergencias += _comparar_registros(independente, leitura, posicoes)
     logger.info(
         "fidelidade_verificada modo=%s comparados=%s divergencias=%s",

@@ -568,3 +568,30 @@ def test_ler_dbc_arquivo_usa_descompressor_limitado(
     assert erro.value.estado is estado
     h, r = struct.unpack_from("<HH", dbf, 8)
     assert chamadas == [h + len(REGISTROS) * r + 1]
+
+
+@pytest.mark.parametrize("segundo", ["INVALIDO", "EXCEDEU_LIMITE"])
+def test_fim_dcl_so_e_provado_por_truncamento_na_segunda_descompressao(
+    segundo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sustemporal.acquisition.descompressao import (
+        DesfechoDescompressao,
+        ResultadoDescompressao,
+        descomprimir_limitado,
+    )
+
+    chamadas: list[Path] = []
+
+    def falso(origem: Path, destino: Path, limite: int, **kwargs: object) -> ResultadoDescompressao:
+        chamadas.append(origem)
+        if len(chamadas) == 1:
+            return descomprimir_limitado(origem, destino, limite)
+        return ResultadoDescompressao(DesfechoDescompressao(segundo), "simulado")
+
+    monkeypatch.setattr(dbc_mod, "descomprimir_limitado", falso)
+    caminho = tmp_path / "x.dbc"
+    caminho.write_bytes(dbf_para_dbc(_dbf()))
+    with pytest.raises(QuarentenaLeitura) as erro:
+        ler_dbc_arquivo(caminho, dir_temporario=tmp_path)
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+    assert erro.value.motivo.startswith("fim_dcl_inconclusivo")

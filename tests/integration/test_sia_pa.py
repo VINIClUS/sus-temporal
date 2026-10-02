@@ -187,6 +187,8 @@ def test_valores_contraditorios_contados_sem_correcao(
     ref, (linha,) = _normalizar(tmp_path, [registro_pa(**campos)])
     _, (rotulo,) = _rotular(tmp_path, ref)
     assert rotulo["contradicoes"] == esperadas
+    esperado = {"0": "NAO_APROVADO", "5": "APROVADO_TOTAL", "6": "APROVADO_PARCIAL"}
+    assert rotulo["rotulo"] == esperado[campos["PA_INDICA"]]
     assert rotulo["pa_indica_bruto"] == campos["PA_INDICA"]
     assert rotulo["quantidade_aprovada"] == linha["quantidade_aprovada"]
     assert rotulo["valor_aprovado"] == linha["valor_aprovado"]
@@ -301,6 +303,8 @@ def test_leiaute_incompativel_vai_para_quarentena(tmp_path: Path, alteracao: str
         ("PA_DOCORIG", "X", "instrumento", "CODIFICACAO_INVALIDA"),
         ("PA_MVM", "201813", "competencia_processamento", "CODIFICACAO_INVALIDA"),
         ("PA_QTDPRO", "1.5", "quantidade_apresentada", "CODIFICACAO_INVALIDA"),
+        ("PA_QTDPRO", "-1", "quantidade_apresentada", "CODIFICACAO_INVALIDA"),
+        ("PA_QTDAPR", "-3", "quantidade_aprovada", "CODIFICACAO_INVALIDA"),
         ("PA_VALPRO", "12.345", "valor_apresentado", "CODIFICACAO_INVALIDA"),
         ("PA_TPUPS", "", "tipo_unidade", "VAZIO"),
     ],
@@ -567,3 +571,78 @@ def test_vigencia_do_leiaute_e_respeitada(
         normalize_pa(artefato, layout, _saida(tmp_path), runtime=_runtime(tmp_path))
     assert erro.value.estado is EstadoIntegridade.QUARENTENA_LEIAUTE
     assert erro.value.motivo.startswith("leiaute_fora_da_vigencia")
+
+
+def test_conteudo_ausente_nunca_vira_dataset(tmp_path: Path) -> None:
+    from sustemporal.ingest.dbf import ArquivoAusente
+
+    artefato = _artefato(tmp_path, [registro_pa()])
+    Path(artefato.caminho_conteudo).unlink()
+    with pytest.raises(ArquivoAusente):
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert list(_saida(tmp_path).iterdir()) == []
+
+
+def test_conteudo_com_sha256_divergente_vai_para_quarentena(tmp_path: Path) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()])
+    Path(artefato.caminho_conteudo).write_bytes(dbc_pa([registro_pa(PA_INDICA="0")]))
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CHECKSUM
+    assert list(_saida(tmp_path).iterdir()) == []
+
+
+class _EspiaoFidelidade:
+    def __init__(self, divergencias: tuple[str, ...] = ()) -> None:
+        self.chamadas: list[tuple[bytes, str]] = []
+        self._divergencias = divergencias
+
+    def __call__(self, dbc: bytes, leitura: object, modo: str, **_: object) -> object:
+        from sustemporal.ingest.dbc import RelatorioFidelidade
+
+        self.chamadas.append((dbc, modo))
+        return RelatorioFidelidade(modo, True, 1, self._divergencias, ())
+
+
+@pytest.mark.parametrize("modo", ["COMPLETA", "AMOSTRAL", "DESLIGADA"])
+def test_fidelidade_e_verificada_com_os_bytes_do_artefato(
+    tmp_path: Path, modo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    from sustemporal.ingest import sia_pa
+
+    espiao = _EspiaoFidelidade()
+    monkeypatch.setattr(sia_pa, "verificar_fidelidade", espiao)
+    artefato = _artefato(tmp_path, [registro_pa()])
+    runtime = _runtime(tmp_path, verificacao_fidelidade=modo)
+    normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=runtime)
+    if modo == "DESLIGADA":
+        assert espiao.chamadas == []
+        return
+    ((dados, modo_usado),) = espiao.chamadas
+    assert hashlib.sha256(dados).hexdigest() == artefato.sha256
+    assert modo_usado == modo
+
+
+def test_fidelidade_reprovada_vai_para_quarentena_sem_dataset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sustemporal.ingest import sia_pa
+
+    monkeypatch.setattr(sia_pa, "verificar_fidelidade", _EspiaoFidelidade(("bytes_divergentes",)))
+    artefato = _artefato(tmp_path, [registro_pa()])
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+    assert erro.value.motivo.startswith("fidelidade_reprovada")
+    assert list(_saida(tmp_path).iterdir()) == []
+
+
+def test_perfil_nao_reconcilia_com_deletados_divergentes(tmp_path: Path) -> None:
+    from sustemporal.contracts import Reconciliacao
+
+    ref, _ = _normalizar(tmp_path, [registro_pa()] * 3, deletados={0})
+    errada = Reconciliacao(fisicos=3, deletados=2, canonicas=3)
+    perfil = perfil_pa(ref.model_copy(update={"reconciliacao": errada}), _saida(tmp_path, "perfil"))
+    assert not perfil.reconciliado

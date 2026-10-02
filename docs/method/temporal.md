@@ -39,6 +39,9 @@ A decisão segue estes passos:
 
 1. Toma as observações de arquivos publicados (listagens não entram) com
    `competencia_arquivo = C`. Nenhuma: **AUSENTE**. Nunca se consulta C±1.
+   - **UF:** arquivo com UF só vale para a UF da execução (`piloto.uf`, senão `vigilancia.uf`).
+     Sem UF definida, só fontes nacionais (sem UF) são consultadas.
+   - **Canal:** quando o critério fixa um canal, os outros canais são ignorados.
 2. Descarta as observações posteriores a K. Se todas forem posteriores: **FORA_DO_CORTE**. A data de
    coleta nunca é retroagida: um arquivo de 2018 obtido em 2026 só existe para a pesquisa a partir
    de 2026.
@@ -67,10 +70,10 @@ reproduzir a justificativa só a partir do manifesto.
 - **Política:** é a da execução (`RunConfig.politica_id`); sem ela, vale a da regra. Os arquivos
   ficam em `catalog/policies/<id>.yaml`.
 - **Fontes:** a seleção cobre cada fonte auxiliar da regra (≠ SIA_PA).
-- **NAO_RESOLVIDA, sem base e sem competência:** em três casos:
-  - política `NAO_RESOLVIDA`;
-  - política com documento pendente;
-  - política sem critério para a fonte.
+- **NAO_RESOLVIDA, sem base e sem competência:** política `NAO_RESOLVIDA` ou sem critério para
+  a fonte. O motivo é o mesmo do motor: `politica_sem_criterio_para_a_fonte fonte=<f>`.
+- **NAO_RESOLVIDA com base e competência:** política com documento pendente. O motor encontra a
+  chave no `SnapshotSet` e a confere contra a política.
 - **NAO_RESOLVIDA por competência ausente:** se a competência base do registro é nula, a seleção
   também fica `NAO_RESOLVIDA`.
 - **Competência requerida:** é `base(r) + deslocamento`.
@@ -87,9 +90,14 @@ reproduzir a justificativa só a partir do manifesto.
 Só será `DOCUMENTADA` uma política que tenha documento preservado (`DocRef` PRESERVADO, com
 sha256). Hoje nenhuma tem.
 
+**`SnapshotSet` da execução.** `unir_snapshots` junta os conjuntos por registro em um só, com uma
+seleção por chave (fonte, base, competência). Duas decisões diferentes para a mesma chave, ou
+cortes diferentes, são erro.
+
 ## 5. Lote (`temporal/lote.py`)
 O lote parte de uma tabela de registros no DuckDB (`row_id`, `competencia_atendimento`,
-`competencia_processamento`). O DuckDB calcula a competência requerida por registro, regra e
+`competencia_processamento`). Uma competência fora do padrão AAAAMM conta como nula e resulta
+em `competencia_base_ausente`. Um corte sem fuso é recusado. O DuckDB calcula a competência requerida por registro, regra e
 fonte. Cada chave distinta (fonte, base, competência) é decidida pela **mesma**
 `selecionar_versao`, e o resultado volta por junção.
 

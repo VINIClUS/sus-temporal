@@ -16,8 +16,10 @@ from sustemporal.contracts.temporal import CompetenciaArquivo
 from sustemporal.duck import identificador_seguro
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.temporal.selector import (
-    criterio_ou_motivo,
+    criterio_da_fonte,
     fontes_auxiliares,
+    motivo_pendencia,
+    motivo_sem_criterio,
     selecionar_versao,
 )
 from sustemporal.yamlio import carregar_yaml
@@ -49,13 +51,19 @@ ESQUEMA = Path("catalog/schemas/selecao_versoes.yaml")
 
 _SQL_PEDIDOS = """
 CREATE OR REPLACE TEMP TABLE _pedidos AS
-WITH base AS (
+WITH bruto AS (
     SELECT r.row_id, g.rule_id, g.fonte, g.base, g.deslocamento, g.motivo_politica,
         CASE g.base
             WHEN 'ATENDIMENTO' THEN r.competencia_atendimento
             WHEN 'PROCESSAMENTO' THEN r.competencia_processamento
-        END AS comp_base
+        END AS comp_bruta
     FROM {registros} AS r CROSS JOIN _regras_fontes AS g
+),
+base AS (
+    SELECT *,
+        CASE WHEN regexp_full_match(comp_bruta, '[0-9]{{4}}(0[1-9]|1[0-2])') THEN comp_bruta
+        END AS comp_base
+    FROM bruto
 )
 SELECT *,
     CASE
@@ -75,17 +83,22 @@ SELECT
     p.fonte,
     CASE WHEN p.motivo_politica IS NULL AND p.requerida IS NOT NULL THEN p.base END AS base,
     CASE WHEN p.motivo_politica IS NULL THEN p.requerida END AS competencia_requerida,
-    COALESCE(s.estado, 'NAO_RESOLVIDA') AS estado,
+    CASE
+        WHEN p.motivo_politica IS NOT NULL OR p.requerida IS NULL THEN 'NAO_RESOLVIDA'
+        WHEN CAST($pendencia AS VARCHAR) IS NOT NULL THEN 'NAO_RESOLVIDA'
+        ELSE s.estado
+    END AS estado,
     COALESCE(s.artifact_ids, '') AS artifact_ids,
     COALESCE(s.observation_ids, '') AS observation_ids,
     CASE
         WHEN p.motivo_politica IS NOT NULL THEN p.motivo_politica
         WHEN p.requerida IS NULL THEN 'competencia_base_ausente base=' || p.base
+        WHEN CAST($pendencia AS VARCHAR) IS NOT NULL THEN CAST($pendencia AS VARCHAR)
         ELSE s.motivo
     END AS motivo
 FROM _pedidos AS p
 LEFT JOIN _selecoes_chave AS s
-    ON p.motivo_politica IS NULL
+    ON p.motivo_politica IS NULL AND CAST($pendencia AS VARCHAR) IS NULL
     AND s.fonte = p.fonte AND s.base = p.base AND s.requerida = p.requerida
 """
 
@@ -96,9 +109,9 @@ def _regras_fontes(
     linhas: list[tuple[str, str, str | None, int, str | None]] = []
     for regra in regras:
         for fonte in fontes_auxiliares(regra):
-            criterio = criterio_ou_motivo(politica, fonte)
-            if isinstance(criterio, str):
-                linhas.append((regra.rule_id, fonte.value, None, 0, criterio))
+            criterio = criterio_da_fonte(politica, fonte)
+            if criterio is None:
+                linhas.append((regra.rule_id, fonte.value, None, 0, motivo_sem_criterio(fonte)))
             else:
                 base = criterio.base.value
                 linhas.append((regra.rule_id, fonte.value, base, criterio.deslocamento_meses, None))
@@ -165,11 +178,14 @@ def selecionar_lote(
     (VARCHAR AAAAMM ou nulo).
 
     Raises:
-        ValueError: nome de tabela fora do catálogo do DuckDB.
+        ValueError: nome de tabela fora do catálogo do DuckDB ou corte sem fuso.
     """
+    if corte is not None and corte.utcoffset() is None:
+        raise ValueError(f"corte_sem_fuso corte={corte.isoformat()}")
+    pendencia = motivo_pendencia(politica)
     _criar_pedidos(con, registros, list(_regras_fontes(regras, politica)))
     _decidir_chaves(con, politica, registro, (uf, corte))
-    con.execute(_SQL_SELECAO, {"run_id": run_id})
+    con.execute(_SQL_SELECAO, {"run_id": run_id, "pendencia": pendencia})
     total = con.execute("SELECT count(*) FROM selecao_versoes").fetchall()[0][0]
     logger.info("selecao_lote_concluida run_id=%s linhas=%d", run_id, total)
 

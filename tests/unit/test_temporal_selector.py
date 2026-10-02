@@ -43,6 +43,12 @@ def _registro(*itens, partes=None):
 
 def _config(politica: str = "B_ATEND", corte: str | None = None) -> RunConfig:
     campos: dict[str, object] = {"versao": "1", "politica_id": politica}
+    campos["piloto"] = {
+        "uf": "SP",
+        "competencias_processamento": ["201801"],
+        "territorio": "catalog/territorio/drs_xi.yaml",
+        "familias_fontes": ["SIA_PA", "CNES_PF"],
+    }
     if corte is not None:
         campos["corte_observacao"] = corte
     return RunConfig.model_validate(campos)

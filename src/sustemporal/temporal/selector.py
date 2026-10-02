@@ -34,14 +34,18 @@ if TYPE_CHECKING:
     from sustemporal.contracts.temporal import CriterioTemporal, PoliticaTemporal
 
 __all__ = [
-    "criterio_ou_motivo",
+    "criterio_da_fonte",
     "fontes_auxiliares",
+    "motivo_pendencia",
+    "motivo_sem_criterio",
     "nao_resolvida",
     "selecionar_versao",
     "select_snapshots",
+    "unir_snapshots",
 ]
 
 _INTEGRAS = {EstadoIntegridade.OK, EstadoIntegridade.NAO_VERIFICADO}
+_COM_CONTEUDO_INTEGRO = {EstadoSelecao.SELECIONADA, EstadoSelecao.INCOMPLETA, EstadoSelecao.AMBIGUA}
 
 
 @dataclass(frozen=True)
@@ -77,6 +81,7 @@ def _avaliar_parte(
         for o in observacoes
         if o.resultado is ResultadoTentativa.OBTIDO
         and o.artifact_id is not None
+        and o.artifact_id in registro.versoes
         and _integridade(registro, o) in _INTEGRAS
     ]
     distintos = frozenset(o.artifact_id for o in integras if o.artifact_id is not None)
@@ -101,6 +106,9 @@ def _estado_multipartes(
             EstadoSelecao.INCOMPLETA,
             f"partes_sem_declaracao completude=INDETERMINADA partes={listadas}",
         )
+    extras = {p or "" for p in partes} - esperadas
+    if extras:
+        return EstadoSelecao.INCOMPLETA, f"partes_nao_declaradas extras={','.join(sorted(extras))}"
     faltantes = esperadas - {p for p in integras if p is not None}
     if faltantes:
         return EstadoSelecao.INCOMPLETA, f"partes_ausentes ausentes={','.join(sorted(faltantes))}"
@@ -115,6 +123,8 @@ def _estado_combinado(
         return EstadoSelecao.AMBIGUA, "republicacao_com_conteudo_divergente"
     if EstadoSelecao.EM_QUARENTENA in estados:
         return EstadoSelecao.EM_QUARENTENA, "conteudo_em_quarentena"
+    if estados == {EstadoSelecao.AUSENTE}:
+        return EstadoSelecao.AUSENTE, "sem_conteudo_obtido"
     if any(parte is not None for parte in partes):
         return _estado_multipartes(partes, esperadas)
     if EstadoSelecao.SELECIONADA in estados:
@@ -184,20 +194,28 @@ def selecionar_versao(
         artefatos=tuple(artefatos),
         observacoes=tuple(sorted({o for p in partes.values() for o in p.observacoes})),
     )
-    selecao.confere(registro.versoes[a] for a in artefatos if a in registro.versoes)
+    if estado in _COM_CONTEUDO_INTEGRO:
+        selecao.confere(registro.versoes[a] for a in artefatos)
     return selecao
 
 
-def criterio_ou_motivo(politica: PoliticaTemporal, fonte: FamiliaFonte) -> CriterioTemporal | str:
-    """Critério da política para a fonte, ou o motivo da abstenção (política sem suporte)."""
+def criterio_da_fonte(politica: PoliticaTemporal, fonte: FamiliaFonte) -> CriterioTemporal | None:
+    """Critério da política para a fonte; None em política NAO_RESOLVIDA ou sem critério."""
     if politica.tipo is TipoPolitica.NAO_RESOLVIDA:
-        return f"politica_nao_resolvida politica={politica.politica_id}"
+        return None
+    return next((c for c in politica.criterios if c.fonte is fonte), None)
+
+
+def motivo_sem_criterio(fonte: FamiliaFonte) -> str:
+    """Mesmo texto do motor (`rules/preparo.py`) para política sem critério para a fonte."""
+    return f"politica_sem_criterio_para_a_fonte fonte={fonte}"
+
+
+def motivo_pendencia(politica: PoliticaTemporal) -> str | None:
+    """Política com documento pendente não seleciona, mas mantém base e competência requerida."""
     if politica.documento_pendente:
         return f"politica_documento_pendente politica={politica.politica_id}"
-    for criterio in politica.criterios:
-        if criterio.fonte is fonte:
-            return criterio
-    return f"politica_sem_criterio politica={politica.politica_id} fonte={fonte}"
+    return None
 
 
 def fontes_auxiliares(rule: RuleSpec) -> list[FamiliaFonte]:
@@ -220,14 +238,24 @@ def _selecao_do_registro(
     contexto: tuple[RegistroTemporal, str | None, datetime | None],
 ) -> SelecaoVersao:
     registro, uf, corte = contexto
-    criterio = criterio_ou_motivo(politica, fonte)
-    if isinstance(criterio, str):
-        return nao_resolvida(fonte, criterio)
+    criterio = criterio_da_fonte(politica, fonte)
+    if criterio is None:
+        return nao_resolvida(fonte, motivo_sem_criterio(fonte))
     base = _competencia_base(record, criterio.base)
     if base is None:
         return nao_resolvida(fonte, f"competencia_base_ausente base={criterio.base}")
     requerida = CompetenciaArquivo(base).deslocar(criterio.deslocamento_meses)
+    pendencia = motivo_pendencia(politica)
+    if pendencia is not None:
+        return _selecao(criterio, requerida, EstadoSelecao.NAO_RESOLVIDA, pendencia)
     return selecionar_versao(registro, criterio, requerida, uf=uf, corte=corte)
+
+
+def _uf_da_execucao(config: RunConfig) -> str | None:
+    """UF do piloto ou da vigilância; sem nenhuma, só fontes nacionais são consultadas."""
+    if config.piloto is not None:
+        return config.piloto.uf
+    return config.vigilancia.uf if config.vigilancia is not None else None
 
 
 def _ordenados(selecoes: Iterable[SelecaoVersao], campo: str) -> tuple[str, ...]:
@@ -258,7 +286,7 @@ def select_snapshots(
     if registro is None:
         caminho = Path(config.runtime.raiz_manifestos) / NOME_MANIFESTO_AQUISICAO
         registro = RegistroTemporal.de_manifesto(caminho)
-    uf = config.piloto.uf if config.piloto is not None else None
+    uf = _uf_da_execucao(config)
     corte = config.corte_observacao
     contexto = (registro, uf, corte)
     selecoes = tuple(
@@ -274,5 +302,38 @@ def select_snapshots(
     )
 
 
+def _ordem(selecao: SelecaoVersao) -> tuple[str, ...]:
+    base = "" if selecao.base is None else selecao.base.value
+    competencia = (
+        "" if selecao.competencia_requerida is None else selecao.competencia_requerida.valor
+    )
+    return (selecao.fonte.value, base, competencia, selecao.estado.value, selecao.motivo)
+
+
 def unir_snapshots(conjuntos: Iterable[SnapshotSet]) -> SnapshotSet:
-    raise NotImplementedError
+    """`SnapshotSet` da execução: uma seleção por chave (fonte, base, competência requerida).
+
+    Seleções iguais de registros diferentes se fundem; duas decisões diferentes para a mesma
+    chave, ou cortes diferentes, são erro (o motor recusa chave repetida).
+
+    Raises:
+        ValueError: conjuntos com cortes diferentes ou decisões divergentes na mesma chave.
+    """
+    lista = list(conjuntos)
+    cortes = {c.corte_observacao for c in lista}
+    if len(cortes) > 1:
+        raise ValueError("snapshots_com_cortes_diferentes")
+    unicas = {s for c in lista for s in c.selecoes}
+    chaves = [(s.fonte, s.base, s.competencia_requerida) for s in unicas if s.base is not None]
+    if len(chaves) != len(set(chaves)):
+        raise ValueError("snapshots_com_decisoes_divergentes_na_mesma_chave")
+    selecoes = tuple(sorted(unicas, key=_ordem))
+    corte = next(iter(cortes), None)
+    return SnapshotSet.criar(
+        artifact_ids=_ordenados(selecoes, "artifact_ids"),
+        observation_ids=_ordenados(selecoes, "observation_ids"),
+        dataset_hashes=(),
+        selecoes=selecoes,
+        corte_observacao=corte,
+        congelado=corte is not None,
+    )

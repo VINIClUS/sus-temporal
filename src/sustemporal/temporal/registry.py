@@ -63,14 +63,17 @@ class RegistroTemporal:
     def observacoes_de(
         self, fonte: FamiliaFonte, uf: str | None, competencia: CompetenciaArquivo
     ) -> tuple[ArtifactObservation, ...]:
-        """Observações de arquivos publicados (não listagens) da competência exata, por instante."""
+        """Observações de arquivos publicados (não listagens) da competência exata, por instante.
+
+        Arquivo com UF só vale para a mesma UF; sem UF pedida, só fontes nacionais (sem UF).
+        """
         escolhidas = [
             o
             for o in self.observacoes
             if o.chave.tipo_conteudo is None
             and o.chave.fonte is fonte
             and o.chave.competencia_arquivo == competencia
-            and (o.chave.uf is None or uf is None or o.chave.uf == uf)
+            and (o.chave.uf is None or o.chave.uf == uf)
         ]
         return tuple(sorted(escolhidas, key=lambda o: (o.observado_em, o.observation_id)))
 

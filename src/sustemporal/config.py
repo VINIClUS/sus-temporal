@@ -35,7 +35,23 @@ def _ler_mapa(caminho: Path) -> dict[str, Any]:
     return conteudo
 
 
-def _resolver(caminho: Path, nivel: int) -> dict[str, Any]:
+def _recusar_nulos(conteudo: dict[str, Any], caminho: Path, prefixo: str = "") -> None:
+    for chave, valor in conteudo.items():
+        nome = f"{prefixo}{chave}"
+        if valor is None:
+            raise ConfigInvalida(f"config_null_nao_permitido chave={nome} caminho={caminho}")
+        if isinstance(valor, dict):
+            _recusar_nulos(valor, caminho, f"{nome}.")
+
+
+def _caminho_da_base(caminho: Path, base: str, raiz: Path) -> Path:
+    destino = (caminho.parent / base).resolve()
+    if Path(base).is_absolute() or not destino.is_relative_to(raiz):
+        raise ConfigInvalida(f"config_base_fora_do_diretorio caminho={caminho} base={base}")
+    return destino
+
+
+def _resolver(caminho: Path, nivel: int, raiz: Path) -> dict[str, Any]:
     if nivel > _MAX_NIVEIS_BASE:
         raise ConfigInvalida(f"config_base_profunda_demais caminho={caminho}")
     conteudo = _ler_mapa(caminho)
@@ -44,16 +60,22 @@ def _resolver(caminho: Path, nivel: int) -> dict[str, Any]:
         return conteudo
     if not isinstance(base, str):
         raise ConfigInvalida(f"config_base_invalida caminho={caminho}")
-    return _mesclar(_resolver(caminho.parent / base, nivel + 1), conteudo)
+    _recusar_nulos(conteudo, caminho)
+    anterior = _resolver(_caminho_da_base(caminho, base, raiz), nivel + 1, raiz)
+    return _mesclar(anterior, conteudo)
 
 
 def load_config(path: Path) -> RunConfig:
     """Lê e valida uma configuração antes de qualquer processamento.
 
+    `base:` é relativa e não sai do diretório da config raiz; a filha não usa null.
+
     Raises:
-        ConfigInvalida: arquivo ausente, ilegível ou inválido segundo `RunConfig`.
+        ConfigInvalida: arquivo ausente, ilegível, herança recusada ou inválido segundo
+            `RunConfig`.
     """
+    caminho = Path(path)
     try:
-        return RunConfig.model_validate(_resolver(Path(path), 0))
+        return RunConfig.model_validate(_resolver(caminho, 0, caminho.parent.resolve()))
     except ValidationError as erro:
         raise ConfigInvalida(f"config_invalida caminho={path} erro={erro}") from erro

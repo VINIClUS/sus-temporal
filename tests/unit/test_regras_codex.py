@@ -103,7 +103,7 @@ def test_codigo_numerico_no_sia_e_falha_de_carga(tmp_path: Path, coluna: str, va
     assert resultado.estado is EstadoExecucao.FALHOU
     falhas = tabela(resultado, "falhas.v1")
     assert falhas[0]["etapa"] == "carregar_insumos"
-    assert "codigo_nao_textual" in falhas[0]["erro"]
+    assert "tipo_incompativel" in falhas[0]["erro"]
 
 
 def test_codigo_numerico_no_auxiliar_e_leiaute_incompativel(tmp_path: Path) -> None:

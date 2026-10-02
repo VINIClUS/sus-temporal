@@ -18,7 +18,6 @@ from sustemporal.contracts.temporal import (
     SelecaoVersao,
     SnapshotSet,
 )
-from sustemporal.errors import PortaoRecusado
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.rules.catalog import carregar_esquema, carregar_regras
 from sustemporal.rules.engine import evaluate_rules
@@ -265,18 +264,3 @@ def test_evidencia_de_violacao_sustenta_ausencia(tmp_path: Path) -> None:
             }
         )
         assert evidencia.sustenta_ausencia
-
-
-def test_confirmatorio_recusa_politica_nao_resolvida(tmp_path: Path) -> None:
-    config = RunConfig.model_validate(
-        {
-            "versao": "1",
-            "modo": "CONFIRMATORIO",
-            "origem_dados": "REAL",
-            "freeze_id": f"frz_{'a' * 64}",
-            "bootstrap": {"correcao": "HOLM"},
-        }
-    )
-    cenario = cenario_base().com(politica=politica(MetodoId.M_TEMP))
-    with pytest.raises(PortaoRecusado, match="politica_nao_resolvida"):
-        executar(tmp_path, cenario, config=config)

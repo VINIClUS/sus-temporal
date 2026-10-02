@@ -14,6 +14,7 @@ from sustemporal.contracts.temporal import (
     PoliticaTemporal,
     TipoPolitica,
 )
+from sustemporal.gates import DIR_DECISOES
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -56,6 +57,7 @@ class InsumosAvaliacao:
     integridade: Mapping[str, EstadoIntegridade] = field(default_factory=dict)
     politica: PoliticaTemporal | None = None
     raiz_codigo: Path = field(default_factory=Path)
+    diretorio_decisoes: Path = DIR_DECISOES
 
 
 def _fontes_auxiliares(regras: list[RuleSpec]) -> list[FamiliaFonte]:

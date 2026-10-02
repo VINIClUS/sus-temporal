@@ -277,3 +277,15 @@ def test_fidelidade_detecta_contagem_de_deletados_informada_errada(n_deletados: 
     relatorio = verificar_fidelidade(dbc, leitura, "COMPLETA")
     assert not relatorio.fiel
     assert any(d.startswith("contagens_divergentes") for d in relatorio.divergencias)
+
+
+def test_fidelidade_detecta_flags_de_delecao_trocados_entre_registros_identicos() -> None:
+    dbf = escrever_dbf(CAMPOS, [("0000001", "1"), ("0000001", "1")], deletados={0})
+    dbc = dbf_para_dbc(dbf)
+    leitura = ler_dbc(dbc).leitura
+    tabela = _adulterar(
+        _adulterar(leitura.tabela, COLUNA_DELETADO, 0, False), COLUNA_DELETADO, 1, True
+    )
+    relatorio = verificar_fidelidade(dbc, dataclasses.replace(leitura, tabela=tabela), "COMPLETA")
+    assert not relatorio.fiel
+    assert any(d.startswith("flags_delecao_divergentes") for d in relatorio.divergencias)

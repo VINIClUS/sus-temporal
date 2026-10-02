@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import shlex
+import subprocess
 import sys
 
 _OPERADORES = {"&&", "||", ";", "|", "&", ";;", "|&"}
@@ -22,12 +23,15 @@ _INTERPRETADORES = {"bash", "sh", "zsh", "dash", "ksh"}
 _OPCOES_SHELL_COM_VALOR = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
 _FLAGS_PERIGOSAS = {"--delete", "--mirror", "--all", "--tags", "--prune"}
 _CURTAS_PERIGOSAS = re.compile(r"^-[a-zA-Z]*[fd][a-zA-Z]*$")
-_ALVOS_PROIBIDOS = {"main", "refs/heads/main"}
+_ALVOS_PROIBIDOS = {"main", "heads/main", "refs/heads/main"}
+_OPCOES_PUSH_COM_VALOR = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+_ORIGENS_IMPLICITAS = {"HEAD", "@"}
 
 
 def _tokens(comando: str) -> list[str]:
     lexer = shlex.shlex(comando, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
+    lexer.commenters = ""
     try:
         return list(lexer)
     except ValueError:
@@ -86,7 +90,44 @@ def _push_perigoso(tokens: list[str], posicao_git: int) -> bool:
         return _alias_perigoso(aliases[subcomando.lower()], resto)
     if subcomando != "push":
         return False
-    return any(_argumento_perigoso(token) for token in resto)
+    if any(_argumento_perigoso(token) for token in resto):
+        return True
+    return _destino_implicito_perigoso(_posicionais_push(resto))
+
+
+def _posicionais_push(argumentos: list[str]) -> list[str]:
+    posicionais: list[str] = []
+    indice = 0
+    while indice < len(argumentos):
+        argumento = argumentos[indice]
+        if argumento in _OPCOES_PUSH_COM_VALOR:
+            indice += 2
+            continue
+        if not argumento.startswith("-"):
+            posicionais.append(argumento)
+        indice += 1
+    return posicionais
+
+
+def _git(*argumentos: str) -> str:
+    try:
+        resultado = subprocess.run(
+            ["git", *argumentos], capture_output=True, text=True, timeout=10, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return resultado.stdout.strip() if resultado.returncode == 0 else ""
+
+
+def _destino_implicito_perigoso(posicionais: list[str]) -> bool:
+    refspecs = posicionais[1:]
+    implicitos = [r for r in refspecs if r.lstrip("+") in _ORIGENS_IMPLICITAS]
+    if refspecs and not implicitos:
+        return False
+    if _git("rev-parse", "--abbrev-ref", "HEAD") == "main":
+        return True
+    upstream = _git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    return not refspecs and upstream.endswith("/main")
 
 
 def _comando_do_interpretador(argumentos: list[str]) -> str | None:

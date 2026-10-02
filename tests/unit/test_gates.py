@@ -77,3 +77,38 @@ def test_confirmatorio_com_sintetico_e_recusado(tmp_path: Path) -> None:
         exigir_confirmatorio_valido(config, OrigemDados.SINTETICO)
     with pytest.raises(PortaoRecusado):
         exigir_confirmatorio_valido(config, OrigemDados.REAL)
+
+
+def test_decisao_posterior_que_nao_libera_prevalece(tmp_path: Path) -> None:
+    _decisao(tmp_path, "g0_1.yaml", G0_CONTINUAR)
+    reformular = G0_CONTINUAR.replace("CONTINUAR", "REFORMULAR").replace("2027-01-15", "2027-02-01")
+    _decisao(tmp_path, "g0_2.yaml", reformular)
+    with pytest.raises(PortaoRecusado, match="portao_ultima_decisao_nao_libera"):
+        exigir_portao(tmp_path, Portao.G0)
+
+
+def test_decisoes_divergentes_na_data_mais_recente_recusam(tmp_path: Path) -> None:
+    _decisao(tmp_path, "g0_1.yaml", G0_CONTINUAR)
+    _decisao(tmp_path, "g0_2.yaml", G0_CONTINUAR.replace("CONTINUAR", "REFORMULAR"))
+    with pytest.raises(PortaoRecusado, match="portao_decisoes_empatadas"):
+        exigir_portao(tmp_path, Portao.G0)
+
+
+def test_g2_adiado_depois_de_aberto_recusa_o_mesmo_congelamento(tmp_path: Path) -> None:
+    g2 = (
+        "portao: G2\ndecisao: DECISAO\ndata: DATA\nresponsaveis: [orientacao]\n"
+        "registrado_por_humano: true\nfreeze_id: FREEZE\n"
+    ).replace("FREEZE", FREEZE)
+    _decisao(
+        tmp_path, "g2_1.yaml", g2.replace("DECISAO", "ABRIR_TESTE").replace("DATA", "2027-06-01")
+    )
+    _decisao(tmp_path, "g2_2.yaml", g2.replace("DECISAO", "ADIAR").replace("DATA", "2027-06-10"))
+    with pytest.raises(PortaoRecusado, match="portao_ultima_decisao_nao_libera"):
+        exigir_portao(tmp_path, Portao.G2, freeze_id=FREEZE)
+
+
+@pytest.mark.parametrize("conteudo", ["portao: [G0\n", "portao: G0\n\x07\n"])
+def test_decisao_ilegivel_recusa_portao(tmp_path: Path, conteudo: str) -> None:
+    _decisao(tmp_path, "g0.yaml", conteudo)
+    with pytest.raises(PortaoRecusado, match="decisao_invalida"):
+        exigir_portao(tmp_path, Portao.G0)

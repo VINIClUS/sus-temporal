@@ -46,6 +46,13 @@ def _executar(comando: str) -> subprocess.CompletedProcess[str]:
         "git --git-dir=.git --work-tree=. push origin main",
         "/usr/bin/git push origin main",
         "env GIT_TRACE=1 git push -f origin claude/s1-x",
+        "bash -lc 'git push origin main'",
+        "bash -ec 'git push -f origin claude/s1-x'",
+        "bash -c -e 'git push origin main'",
+        "bash -o pipefail -c 'git push origin main'",
+        "eval 'git push --force origin claude/s1-x'",
+        "git -c alias.p=push p -f origin claude/s1-x",
+        "git -c alias.p=push p origin main",
     ],
 )
 def test_push_perigoso_e_bloqueado(comando: str) -> None:
@@ -67,6 +74,10 @@ def test_push_perigoso_e_bloqueado(comando: str) -> None:
         "git fetch origin main",
         "git merge --no-edit origin/main",
         "echo 'git push origin main' > notas.txt",
+        "bash -lc 'git status'",
+        "bash -c 'git push -u origin claude/s1-x'",
+        "git commit -m 'bloqueia git push origin main'",
+        "git -c alias.st=status st",
     ],
 )
 def test_comando_seguro_e_permitido(comando: str) -> None:

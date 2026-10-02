@@ -103,3 +103,10 @@ def test_modulo_do_comando_pode_acrescentar_argumentos(
 def test_validate_exige_politica_do_plano(config_valida: Path) -> None:
     with pytest.raises(SystemExit):
         cli.main(["validate", "--config", str(config_valida), "--policy", "mes_vizinho"])
+
+
+@pytest.mark.parametrize("conteudo", ["versao: [\n", "versao: \x07\n"])
+def test_yaml_malformado_retorna_config_invalida(tmp_path: Path, conteudo: str) -> None:
+    config = tmp_path / "c.yaml"
+    config.write_text(conteudo, encoding="utf-8")
+    assert cli.main(["ingest", "--config", str(config)]) == ExitCode.CONFIG_INVALIDA

@@ -70,6 +70,24 @@ sintéticas, stubs, fixtures).
   --locked` → `bash scripts/ci.sh` → push. Após squash merge de um PR, continuar no MESMO branch
   depois de mesclar `origin/main`.
 
+## Guardas automáticas
+- Git: o hook PreToolUse do Bash (`.claude/hooks/bloquear_push_perigoso.py`) e o `pre-push` do
+  git (`.githooks/pre-push`, ativado pelo SessionStart com `git config core.hooksPath .githooks`)
+  recusam push forçado ou não fast-forward, remoção de ref e push para `main`. O hook do Bash
+  recusa também `git push --no-verify`, troca de `core.hooksPath` por `-c`/`--config-env`,
+  `git send-pack`, `gh pr merge` e `gh api` com `DELETE` ou caminho com `/merge`, `/merges` ou
+  `/git/refs`.
+- MCP do GitHub: o hook PreToolUse `.claude/hooks/bloquear_mcp_github.py` (matcher
+  `mcp__github__.*`) recusa `merge_pull_request`, `enable_pr_auto_merge` e `delete_file`, e
+  qualquer ferramenta cujo `tool_input` tenha `branch`, `ref` ou `head` igual a `main` ou
+  `refs/heads/main` (ex.: `create_or_update_file`, `push_files`, `create_branch`). `from_branch` e
+  `base` não contam: `create_pull_request` com `base: main` segue permitido. Recusa: saída 2 com
+  `mcp_bloqueado motivo=…` no stderr.
+- Exceção: só o orquestrador, com `SUSTEMPORAL_PAPEL=orquestrador` no ambiente do processo do
+  Claude Code (o hook herda esse ambiente), pode `merge_pull_request`. Sessões-filhas não definem
+  essa variável. Escrita direta em `main` continua recusada para todos.
+- Guarda que recusa uma ação legítima: comentário `BLOQUEIO:` no PR; nunca contornar.
+
 ## Contratos
 - Mudança aditiva (campo opcional com default, tipo novo no `__all__`) só no módulo de contrato que
   a sessão possui. Em contrato cuja identidade deriva do conteúdo (`artifact_id`, cadeia do

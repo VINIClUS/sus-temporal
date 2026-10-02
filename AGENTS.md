@@ -95,6 +95,11 @@ uv run sustemporal --help               # CLI
   do Bash ainda recusa `git push --no-verify`, `core.hooksPath` trocado por `-c`/`--config-env`,
   `git send-pack`, `gh pr merge` e `gh api` com `DELETE` ou caminho com `/merge`, `/merges` ou
   `/git/refs`.
+- Ferramentas MCP do GitHub passam pela guarda `.claude/hooks/bloquear_mcp_github.py`:
+  `merge_pull_request`, `enable_pr_auto_merge` e `delete_file` são recusadas, assim como qualquer
+  chamada com `branch`, `ref` ou `head` igual a `main`. Só o orquestrador
+  (`SUSTEMPORAL_PAPEL=orquestrador` no ambiente do processo) pode `merge_pull_request`; escrita
+  direta em `main` é recusada para todos.
 - Nunca force-push, rebase de commits publicados, commit direto em `main` ou merge de PR por
   sessões-filhas. Atualizar com `git fetch origin && git merge --no-edit origin/main`.
 - PR em rascunho até ficar pronto (rascunho não roda CI); corpo segue

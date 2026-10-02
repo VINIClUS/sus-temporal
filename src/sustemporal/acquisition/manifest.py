@@ -124,12 +124,16 @@ class Manifesto:
             raise ManifestoCorrompido(f"manifesto_ancora_ilegivel caminho={self.ancora}") from erro
 
     def _conferir_ancora(self, estado: EstadoManifesto) -> None:
-        if not estado.linhas:
+        """Âncora 0 marca manifesto criado sem linha confirmada; nunca à frente do arquivo."""
+        if not self.ancora.exists():
+            if estado.linhas:
+                raise ManifestoCorrompido(f"manifesto_sem_ancora caminho={self.ancora}")
             return
         sequencia, sha256 = self._ler_ancora()
-        if not isinstance(sequencia, int) or not 1 <= sequencia <= len(estado.linhas):
+        if not isinstance(sequencia, int) or not 0 <= sequencia <= len(estado.linhas):
             raise ManifestoCorrompido(f"manifesto_ancora_alem_do_fim sequencia={sequencia}")
-        if estado.linhas[sequencia - 1].sha256() != sha256:
+        esperado = estado.linhas[sequencia - 1].sha256() if sequencia else None
+        if esperado != sha256:
             raise ManifestoCorrompido(f"manifesto_ancora_divergente sequencia={sequencia}")
 
     def ler(self) -> EstadoManifesto:
@@ -153,17 +157,19 @@ class Manifesto:
             return
         estado = _verificar(completas.splitlines())
         self._conferir_ancora(estado)
-        if estado.linhas and self._ler_ancora()[0] != len(estado.linhas):
+        if self._ler_ancora()[0] != len(estado.linhas):
             raise ManifestoCorrompido(f"manifesto_fragmento_sem_ancora caminho={self.caminho}")
         destino = self.caminho.with_name(f"{self.caminho.name}.fragmento.{len(estado.linhas)}")
         destino.write_text(fragmento, encoding="utf-8")
         os.truncate(self.caminho, len(completas.encode("utf-8")))
         logger.warning("manifesto_fragmento_separado destino=%s", destino)
 
-    def _gravar_ancora(self, linha: LinhaManifesto) -> None:
+    def _gravar_ancora(self, sequencia: int, sha256: str | None) -> None:
         temporario = self.ancora.with_name(f"{self.ancora.name}.tmp")
-        conteudo = {"sequencia": linha.sequencia, "sha256": linha.sha256()}
-        temporario.write_text(json.dumps(conteudo), encoding="utf-8")
+        with temporario.open("w", encoding="utf-8") as arquivo:
+            arquivo.write(json.dumps({"sequencia": sequencia, "sha256": sha256}))
+            arquivo.flush()
+            os.fsync(arquivo.fileno())
         os.replace(temporario, self.ancora)
 
     @contextlib.contextmanager
@@ -198,12 +204,14 @@ class Manifesto:
         with self._travado():
             self._separar_fragmento()
             estado = self.ler()
+            if not estado.linhas and not self.ancora.exists():
+                self._gravar_ancora(0, None)
             novas = self._novas_linhas(estado, observacao, versao)
             with self.caminho.open("a", encoding="utf-8") as arquivo:
                 arquivo.writelines(f"{linha.model_dump_json()}\n" for linha in novas)
                 arquivo.flush()
                 os.fsync(arquivo.fileno())
-            self._gravar_ancora(novas[-1])
+            self._gravar_ancora(novas[-1].sequencia, novas[-1].sha256())
         logger.info(
             "manifesto_registrado observacao=%s resultado=%s artefato=%s",
             observacao.observation_id,

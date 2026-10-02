@@ -24,6 +24,7 @@ _BOM = b"\xef\xbb\xbf"
 _VERSOES_DBF = {0x03, 0x83}
 _TERMINADOR_DBF = 0x0D
 _CABECALHO_DBF_MINIMO = 33
+_CAUDA_PDF = 1024
 _ASSINATURAS_ZIP = (b"PK\x03\x04", b"PK\x05\x06")
 _DRIVE = re.compile(r"^[A-Za-z]:")
 _CRIPTOGRAFADO = 0x1
@@ -150,7 +151,12 @@ def _validar_zip(amostra: _Amostra) -> Veredito:
 
 
 def _validar_pdf(amostra: _Amostra) -> Veredito:
-    return _OK if amostra.inicio.startswith(b"%PDF-") else _inesperado("assinatura_pdf_ausente")
+    if not amostra.inicio.startswith(b"%PDF-"):
+        return _inesperado("assinatura_pdf_ausente")
+    with amostra.caminho.open("rb") as arquivo:
+        arquivo.seek(max(0, amostra.tamanho - _CAUDA_PDF))
+        cauda = arquivo.read()
+    return _OK if b"%%EOF" in cauda else _truncado("pdf_sem_marcador_final")
 
 
 _VALIDADORES: dict[FormatoArquivo, Callable[[_Amostra], Veredito]] = {

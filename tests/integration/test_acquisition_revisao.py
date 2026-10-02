@@ -235,13 +235,18 @@ def test_queda_antes_da_primeira_ancora_nao_bloqueia_o_manifesto(
 ) -> None:
     store = tmp_path / "store"
 
-    def cair(*_args: object) -> None:
-        raise KeyboardInterrupt
+    original = Manifesto._gravar_ancora
+
+    def cair(manifesto: Manifesto, sequencia: int, sha256: str | None) -> None:
+        if sequencia > 0:
+            raise KeyboardInterrupt
+        original(manifesto, sequencia, sha256)
 
     with monkeypatch.context() as contexto:
         contexto.setattr(Manifesto, "_gravar_ancora", cair)
         with pytest.raises(KeyboardInterrupt):
             fetch_source(_local(tmp_path, dbc_sintetico("A"), FormatoArquivo.DBC), store)
+    assert (store / "manifesto.jsonl").read_text(encoding="utf-8")
     observacao = fetch_source(_local(tmp_path, dbc_sintetico("B"), FormatoArquivo.DBC), store)
     assert Manifesto(store / "manifesto.jsonl").ler().observacoes[-1] == observacao
 

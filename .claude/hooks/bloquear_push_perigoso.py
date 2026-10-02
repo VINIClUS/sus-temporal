@@ -43,59 +43,23 @@ _COMANDOS_DE_DIRETORIO = {"cd", "pushd"}
 _CARACTERES_INDETERMINADOS = "$~`"
 _ABERTURAS_DE_SUBSTITUICAO = ("$(", "`", "<(", ">(")
 _SINTAXE_DE_SUBSTITUICAO = re.compile(r"\$\(|[<>]\(|[`\"'()]")
+_EXPANSIVEIS = frozenset("$`{*?[")
+_INVOLUCROS = frozenset(
+    {"env", "command", "exec", "nohup", "sudo", "time", "nice", "xargs", "timeout", "stdbuf"}
+)
+_ATRIBUICAO = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_CONFIG_POR_AMBIENTE = re.compile(r"^GIT_CONFIG_(COUNT|PARAMETERS|GLOBAL|SYSTEM|KEY_\d+|VALUE_\d+)=")
+_REMOCOES_DE_CONFIG = frozenset(
+    {"--unset", "--unset-all", "--remove-section", "--rename-section", "unset", "remove-section"}
+)
+_HOOKS_DO_REPOSITORIO = ".githooks"
 _SUBCOMANDOS_NATIVOS = frozenset(
-    [
-        "add",
-        "am",
-        "apply",
-        "archive",
-        "bisect",
-        "blame",
-        "branch",
-        "cat-file",
-        "checkout",
-        "cherry-pick",
-        "clean",
-        "clone",
-        "commit",
-        "config",
-        "describe",
-        "diff",
-        "fetch",
-        "for-each-ref",
-        "format-patch",
-        "gc",
-        "grep",
-        "hash-object",
-        "init",
-        "log",
-        "ls-files",
-        "ls-remote",
-        "ls-tree",
-        "merge",
-        "mv",
-        "notes",
-        "pull",
-        "rebase",
-        "reflog",
-        "remote",
-        "reset",
-        "restore",
-        "rev-list",
-        "rev-parse",
-        "rm",
-        "shortlog",
-        "show",
-        "show-ref",
-        "stash",
-        "status",
-        "submodule",
-        "switch",
-        "symbolic-ref",
-        "tag",
-        "update-ref",
-        "worktree",
-    ]
+    """
+    add am apply archive bisect blame branch cat-file checkout cherry-pick clean clone commit
+    config describe diff fetch for-each-ref format-patch gc grep hash-object init log ls-files
+    ls-remote ls-tree merge mv notes pull rebase reflog remote reset restore rev-list rev-parse
+    rm shortlog show show-ref stash status submodule switch symbolic-ref tag update-ref worktree
+    """.split()
 )
 _INDETERMINADO = "\x00indeterminado"
 _ALIAS_DESCONHECIDO = "\x00alias_desconhecido"
@@ -221,12 +185,30 @@ def _valor_de_config(opcoes: list[str], posicao: int) -> str | None:
     return None
 
 
+def _expansivel(token: str) -> bool:
+    return any(caractere in token for caractere in _EXPANSIVEIS)
+
+
 def _sobrescreve_hooks(opcoes: list[str]) -> bool:
     for posicao in range(len(opcoes)):
         valor = _valor_de_config(opcoes, posicao)
-        if valor is not None and valor.partition("=")[0].strip().lower() == _CHAVE_HOOKS:
+        if valor is None:
+            continue
+        if _expansivel(valor) or valor.partition("=")[0].strip().lower() == _CHAVE_HOOKS:
             return True
     return False
+
+
+def _config_de_hooks_perigosa(argumentos: list[str]) -> bool:
+    minusculos = [argumento.lower() for argumento in argumentos]
+    if not any(_CHAVE_HOOKS in argumento for argumento in minusculos):
+        return False
+    if any(a in _REMOCOES_DE_CONFIG or _expansivel(a) for a in minusculos):
+        return True
+    posicionais = [argumento for argumento in argumentos if not argumento.startswith("-")]
+    chave = next(i for i, a in enumerate(posicionais) if _CHAVE_HOOKS in a.lower())
+    valor = posicionais[chave + 1 : chave + 2]
+    return bool(valor) and valor[0] != _HOOKS_DO_REPOSITORIO
 
 
 def _alias_perigoso(expansao: str, resto: list[str], contexto: _Contexto) -> bool:
@@ -245,17 +227,19 @@ def _git_perigoso(tokens: list[str], posicao_git: int, contexto: _Contexto) -> b
     if indice >= len(tokens):
         return False
     subcomando, resto = tokens[indice], tokens[indice + 1 :]
-    if subcomando in _SUBCOMANDOS_PROIBIDOS:
+    if _expansivel(subcomando) or subcomando in _SUBCOMANDOS_PROIBIDOS:
         return True
     if subcomando == "push":
         return _push_perigoso(resto, contexto)
+    if subcomando == "config":
+        return _config_de_hooks_perigosa(resto)
     if subcomando.lower() in aliases:
         return _alias_perigoso(aliases[subcomando.lower()], resto, contexto)
     return _alias_persistido_perigoso(subcomando, resto, contexto)
 
 
 def _push_perigoso(argumentos: list[str], contexto: _Contexto) -> bool:
-    if any(_argumento_perigoso(token) for token in argumentos):
+    if any(_expansivel(token) or _argumento_perigoso(token) for token in argumentos):
         return True
     posicionais = _posicionais(argumentos, _OPCOES_PUSH_COM_VALOR)
     return _destino_implicito_perigoso(posicionais, contexto)
@@ -403,13 +387,50 @@ def _achatado(comando: str) -> str:
     return _SINTAXE_DE_SUBSTITUICAO.sub(" ", comando)
 
 
+def _posicoes_de_comando(segmento: list[str]) -> list[int]:
+    posicoes: list[int] = []
+    indice = 0
+    while indice < len(segmento):
+        token = segmento[indice]
+        if _ATRIBUICAO.match(token) or (posicoes and token.startswith("-")):
+            indice += 1
+            continue
+        posicoes.append(indice)
+        nome = token.rsplit("/", 1)[-1]
+        if nome == "uv" and segmento[indice + 1 : indice + 2] == ["run"]:
+            indice += 2
+        elif nome in _INVOLUCROS:
+            indice += 1
+        else:
+            break
+    return posicoes
+
+
+def _comando_indeterminado_perigoso(segmento: list[str], contexto: _Contexto) -> bool:
+    """Programa expansível em posição de comando é tratado como git (falha fechado)."""
+    for posicao in _posicoes_de_comando(segmento):
+        if any(caractere in segmento[posicao] for caractere in "$`"):
+            local = _com_ambiente(contexto, segmento[:posicao])
+            if _git_perigoso(segmento, posicao, local):
+                return True
+    return False
+
+
+def _segmento_perigoso(segmento: list[str], contexto: _Contexto) -> bool:
+    if _comando_indeterminado_perigoso(segmento, contexto):
+        return True
+    return any(_executavel_perigoso(segmento, p, contexto) for p in range(len(segmento)))
+
+
 def _segmentos_perigosos(comando: str, contexto: _Contexto) -> bool:
     atual = contexto
     for segmento in _segmentos(_tokens(comando)):
+        if any(_CONFIG_POR_AMBIENTE.match(token) for token in segmento):
+            return True
         novo = _contexto_do_segmento(segmento, atual)
         if novo is not None:
             atual = novo
-        elif any(_executavel_perigoso(segmento, p, atual) for p in range(len(segmento))):
+        elif _segmento_perigoso(segmento, atual):
             return True
     return False
 

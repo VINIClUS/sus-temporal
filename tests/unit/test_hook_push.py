@@ -189,6 +189,9 @@ def test_desvio_de_hooks_por_ambiente_ou_config_e_bloqueado(comando: str) -> Non
         "git config --get core.hooksPath",
         'echo "$HOME"',
         "GIT_TRACE=1 git status",
+        '[ -n "$X" ] && echo sim',
+        '[[ -z "$(git status --porcelain)" ]] || echo sujo',
+        "{ echo a; echo b; } > saida.txt",
     ],
 )
 def test_expansao_fora_de_push_continua_permitida(comando: str) -> None:

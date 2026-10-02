@@ -85,7 +85,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/bloquear-push-perigoso.sh"
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/bloquear_push_perigoso.py\""
           }
         ]
       }

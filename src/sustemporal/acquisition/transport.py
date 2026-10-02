@@ -5,6 +5,7 @@ from __future__ import annotations
 import contextlib
 import ftplib
 import os
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -33,6 +34,7 @@ __all__ = [
 ]
 
 _BLOCO = 1024 * 1024
+PRAZO_TOTAL = 4 * 3600.0
 _HTTP_AUSENTE = {404, 410}
 _CABECALHOS_HTTP = ("Content-Length", "Content-Type", "Last-Modified", "ETag")
 
@@ -80,6 +82,8 @@ class _Gravador:
         self.recebidos = 0
 
     def __call__(self, bloco: bytes) -> None:
+        if self.prazo is not None and time.monotonic() > self.prazo:
+            raise TransferenciaInterrompida("prazo_total_excedido", self.recebidos)
         if self.recebidos + len(bloco) > self.limite:
             raise LimiteExcedido(f"tamanho_maximo_excedido limite={self.limite}", self.recebidos)
         self.destino.write(bloco)
@@ -102,15 +106,26 @@ def _instante_iso(segundos: float) -> str:
     return datetime.fromtimestamp(segundos, UTC).isoformat()
 
 
+def _prazo(segundos: float | None) -> float | None:
+    return None if segundos is None else time.monotonic() + segundos
+
+
 class TransporteArquivo:
-    """Cópia local (`file://`), para testes e importação manual."""
+    """Cópia local (`file://`), para testes e importação manual.
+
+    Recusa link simbólico; com `raiz`, recusa caminho que resolva fora dela.
+    """
 
     def __init__(self, raiz: Path | None = None) -> None:
         self.raiz = raiz
 
-    @staticmethod
-    def _caminho(localizador: str) -> Path:
-        return Path(unquote(urlsplit(localizador).path))
+    def _caminho(self, localizador: str) -> Path:
+        caminho = Path(unquote(urlsplit(localizador).path))
+        if caminho.is_symlink():
+            raise ErroTransporte(f"link_simbolico_recusado caminho={caminho}")
+        if self.raiz is not None and not caminho.resolve().is_relative_to(self.raiz.resolve()):
+            raise ErroTransporte(f"caminho_fora_da_raiz caminho={caminho}")
+        return caminho
 
     def baixar(self, localizador: str, destino: BinaryIO, limite: int) -> Recebimento:
         caminho = self._caminho(localizador)
@@ -131,10 +146,11 @@ class TransporteArquivo:
 
 
 class TransporteFTP:
-    """FTP anônimo em modo passivo e binário."""
+    """FTP anônimo em modo passivo e binário, com prazo total por transferência."""
 
-    def __init__(self, timeout: float = 60.0) -> None:
+    def __init__(self, timeout: float = 60.0, prazo_total: float | None = PRAZO_TOTAL) -> None:
         self.timeout = timeout
+        self.prazo_total = prazo_total
 
     def _conectar(self, localizador: str) -> tuple[ftplib.FTP, str]:
         partes = urlsplit(localizador)
@@ -153,20 +169,38 @@ class TransporteFTP:
             tamanho = cliente.size(caminho)
         except ftplib.error_perm as erro:
             if str(erro).startswith("550"):
-                raise RecursoNaoEncontrado(f"ftp_inexistente caminho={caminho}") from erro
+                raise RecursoNaoEncontrado(
+                    f"ftp_inexistente caminho={caminho} resposta={erro}"
+                ) from erro
         if tamanho is not None:
             metadados["tamanho"] = str(tamanho)
         with contextlib.suppress(ftplib.error_perm, ftplib.error_reply):
             metadados["mdtm"] = cliente.voidcmd(f"MDTM {caminho}").split(" ", 1)[-1]
         return tamanho, metadados
 
+    @staticmethod
+    def _transferir(
+        cliente: ftplib.FTP, caminho: str, gravador: _Gravador
+    ) -> tuple[int | None, dict[str, str]]:
+        """RETR sem QUIT no fim: o fechamento não troca a causa (limite, prazo) por um 426."""
+        try:
+            tamanho, metadados = TransporteFTP._metadados(cliente, caminho)
+            if tamanho is not None and tamanho > gravador.limite:
+                raise LimiteExcedido(
+                    f"tamanho_maximo_excedido limite={gravador.limite} anunciado={tamanho}"
+                )
+            cliente.retrbinary(f"RETR {caminho}", gravador, blocksize=_BLOCO)
+        finally:
+            cliente.close()
+        return tamanho, metadados
+
     def baixar(self, localizador: str, destino: BinaryIO, limite: int) -> Recebimento:
-        gravador = _Gravador(destino, limite)
+        gravador = _Gravador(destino, limite, prazo=_prazo(self.prazo_total))
         try:
             cliente, caminho = self._conectar(localizador)
-            with cliente:
-                tamanho, metadados = self._metadados(cliente, caminho)
-                cliente.retrbinary(f"RETR {caminho}", gravador, blocksize=_BLOCO)
+            tamanho, metadados = self._transferir(cliente, caminho, gravador)
+        except ErroTransporte:
+            raise
         except (OSError, EOFError, ftplib.Error) as erro:
             raise _falha(erro, gravador.recebidos) from erro
         return Recebimento(gravador.recebidos, tamanho, metadados)
@@ -206,8 +240,9 @@ class RedirecionamentoSoHTTPS(urllib.request.HTTPRedirectHandler):
 class TransporteHTTPS:
     """HTTPS com timeout; não lista diretórios; a URL final fica nos metadados."""
 
-    def __init__(self, timeout: float = 60.0) -> None:
+    def __init__(self, timeout: float = 60.0, prazo_total: float | None = PRAZO_TOTAL) -> None:
         self.timeout = timeout
+        self.prazo_total = prazo_total
         self._abridor = urllib.request.build_opener(RedirecionamentoSoHTTPS())
 
     def _abrir(self, requisicao: urllib.request.Request) -> Any:
@@ -216,7 +251,7 @@ class TransporteHTTPS:
     def baixar(self, localizador: str, destino: BinaryIO, limite: int) -> Recebimento:
         if urlsplit(localizador).scheme != "https":
             raise ErroTransporte(f"esquema_nao_https localizador={localizador}")
-        gravador = _Gravador(destino, limite)
+        gravador = _Gravador(destino, limite, prazo=_prazo(self.prazo_total))
         requisicao = urllib.request.Request(localizador, method="GET")  # noqa: S310
         try:
             with self._abrir(requisicao) as resposta:

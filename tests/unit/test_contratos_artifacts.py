@@ -417,3 +417,13 @@ def test_falha_de_armazenamento_guarda_hash_sem_apontar_artefato() -> None:
     assert observacao.sha256_obtido == _SHA_A
     with pytest.raises(ValidationError, match="observacao_sem_conteudo_com_artefato"):
         _observacao(resultado="FALHA_ARMAZENAMENTO")
+
+
+def test_documento_id_entra_no_artifact_id_so_quando_presente() -> None:
+    base = _chave(competencia_arquivo=None, fonte="DOCUMENTO")
+    w1 = _chave(competencia_arquivo=None, fonte="DOCUMENTO", documento_id="W1")
+    w2 = _chave(competencia_arquivo=None, fonte="DOCUMENTO", documento_id="W2")
+    ids = {calcular_artifact_id(c, _SHA_A) for c in (base, w1, w2)}
+    assert len(ids) == 3
+    sem = _chave(documento_id=None)
+    assert calcular_artifact_id(sem, _SHA_A) == calcular_artifact_id(_chave(), _SHA_A)

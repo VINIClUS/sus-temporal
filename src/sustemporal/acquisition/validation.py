@@ -5,10 +5,12 @@ from __future__ import annotations
 import re
 import stat
 import struct
+import unicodedata
 import zipfile
-import zlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+import datasus_dbc
 
 from sustemporal.contracts.artifacts import EstadoIntegridade, FormatoArquivo, MembroArquivo
 
@@ -46,6 +48,7 @@ class _Amostra:
     caminho: Path
     inicio: bytes
     tamanho: int
+    limites: LimitesZip
 
 
 @dataclass(frozen=True)
@@ -103,22 +106,46 @@ def _validar_dbf(amostra: _Amostra) -> Veredito:
     return _OK
 
 
+def _tamanho_dbf_confere(dbf: Path, cabecalho: tuple[int, int, int]) -> Veredito:
+    registros, tam_cabecalho, tam_registro = cabecalho
+    esperado = tam_cabecalho + registros * tam_registro
+    tamanho = dbf.stat().st_size
+    if tamanho < esperado:
+        return _truncado(f"dbc_descomprimido_curto esperado={esperado} tamanho={tamanho}")
+    if tamanho > esperado + 1:
+        return _inesperado(f"dbc_descomprimido_longo esperado={esperado} tamanho={tamanho}")
+    return _OK
+
+
+def _descomprimir_dbc(caminho: Path, cabecalho: tuple[int, int, int]) -> Veredito:
+    """Descomprime arquivo→arquivo ao lado do temporário (memória limitada) e apaga o DBF."""
+    destino = caminho.with_name(f"{caminho.name}.dbf_validacao")
+    try:
+        datasus_dbc.decompress(str(caminho), str(destino))
+        return _tamanho_dbf_confere(destino, cabecalho)
+    except ValueError as erro:
+        if "end of input" in str(erro):
+            return _truncado(f"dbc_fluxo_truncado erro={erro}")
+        return _inesperado(f"dbc_fluxo_invalido erro={erro}")
+    finally:
+        destino.unlink(missing_ok=True)
+
+
 def _validar_dbc(amostra: _Amostra) -> Veredito:
-    """Cabeçalho DBF + 4 bytes + fluxo DCL (ADR 0002); o fluxo só é conferido na ingestão."""
+    """Cabeçalho DBF + 4 bytes + fluxo DCL (ADR 0002), descomprimido inteiro e conferido."""
     tamanho = amostra.tamanho
     cabecalho = _cabecalho_dbf(amostra.inicio, tamanho)
     if isinstance(cabecalho, Veredito):
         return cabecalho
-    _, tam_cabecalho, _ = cabecalho
-    fluxo = tam_cabecalho + 4
+    fluxo = cabecalho[1] + 4
     if tamanho < fluxo + 2:
-        return _truncado(f"dbc_sem_fluxo cabecalho={tam_cabecalho} tamanho={tamanho}")
+        return _truncado(f"dbc_sem_fluxo cabecalho={cabecalho[1]} tamanho={tamanho}")
     with amostra.caminho.open("rb") as arquivo:
         arquivo.seek(fluxo)
         literais, dicionario = arquivo.read(2)
     if literais not in {0, 1} or dicionario not in {4, 5, 6}:
         return _inesperado(f"dbc_fluxo_invalido bytes={literais:#04x}{dicionario:02x}")
-    return _OK
+    return _descomprimir_dbc(amostra.caminho, cabecalho)
 
 
 def _nome_inseguro(nome: str) -> bool:
@@ -133,28 +160,56 @@ def _nome_inseguro(nome: str) -> bool:
     )
 
 
+def _nome_canonico(nome: str) -> str:
+    return unicodedata.normalize("NFC", nome).casefold()
+
+
 def _membro(info: zipfile.ZipInfo, vistos: set[str]) -> MembroArquivo:
     tipo = stat.S_IFMT(info.external_attr >> 16)
+    canonico = _nome_canonico(info.filename)
     seguro = not _nome_inseguro(info.orig_filename) and tipo in _TIPOS_PERMITIDOS
-    seguro = seguro and info.filename not in vistos
-    vistos.add(info.filename)
+    seguro = seguro and canonico not in vistos
+    vistos.add(canonico)
     return MembroArquivo(nome=info.orig_filename, tamanho_bytes=info.file_size, seguro=seguro)
+
+
+def _listar_zip(caminho: Path) -> list[zipfile.ZipInfo] | Veredito:
+    try:
+        with zipfile.ZipFile(caminho) as arquivo:
+            return arquivo.infolist()
+    except zipfile.BadZipFile as erro:
+        return _truncado(f"zip_sem_diretorio_central erro={erro}")
+    except Exception as erro:
+        return _inesperado(f"zip_ilegivel erro={type(erro).__name__}")
+
+
+def _excede_limites(infos: list[zipfile.ZipInfo], limites: LimitesZip) -> str | None:
+    total = sum(info.file_size for info in infos)
+    compactado = sum(info.compress_size for info in infos)
+    if len(infos) > limites.membros:
+        return f"zip_membros_excede membros={len(infos)} limite={limites.membros}"
+    if total > limites.descompactado_bytes:
+        return f"zip_descompactado_excede total={total} limite={limites.descompactado_bytes}"
+    if total > limites.razao * max(compactado, 1):
+        return f"zip_razao_excede total={total} compactado={compactado} limite={limites.razao}"
+    return None
 
 
 def _validar_zip(amostra: _Amostra) -> Veredito:
     if not amostra.inicio.startswith(_ASSINATURAS_ZIP):
         return _inesperado("assinatura_zip_ausente")
-    try:
-        with zipfile.ZipFile(amostra.caminho) as arquivo:
-            infos = arquivo.infolist()
-    except zipfile.BadZipFile as erro:
-        return _truncado(f"zip_sem_diretorio_central erro={erro}")
+    infos = _listar_zip(amostra.caminho)
+    if isinstance(infos, Veredito):
+        return infos
     vistos: set[str] = set()
     membros = tuple(_membro(info, vistos) for info in infos)
     if not membros:
         return _inesperado("zip_vazio")
     if not all(m.seguro for m in membros):
         return Veredito(EstadoIntegridade.QUARENTENA_CAMINHO_INSEGURO, membros, "membro_inseguro")
+    excesso = _excede_limites(infos, amostra.limites)
+    if excesso is not None:
+        return Veredito(EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO, membros, excesso)
     return _conteudo_dos_membros(amostra.caminho, infos, membros)
 
 
@@ -170,12 +225,15 @@ def _conteudo_dos_membros(
 
 
 def _membro_corrompido(caminho: Path) -> str | None:
-    """Lê cada membro em memória (sem gravar em disco) e confere limites e CRC."""
+    """Lê cada membro em memória (sem gravar em disco) e confere limites e CRC.
+
+    Só roda depois de `_excede_limites`, então o volume descompactado é limitado.
+    """
     try:
         with zipfile.ZipFile(caminho) as arquivo:
             ruim = arquivo.testzip()
-    except (zipfile.BadZipFile, zlib.error, EOFError, OSError, NotImplementedError) as erro:
-        return f"zip_membro_ilegivel erro={erro}"
+    except Exception as erro:
+        return f"zip_membro_ilegivel erro={type(erro).__name__}"
     return None if ruim is None else f"zip_crc_divergente membro={ruim}"
 
 
@@ -213,4 +271,4 @@ def validar_conteudo(
     validador = _VALIDADORES.get(formato)
     if validador is None:
         return Veredito(EstadoIntegridade.NAO_VERIFICADO)
-    return validador(_Amostra(caminho, inicio, tamanho))
+    return validador(_Amostra(caminho, inicio, tamanho, limites or LimitesZip()))

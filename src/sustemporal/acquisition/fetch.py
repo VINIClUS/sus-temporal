@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
-from sustemporal.acquisition.manifest import Manifesto
+from sustemporal.acquisition.manifest import Manifesto, ManifestoCorrompido
 from sustemporal.acquisition.transport import (
     ErroTransporte,
     LimiteExcedido,
@@ -166,6 +166,24 @@ def _versao(
 def _guardar(
     tentativa: _Tentativa, temporario: Path, recebimento: Recebimento
 ) -> ArtifactObservation:
+    """Hash, validação, promoção e versão; qualquer falha inesperada ainda vira observação."""
+    try:
+        return _guardar_validado(tentativa, temporario, recebimento)
+    except ManifestoCorrompido:
+        raise
+    except Exception as erro:
+        mensagem = f"guarda_falhou erro={type(erro).__name__}: {erro}"
+        logger.error("aquisicao_guarda_falhou erro=%s", mensagem)
+        return tentativa.registrar(
+            ResultadoTentativa.FALHA_ARMAZENAMENTO,
+            bytes_recebidos=recebimento.bytes_recebidos,
+            erro=mensagem,
+        )
+
+
+def _guardar_validado(
+    tentativa: _Tentativa, temporario: Path, recebimento: Recebimento
+) -> ArtifactObservation:
     request = tentativa.request
     sha256 = sha256_arquivo(temporario)
     campos: dict[str, Any] = {
@@ -258,7 +276,11 @@ def fetch_source(
     if transporte is None:
         ausente = ErroTransporte(f"transporte_ausente esquema={esquema}")
         return _registrar_falha(tentativa, ausente)
-    temporario = _novo_temporario(store)
+    try:
+        temporario = _novo_temporario(store)
+    except OSError as erro:
+        mensagem = f"temporario_falhou erro={erro}"
+        return tentativa.registrar(ResultadoTentativa.FALHA_ARMAZENAMENTO, erro=mensagem)
     try:
         return _executar(tentativa, transporte, temporario)
     except (KeyboardInterrupt, SystemExit) as interrupcao:

@@ -32,6 +32,19 @@
       "default": null,
       "title": "Competencia Arquivo"
      },
+     "documento_id": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Documento Id"
+     },
      "fonte": {
       "$ref": "#/$defs/FamiliaFonte"
      },
@@ -285,6 +298,19 @@
       ],
       "default": null,
       "title": "Competencia Arquivo"
+     },
+     "documento_id": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Documento Id"
      },
      "fonte": {
       "$ref": "#/$defs/FamiliaFonte"
@@ -565,6 +591,19 @@
     "default": null,
     "title": "Competencia Arquivo"
    },
+   "documento_id": {
+    "anyOf": [
+     {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Documento Id"
+   },
    "fonte": {
     "$ref": "#/$defs/FamiliaFonte"
    },
@@ -832,6 +871,19 @@
       ],
       "default": null,
       "title": "Competencia Arquivo"
+     },
+     "documento_id": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Documento Id"
      },
      "fonte": {
       "$ref": "#/$defs/FamiliaFonte"
@@ -1173,6 +1225,19 @@
       ],
       "default": null,
       "title": "Competencia Arquivo"
+     },
+     "documento_id": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Documento Id"
      },
      "fonte": {
       "$ref": "#/$defs/FamiliaFonte"

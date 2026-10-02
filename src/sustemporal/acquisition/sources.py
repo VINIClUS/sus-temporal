@@ -239,6 +239,7 @@ def requisicoes_documentos(catalogo: CatalogoFontes) -> list[SourceRequest]:
                 fonte=documento.fonte,
                 canal=CanalPublicacao.ATUAL,
                 nome_original=documento.doc_id,
+                documento_id=documento.doc_id,
             ),
             localizador=documento.localizador,
             formato_esperado=documento.formato,

@@ -16,6 +16,7 @@ from sustemporal.contracts.base import (
     ContratoBase,
     Falso,
     FamiliaFonte,
+    Identificador,
     InstanteUTC,
     InteiroNaoNegativo,
     Sha256Hex,
@@ -64,6 +65,7 @@ class ChaveArtefato(ContratoBase):
     nome_original: Annotated[str, StringConstraints(min_length=1, max_length=255)]
     versao_publicacao: str | None = None
     tipo_conteudo: TipoConteudo | None = None
+    documento_id: Identificador | None = None
 
 
 _CHAVE_LOGICA = {"fonte", "uf", "competencia_arquivo", "parte"}
@@ -72,11 +74,15 @@ _CHAVE_LOGICA = {"fonte", "uf", "competencia_arquivo", "parte"}
 def calcular_artifact_id(chave: ChaveArtefato, sha256: str) -> str:
     """Versão de conteúdo: bytes e chave lógica; canal, nome e rótulo de versão ficam de fora.
 
+    `tipo_conteudo` e `documento_id` entram só quando não nulos (ids antigos não mudam).
+
     Os mesmos bytes da mesma chave lógica obtidos por outro canal são a mesma versão (plano §4).
     """
     logica = chave.model_dump(mode="json", include=_CHAVE_LOGICA)
     if chave.tipo_conteudo is not None:
         logica["tipo_conteudo"] = chave.tipo_conteudo.value
+    if chave.documento_id is not None:
+        logica["documento_id"] = chave.documento_id
     return f"art_{hash_canonico({'v': VERSAO_IDENTIDADE, **logica, 'sha256': sha256})}"
 
 

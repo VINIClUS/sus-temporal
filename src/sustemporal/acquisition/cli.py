@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass, field
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -84,19 +85,37 @@ def _ler_competencias(caminho: Path | None) -> list[CompetenciaAtendimento]:
         raise ConfigInvalida(f"competencias_atendimento_invalidas erro={erro}") from erro
 
 
+@dataclass
+class _Contexto:
+    uf: str
+    store: Path
+    obter: Obter
+    motivo: MotivoRequisicao
+    ausentes: list[tuple[FamiliaFonte, CompetenciaArquivo]] = field(default_factory=list)
+
+
 def _por_listagem(
     catalogo: CatalogoFontes,
     fonte: FamiliaFonte,
     competencias: Iterable[CompetenciaArquivo],
-    contexto: tuple[str, Path, Obter, MotivoRequisicao],
+    contexto: _Contexto,
 ) -> list[SourceRequest]:
-    uf, store, obter, motivo = contexto
-    listagem = obter(requisicao_listagem(catalogo, fonte, motivo=motivo))
+    """Requisições da listagem; competência pedida sem arquivo listado fica em `ausentes`."""
+    pedidas = sorted(set(competencias))
+    listagem = contexto.obter(requisicao_listagem(catalogo, fonte, motivo=contexto.motivo))
     if listagem.resultado is not ResultadoTentativa.OBTIDO:
         logger.error("listagem_nao_obtida fonte=%s resultado=%s", fonte, listagem.resultado)
         return []
-    nomes = nomes_listados(store, listagem)
-    return requisicoes_da_listagem(catalogo, fonte, uf, competencias, nomes, motivo=motivo)
+    nomes = nomes_listados(contexto.store, listagem)
+    requisicoes = requisicoes_da_listagem(
+        catalogo, fonte, contexto.uf, pedidas, nomes, motivo=contexto.motivo
+    )
+    encontradas = {r.chave.competencia_arquivo for r in requisicoes}
+    for competencia in pedidas:
+        if competencia not in encontradas:
+            logger.warning("competencia_ausente fonte=%s competencia=%s", fonte, competencia)
+            contexto.ausentes.append((fonte, competencia))
+    return requisicoes
 
 
 def _conteudo_integro(store: Path, versao: ArtifactVersion) -> bool:
@@ -123,7 +142,9 @@ def _ja_obtidas(manifesto: Path, store: Path) -> set[str]:
     return obtidas
 
 
-def _planejar(args: argparse.Namespace, config: RunConfig, obter: Obter) -> list[SourceRequest]:
+def _planejar(
+    args: argparse.Namespace, config: RunConfig, obter: Obter, ausentes: list[object]
+) -> list[SourceRequest]:
     catalogo = _catalogo(config)
     if args.passada == "documentos":
         return requisicoes_documentos(catalogo)
@@ -132,17 +153,24 @@ def _planejar(args: argparse.Namespace, config: RunConfig, obter: Obter) -> list
     processamento = [CompetenciaProcessamento(c.valor) for c in piloto.competencias_processamento]
     if args.passada == "primaria":
         competencias = [CompetenciaArquivo(c.valor) for c in processamento]
-        contexto = (piloto.uf, store, obter, MotivoRequisicao.PRIMARIA)
-        return _por_listagem(catalogo, FamiliaFonte.SIA_PA, competencias, contexto)
+        contexto = _Contexto(piloto.uf, store, obter, MotivoRequisicao.PRIMARIA)
+        requisicoes = _por_listagem(catalogo, FamiliaFonte.SIA_PA, competencias, contexto)
+        ausentes.extend(contexto.ausentes)
+        return requisicoes
     atendimento = _ler_competencias(args.competencias_atendimento)
     auxiliares = competencias_auxiliares(atendimento, processamento)
-    contexto = (piloto.uf, store, obter, MotivoRequisicao.AUXILIAR_DERIVADA)
+    contexto = _Contexto(piloto.uf, store, obter, MotivoRequisicao.AUXILIAR_DERIVADA)
     fontes = [f for f in piloto.familias_fontes if f not in _SEM_SELECAO]
-    return [r for f in fontes for r in _por_listagem(catalogo, f, auxiliares, contexto)]
+    requisicoes = [r for f in fontes for r in _por_listagem(catalogo, f, auxiliares, contexto)]
+    ausentes.extend(contexto.ausentes)
+    return requisicoes
 
 
 def executar_acquire(args: argparse.Namespace, config: RunConfig) -> int:
     """Passada primária (SIA-PA), auxiliar (CNES/SIGTAP das competências observadas) ou documentos.
+
+    Sai FALHA_OPERACIONAL (5) se alguma tentativa não foi obtida ou se alguma competência pedida
+    não aparece na listagem; a ausência fica no log e na própria listagem observada.
 
     Raises:
         RedeProibida: fonte remota com `rede_permitida` falso (a recusa fica no manifesto).
@@ -161,20 +189,23 @@ def executar_acquire(args: argparse.Namespace, config: RunConfig) -> int:
         observadas.append(buscar(requisicao))
         return observadas[-1]
 
-    requisicoes = _planejar(args, config, obter)
+    ausentes: list[object] = []
+    requisicoes = _planejar(args, config, obter, ausentes)
     obtidas = set() if args.reobservar else _ja_obtidas(manifesto, store)
     pendentes = [r for r in requisicoes if r.sha256() not in obtidas]
     for requisicao in pendentes:
         obter(requisicao)
     falhas = [o for o in observadas if o.resultado is not ResultadoTentativa.OBTIDO]
     logger.info(
-        "acquire_concluido passada=%s requisicoes=%d puladas=%d falhas=%d",
+        "acquire_concluido passada=%s requisicoes=%d puladas=%d falhas=%d ausentes=%d",
         args.passada,
         len(requisicoes),
         len(requisicoes) - len(pendentes),
         len(falhas),
+        len(ausentes),
     )
-    return int(ExitCode.FALHA_OPERACIONAL if falhas else ExitCode.OK)
+    incompleta = bool(falhas or ausentes)
+    return int(ExitCode.FALHA_OPERACIONAL if incompleta else ExitCode.OK)
 
 
 def executar_watch(args: argparse.Namespace, config: RunConfig) -> int:

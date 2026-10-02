@@ -177,12 +177,18 @@ class Manifesto:
         logger.warning("manifesto_fragmento_separado destino=%s", destino)
 
     def _gravar_ancora(self, sequencia: int, sha256: str | None) -> None:
+        """Âncora durável: fsync do temporário, `os.replace` e fsync do diretório pai."""
         temporario = self.ancora.with_name(f"{self.ancora.name}.tmp")
         with temporario.open("w", encoding="utf-8") as arquivo:
             arquivo.write(json.dumps({"sequencia": sequencia, "sha256": sha256}))
             arquivo.flush()
             os.fsync(arquivo.fileno())
         os.replace(temporario, self.ancora)
+        diretorio = os.open(self.ancora.parent, os.O_RDONLY)
+        try:
+            os.fsync(diretorio)
+        finally:
+            os.close(diretorio)
 
     @contextlib.contextmanager
     def _travado(self) -> Iterator[None]:

@@ -1,4 +1,4 @@
-"""Hook PreToolUse (Bash): bloqueia push forçado ou para main, remoção, merge e desvio de hook."""
+"""Hook PreToolUse (Bash): recusa push forçado ou para main, remoção, merge e desvio de hook."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import subprocess
 import sys
 from dataclasses import dataclass, replace
 
+from guarda_codigo import codigo_perigoso
 from guarda_gh import gh_perigoso, posicionais
 
 _OPERADORES = {"&&", "||", ";", "|", "&", ";;", "|&"}
@@ -56,6 +57,7 @@ _REMOCOES_DE_CONFIG = frozenset(
 _HOOKS_DO_REPOSITORIO = ".githooks"
 _PALAVRA_PUSH = re.compile(r"\bpush\b")
 _MARCAS_DE_DESVIO = ("--no-v", "hookspath")
+_ARGUMENTO_DE_INVOLUCRO = re.compile(r"^\d+(\.\d+)?[smhd]?$")
 _SUBCOMANDOS_NATIVOS = frozenset(
     """
     add am apply archive bisect blame branch cat-file checkout cherry-pick clean clone commit
@@ -392,7 +394,8 @@ def _posicoes_de_comando(segmento: list[str]) -> list[int]:
     indice = 0
     while indice < len(segmento):
         token = segmento[indice]
-        if _ATRIBUICAO.match(token) or (posicoes and token.startswith("-")):
+        de_involucro = posicoes and (token.startswith("-") or _ARGUMENTO_DE_INVOLUCRO.match(token))
+        if _ATRIBUICAO.match(token) or de_involucro:
             indice += 1
             continue
         posicoes.append(indice)
@@ -424,8 +427,10 @@ def _interpretador_le_entrada(segmento: list[str]) -> bool:
     return False
 
 
-def _segmento_perigoso(segmento: list[str], contexto: _Contexto) -> bool:
+def _segmento_perigoso(segmento: list[str], contexto: _Contexto, comando: str) -> bool:
     if _comando_indeterminado_perigoso(segmento, contexto) or _interpretador_le_entrada(segmento):
+        return True
+    if codigo_perigoso(segmento, _posicoes_de_comando(segmento), comando):
         return True
     return any(_executavel_perigoso(segmento, p, contexto) for p in range(len(segmento)))
 
@@ -438,7 +443,7 @@ def _segmentos_perigosos(comando: str, contexto: _Contexto) -> bool:
         novo = _contexto_do_segmento(segmento, atual)
         if novo is not None:
             atual = novo
-        elif _segmento_perigoso(segmento, atual):
+        elif _segmento_perigoso(segmento, atual, comando):
             return True
     return False
 

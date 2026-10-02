@@ -36,19 +36,23 @@ def posicionais(argumentos: list[str], opcoes_com_valor: set[str]) -> list[str]:
     return encontrados
 
 
+def _expansivel(token: str) -> bool:
+    return "$" in token or "`" in token
+
+
 def gh_perigoso(argumentos: list[str]) -> bool:
     comando = posicionais(argumentos, _OPCOES_GH_COM_VALOR)[:2]
-    if comando in _SUBCOMANDOS_GH_PROIBIDOS:
+    if any(_expansivel(parte) for parte in comando) or comando in _SUBCOMANDOS_GH_PROIBIDOS:
         return True
     return comando[:1] == ["api"] and _gh_api_perigoso(argumentos)
 
 
 def _gh_api_perigoso(argumentos: list[str]) -> bool:
     metodo = _metodo(argumentos)
-    if metodo == "DELETE":
-        return True
     soltos = posicionais(argumentos, _OPCOES_API_COM_VALOR)
     endpoint = soltos[1].lower() if len(soltos) > 1 else ""
+    if metodo == "DELETE" or _expansivel(metodo) or _expansivel(endpoint):
+        return True
     if endpoint == "graphql":
         return _graphql_perigoso(argumentos)
     minusculos = [argumento.lower() for argumento in argumentos]

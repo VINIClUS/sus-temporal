@@ -75,10 +75,21 @@ def _truncado(motivo: str) -> Veredito:
     return Veredito(EstadoIntegridade.QUARENTENA_TRUNCADO, motivo=motivo)
 
 
+def _tem_assinatura(inicio: bytes) -> bool:
+    return inicio.startswith((b"%PDF-", *_ASSINATURAS_ZIP)) or (
+        bool(inicio) and inicio[0] in _VERSOES_DBF
+    )
+
+
 def parece_html(inicio: bytes) -> bool:
-    """Os primeiros bytes parecem uma página HTML/XML (erro de portal, login, índice)."""
+    """Marcação no início (após BOM e brancos), ou `<html` no começo sem assinatura conhecida.
+
+    Um PDF/ZIP/DBF/DBC válido que cite `<html` (comentário, nome de membro) não é página.
+    """
     texto = inicio.removeprefix(_BOM).lstrip().lower()
-    return texto.startswith(_INICIO_HTML) or b"<html" in texto[:1024]
+    if texto.startswith(_INICIO_HTML):
+        return True
+    return not _tem_assinatura(inicio) and b"<html" in texto[:1024]
 
 
 def _byte_do_terminador(amostra: _Amostra, cabecalho: int) -> int:

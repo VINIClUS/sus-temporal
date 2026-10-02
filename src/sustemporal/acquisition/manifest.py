@@ -120,6 +120,14 @@ def _termina_em_versao(textos: list[str]) -> bool:
         return False
 
 
+def _sincronizar_diretorio(pasta: Path) -> None:
+    descritor = os.open(pasta, os.O_RDONLY)
+    try:
+        os.fsync(descritor)
+    finally:
+        os.close(descritor)
+
+
 class Manifesto:
     """Manifesto JSONL e sua âncora (`<nome>.ancora`: sequência e hash da última linha gravada).
 
@@ -200,8 +208,12 @@ class Manifesto:
         self._conferir_ancora(_verificar(confirmadas))
         sufixo = "".join(f"{texto}\n" for texto in textos[sequencia:]) + fragmento
         destino = self._guardar_fragmento(sequencia, sufixo)
+        _sincronizar_diretorio(self.caminho.parent)
         tamanho = sum(len(f"{texto}\n".encode()) for texto in confirmadas)
-        os.truncate(self.caminho, tamanho)
+        with self.caminho.open("r+b") as arquivo:
+            os.ftruncate(arquivo.fileno(), tamanho)
+            os.fsync(arquivo.fileno())
+        _sincronizar_diretorio(self.caminho.parent)
         logger.warning("manifesto_fragmento_separado destino=%s", destino)
 
     def _guardar_fragmento(self, sequencia: int, sufixo: str) -> Path:
@@ -228,11 +240,7 @@ class Manifesto:
             arquivo.flush()
             os.fsync(arquivo.fileno())
         os.replace(temporario, self.ancora)
-        diretorio = os.open(self.ancora.parent, os.O_RDONLY)
-        try:
-            os.fsync(diretorio)
-        finally:
-            os.close(diretorio)
+        _sincronizar_diretorio(self.ancora.parent)
 
     @contextlib.contextmanager
     def _travado(self, modo: int = fcntl.LOCK_EX) -> Iterator[None]:

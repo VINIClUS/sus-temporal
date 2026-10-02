@@ -17,10 +17,10 @@ from urllib.parse import unquote, urlsplit
 if TYPE_CHECKING:
     from collections.abc import Callable
     from http.client import HTTPMessage
-    from typing import BinaryIO
 
 __all__ = [
     "ErroTransporte",
+    "Escrita",
     "LimiteExcedido",
     "Recebimento",
     "RecursoNaoEncontrado",
@@ -66,8 +66,12 @@ class Recebimento:
     metadados: dict[str, str] = field(default_factory=dict)
 
 
+class Escrita(Protocol):
+    def write(self, dados: bytes, /) -> int: ...
+
+
 class Transporte(Protocol):
-    def baixar(self, localizador: str, destino: BinaryIO, limite: int) -> Recebimento: ...
+    def baixar(self, localizador: str, destino: Escrita, limite: int) -> Recebimento: ...
 
     def listar(self, localizador: str) -> list[str]: ...
 
@@ -75,7 +79,7 @@ class Transporte(Protocol):
 class _Gravador:
     """Grava blocos no destino e recusa passar do limite."""
 
-    def __init__(self, destino: BinaryIO, limite: int, *, prazo: float | None = None) -> None:
+    def __init__(self, destino: Escrita, limite: int, *, prazo: float | None = None) -> None:
         self.destino = destino
         self.limite = limite
         self.prazo = prazo
@@ -127,7 +131,7 @@ class TransporteArquivo:
             raise ErroTransporte(f"caminho_fora_da_raiz caminho={caminho}")
         return caminho
 
-    def baixar(self, localizador: str, destino: BinaryIO, limite: int) -> Recebimento:
+    def baixar(self, localizador: str, destino: Escrita, limite: int) -> Recebimento:
         caminho = self._caminho(localizador)
         if not caminho.is_file():
             raise RecursoNaoEncontrado(f"arquivo_inexistente caminho={caminho}")
@@ -194,7 +198,7 @@ class TransporteFTP:
             cliente.close()
         return tamanho, metadados
 
-    def baixar(self, localizador: str, destino: BinaryIO, limite: int) -> Recebimento:
+    def baixar(self, localizador: str, destino: Escrita, limite: int) -> Recebimento:
         gravador = _Gravador(destino, limite, prazo=_prazo(self.prazo_total))
         try:
             cliente, caminho = self._conectar(localizador)
@@ -248,7 +252,7 @@ class TransporteHTTPS:
     def _abrir(self, requisicao: urllib.request.Request) -> Any:
         return self._abridor.open(requisicao, timeout=self.timeout)
 
-    def baixar(self, localizador: str, destino: BinaryIO, limite: int) -> Recebimento:
+    def baixar(self, localizador: str, destino: Escrita, limite: int) -> Recebimento:
         if urlsplit(localizador).scheme != "https":
             raise ErroTransporte(f"esquema_nao_https localizador={localizador}")
         gravador = _Gravador(destino, limite, prazo=_prazo(self.prazo_total))

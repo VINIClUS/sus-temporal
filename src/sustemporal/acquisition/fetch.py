@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import logging
 import os
 import secrets
@@ -39,6 +40,7 @@ from sustemporal.store import caminho_conteudo, promover_sem_sobrescrever
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
+    from typing import BinaryIO
 
     from sustemporal.acquisition.transport import Transporte
 
@@ -102,10 +104,47 @@ class _Tentativa:
         return observacao
 
 
+class FalhaDestinoLocal(Exception):
+    """Falha de E/S no temporário local; não é falha do transporte nem da fonte."""
+
+
+class _DestinoLocal:
+    """Envolve o temporário: OSError de escrita local vira `FalhaDestinoLocal`.
+
+    Não herda de OSError, então os transportes não a confundem com erro de rede.
+    """
+
+    def __init__(self, arquivo: BinaryIO) -> None:
+        self._arquivo = arquivo
+
+    def _local(self, operacao: str, erro: OSError) -> FalhaDestinoLocal:
+        return FalhaDestinoLocal(f"temporario_falhou operacao={operacao} erro={erro}")
+
+    def write(self, dados: bytes) -> int:
+        try:
+            return self._arquivo.write(dados)
+        except OSError as erro:
+            raise self._local("write", erro) from erro
+
+    def sincronizar(self) -> None:
+        try:
+            self._arquivo.flush()
+            os.fsync(self._arquivo.fileno())
+        except OSError as erro:
+            raise self._local("fsync", erro) from erro
+        except io.UnsupportedOperation:
+            return
+
+
+def _abrir_temporario(caminho: Path) -> BinaryIO:
+    return caminho.open("wb")
+
+
 def _receber(tentativa: _Tentativa, transporte: Transporte, temporario: Path) -> Recebimento:
     request = tentativa.request
     limite = request.tamanho_maximo_bytes
-    with temporario.open("wb") as destino:
+    with _abrir_temporario(temporario) as arquivo:
+        destino = _DestinoLocal(arquivo)
         if request.chave.tipo_conteudo is TipoConteudo.LISTAGEM_DIRETORIO:
             nomes = transporte.listar(request.localizador)
             conteudo = "".join(f"{nome}\n" for nome in sorted(nomes)).encode("utf-8")
@@ -115,8 +154,7 @@ def _receber(tentativa: _Tentativa, transporte: Transporte, temporario: Path) ->
             recebimento = Recebimento(len(conteudo), None, {"entradas": str(len(nomes))})
         else:
             recebimento = transporte.baixar(request.localizador, destino, limite)
-        destino.flush()
-        os.fsync(destino.fileno())
+        destino.sincronizar()
     return recebimento
 
 
@@ -228,6 +266,9 @@ def _executar(
 ) -> ArtifactObservation:
     try:
         recebimento = _receber(tentativa, transporte, temporario)
+    except FalhaDestinoLocal as local:
+        logger.error("aquisicao_temporario_falhou erro=%s", local)
+        return tentativa.registrar(ResultadoTentativa.FALHA_ARMAZENAMENTO, erro=str(local))
     except Exception as erro:
         return _registrar_falha(tentativa, erro)
     anunciado = recebimento.tamanho_anunciado

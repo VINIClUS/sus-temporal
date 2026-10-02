@@ -310,3 +310,47 @@ def test_acquire_sai_nao_ok_quando_competencia_falta_na_listagem(tmp_path: Path)
         encoding="utf-8",
     )
     assert cli.main(["acquire", "--config", str(config)]) == ExitCode.FALHA_OPERACIONAL
+
+
+def test_observacao_guarda_a_caracterizacao_da_propria_tentativa(tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    conteudo = dbc_sintetico()
+    primeira = fetch_source(_local(tmp_path, conteudo, FormatoArquivo.ZIP), store)
+    segunda = fetch_source(_local(tmp_path, conteudo, FormatoArquivo.DBC), store)
+    assert primeira.artifact_id == segunda.artifact_id
+    assert primeira.integridade is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+    assert primeira.formato is FormatoArquivo.ZIP
+    assert segunda.resultado is ResultadoTentativa.OBTIDO
+    assert segunda.integridade is EstadoIntegridade.OK
+    assert segunda.formato is FormatoArquivo.DBC
+    estado = Manifesto(store / "manifesto.jsonl").ler()
+    assert [x.tipo.value for x in estado.linhas] == ["VERSAO", "OBSERVACAO", "OBSERVACAO"]
+
+
+@pytest.mark.parametrize(
+    ("final", "estado"),
+    [(b"\x1a", EstadoIntegridade.OK), (b"\x00", EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO)],
+)
+def test_dbf_descomprimido_com_byte_extra_exige_0x1a(
+    tmp_path: Path, final: bytes, estado: EstadoIntegridade
+) -> None:
+    from tests.fixtures.dbc_encoder import dbf_para_dbc
+    from tests.fixtures.dbf_writer import CampoDbf, escrever_dbf
+
+    dbf = escrever_dbf([CampoDbf("PA_X", "C", 4)], [("AAAA",)], com_eof=False) + final
+    caminho = tmp_path / "x.dbc"
+    caminho.write_bytes(dbf_para_dbc(dbf))
+    assert validar_conteudo(caminho, FormatoArquivo.DBC).integridade is estado
+
+
+def test_competencia_sem_arquivo_na_listagem_e_aviso(caplog: pytest.LogCaptureFixture) -> None:
+    from sustemporal.acquisition.sources import requisicoes_da_listagem
+    from sustemporal.contracts.temporal import CompetenciaArquivo
+
+    catalogo = carregar_catalogo(CATALOGO)
+    with caplog.at_level("INFO"):
+        requisicoes_da_listagem(
+            catalogo, FamiliaFonte.SIA_PA, "SP", [CompetenciaArquivo("201801")], ["PASP1802a.dbc"]
+        )
+    avisos = [r for r in caplog.records if "competencia_sem_arquivo" in r.getMessage()]
+    assert [r.levelname for r in avisos] == ["WARNING"]

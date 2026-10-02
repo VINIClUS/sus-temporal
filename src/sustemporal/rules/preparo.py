@@ -60,6 +60,8 @@ _COLUNAS_SELECAO = (
     "motivo",
 )
 COMPETENCIA = "[0-9]{4}(0[1-9]|1[0-2])"
+# Formato do RowId (contracts/records.py): artefato, membro opcional e índice.
+_PADRAO_ROW_ID = r"^(art_[0-9a-f]{64})(/[^#\s]+)?#[0-9]+$"
 # model.md §3: código do registro fora do padrão conta como nulo em todos os passos.
 _DOMINIO_REGISTRO = {
     "instrumento": "[CIPSAB]",
@@ -201,18 +203,28 @@ def carregar_registros(
         {"c": dataset.caminho} | dominios,
     )
     _exigir_chave_unica(con, "registros", ("row_id",), tipos)
-    _exigir_linhagem(con)
+    _exigir_linhagem(con, dataset)
     return frozenset(presentes & set(usadas))
 
 
-def _exigir_linhagem(con: duckdb.DuckDBPyConnection) -> None:
-    """Recusa `artifact_id` nulo ou diferente do artefato embutido no `row_id` (`art_…#n`)."""
+def _exigir_linhagem(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> None:
+    """Recusa linhagem nula, incoerente com o `row_id` ou fora de `dataset.artifact_ids`.
+
+    O artefato do `row_id` é o prefixo `art_…` do formato do `RowLocator` (`art_…[/membro]#n`).
+    """
     incoerentes = con.execute(
         "SELECT count(*) FROM registros WHERE artifact_id IS NULL "
-        "OR split_part(row_id, '#', 1) <> artifact_id"
+        "OR regexp_extract(row_id, $padrao, 1) <> artifact_id",
+        {"padrao": _PADRAO_ROW_ID},
     ).fetchall()[0][0]
     if incoerentes:
         raise ValueError(f"linhagem_incoerente tabela=registros linhas={incoerentes}")
+    fora = con.execute(
+        "SELECT count(*) FROM registros WHERE NOT list_contains($artefatos, artifact_id)",
+        {"artefatos": list(dataset.artifact_ids)},
+    ).fetchall()[0][0]
+    if fora:
+        raise ValueError(f"linhagem_fora_do_dataset tabela=registros linhas={fora}")
 
 
 def carregar_selecoes(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> None:

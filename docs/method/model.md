@@ -223,7 +223,13 @@ falha de carga (`FalhaOperacional`, execução `FALHOU`); no conjunto auxiliar �
 `EstadoIntegridade` também é falha de carga. Chave nula ou repetida no conjunto SIA-PA (`row_id`)
 ou na seleção (`row_id, rule_id, fonte`) é falha de carga; a matriz de cobertura com coluna
 ausente, tipo divergente ou chave nula não é utilizável (conta como não fornecida). Linhas
-auxiliares com chave nula seguem a regra de `CAMPO_INSUFICIENTE` do §4.
+auxiliares com chave nula seguem a regra de `CAMPO_INSUFICIENTE` do §4. A linhagem de cada
+registro também é conferida na carga: `artifact_id` não nulo, igual ao artefato do `row_id`
+(formato `art_…[/membro]#n` do `RowLocator`) e pertencente a `DatasetRef.artifact_ids`; senão,
+falha de carga (`linhagem_incoerente` ou `linhagem_fora_do_dataset`). Os `schema_id` da seleção
+(`selecao_versoes.v1`) e da cobertura (`cobertura.v1`) também são exigidos. Na CLI, erro semântico
+anterior à execução (esquema do conjunto, origem de dados misturada) sai como configuração
+inválida, sem traceback.
 
 Antes de avaliar, todo `DatasetRef` lido (SIA-PA, auxiliares, seleção, cobertura) tem o conteúdo
 conferido: contagem de linhas e hash lógico `lh1` das colunas do esquema canônico presentes no

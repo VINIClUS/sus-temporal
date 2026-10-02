@@ -98,9 +98,12 @@ def executar_validate(args: argparse.Namespace, config: RunConfig) -> int:
         politica=politica,
     )
     saida = args.saida or Path(config.runtime.raiz_saidas) / "validacao"
-    resultado = evaluate_rules(
-        entrada.dataset, entrada.snapshots, regras, config, saida, insumos=insumos
-    )
+    try:
+        resultado = evaluate_rules(
+            entrada.dataset, entrada.snapshots, regras, config, saida, insumos=insumos
+        )
+    except ValueError as erro:
+        raise ConfigInvalida(f"entrada_semanticamente_invalida detalhe={erro}") from erro
     logger.info(
         "validate_concluido run=%s metodo=%s estado=%s", resultado.run_id, metodo, resultado.estado
     )

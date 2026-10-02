@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from sustemporal.contracts import DatasetRef, RuleSpec, RunConfig, RunResult, SnapshotSet
+    from sustemporal.rules.insumos import InsumosAvaliacao
 
 
 def evaluate_rules(
@@ -16,6 +17,8 @@ def evaluate_rules(
     rules: list[RuleSpec],
     config: RunConfig,
     out: Path,
+    *,
+    insumos: InsumosAvaliacao | None = None,
 ) -> RunResult:
     """Avalia as regras no conjunto de versões selecionado."""
     raise NotImplementedError

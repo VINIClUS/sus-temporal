@@ -60,6 +60,15 @@ _COLUNAS_SELECAO = (
     "observation_ids",
     "motivo",
 )
+_COMPETENCIA = "[0-9]{4}(0[1-9]|1[0-2])"
+# model.md §3: código do registro fora do padrão conta como nulo em todos os passos.
+_DOMINIO_REGISTRO = {
+    "procedimento": "[0-9]{10}",
+    "cbo": "[0-9A-Z]{6}",
+    "cnes": "[0-9]{7}",
+    "competencia_atendimento": _COMPETENCIA,
+    "competencia_processamento": _COMPETENCIA,
+}
 _COLUNAS_COBERTURA = ("familia_regra", "instrumento", "competencia", "base_temporal", "estado")
 _TIPO_SQL = {TipoCanonico.INTEIRO: "BIGINT", TipoCanonico.BOOLEANO: "BOOLEAN"}
 _LISTA_NORMALIZADA = (
@@ -95,6 +104,19 @@ def _projecao(colunas: Collection[str], presentes: set[str], tipos: Mapping[str,
     return ", ".join(partes)
 
 
+def _projecao_registros(
+    colunas: Collection[str], presentes: set[str], tipos: Mapping[str, str]
+) -> str:
+    partes = []
+    for nome in colunas:
+        citado = identificador_seguro(nome, tipos)
+        texto = f"CAST({citado} AS {tipos[nome]})" if nome in presentes else "NULL"
+        if nome in _DOMINIO_REGISTRO and nome in presentes:
+            texto = f"CASE WHEN regexp_full_match({texto}, $dominio_{nome}) THEN {texto} END"
+        partes.append(f"CAST({texto} AS {tipos[nome]}) AS {citado}")
+    return ", ".join(partes)
+
+
 def _exigir_chave_unica(
     con: duckdb.DuckDBPyConnection, tabela: str, chave: tuple[str, ...], tipos: Mapping[str, str]
 ) -> None:
@@ -123,11 +145,16 @@ def carregar_registros(
     faltantes = [nome for nome in _OBRIGATORIAS_REGISTRO if nome not in presentes]
     if faltantes:
         raise ValueError(f"registros_sem_coluna_obrigatoria colunas={faltantes}")
-    projecao = _projecao(list(usadas), presentes, tipos)
+    projecao = _projecao_registros(list(usadas), presentes, tipos)
+    dominios = {
+        f"dominio_{nome}": padrao
+        for nome, padrao in _DOMINIO_REGISTRO.items()
+        if nome in usadas and nome in presentes
+    }
     con.execute(
         f"CREATE OR REPLACE TEMP TABLE registros AS SELECT {projecao} "  # noqa: S608
         "FROM read_parquet($c)",
-        {"c": dataset.caminho},
+        {"c": dataset.caminho} | dominios,
     )
     _exigir_chave_unica(con, "registros", ("row_id",), tipos)
     return frozenset(presentes & set(usadas))
@@ -173,7 +200,9 @@ requeridas AS (
         CASE
             WHEN comp_base IS NULL THEN NULL
             WHEN deslocamento = 0 THEN comp_base
-            ELSE strftime(strptime(comp_base || '01', '%Y%m%d') + to_months(deslocamento), '%Y%m')
+            ELSE strftime(
+                try_strptime(comp_base || '01', '%Y%m%d') + to_months(deslocamento), '%Y%m'
+            )
         END AS comp
     FROM pedidos
 )
@@ -325,10 +354,11 @@ def _estado_do_conjunto(
     auxiliar: Auxiliar,
     com_linhas: set[str],
     integridade: Mapping[str, EstadoIntegridade],
-) -> tuple[bool, bool, str, bool]:
+) -> tuple[bool, bool, bool, str, bool]:
     conhecidos = set(auxiliar.dataset.artifact_ids) if auxiliar.dataset else set()
     fora = any(artefato not in conhecidos for artefato in artefatos)
     vazio = not any(artefato in com_linhas for artefato in artefatos)
+    todas = bool(artefatos) and all(artefato in com_linhas for artefato in artefatos)
     estados = [integridade.get(artefato) for artefato in artefatos]
     ok = bool(estados) and all(estado is EstadoIntegridade.OK for estado in estados)
     ruins = sorted(
@@ -336,7 +366,7 @@ def _estado_do_conjunto(
         for e in estados
         if e is not EstadoIntegridade.OK
     )
-    return fora, vazio, "OK" if ok else (ruins[0] if ruins else "NAO_VERIFICADO"), ok
+    return fora, vazio, todas, "OK" if ok else (ruins[0] if ruins else "NAO_VERIFICADO"), ok
 
 
 def preparar_conjuntos(
@@ -360,7 +390,8 @@ def preparar_conjuntos(
         linhas.append((chave, *_estado_do_conjunto(artefatos, auxiliar, com_linhas, integridade)))
     con.execute(
         "CREATE OR REPLACE TEMP TABLE conjuntos (chave VARCHAR, fora BOOLEAN, "
-        "escopo_vazio BOOLEAN, integridade VARCHAR, integridade_ok BOOLEAN)"
+        "escopo_vazio BOOLEAN, todas_com_linhas BOOLEAN, integridade VARCHAR, "
+        "integridade_ok BOOLEAN)"
     )
     if linhas:
-        con.executemany("INSERT INTO conjuntos VALUES (?, ?, ?, ?, ?)", linhas)
+        con.executemany("INSERT INTO conjuntos VALUES (?, ?, ?, ?, ?, ?)", linhas)

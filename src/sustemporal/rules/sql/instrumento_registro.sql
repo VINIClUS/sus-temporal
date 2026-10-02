@@ -12,6 +12,13 @@ SELECT
             WHERE s.row_id = t.row_id
                 AND a.co_procedimento = t.procedimento AND a.co_registro = t.co_registro
         ) THEN 'CORRESPONDENCIA'
+        WHEN EXISTS (
+            SELECT 1 FROM alvo_artefato AS s JOIN aux AS a ON a.artifact_id = s.artifact_id
+            WHERE s.row_id = t.row_id
+                AND (a.co_procedimento = t.procedimento OR a.co_procedimento IS NULL)
+                AND (a.co_registro = t.co_registro OR a.co_registro IS NULL)
+                AND (a.co_procedimento IS NULL OR a.co_registro IS NULL)
+        ) THEN 'CAMPO_INSUFICIENTE'
         WHEN NOT EXISTS (
             SELECT 1 FROM alvo_artefato AS s JOIN aux AS a ON a.artifact_id = s.artifact_id
             WHERE s.row_id = t.row_id AND a.co_procedimento = t.procedimento

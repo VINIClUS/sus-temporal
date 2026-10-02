@@ -21,6 +21,7 @@ from sustemporal.contracts.rules import (
 from sustemporal.yamlio import carregar_yaml
 
 __all__ = [
+    "CAMPOS_DO_PREDICADO",
     "CATALOGO_FAMILIAS",
     "CATALOGO_REGRAS",
     "DIR_ESQUEMAS",
@@ -53,6 +54,13 @@ FAMILIAS_COM_SQL: dict[FamiliaRegra, str] = {
 }
 
 SQL_AVALIACAO = "avaliar.sql"
+# Colunas do registro comparadas pelo predicado de cada família (model.md §4).
+CAMPOS_DO_PREDICADO: dict[FamiliaRegra, frozenset[str]] = {
+    FamiliaRegra.PROCEDIMENTO_CBO: frozenset({"instrumento", "procedimento", "cbo"}),
+    FamiliaRegra.ESTABELECIMENTO_CBO: frozenset({"instrumento", "cnes", "cbo"}),
+    FamiliaRegra.INSTRUMENTO_REGISTRO: frozenset({"instrumento", "procedimento"}),
+    FamiliaRegra.VIGENCIA_PROCEDIMENTO: frozenset({"instrumento", "procedimento"}),
+}
 # PA_DOCORIG → CO_REGISTRO: INFERIDA dos rótulos (catalog/familias.yaml); A_CONFIRMAR.
 MAPA_INSTRUMENTO_REGISTRO: dict[str, str] = {
     "C": "01",
@@ -132,6 +140,8 @@ def _validar_campos(regra: RuleSpec, diretorio: Path) -> None:
         raise CatalogoInvalido(
             f"regra_com_campo_fora_do_esquema regra={regra.rule_id} campos={sorted(faltantes)}"
         )
+    if not CAMPOS_DO_PREDICADO.get(regra.familia, frozenset()) <= set(regra.campos_necessarios):
+        raise CatalogoInvalido(f"regra_sem_campos_do_predicado regra={regra.rule_id}")
 
 
 def _validar_familia(regra: RuleSpec, familias: CatalogoFamilias) -> None:

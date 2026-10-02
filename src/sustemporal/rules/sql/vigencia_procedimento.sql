@@ -6,6 +6,10 @@ SELECT
             SELECT 1 FROM alvo_artefato AS s JOIN aux AS a ON a.artifact_id = s.artifact_id
             WHERE s.row_id = t.row_id AND a.co_procedimento = t.procedimento
         ) THEN 'CORRESPONDENCIA'
+        WHEN EXISTS (
+            SELECT 1 FROM alvo_artefato AS s JOIN aux AS a ON a.artifact_id = s.artifact_id
+            WHERE s.row_id = t.row_id AND a.co_procedimento IS NULL
+        ) THEN 'CAMPO_INSUFICIENTE'
         ELSE 'AUSENCIA'
     END AS resultado,
     (

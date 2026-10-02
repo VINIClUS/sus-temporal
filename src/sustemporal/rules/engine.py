@@ -47,6 +47,7 @@ __all__ = ["InsumosAvaliacao", "calcular_run_id", "evaluate_rules"]
 logger = logging.getLogger(__name__)
 
 _FAMILIA_COM_DOMINIO = "INSTRUMENTO_REGISTRO"
+_ESQUEMA_REGISTROS = "sia_pa.v1"
 
 
 def _agora() -> datetime:
@@ -84,6 +85,8 @@ def _exigir_regras_unicas(rules: list[RuleSpec]) -> list[RuleSpec]:
 
 
 def _exigir_mesma_origem(dataset: DatasetRef, insumos: InsumosAvaliacao) -> None:
+    if dataset.schema_id != _ESQUEMA_REGISTROS:
+        raise ValueError(f"conjunto_de_registros_invalido schema_id={dataset.schema_id}")
     outros = [*insumos.auxiliares, insumos.selecoes, insumos.cobertura]
     divergentes = [d.dataset_id for d in outros if d and d.origem_dados is not dataset.origem_dados]
     if divergentes:

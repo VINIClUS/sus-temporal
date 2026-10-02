@@ -19,6 +19,7 @@ WITH base AS (
         s.motivo AS sel_motivo,
         k.fora AS sel_fora,
         k.escopo_vazio AS sel_escopo_vazio,
+        k.todas_com_linhas AS sel_todas_com_linhas,
         k.integridade AS sel_integridade,
         k.integridade_ok AS sel_integridade_ok,
         coalesce(ir.estado, 'NAO_VERIFICADO') AS integridade_registro,
@@ -58,6 +59,10 @@ insumos AS (
         list_filter(
             [
                 CASE WHEN $politica_nao_resolvida THEN 'POLITICA_NAO_RESOLVIDA' END,
+                CASE
+                    WHEN starts_with(integridade_registro, 'QUARENTENA_')
+                        THEN 'ARQUIVO_EM_QUARENTENA'
+                END,
                 CASE WHEN campo_faltando THEN 'CAMPO_INSUFICIENTE' END,
                 CASE coalesce(sel_estado, 'SEM_SELECAO')
                     WHEN 'SEM_SELECAO' THEN 'VIGENCIA_NAO_RESOLVIDA'
@@ -121,7 +126,8 @@ decisao AS (
             WHEN resultado = 'CORRESPONDENCIA' THEN CAST([] AS VARCHAR[])
             WHEN resultado = 'AUSENCIA'
                 AND cobertura_estado = 'DISPONIVEL'
-                AND sel_integridade_ok THEN CAST([] AS VARCHAR[])
+                AND sel_integridade_ok
+                AND sel_todas_com_linhas THEN CAST([] AS VARCHAR[])
             WHEN resultado = 'AUSENCIA' THEN ['COBERTURA_INSUFICIENTE']
             ELSE [resultado]
         END AS motivos

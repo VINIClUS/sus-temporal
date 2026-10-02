@@ -289,7 +289,11 @@ _VALIDADORES: dict[FormatoArquivo, Callable[[_Amostra], Veredito]] = {
 
 
 def validar_conteudo(
-    caminho: Path, formato: FormatoArquivo, *, limites: LimitesZip | None = None
+    caminho: Path,
+    formato: FormatoArquivo,
+    *,
+    limites: LimitesZip | None = None,
+    limite_dbf_bytes: int | None = None,
 ) -> Veredito:
     """Confere assinatura e estrutura mínima do formato esperado; ZIP só é listado.
 

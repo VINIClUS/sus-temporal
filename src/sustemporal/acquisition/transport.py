@@ -73,9 +73,10 @@ class Transporte(Protocol):
 class _Gravador:
     """Grava blocos no destino e recusa passar do limite."""
 
-    def __init__(self, destino: BinaryIO, limite: int) -> None:
+    def __init__(self, destino: BinaryIO, limite: int, *, prazo: float | None = None) -> None:
         self.destino = destino
         self.limite = limite
+        self.prazo = prazo
         self.recebidos = 0
 
     def __call__(self, bloco: bytes) -> None:
@@ -103,6 +104,9 @@ def _instante_iso(segundos: float) -> str:
 
 class TransporteArquivo:
     """Cópia local (`file://`), para testes e importação manual."""
+
+    def __init__(self, raiz: Path | None = None) -> None:
+        self.raiz = raiz
 
     @staticmethod
     def _caminho(localizador: str) -> Path:

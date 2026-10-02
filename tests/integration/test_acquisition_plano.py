@@ -199,7 +199,7 @@ def test_acquire_auxiliar_usa_so_competencias_observadas(tmp_path: Path) -> None
     competencias.write_text("201712\n201801\n", encoding="utf-8")
     argumentos = ["acquire", "--config", str(config), "--passada", "auxiliar"]
     argumentos += ["--competencias-atendimento", str(competencias)]
-    assert cli.main(argumentos) == ExitCode.OK
+    assert cli.main(argumentos) == ExitCode.FALHA_OPERACIONAL  # SIGTAP 201712 não listado
     obtidos = {
         (o.chave.fonte, o.chave.competencia_arquivo.valor)
         for o in _observacoes(tmp_path)

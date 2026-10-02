@@ -99,6 +99,7 @@ def test_conteudo_repetido_gera_duas_observacoes_e_uma_versao(tmp_path: Path) ->
     assert primeira.observation_id != segunda.observation_id
     assert primeira.artifact_id == segunda.artifact_id
     assert list(estado.versoes) == [primeira.artifact_id]
+    assert [x.tipo.value for x in estado.linhas] == ["VERSAO", "OBSERVACAO", "OBSERVACAO"]
     assert len(_arquivos_de_conteudo(store)) == 1
 
 
@@ -114,6 +115,8 @@ def test_a_b_a_preserva_tres_observacoes_e_duas_versoes(tmp_path: Path) -> None:
     assert [o.artifact_id for o in estado.observacoes] == ids
     assert [o.observado_em for o in estado.observacoes] == relogio.leituras
     assert set(estado.versoes) == set(ids)
+    tipos = [x.tipo.value for x in estado.linhas]
+    assert tipos == ["VERSAO", "OBSERVACAO", "VERSAO", "OBSERVACAO", "OBSERVACAO"]
     assert len(_arquivos_de_conteudo(store)) == 2
 
 

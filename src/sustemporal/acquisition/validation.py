@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-__all__ = ["Veredito", "parece_html", "validar_conteudo"]
+__all__ = ["LimitesZip", "Veredito", "parece_html", "validar_conteudo"]
 
 _AMOSTRA = 4096
 _INICIO_HTML = (b"<!doctype html", b"<html", b"<head", b"<body", b"<?xml", b"<!--")
@@ -30,6 +30,15 @@ _ASSINATURAS_ZIP = (b"PK\x03\x04", b"PK\x05\x06")
 _DRIVE = re.compile(r"^[A-Za-z]:")
 _CRIPTOGRAFADO = 0x1
 _TIPOS_PERMITIDOS = {0, stat.S_IFREG, stat.S_IFDIR}
+
+
+@dataclass(frozen=True)
+class LimitesZip:
+    """Tetos conferidos no diretório central antes de descompactar qualquer membro."""
+
+    descompactado_bytes: int = 8 * 1024**3
+    razao: int = 200
+    membros: int = 10_000
 
 
 @dataclass(frozen=True)
@@ -187,7 +196,9 @@ _VALIDADORES: dict[FormatoArquivo, Callable[[_Amostra], Veredito]] = {
 }
 
 
-def validar_conteudo(caminho: Path, formato: FormatoArquivo) -> Veredito:
+def validar_conteudo(
+    caminho: Path, formato: FormatoArquivo, *, limites: LimitesZip | None = None
+) -> Veredito:
     """Confere assinatura e estrutura mínima do formato esperado; ZIP só é listado.
 
     Formatos sem assinatura conferível (TXT, CSV, YAML, HTML, OUTRO) ficam NAO_VERIFICADO.

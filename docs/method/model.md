@@ -89,8 +89,13 @@ em todos os passos (campo insuficiente, vigência, chave de cobertura). `I(r)` v
    competência (mês vizinho) quando a requerida falta.
 8. Leiaute e escopo, para cada `f` com seleção `SELECIONADA` e requisito `(f, schema, campos)`:
    nenhum conjunto auxiliar com aquele `schema_id` → `ARQUIVO_AUSENTE`; conjunto sem alguma coluna
-   de `campos ∪ {artifact_id}` → `LEIAUTE_INCOMPATIVEL`; senão, alguma versão selecionada fora de
-   `DatasetRef.artifact_ids` → `ARQUIVO_AUSENTE`; senão, escopo vazio → `COBERTURA_INSUFICIENTE`.
+   de `campos ∪ {artifact_id}`, ou com coluna de tipo físico diferente do esquema canônico (código
+   `TEXTO` gravado como número, por exemplo) → `LEIAUTE_INCOMPATIVEL`; senão, alguma versão
+   selecionada fora de `DatasetRef.artifact_ids` → `ARQUIVO_AUSENTE`; senão, alguma versão
+   selecionada com integridade `QUARENTENA_*` → `ARQUIVO_EM_QUARENTENA` (vale também para
+   correspondência encontrada: nunca `CONFORME` sobre arquivo em quarentena); senão, escopo vazio →
+   `COBERTURA_INSUFICIENTE`. Integridade não informada ou `NAO_VERIFICADO` não impede
+   `CONFORME` (a correspondência foi observada no conteúdo), mas impede ausência (passo 11).
    O escopo `Esc(r, g, f)` são as linhas do conjunto auxiliar cujo `artifact_id` pertence às
    versões selecionadas: conjunto vazio nunca vira ausência cadastral.
 9. `M ≠ ∅`: `INCONCLUSIVO`, incompatibilidade nula. Fim.
@@ -166,7 +171,14 @@ do `SnapshotSet` por correspondência exata: para `(r, g, f)`, com critério `(b
 de `p` para `f`, competência requerida `= base(r) + deslocamento` (base `ATENDIMENTO → A(r)`,
 `PROCESSAMENTO → Q(r)`); a seleção é a única `SelecaoVersao` do `SnapshotSet` com a mesma fonte,
 base e competência; nenhuma → `AUSENTE`; competência base nula ou política sem critério para `f` →
-`NAO_RESOLVIDA`; duas entradas para a mesma chave no `SnapshotSet` → falha operacional. Nunca há
+`NAO_RESOLVIDA`; duas entradas para a mesma chave no `SnapshotSet` → falha operacional.
+
+Uma tabela de seleção fornecida precisa ser coerente com a política da execução: toda linha com
+estado diferente de `NAO_RESOLVIDA` tem `base` igual à base do critério de `p` para a fonte e
+`competencia_requerida = base(r) + deslocamento`; sem critério para a fonte (inclusive política
+`NAO_RESOLVIDA`) ou com competência base nula, só `NAO_RESOLVIDA` é aceita. Qualquer linha
+incoerente é falha operacional (etapa `conferir_selecao`, execução `FALHOU`), nunca avaliação com
+versões de outra política registrada como esta. Nunca há
 fallback para o mês vizinho nem substituição do histórico pelo cadastro corrente.
 
 ## 6. Agregação por registro
@@ -187,6 +199,9 @@ resultados e chaves encontradas. O `evidence_id` deriva desse conteúdo, então 
 mesmos parâmetros (por exemplo, o mesmo par estabelecimento–CBO) citam a mesma evidência.
 `NAO_APLICAVEL` cita uma evidência `APLICABILIDADE` sobre o próprio registro (instrumento fora da
 lista da regra ou competência fora da vigência).
+
+Coluna de código do conjunto SIA-PA com tipo físico não textual é falha de carga
+(`FalhaOperacional`, execução `FALHOU`): códigos são sempre texto e nunca são convertidos de número.
 
 `out/<run_id>/` recebe `avaliacoes.parquet`, `evidencias.parquet`, `agregados_registro.parquet`,
 `selecao_versoes.parquet` e `falhas.parquet` (esquemas em `catalog/schemas/`) e cada um vira um

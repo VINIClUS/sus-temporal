@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.records import TipoCanonico
+from sustemporal.contracts.temporal import EstadoSelecao
 from sustemporal.duck import identificador_seguro
 from sustemporal.rules.catalog import (
     MAPA_INSTRUMENTO_REGISTRO,
     carregar_esquema,
-    requisito_auxiliar,
 )
-from sustemporal.rules.coerencia import SQL_REQUERIDAS, criar_regras_fontes
+from sustemporal.rules.coerencia import SQL_REQUERIDAS, SelecaoIncoerente, criar_regras_fontes
 from sustemporal.rules.conteudo import verificar_conteudo
 
 if TYPE_CHECKING:
@@ -28,14 +27,12 @@ if TYPE_CHECKING:
 
 __all__ = [
     "COLUNAS_BASE_REGISTRO",
-    "Auxiliar",
+    "COMPETENCIA",
     "carregar_cobertura",
     "carregar_integridade",
     "carregar_registros",
     "carregar_selecoes",
     "derivar_selecoes",
-    "preparar_auxiliar",
-    "preparar_conjuntos",
 ]
 
 logger = logging.getLogger(__name__)
@@ -62,14 +59,15 @@ _COLUNAS_SELECAO = (
     "observation_ids",
     "motivo",
 )
-_COMPETENCIA = "[0-9]{4}(0[1-9]|1[0-2])"
+COMPETENCIA = "[0-9]{4}(0[1-9]|1[0-2])"
 # model.md §3: código do registro fora do padrão conta como nulo em todos os passos.
 _DOMINIO_REGISTRO = {
+    "instrumento": "[CIPSAB]",
     "procedimento": "[0-9]{10}",
     "cbo": "[0-9A-Z]{6}",
     "cnes": "[0-9]{7}",
-    "competencia_atendimento": _COMPETENCIA,
-    "competencia_processamento": _COMPETENCIA,
+    "competencia_atendimento": COMPETENCIA,
+    "competencia_processamento": COMPETENCIA,
 }
 _INTEIROS_FISICOS = frozenset(
     {"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT"}
@@ -80,14 +78,6 @@ _LISTA_NORMALIZADA = (
     "array_to_string(list_sort(list_distinct(list_filter("
     "string_split(coalesce({c}, ''), ';'), x -> x <> ''))), ';')"
 )
-
-
-@dataclass(frozen=True)
-class Auxiliar:
-    """Conjunto auxiliar de uma regra e o estado do seu leiaute (`OK` ou motivo de inconclusão)."""
-
-    dataset: DatasetRef | None
-    leiaute: str
 
 
 def _tipos_do_parquet(con: duckdb.DuckDBPyConnection, caminho: str) -> dict[str, str]:
@@ -211,7 +201,18 @@ def carregar_registros(
         {"c": dataset.caminho} | dominios,
     )
     _exigir_chave_unica(con, "registros", ("row_id",), tipos)
+    _exigir_linhagem(con)
     return frozenset(presentes & set(usadas))
+
+
+def _exigir_linhagem(con: duckdb.DuckDBPyConnection) -> None:
+    """Recusa `artifact_id` nulo ou diferente do artefato embutido no `row_id` (`art_…#n`)."""
+    incoerentes = con.execute(
+        "SELECT count(*) FROM registros WHERE artifact_id IS NULL "
+        "OR split_part(row_id, '#', 1) <> artifact_id"
+    ).fetchall()[0][0]
+    if incoerentes:
+        raise ValueError(f"linhagem_incoerente tabela=registros linhas={incoerentes}")
 
 
 def carregar_selecoes(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> None:
@@ -242,6 +243,12 @@ def carregar_selecoes(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> No
         {"c": dataset.caminho},
     )
     _exigir_chave_unica(con, "selecoes", ("row_id", "rule_id", "fonte"), tipos)
+    invalidos = con.execute(
+        "SELECT count(*) FROM selecoes WHERE NOT list_contains($estados, estado)",
+        {"estados": [estado.value for estado in EstadoSelecao]},
+    ).fetchall()[0][0]
+    if invalidos:
+        raise SelecaoIncoerente(f"selecao_com_estado_invalido linhas={invalidos}")
 
 
 _SQL_DERIVAR = f"""
@@ -370,97 +377,3 @@ def carregar_integridade(
     con.executemany(
         "INSERT INTO mapa_registro VALUES (?, ?)", sorted(MAPA_INSTRUMENTO_REGISTRO.items())
     )
-
-
-def preparar_auxiliar(
-    con: duckdb.DuckDBPyConnection, regra: RuleSpec, auxiliares: tuple[DatasetRef, ...]
-) -> Auxiliar:
-    """Cria `aux` com as colunas do requisito; vazia quando o leiaute não permite consultar.
-
-    Raises:
-        ValueError: mais de um conjunto auxiliar com o `schema_id` do requisito.
-    """
-    requisito = requisito_auxiliar(regra)
-    tipos = _tipos(requisito.schema_id)
-    colunas = list(dict.fromkeys(["artifact_id", *requisito.campos]))
-    candidatos = [d for d in auxiliares if d.schema_id == requisito.schema_id]
-    if len(candidatos) > 1:
-        raise ValueError(f"auxiliar_repetido schema_id={requisito.schema_id}")
-    dataset = candidatos[0] if candidatos else None
-    if dataset is not None:
-        verificar_conteudo(con, dataset)
-    presentes, incompativeis = (
-        _conferir_tipos(con, dataset.caminho, requisito.schema_id, colunas)
-        if dataset
-        else (set(), [])
-    )
-    leiaute = "OK"
-    if dataset is None:
-        leiaute = "ARQUIVO_AUSENTE"
-    elif not set(colunas) <= presentes or incompativeis:
-        leiaute = "LEIAUTE_INCOMPATIVEL"
-    projecao = _projecao(colunas, presentes if leiaute == "OK" else set(), tipos)
-    origem = "read_parquet($c)" if leiaute == "OK" else "(SELECT 1) WHERE false"
-    parametros = {"c": dataset.caminho} if leiaute == "OK" and dataset else {}
-    con.execute(
-        f"CREATE OR REPLACE TEMP TABLE aux AS SELECT {projecao} FROM {origem}",  # noqa: S608
-        parametros,
-    )
-    logger.info("auxiliar_preparado regra=%s leiaute=%s", regra.rule_id, leiaute)
-    return Auxiliar(dataset=dataset, leiaute=leiaute)
-
-
-def _estado_do_conjunto(
-    artefatos: list[str],
-    auxiliar: Auxiliar,
-    com_linhas: set[str],
-    integridade: Mapping[str, EstadoIntegridade],
-) -> tuple[bool, bool, bool, bool, str, bool]:
-    conhecidos = set(auxiliar.dataset.artifact_ids) if auxiliar.dataset else set()
-    fora = any(artefato not in conhecidos for artefato in artefatos)
-    vazio = not any(artefato in com_linhas for artefato in artefatos)
-    todas = bool(artefatos) and all(artefato in com_linhas for artefato in artefatos)
-    estados = [integridade.get(artefato) for artefato in artefatos]
-    quarentena = any(e is not None and e.value.startswith("QUARENTENA_") for e in estados)
-    ok = bool(estados) and all(estado is EstadoIntegridade.OK for estado in estados)
-    ruins = sorted(
-        str(e) if e is not None else "NAO_VERIFICADO"
-        for e in estados
-        if e is not EstadoIntegridade.OK
-    )
-    return (
-        fora,
-        quarentena,
-        vazio,
-        todas,
-        "OK" if ok else (ruins[0] if ruins else "NAO_VERIFICADO"),
-        ok,
-    )
-
-
-def preparar_conjuntos(
-    con: duckdb.DuckDBPyConnection,
-    regra: RuleSpec,
-    auxiliar: Auxiliar,
-    integridade: Mapping[str, EstadoIntegridade],
-) -> None:
-    """Cria `conjuntos`: por conjunto de versões selecionadas, escopo, presença e integridade."""
-    chaves = con.execute(
-        "SELECT DISTINCT artifact_ids FROM selecoes "
-        "WHERE rule_id = $r AND estado = 'SELECIONADA' ORDER BY artifact_ids",
-        {"r": regra.rule_id},
-    ).fetchall()
-    com_linhas = {
-        str(linha[0]) for linha in con.execute("SELECT DISTINCT artifact_id FROM aux").fetchall()
-    }
-    linhas = []
-    for (chave,) in chaves:
-        artefatos = [a for a in str(chave or "").split(";") if a]
-        linhas.append((chave, *_estado_do_conjunto(artefatos, auxiliar, com_linhas, integridade)))
-    con.execute(
-        "CREATE OR REPLACE TEMP TABLE conjuntos (chave VARCHAR, fora BOOLEAN, quarentena BOOLEAN, "
-        "escopo_vazio BOOLEAN, todas_com_linhas BOOLEAN, integridade VARCHAR, "
-        "integridade_ok BOOLEAN)"
-    )
-    if linhas:
-        con.executemany("INSERT INTO conjuntos VALUES (?, ?, ?, ?, ?, ?, ?)", linhas)

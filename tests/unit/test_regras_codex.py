@@ -14,7 +14,7 @@ from sustemporal.rules import saidas
 from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.engine import evaluate_rules
 from tests.fixtures.regras_cenario import materializar, politica, reemitir_insumo, snapshot_vazio
-from tests.fixtures.regras_execucao import avaliacoes_por_chave, executar, tabela
+from tests.fixtures.regras_execucao import avaliacoes_por_chave, executar, regras_so_de_c, tabela
 from tests.fixtures.regras_exemplos import ART_SIGTAP, cenario_base, registro, selecao
 
 LINHA = registro()["row_id"]
@@ -150,7 +150,11 @@ def test_evidencia_rejeitada_nao_e_gravada(tmp_path: Path, monkeypatch: pytest.M
         return original(**campos)
 
     monkeypatch.setattr(saidas, "Evidence", recusar_aplicabilidade)
-    resultado = executar(tmp_path, cenario_base(registro(0), registro(1, instrumento="Z")))
+    resultado = executar(
+        tmp_path,
+        cenario_base(registro(0), registro(1, instrumento="I")),
+        regras=regras_so_de_c(),
+    )
     assert {e["tipo"] for e in tabela(resultado, "evidencias.v1")} == {"VINCULO_ENCONTRADO"}
     assert all(a["estado"] != "NAO_APLICAVEL" for a in tabela(resultado, "avaliacoes.v1"))
     assert {f["etapa"] for f in tabela(resultado, "falhas.v1")} >= {"validar_evidencia"}

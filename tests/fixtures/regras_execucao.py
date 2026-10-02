@@ -20,7 +20,12 @@ if TYPE_CHECKING:
     from sustemporal.contracts.temporal import SnapshotSet
     from tests.fixtures.regras_cenario import CenarioRegras
 
-__all__ = ["avaliacoes_por_chave", "executar", "saida", "tabela"]
+__all__ = ["avaliacoes_por_chave", "executar", "regras_so_de_c", "saida", "tabela"]
+
+
+def regras_so_de_c() -> list[RuleSpec]:
+    """Regras do catálogo restritas ao instrumento C (instrumento I fica não aplicável)."""
+    return [r.model_copy(update={"instrumentos": ("C",)}) for r in carregar_regras()]
 
 
 def executar(

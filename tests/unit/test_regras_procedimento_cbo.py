@@ -7,7 +7,7 @@ import pytest
 from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.rules.catalog import carregar_regras
 from tests.fixtures.regras_cenario import CenarioRegras
-from tests.fixtures.regras_execucao import avaliacoes_por_chave, executar, tabela
+from tests.fixtures.regras_execucao import avaliacoes_por_chave, executar, regras_so_de_c, tabela
 from tests.fixtures.regras_exemplos import ART_SIGTAP, cenario_base, cobertura_completa, registro
 
 REGRA = "PROC_CBO_SIGTAP"
@@ -89,7 +89,7 @@ def test_procedimento_sem_ocupacao_listada_tem_aplicabilidade_desconhecida(tmp_p
 
 
 def test_instrumento_fora_da_regra_e_nao_aplicavel_com_evidencia(tmp_path: Path) -> None:
-    resultado = executar(tmp_path, cenario_base(registro(instrumento="Z")))
+    resultado = executar(tmp_path, cenario_base(registro(instrumento="I")), regras=regras_so_de_c())
     avaliacao = avaliacoes_por_chave(resultado)[(LINHA, REGRA)]
     assert (avaliacao["estado"], avaliacao["aplicabilidade"]) == (
         "NAO_APLICAVEL",

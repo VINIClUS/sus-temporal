@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from sustemporal.contracts.temporal import MetodoId
 from sustemporal.rules.catalog import requisito_auxiliar
 
 if TYPE_CHECKING:
     import duckdb
 
     from sustemporal.contracts.rules import RuleSpec
-    from sustemporal.contracts.temporal import PoliticaTemporal
+    from sustemporal.contracts.temporal import CriterioTemporal, PoliticaTemporal
 
 __all__ = ["SQL_REQUERIDAS", "SelecaoIncoerente", "conferir_selecoes", "criar_regras_fontes"]
 
@@ -58,15 +59,32 @@ class SelecaoIncoerente(ValueError):
     """Seleção fornecida com base ou competência diferente da política da execução."""
 
 
+def _coincide_com_a_regra(regra: RuleSpec, criterio: CriterioTemporal | None) -> bool:
+    if criterio is None:
+        return False
+    return any(
+        documental.fonte is criterio.fonte
+        and documental.base is criterio.base
+        and documental.deslocamento_meses == criterio.deslocamento_meses
+        for documental in regra.criterios_temporais
+    )
+
+
 def criar_regras_fontes(
     con: duckdb.DuckDBPyConnection, regras: list[RuleSpec], politica: PoliticaTemporal
 ) -> None:
-    """Cria `regras_fontes`: por regra, a fonte auxiliar e o critério da política para ela."""
+    """Cria `regras_fontes`: por regra, a fonte auxiliar e o critério da política para ela.
+
+    Em M_TEMP, o critério da política só vale quando coincide com o critério documental da
+    regra para a fonte (model.md §5); senão a regra fica sem critério (NAO_RESOLVIDA).
+    """
     criterios = {criterio.fonte: criterio for criterio in politica.criterios}
     pedidos = []
     for regra in regras:
         fonte = requisito_auxiliar(regra).fonte
         criterio = criterios.get(fonte)
+        if politica.metodo is MetodoId.M_TEMP and not _coincide_com_a_regra(regra, criterio):
+            criterio = None
         base = str(criterio.base) if criterio else None
         deslocamento = criterio.deslocamento_meses if criterio else 0
         pedidos.append((regra.rule_id, str(fonte), base, deslocamento))

@@ -19,6 +19,7 @@ WITH base AS (
         s.motivo AS sel_motivo,
         k.fora AS sel_fora,
         k.quarentena AS sel_quarentena,
+        k.competencia_divergente AS sel_competencia_divergente,
         k.escopo_vazio AS sel_escopo_vazio,
         k.todas_com_linhas AS sel_todas_com_linhas,
         k.integridade AS sel_integridade,
@@ -33,14 +34,18 @@ WITH base AS (
     LEFT JOIN selecoes AS s
         ON s.row_id = r.row_id AND s.rule_id = $rule_id AND s.fonte = $fonte
     LEFT JOIN conjuntos AS k
-        ON k.chave = s.artifact_ids AND s.estado = 'SELECIONADA'
+        ON k.chave = s.artifact_ids
+        AND k.competencia = s.competencia_requerida
+        AND s.estado = 'SELECIONADA'
     LEFT JOIN integridade AS ir
         ON ir.artifact_id = r.artifact_id
 ),
 aplicabilidade AS (
     SELECT
         *,
+        starts_with(integridade_registro, 'QUARENTENA_') AS quarentena_registro,
         CASE
+            WHEN starts_with(integridade_registro, 'QUARENTENA_') THEN 'DESCONHECIDA'
             WHEN instrumento IS NULL THEN 'DESCONHECIDA'
             WHEN NOT list_contains($instrumentos, instrumento) THEN 'NAO_APLICAVEL_DEMONSTRADA'
             WHEN $tem_vigencia AND comp_vigencia IS NULL THEN 'DESCONHECIDA'
@@ -50,7 +55,8 @@ aplicabilidade AS (
             ) THEN 'NAO_APLICAVEL_DEMONSTRADA'
             ELSE 'APLICAVEL'
         END AS aplicabilidade_previa,
-        instrumento IS NOT NULL
+        NOT starts_with(integridade_registro, 'QUARENTENA_')
+            AND instrumento IS NOT NULL
             AND NOT list_contains($instrumentos, instrumento) AS fora_dos_instrumentos
     FROM base
 ),
@@ -60,10 +66,6 @@ insumos AS (
         list_filter(
             [
                 CASE WHEN $politica_nao_resolvida THEN 'POLITICA_NAO_RESOLVIDA' END,
-                CASE
-                    WHEN starts_with(integridade_registro, 'QUARENTENA_')
-                        THEN 'ARQUIVO_EM_QUARENTENA'
-                END,
                 CASE WHEN campo_faltando THEN 'CAMPO_INSUFICIENTE' END,
                 CASE coalesce(sel_estado, 'SEM_SELECAO')
                     WHEN 'SEM_SELECAO' THEN 'VIGENCIA_NAO_RESOLVIDA'
@@ -77,8 +79,10 @@ insumos AS (
                         WHEN $leiaute <> 'OK' THEN $leiaute
                         WHEN sel_fora THEN 'ARQUIVO_AUSENTE'
                         WHEN sel_quarentena THEN 'ARQUIVO_EM_QUARENTENA'
+                        WHEN sel_competencia_divergente THEN 'VIGENCIA_NAO_RESOLVIDA'
                         WHEN sel_escopo_vazio THEN 'COBERTURA_INSUFICIENTE'
                     END
+                    ELSE 'VIGENCIA_NAO_RESOLVIDA'
                 END
             ],
             m -> m IS NOT NULL
@@ -121,6 +125,8 @@ decisao AS (
             ELSE 'APLICAVEL'
         END AS aplicabilidade,
         CASE
+            WHEN aplicabilidade_previa = 'DESCONHECIDA' AND quarentena_registro
+                THEN ['APLICABILIDADE_DESCONHECIDA', 'ARQUIVO_EM_QUARENTENA']
             WHEN aplicabilidade_previa = 'DESCONHECIDA'
                 THEN ['APLICABILIDADE_DESCONHECIDA', 'CAMPO_INSUFICIENTE']
             WHEN aplicabilidade_previa = 'NAO_APLICAVEL_DEMONSTRADA' THEN CAST([] AS VARCHAR[])

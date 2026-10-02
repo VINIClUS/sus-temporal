@@ -247,7 +247,9 @@ def materializar(cenario: CenarioRegras, raiz: Path) -> tuple[DatasetRef, Insumo
     """Grava os parquet SINTETICOS e devolve o conjunto SIA-PA e os insumos do motor."""
     raiz.mkdir(parents=True, exist_ok=True)
     registros = [dict(linha) for linha in cenario.registros]
-    artefatos_sia = tuple(sorted({str(linha["artifact_id"]) for linha in registros}))
+    artefatos_sia = tuple(
+        sorted({str(linha["artifact_id"]) for linha in registros if linha["artifact_id"]})
+    )
     dataset = _dataset(
         raiz / "sia_pa.parquet", "sia_pa.v1", _colunas_registro(cenario), registros, artefatos_sia
     )

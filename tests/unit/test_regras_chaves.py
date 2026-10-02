@@ -12,7 +12,7 @@ from sustemporal.contracts.experiment import EstadoExecucao, RunResult
 from sustemporal.rules import engine
 from sustemporal.rules.catalog import carregar_regras
 from tests.fixtures.regras_cenario import materializar, reemitir_insumo, snapshot_vazio
-from tests.fixtures.regras_execucao import avaliacoes_por_chave, executar, tabela
+from tests.fixtures.regras_execucao import avaliacoes_por_chave, executar, regras_so_de_c, tabela
 from tests.fixtures.regras_exemplos import cenario_base, registro
 
 LINHA = registro()["row_id"]
@@ -90,7 +90,11 @@ def test_cobertura_sem_coluna_nao_e_utilizavel(tmp_path: Path) -> None:
 
 def test_hash_da_evidencia_e_o_do_sql_executado(tmp_path: Path) -> None:
     regras = {regra.rule_id: regra for regra in carregar_regras()}
-    resultado = executar(tmp_path, cenario_base(registro(0), registro(1, instrumento="Z")))
+    resultado = executar(
+        tmp_path,
+        cenario_base(registro(0), registro(1, instrumento="I")),
+        regras=regras_so_de_c(),
+    )
     evidencias = {e["evidence_id"]: e for e in tabela(resultado, "evidencias.v1")}
     for avaliacao in tabela(resultado, "avaliacoes.v1"):
         consulta = engine.montar_consulta(regras[avaliacao["rule_id"]])

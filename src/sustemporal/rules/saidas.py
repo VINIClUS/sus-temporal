@@ -222,6 +222,10 @@ def _validar_avaliacoes(
         invalidas |= {(row_id, rule_id) for rule_id in completo}
         if sem_agregado or completo:
             continue
+        if len(avaliacoes) != len(contexto.regras):
+            erro = ValueError(f"agregacao_incompleta avaliacoes={len(avaliacoes)}")
+            contexto.falhas.registrar("agregar_registro", erro, row_id=row_id)
+            continue
         agregado = AgregadoRegistro.agregar(contexto.run_id, row_id, avaliacoes)
         agregados.append(_linha_agregado(agregado))
     return invalidas, agregados

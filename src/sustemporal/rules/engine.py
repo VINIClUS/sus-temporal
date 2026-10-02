@@ -11,6 +11,7 @@ from sustemporal.contracts.experiment import EstadoExecucao, RunResult, TipoExec
 from sustemporal.contracts.temporal import TipoPolitica
 from sustemporal.duck import conectar, identificador_seguro
 from sustemporal.gates import exigir_confirmatorio_valido, exigir_politicas_resolvidas
+from sustemporal.rules.auxiliares import preparar_auxiliar, preparar_conjuntos
 from sustemporal.rules.catalog import (
     catalogo_sha256,
     requisito_auxiliar,
@@ -27,8 +28,6 @@ from sustemporal.rules.preparo import (
     carregar_registros,
     carregar_selecoes,
     derivar_selecoes,
-    preparar_auxiliar,
-    preparar_conjuntos,
 )
 from sustemporal.rules.saidas import COLUNAS_BRUTAS, ContextoSaida, gravar_saidas
 from sustemporal.runtime_info import ambiente, versao_codigo
@@ -41,7 +40,7 @@ if TYPE_CHECKING:
 
     from sustemporal.contracts import DatasetRef, RuleSpec, RunConfig, SnapshotSet
     from sustemporal.contracts.temporal import PoliticaTemporal
-    from sustemporal.rules.preparo import Auxiliar
+    from sustemporal.rules.auxiliares import Auxiliar
 
 __all__ = ["InsumosAvaliacao", "calcular_run_id", "evaluate_rules", "montar_consulta"]
 
@@ -152,10 +151,23 @@ def _avaliar_regra(
     logger.info("regra_avaliada regra=%s leiaute=%s", regra.rule_id, auxiliar.leiaute)
 
 
+def _exigir_esquemas(insumos: InsumosAvaliacao) -> None:
+    esperados = (
+        ("selecoes", insumos.selecoes, "selecao_versoes.v1"),
+        ("cobertura", insumos.cobertura, "cobertura.v1"),
+    )
+    for nome, dataset, esperado in esperados:
+        if dataset is not None and dataset.schema_id != esperado:
+            raise ValueError(
+                f"schema_inesperado insumo={nome} esperado={esperado} obtido={dataset.schema_id}"
+            )
+
+
 def _preparar(
     con: duckdb.DuckDBPyConnection, contexto: ContextoSaida, snapshots: SnapshotSet
 ) -> None:
     insumos = contexto.insumos
+    _exigir_esquemas(insumos)
     carregar_registros(con, contexto.dataset, contexto.regras)
     if insumos.selecoes is not None:
         carregar_selecoes(con, insumos.selecoes)

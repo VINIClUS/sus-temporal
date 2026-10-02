@@ -158,6 +158,11 @@ class ArtifactObservation(ContratoBase):
         sem_bytes = {ResultadoTentativa.NAO_ENCONTRADO, ResultadoTentativa.RECUSADO_OFFLINE}
         if self.resultado in sem_bytes and self.sha256_obtido is not None:
             raise ValueError(f"observacao_sem_bytes_com_hash id={self.observation_id}")
+        if self.resultado in sem_bytes and self.bytes_recebidos > 0:
+            raise ValueError(
+                f"observacao_sem_bytes_com_bytes_recebidos id={self.observation_id} "
+                f"bytes={self.bytes_recebidos}"
+            )
         if self.artifact_id is not None and self.sha256_obtido is not None:
             esperado = calcular_artifact_id(self.chave, self.sha256_obtido)
             if self.artifact_id != esperado:

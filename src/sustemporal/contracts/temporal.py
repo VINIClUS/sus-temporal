@@ -281,9 +281,7 @@ class SnapshotSet(ContratoBase):
         if self.artifact_ids != tuple(sorted(set(self.artifact_ids))):
             raise ValueError("snapshot_artefatos_devem_ser_ordenados_e_unicos")
         self._formatos()
-        selecionados = {a for s in self.selecoes for a in s.artifact_ids}
-        if not selecionados <= set(self.artifact_ids):
-            raise ValueError("snapshot_selecao_fora_do_conjunto")
+        self._selecoes_contidas()
         if self.snapshot_id == _PROVISORIO and (info.context or {}).get(_PROVISORIO):
             return self
         conteudo = self.model_dump(mode="json", exclude={"snapshot_id"})
@@ -300,3 +298,12 @@ class SnapshotSet(ContratoBase):
         for valores, padrao in padroes:
             if any(not re.fullmatch(padrao, valor) for valor in valores):
                 raise ValueError(f"snapshot_identificador_invalido padrao={padrao}")
+
+    def _selecoes_contidas(self) -> None:
+        selecionados = {a for s in self.selecoes for a in s.artifact_ids}
+        if not selecionados <= set(self.artifact_ids):
+            raise ValueError("snapshot_selecao_fora_do_conjunto")
+        citadas = {o for s in self.selecoes for o in s.observation_ids}
+        malformadas = any(not re.fullmatch(_PADRAO_OBSERVACAO, o) for o in citadas)
+        if malformadas or not citadas <= set(self.observation_ids):
+            raise ValueError("snapshot_selecao_com_observacao_externa")

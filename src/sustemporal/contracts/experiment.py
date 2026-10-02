@@ -24,12 +24,14 @@ from sustemporal.contracts.base import (
     InteiroNaoNegativo,
     OrigemDados,
     Proveniencia,
+    ReferenciaDecisao,
     Sha256Hex,
     SiglaUF,
     Verdadeiro,
     hash_canonico,
 )
 from sustemporal.contracts.records import DatasetRef, EsquemaCanonico, PapelColuna, SchemaId
+from sustemporal.contracts.rules import FamiliaRegra
 from sustemporal.contracts.temporal import CompetenciaProcessamento, MetodoId
 
 __all__ = [
@@ -178,7 +180,11 @@ class SplitManifest(ContratoBase):
     artefatos_teste: tuple[ArtifactId, ...] = ()
 
     @model_validator(mode="after")
-    def _teste_intocado(self) -> SplitManifest:
+    def _coerencia(self) -> SplitManifest:
+        declaradas = {intervalo.particao for intervalo in self.spec.intervalos}
+        contadas = (set(self.linhas_por_particao), set(self.hash_por_particao))
+        if any(particoes != declaradas for particoes in contadas):
+            raise ValueError(f"split_manifesto_particoes_divergentes split={self.split_id}")
         if set(self.artefatos_teste) & set(self.artefatos_inspecionados):
             raise ValueError(f"teste_contem_artefato_inspecionado split={self.split_id}")
         return self
@@ -308,7 +314,7 @@ class FreezeManifest(ContratoBase):
     metricas: tuple[str, ...]
     comparacoes_primarias: tuple[str, ...]
     margens: dict[str, DecimalExato] = Field(default_factory=dict)
-    decisao_g0: str
+    decisao_g0: ReferenciaDecisao
 
     @classmethod
     def calcular_id(cls, conteudo: dict[str, Any]) -> str:
@@ -351,11 +357,11 @@ class DecisaoPortao(ContratoBase):
     portao: Portao
     decisao: str
     data: Data
-    responsaveis: tuple[Annotated[str, StringConstraints(min_length=1)], ...]
+    responsaveis: tuple[Annotated[str, StringConstraints(pattern=r"\S")], ...]
     registrado_por_humano: Verdadeiro
     evidencias: tuple[str, ...] = ()
     freeze_id: FreezeId | None = None
-    familias_aprovadas: tuple[str, ...] = ()
+    familias_aprovadas: tuple[FamiliaRegra, ...] = ()
     observacoes: str = ""
 
     @model_validator(mode="after")
@@ -366,4 +372,6 @@ class DecisaoPortao(ContratoBase):
             raise ValueError(f"decisao_sem_responsavel portao={self.portao}")
         if self.portao is Portao.G2 and self.freeze_id is None:
             raise ValueError("decisao_g2_exige_freeze_id")
+        if self.decisao == "RESTRINGIR_FAMILIAS" and not self.familias_aprovadas:
+            raise ValueError("decisao_restringir_familias_sem_familias")
         return self

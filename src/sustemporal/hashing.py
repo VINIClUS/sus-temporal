@@ -96,6 +96,8 @@ def _campo(valor: object) -> str:
 
 
 def _digest_linha(linha: Sequence[object], aridade: int) -> str:
+    if not isinstance(linha, tuple | list):
+        raise ValueError(f"linha_nao_sequencia tipo={type(linha).__name__}")
     if len(linha) != aridade:
         raise ValueError(f"linha_com_aridade_divergente esperado={aridade} obtido={len(linha)}")
     codificada = "|".join(_campo(valor) for valor in linha)
@@ -120,7 +122,8 @@ def hash_logico_linhas(colunas: Sequence[str], linhas: Iterable[Sequence[object]
 
     Raises:
         TypeError: valor float ou de tipo não suportado.
-        ValueError: coluna inválida, aridade divergente, decimal não finito ou instante sem fuso.
+        ValueError: coluna inválida, linha que não é tupla nem lista, aridade divergente,
+            decimal não finito ou instante sem fuso.
     """
     _validar_colunas(colunas, colunas)
     digests = sorted(_digest_linha(linha, len(colunas)) for linha in linhas)
@@ -139,7 +142,9 @@ def _texto_sql(coluna: str, tipo: str) -> str:
     if decimal.group(2) == "0":
         return f"CAST({coluna} AS VARCHAR)"
     aparado = f"rtrim(rtrim(CAST({coluna} AS VARCHAR), '0'), '.')"
-    return f"CASE WHEN {coluna} = 0 THEN '0' ELSE {aparado} END"
+    # DECIMAL(p,p) vira texto sem o zero inteiro (".05", "-.5"); a referência escreve "0.05".
+    com_zero_inteiro = f"regexp_replace({aparado}, '^(-?)\\.', '\\10.')"
+    return f"CASE WHEN {coluna} = 0 THEN '0' ELSE {com_zero_inteiro} END"
 
 
 def _campo_sql(coluna: str, tipo: str) -> str:

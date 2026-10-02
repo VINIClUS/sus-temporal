@@ -39,12 +39,11 @@ VerificacaoFidelidade = Literal["COMPLETA", "AMOSTRAL", "DESLIGADA"]
 
 
 class RuntimeConfig(ContratoBase):
-    duckdb_memoria: Annotated[str, StringConstraints(pattern=r"^[0-9]+(MB|GB)$")] = "8GB"
+    duckdb_memoria: Annotated[str, StringConstraints(pattern=r"^[1-9][0-9]*(MB|GB)$")] = "8GB"
     duckdb_threads: Inteiro = 4
     raiz_dados: str = "data"
     raiz_manifestos: str = "manifests"
     raiz_saidas: str = "outputs"
-    dir_decisoes: str = "experiments/decisions"
     dir_congelamentos: str = "experiments/frozen"
     rede_permitida: Booleano = False
     verificacao_fidelidade: VerificacaoFidelidade = "COMPLETA"

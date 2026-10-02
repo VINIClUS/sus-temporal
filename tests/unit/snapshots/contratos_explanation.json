@@ -546,6 +546,7 @@
      "evidence_ids": {
       "default": [],
       "items": {
+       "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
        "type": "string"
       },
       "title": "Evidence Ids",

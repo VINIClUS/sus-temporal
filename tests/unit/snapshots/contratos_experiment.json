@@ -225,6 +225,22 @@
  },
  "DecisaoPortao": {
   "$defs": {
+   "FamiliaRegra": {
+    "enum": [
+     "PROCEDIMENTO_CBO",
+     "ESTABELECIMENTO_CBO",
+     "INSTRUMENTO_REGISTRO",
+     "VIGENCIA_PROCEDIMENTO",
+     "SERVICO_CLASSIFICACAO",
+     "HABILITACAO",
+     "CID",
+     "IDADE",
+     "SEXO",
+     "QUANTIDADE_MAXIMA"
+    ],
+    "title": "FamiliaRegra",
+    "type": "string"
+   },
    "Portao": {
     "enum": [
      "G0",
@@ -257,7 +273,7 @@
    "familias_aprovadas": {
     "default": [],
     "items": {
-     "type": "string"
+     "$ref": "#/$defs/FamiliaRegra"
     },
     "title": "Familias Aprovadas",
     "type": "array"
@@ -290,7 +306,7 @@
    },
    "responsaveis": {
     "items": {
-     "minLength": 1,
+     "pattern": "\\S",
      "type": "string"
     },
     "title": "Responsaveis",
@@ -859,6 +875,7 @@
     "type": "array"
    },
    "decisao_g0": {
+    "pattern": "^experiments/decisions/[A-Za-z0-9_.-]+\\.ya?ml$",
     "title": "Decisao G0",
     "type": "string"
    },

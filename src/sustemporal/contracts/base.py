@@ -48,6 +48,7 @@ __all__ = [
     "MotivoAusencia",
     "OrigemDados",
     "Proveniencia",
+    "ReferenciaDecisao",
     "Sha256Hex",
     "SiglaUF",
     "ValorMonetario",
@@ -92,6 +93,10 @@ SiglaUF = Annotated[str, Strict(), StringConstraints(pattern=r"^[A-Z]{2}$")]
 Sha256Hex = Annotated[str, Strict(), StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 Identificador = Annotated[str, Strict(), StringConstraints(pattern=r"^[A-Za-z0-9_.:-]{1,128}$")]
 DatasetId = Annotated[str, Strict(), StringConstraints(pattern=r"^ds_[0-9a-f]{64}$")]
+ReferenciaDecisao = Annotated[
+    str, Strict(), StringConstraints(pattern=r"^experiments/decisions/[A-Za-z0-9_.-]+\.ya?ml$")
+]
+_PADRAO_DATA = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
 
 
 def _inteiro(valor: object) -> object:
@@ -152,12 +157,16 @@ def _exige_utc(valor: datetime) -> datetime:
 
 
 def _data(valor: object) -> object:
-    if isinstance(valor, str):
-        try:
-            return date.fromisoformat(valor)
-        except ValueError as erro:
-            raise ValueError(f"data_invalida valor={valor!r}") from erro
-    return valor
+    if isinstance(valor, datetime) or not isinstance(valor, date | str):
+        raise ValueError(f"data_exige_date_ou_iso valor={valor!r}")
+    if isinstance(valor, date):
+        return valor
+    if not _PADRAO_DATA.fullmatch(valor):
+        raise ValueError(f"data_invalida valor={valor!r}")
+    try:
+        return date.fromisoformat(valor)
+    except ValueError as erro:
+        raise ValueError(f"data_invalida valor={valor!r}") from erro
 
 
 Inteiro = Annotated[int, BeforeValidator(_inteiro)]
@@ -226,8 +235,12 @@ class ValorNormalizado(ContratoBase):
     def _valor_xor_motivo(self) -> ValorNormalizado:
         if (self.valor is None) == (self.motivo is None):
             raise ValueError("valor_normalizado_exige_valor_ou_motivo")
-        if self.valor == "":
+        if self.valor is None:
+            return self
+        if not self.valor.strip():
             raise ValueError("valor_vazio_exige_motivo_vazio")
+        if self.bruto is None:
+            raise ValueError("valor_normalizado_exige_bruto")
         return self
 
 

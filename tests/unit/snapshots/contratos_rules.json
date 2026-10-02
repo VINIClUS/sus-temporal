@@ -180,6 +180,19 @@
    "FamiliaCandidata": {
     "additionalProperties": false,
     "properties": {
+     "decisao_g0": {
+      "anyOf": [
+       {
+        "pattern": "^experiments/decisions/[A-Za-z0-9_.-]+\\.ya?ml$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Decisao G0"
+     },
      "descricao": {
       "title": "Descricao",
       "type": "string"
@@ -578,6 +591,19 @@
   },
   "additionalProperties": false,
   "properties": {
+   "decisao_g0": {
+    "anyOf": [
+     {
+      "pattern": "^experiments/decisions/[A-Za-z0-9_.-]+\\.ya?ml$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Decisao G0"
+   },
    "descricao": {
     "title": "Descricao",
     "type": "string"
@@ -823,6 +849,7 @@
    "evidence_ids": {
     "default": [],
     "items": {
+     "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
      "type": "string"
     },
     "title": "Evidence Ids",
@@ -1160,6 +1187,7 @@
    "decisao_g0": {
     "anyOf": [
      {
+      "pattern": "^experiments/decisions/[A-Za-z0-9_.-]+\\.ya?ml$",
       "type": "string"
      },
      {

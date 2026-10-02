@@ -336,14 +336,9 @@
       "title": "Dir Congelamentos",
       "type": "string"
      },
-     "dir_decisoes": {
-      "default": "experiments/decisions",
-      "title": "Dir Decisoes",
-      "type": "string"
-     },
      "duckdb_memoria": {
       "default": "8GB",
-      "pattern": "^[0-9]+(MB|GB)$",
+      "pattern": "^[1-9][0-9]*(MB|GB)$",
       "title": "Duckdb Memoria",
       "type": "string"
      },
@@ -584,14 +579,9 @@
     "title": "Dir Congelamentos",
     "type": "string"
    },
-   "dir_decisoes": {
-    "default": "experiments/decisions",
-    "title": "Dir Decisoes",
-    "type": "string"
-   },
    "duckdb_memoria": {
     "default": "8GB",
-    "pattern": "^[0-9]+(MB|GB)$",
+    "pattern": "^[1-9][0-9]*(MB|GB)$",
     "title": "Duckdb Memoria",
     "type": "string"
    },

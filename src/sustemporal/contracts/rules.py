@@ -14,6 +14,7 @@ from sustemporal.contracts.base import (
     FamiliaFonte,
     Identificador,
     InstanteUTC,
+    ReferenciaDecisao,
 )
 from sustemporal.contracts.records import RowId, SchemaId
 from sustemporal.contracts.temporal import (
@@ -135,6 +136,10 @@ def _exigir_unidade_cadastral(
         raise ValueError(f"regra_cadastral_exige_estabelecimento_cbo regra={identificador}")
 
 
+def _decidida_sem_g0(estado: EstadoRegra, decisao_g0: str | None) -> bool:
+    return estado in {EstadoRegra.APROVADA_G0, EstadoRegra.CONGELADA} and decisao_g0 is None
+
+
 class FamiliaCandidata(ContratoBase):
     familia: FamiliaRegra
     estado: EstadoRegra
@@ -143,9 +148,12 @@ class FamiliaCandidata(ContratoBase):
     unidade_avaliacao: UnidadeAvaliacao
     requisitos_fonte: tuple[RequisitoFonte, ...] = Field(min_length=1)
     referencia: DocRef
+    decisao_g0: ReferenciaDecisao | None = None
 
     @model_validator(mode="after")
     def _unidade(self) -> FamiliaCandidata:
+        if _decidida_sem_g0(self.estado, self.decisao_g0):
+            raise ValueError(f"familia_sem_decisao_g0 familia={self.familia} estado={self.estado}")
         _exigir_unidade_cadastral(self.familia, self.unidade_avaliacao, self.familia)
         return self
 
@@ -178,12 +186,11 @@ class RuleSpec(ContratoBase):
     vigencia: VigenciaDocumentada | None = None
     referencia: DocRef
     pressupostos: tuple[str, ...] = ()
-    decisao_g0: str | None = None
+    decisao_g0: ReferenciaDecisao | None = None
 
     @model_validator(mode="after")
     def _coerencia(self) -> RuleSpec:
-        decididas = {EstadoRegra.APROVADA_G0, EstadoRegra.CONGELADA}
-        if self.estado in decididas and self.decisao_g0 is None:
+        if _decidida_sem_g0(self.estado, self.decisao_g0):
             raise ValueError(f"regra_sem_decisao_g0 regra={self.rule_id} estado={self.estado}")
         _exigir_unidade_cadastral(self.familia, self.unidade_avaliacao, self.rule_id)
         if not self.requisitos_fonte:
@@ -204,7 +211,7 @@ class RuleEvaluation(ContratoBase):
     incompatibilidade_demonstrada: Booleano | None
     motivos: tuple[MotivoInconclusao, ...] = ()
     selecoes: tuple[SelecaoVersao, ...] = ()
-    evidence_ids: tuple[str, ...] = ()
+    evidence_ids: tuple[Identificador, ...] = ()
 
     @model_validator(mode="after")
     def _coerencia(self) -> RuleEvaluation:
@@ -216,10 +223,13 @@ class RuleEvaluation(ContratoBase):
         )
         if self.estado is not esperado:
             raise ValueError(f"estado_incoerente row={self.row_id} regra={self.rule_id}")
-        if self.estado is EstadoAvaliacao.VIOLACAO:
-            selecionadas = all(s.estado is EstadoSelecao.SELECIONADA for s in self.selecoes)
-            if not self.selecoes or not selecionadas or not self.evidence_ids:
-                raise ValueError(f"violacao_sem_insumos_ou_evidencia row={self.row_id}")
+        selecionadas = bool(self.selecoes) and all(
+            selecao.estado is EstadoSelecao.SELECIONADA for selecao in self.selecoes
+        )
+        if self.estado is EstadoAvaliacao.VIOLACAO and not (selecionadas and self.evidence_ids):
+            raise ValueError(f"violacao_sem_insumos_ou_evidencia row={self.row_id}")
+        if self.estado is EstadoAvaliacao.CONFORME and not selecionadas:
+            raise ValueError(f"conforme_sem_insumos row={self.row_id} regra={self.rule_id}")
         if self.estado is EstadoAvaliacao.INCONCLUSIVO and not self.motivos:
             raise ValueError(f"inconclusivo_sem_motivo row={self.row_id} regra={self.rule_id}")
         return self
@@ -263,6 +273,9 @@ class AgregadoRegistro(ContratoBase):
 
     @model_validator(mode="after")
     def _coerencia(self) -> AgregadoRegistro:
+        regras = [*self.violacoes, *self.conformes, *self.inconclusivas, *self.nao_aplicaveis]
+        if len(set(regras)) != len(regras):
+            raise ValueError(f"agregado_regra_repetida row={self.row_id}")
         esperado = _resultado(bool(self.violacoes), bool(self.inconclusivas), bool(self.conformes))
         if self.resultado is not esperado:
             raise ValueError(f"agregado_incoerente row={self.row_id}")

@@ -80,7 +80,8 @@ def _importar(nome_modulo: str) -> ModuleType | None:
     try:
         return importlib.import_module(nome_modulo)
     except ModuleNotFoundError as erro:
-        if erro.name and nome_modulo.startswith(erro.name):
+        ausente = erro.name
+        if ausente and (nome_modulo == ausente or nome_modulo.startswith(f"{ausente}.")):
             return None
         raise
 

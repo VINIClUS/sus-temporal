@@ -242,6 +242,12 @@ class DatasetRef(ContratoBase):
         esperado = calcular_dataset_id(self.schema_id, self.hash_logico, self.artifact_ids)
         if self.dataset_id != esperado:
             raise ValueError(f"dataset_id_nao_corresponde dataset_id={self.dataset_id}")
+        canonicas = self.reconciliacao.canonicas if self.reconciliacao else self.linhas
+        totais = self.multiplicidade.linhas_totais if self.multiplicidade else self.linhas
+        if canonicas != self.linhas or totais != self.linhas:
+            raise ValueError(
+                f"dataset_contagens_divergentes dataset_id={self.dataset_id} linhas={self.linhas}"
+            )
         return self
 
 

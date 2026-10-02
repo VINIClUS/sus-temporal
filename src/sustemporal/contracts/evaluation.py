@@ -30,6 +30,8 @@ class IntervaloConfianca(ContratoBase):
     def _ordem(self) -> IntervaloConfianca:
         if self.inferior > self.superior:
             raise ValueError("intervalo_invertido")
+        if not self.nivel.is_finite() or not Decimal(0) < self.nivel < Decimal(1):
+            raise ValueError(f"intervalo_nivel_invalido nivel={self.nivel}")
         return self
 
 

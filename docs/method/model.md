@@ -143,6 +143,10 @@ operacional, não uma escolha arbitrária.
 
 ## 5. Seleção de versões por fonte
 
+`RuleSpec.criterios_temporais` registra o critério temporal documental por fonte; vazio significa
+critério documental não resolvido (as quatro candidatas estão assim, com o motivo nos
+`pressupostos`). Esse campo não escolhe versões: quem escolhe é a política da execução.
+
 A seleção por registro é produzida pela seleção temporal (T06, sessão S1). Enquanto a seleção em
 lote não está disponível, o motor aceita uma tabela `selecao_versoes.v1` pronta ou deriva a seleção
 do `SnapshotSet` por correspondência exata: para `(r, g, f)`, com critério `(base, deslocamento)`
@@ -163,7 +167,15 @@ nunca é lida como conformidade.
 
 ## 7. Saídas, identidade e determinismo
 
-`out/` recebe `avaliacoes.parquet`, `evidencias.parquet`, `agregados_registro.parquet`,
+Cada evidência carrega consulta (`query_id`), SHA-256 do SQL, parâmetros em JSON, conjunto
+consultado (`dataset_id`, hash lógico, versões), cobertura, integridade (`OK` só se todas as versões
+selecionadas forem `OK`; senão o pior estado, `NAO_VERIFICADO` quando não informado), número de
+resultados e chaves encontradas. O `evidence_id` deriva desse conteúdo, então registros com os
+mesmos parâmetros (por exemplo, o mesmo par estabelecimento–CBO) citam a mesma evidência.
+`NAO_APLICAVEL` cita uma evidência `APLICABILIDADE` sobre o próprio registro (instrumento fora da
+lista da regra ou competência fora da vigência).
+
+`out/<run_id>/` recebe `avaliacoes.parquet`, `evidencias.parquet`, `agregados_registro.parquet`,
 `selecao_versoes.parquet` e `falhas.parquet` (esquemas em `catalog/schemas/`) e cada um vira um
 `DatasetRef` com hash lógico `lh1`. O `run_id` deriva do conteúdo (conjunto, seleção, regras,
 política e configuração), então a reexecução com os mesmos insumos produz os mesmos hashes,

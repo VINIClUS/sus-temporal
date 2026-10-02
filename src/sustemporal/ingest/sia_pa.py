@@ -41,6 +41,7 @@ from sustemporal.ingest.dbf import (
     compactar,
     ler_dbf_arquivo,
 )
+from sustemporal.store import caminho_conteudo
 from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
@@ -130,14 +131,35 @@ def casar_leiaute(cabecalho: CabecalhoDbf, layout: LayoutSpec) -> tuple[CampoLei
     return tuple(casados)
 
 
-def _exigir_integro(artifact: ArtifactVersion, layout: LayoutSpec) -> Path:
+_EXTENSOES = {FormatoArquivo.DBC: "dbc", FormatoArquivo.DBF: "dbf"}
+
+
+def _caminho_seguro(artifact: ArtifactVersion, raiz_dados: Path) -> Path:
+    """Caminho do conteúdo derivado do sha256 e confinado à raiz de dados (sem link para fora)."""
+    extensao = _EXTENSOES.get(artifact.formato)
+    if extensao is None:
+        raise QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO, f"formato={artifact.formato}"
+        )
+    raiz = raiz_dados.resolve()
+    esperado = caminho_conteudo(raiz, artifact.sha256, extensao)
+    resolvido = Path(artifact.caminho_conteudo).resolve()
+    if resolvido != esperado or not resolvido.is_relative_to(raiz):
+        raise QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_CAMINHO_INSEGURO,
+            f"caminho_fora_do_enderecamento id={artifact.artifact_id}",
+        )
+    return esperado
+
+
+def _exigir_integro(artifact: ArtifactVersion, layout: LayoutSpec, runtime: RuntimeConfig) -> Path:
     if artifact.integridade is not EstadoIntegridade.OK:
         raise QuarentenaLeitura(
             artifact.integridade, f"artefato_nao_integro id={artifact.artifact_id}"
         )
     if layout.fonte is not FamiliaFonte.SIA_PA or artifact.chave.fonte is not FamiliaFonte.SIA_PA:
         raise _leiaute(f"fonte_incompativel layout={layout.layout_id} id={artifact.artifact_id}")
-    caminho = Path(artifact.caminho_conteudo)
+    caminho = _caminho_seguro(artifact, Path(runtime.raiz_dados))
     if not caminho.is_file():
         raise ArquivoAusente(f"arquivo_ausente id={artifact.artifact_id}")
     if sha256_arquivo(caminho) != artifact.sha256:
@@ -367,7 +389,7 @@ def normalize_pa(
     """
     configuracao = runtime or RuntimeConfig()
     canonico = EsquemaCanonico.de_yaml(esquema or ESQUEMA_PA)
-    caminho = _exigir_integro(artifact, layout)
+    caminho = _exigir_integro(artifact, layout, configuracao)
     leitura = _ler(artifact, caminho, configuracao)
     casados = casar_leiaute(leitura.cabecalho, layout)
     consulta = _consulta_canonica(artifact, layout, casados, canonico)

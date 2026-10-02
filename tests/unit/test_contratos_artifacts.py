@@ -397,3 +397,23 @@ def test_hash_da_linha_encadeia_a_seguinte() -> None:
     )
     assert segunda.anterior_sha256 == _linha(1).sha256()
     assert primeira.sha256() != segunda.sha256()
+
+
+def test_listagem_de_diretorio_tem_identidade_distinta_do_arquivo_de_dados() -> None:
+    listagem = _chave(tipo_conteudo="LISTAGEM_DIRETORIO", competencia_arquivo=None)
+    dados = _chave(competencia_arquivo=None)
+    assert calcular_artifact_id(listagem, _SHA_A) != calcular_artifact_id(dados, _SHA_A)
+
+
+def test_tipo_de_conteudo_ausente_nao_muda_o_artifact_id() -> None:
+    esperado = calcular_artifact_id(_chave(), _SHA_A)
+    assert calcular_artifact_id(_chave(tipo_conteudo=None), _SHA_A) == esperado
+
+
+def test_falha_de_armazenamento_guarda_hash_sem_apontar_artefato() -> None:
+    observacao = _observacao(
+        resultado="FALHA_ARMAZENAMENTO", artifact_id=None, erro="destino_divergente"
+    )
+    assert observacao.sha256_obtido == _SHA_A
+    with pytest.raises(ValidationError, match="observacao_sem_conteudo_com_artefato"):
+        _observacao(resultado="FALHA_ARMAZENAMENTO")

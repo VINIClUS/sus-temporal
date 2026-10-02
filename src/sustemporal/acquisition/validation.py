@@ -177,14 +177,18 @@ def _validar_dbc(amostra: _Amostra) -> Veredito:
 
 
 def _nome_inseguro(nome: str) -> bool:
-    partes = nome.split("/")
+    """Absoluto, unidade, barra invertida, NUL, `..`, `.` ou componente vazio (`a//b`).
+
+    Só o diretório admite uma barra final; assim nomes iguais após normalizar não coexistem.
+    """
+    partes = nome.removesuffix("/").split("/")
     return (
         not nome
         or "\\" in nome
         or "\x00" in nome
         or nome.startswith("/")
         or bool(_DRIVE.match(nome))
-        or ".." in partes
+        or any(parte in {"", ".", ".."} for parte in partes)
     )
 
 

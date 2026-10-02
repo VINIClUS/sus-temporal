@@ -27,6 +27,7 @@ from sustemporal.acquisition.validation import Veredito, validar_conteudo
 from sustemporal.contracts.artifacts import (
     ArtifactObservation,
     ArtifactVersion,
+    EstadoIntegridade,
     FormatoArquivo,
     MetadadosRemotos,
     ResultadoTentativa,
@@ -235,7 +236,13 @@ def _guardar_validado(
         if esperado is not None and sha256 != esperado:
             _promover(tentativa, temporario, quarentena, sha256)
             erro = f"checksum_divergente esperado={esperado} obtido={sha256}"
-            return tentativa.registrar(ResultadoTentativa.CONTEUDO_INVALIDO, erro=erro, **campos)
+            return tentativa.registrar(
+                ResultadoTentativa.CONTEUDO_INVALIDO,
+                erro=erro,
+                integridade=EstadoIntegridade.QUARENTENA_CHECKSUM,
+                formato=request.formato_esperado,
+                **campos,
+            )
         veredito = validar_conteudo(temporario, request.formato_esperado)
         area = quarentena if veredito.em_quarentena else tentativa.store
         destino = _promover(tentativa, temporario, area, sha256)

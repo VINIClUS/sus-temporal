@@ -7,6 +7,7 @@ vocabulário fechado: são contadas, nunca corrigidas, e só avaliadas quando os
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from contextlib import closing
@@ -183,6 +184,7 @@ class PerfilPa:
     linhas: int
     totais: dict[tuple[str, str], int]
     reconciliado: bool
+    codebook_sha256: str
 
 
 def _codigos_indica(codebook: Path) -> list[str]:
@@ -237,13 +239,15 @@ def perfil_pa(
     demais em `indica_outros`); os totais de cada dimensão e origem devem reconciliar com o
     número de linhas do dataset.
     """
-    codigos = _codigos_indica(codebook or CODEBOOK_PA)
+    caminho_codebook = codebook or CODEBOOK_PA
+    codigos = _codigos_indica(caminho_codebook)
+    codebook_sha256 = hashlib.sha256(caminho_codebook.read_bytes()).hexdigest()
     canonico = EsquemaCanonico.de_yaml(ESQUEMA_PA)
     with closing(conectar(runtime or RuntimeConfig())) as con:
         colunas = carregar_conferido(con, dataset, canonico, TABELA)
         sql, parametros = _sql_perfil(codigos, set(colunas))
         con.execute(f"CREATE TABLE perfil AS {sql}", parametros)
-        destino = out / f"{dataset.dataset_id}.perfil.parquet"
+        destino = out / f"{dataset.dataset_id}.perfil.{codebook_sha256[:16]}.parquet"
         gravar_parquet(con, "perfil", destino)
         indicas = " + ".join(
             identificador_seguro(f"indica_{c}", {f"indica_{c}"}) for c in [*codigos, "outros"]
@@ -259,4 +263,4 @@ def perfil_pa(
         for _, _, n, d, indica in linhas
     )
     logger.info("perfil_sia_pa dataset=%s reconciliado=%s", dataset.dataset_id, reconciliado)
-    return PerfilPa(str(destino), dataset.linhas, totais, reconciliado)
+    return PerfilPa(str(destino), dataset.linhas, totais, reconciliado, codebook_sha256)

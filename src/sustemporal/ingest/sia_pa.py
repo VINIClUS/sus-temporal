@@ -20,6 +20,7 @@ from sustemporal.contracts import (
     EstadoIntegridade,
     FamiliaFonte,
     FormatoArquivo,
+    FormatoLeiaute,
     MotivoAusencia,
     Multiplicidade,
     OrigemDados,
@@ -94,6 +95,8 @@ def casar_leiaute(cabecalho: CabecalhoDbf, layout: LayoutSpec) -> tuple[CampoLei
 
     Campos com `obrigatorio` falso podem faltar; os presentes seguem a ordem do leiaute.
     """
+    if layout.formato is not FormatoLeiaute.DBF:
+        raise _leiaute(f"leiaute_nao_dbf layout={layout.layout_id} formato={layout.formato}")
     restantes = list(layout.campos)
     casados: list[CampoLeiaute] = []
     for posicao, lido in enumerate(cabecalho.campos):
@@ -401,10 +404,24 @@ def normalize_pa(
     )
 
 
+def _tipo_compativel(fisico: str, tipo: TipoCanonico) -> bool:
+    if tipo is TipoCanonico.DECIMAL:
+        return fisico.startswith("DECIMAL(")
+    return (
+        fisico
+        == {
+            TipoCanonico.TEXTO: "VARCHAR",
+            TipoCanonico.INTEIRO: "BIGINT",
+            TipoCanonico.BOOLEANO: "BOOLEAN",
+            TipoCanonico.DATA: "DATE",
+        }[tipo]
+    )
+
+
 def carregar_conferido(
     con: duckdb.DuckDBPyConnection, dataset: DatasetRef, esquema: EsquemaCanonico, tabela: str
 ) -> list[str]:
-    """Carrega o Parquet do dataset e confere colunas, contagem e hash lógico com a referência."""
+    """Carrega o Parquet do dataset e confere colunas, tipos físicos, contagem e hash lógico."""
     if dataset.schema_id != esquema.schema_id:
         raise ValueError(f"dataset_divergente esquema={dataset.schema_id}")
     destino = identificador_seguro(tabela, {tabela})
@@ -413,9 +430,14 @@ def carregar_conferido(
         {"caminho": dataset.caminho},
     )
     colunas = [coluna.nome for coluna in esquema.colunas]
-    lidas = [str(linha[0]) for linha in con.execute(f"DESCRIBE {destino}").fetchall()]
+    descricao = con.execute(f"DESCRIBE {destino}").fetchall()
+    lidas = [str(linha[0]) for linha in descricao]
+    tipos_ok = all(
+        _tipo_compativel(str(linha[1]), coluna.tipo)
+        for linha, coluna in zip(descricao, esquema.colunas, strict=False)
+    )
     contagem = con.execute(f"SELECT count(*) FROM {destino}").fetchone()  # noqa: S608
-    if lidas != colunas or contagem is None or contagem[0] != dataset.linhas:
+    if lidas != colunas or not tipos_ok or contagem is None or contagem[0] != dataset.linhas:
         raise ValueError(f"dataset_divergente dataset_id={dataset.dataset_id} motivo=estrutura")
     if hash_logico_relacao(con, tabela, colunas) != dataset.hash_logico:
         raise ValueError(f"dataset_divergente dataset_id={dataset.dataset_id} motivo=hash")

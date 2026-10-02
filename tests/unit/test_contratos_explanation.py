@@ -249,3 +249,8 @@ def test_conjunto_vazio_sem_cobertura_sustenta_apenas_inconclusao(
 def test_explicacao_rejeita_avaliacao_de_outro_registro() -> None:
     with pytest.raises(ValidationError):
         _bundle(avaliacoes=(_avaliacao(row_id=_OUTRA_ROW),))
+
+
+def test_bundle_rejeita_avaliacao_de_outra_execucao() -> None:
+    with pytest.raises(ValidationError, match="explicacao_mistura_execucoes"):
+        _bundle(avaliacoes=(_avaliacao(run_id="run_2"),))

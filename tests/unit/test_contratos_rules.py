@@ -256,7 +256,7 @@ def test_violacao_permanece_alerta_mesmo_com_outra_regra_inconclusiva() -> None:
         _avaliacao_no_estado(EstadoAvaliacao.INCONCLUSIVO, "REGRA_B"),
         _avaliacao_no_estado(EstadoAvaliacao.VIOLACAO, "REGRA_A"),
     ]
-    agregado = AgregadoRegistro.agregar(_ROW, avaliacoes)
+    agregado = AgregadoRegistro.agregar("run_1", _ROW, avaliacoes)
     assert agregado.resultado is ResultadoRegistro.ALERTA
     assert agregado.violacoes == ("REGRA_A",)
     assert agregado.inconclusivas == ("REGRA_B",)
@@ -267,7 +267,7 @@ def test_sem_violacao_e_com_inconclusiva_resulta_em_abstencao() -> None:
         _avaliacao_no_estado(EstadoAvaliacao.CONFORME, "REGRA_A"),
         _avaliacao_no_estado(EstadoAvaliacao.INCONCLUSIVO, "REGRA_B"),
     ]
-    agregado = AgregadoRegistro.agregar(_ROW, avaliacoes)
+    agregado = AgregadoRegistro.agregar("run_1", _ROW, avaliacoes)
     assert agregado.resultado is ResultadoRegistro.ABSTENCAO
     assert agregado.conformes == ("REGRA_A",)
 
@@ -275,7 +275,7 @@ def test_sem_violacao_e_com_inconclusiva_resulta_em_abstencao() -> None:
 @given(st.lists(st.sampled_from(EstadoAvaliacao), max_size=8))
 def test_agregacao_prioriza_alerta_depois_abstencao(estados: list[EstadoAvaliacao]) -> None:
     avaliacoes = [_avaliacao_no_estado(e, f"R{i:03d}") for i, e in enumerate(estados)]
-    agregado = AgregadoRegistro.agregar(_ROW, avaliacoes)
+    agregado = AgregadoRegistro.agregar("run_1", _ROW, avaliacoes)
     assert agregado.resultado is _resultado_esperado(estados)
     assert len(agregado.violacoes) == estados.count(EstadoAvaliacao.VIOLACAO)
     assert len(agregado.inconclusivas) == estados.count(EstadoAvaliacao.INCONCLUSIVO)
@@ -294,12 +294,14 @@ def test_agregacao_prioriza_alerta_depois_abstencao(estados: list[EstadoAvaliaca
 )
 def test_agregado_rejeita_resultado_incoerente(campos: dict[str, object]) -> None:
     with pytest.raises(ValidationError, match="agregado_incoerente"):
-        AgregadoRegistro.model_validate({"row_id": _ROW} | campos)
+        AgregadoRegistro.model_validate({"run_id": "run_1", "row_id": _ROW} | campos)
 
 
 def test_agregar_rejeita_avaliacao_de_outro_registro() -> None:
     with pytest.raises(ValueError, match="avaliacao_de_outro_registro"):
-        AgregadoRegistro.agregar(f"{_A}#1", [_avaliacao_no_estado(EstadoAvaliacao.CONFORME)])
+        AgregadoRegistro.agregar(
+            "run_1", f"{_A}#1", [_avaliacao_no_estado(EstadoAvaliacao.CONFORME)]
+        )
 
 
 def test_resultado_do_registro_nunca_e_aprovado() -> None:
@@ -384,7 +386,46 @@ def test_familia_candidata_estabelecimento_cbo_exige_unidade_estabelecimento_cbo
 
 
 def test_registro_sem_regra_conforme_e_abstencao() -> None:
-    assert AgregadoRegistro.agregar(_ROW, []).resultado is ResultadoRegistro.ABSTENCAO
+    assert AgregadoRegistro.agregar("run_1", _ROW, []).resultado is ResultadoRegistro.ABSTENCAO
     so_nao_aplicavel = [_avaliacao_no_estado(EstadoAvaliacao.NAO_APLICAVEL, "REGRA_A")]
-    agregado = AgregadoRegistro.agregar(_ROW, so_nao_aplicavel)
+    agregado = AgregadoRegistro.agregar("run_1", _ROW, so_nao_aplicavel)
     assert agregado.resultado is ResultadoRegistro.ABSTENCAO
+
+
+def test_agregado_registra_a_execucao() -> None:
+    assert "run_id" in AgregadoRegistro.model_fields
+    violacao = _avaliacao_no_estado(EstadoAvaliacao.VIOLACAO)
+    assert AgregadoRegistro.agregar("run_1", _ROW, [violacao]).run_id == "run_1"
+
+
+def test_agregar_rejeita_avaliacao_de_outra_execucao() -> None:
+    assert "run_id" in AgregadoRegistro.model_fields
+    conforme = _PARAMETROS_POR_ESTADO[EstadoAvaliacao.CONFORME]
+    avaliacoes = [
+        _avaliacao_no_estado(EstadoAvaliacao.VIOLACAO, "REGRA_A"),
+        _avaliacao(EstadoAvaliacao.CONFORME, rule_id="REGRA_B", run_id="run_2", **conforme),
+    ]
+    with pytest.raises(ValueError, match="avaliacao_de_outra_execucao"):
+        AgregadoRegistro.agregar("run_1", _ROW, avaliacoes)
+
+
+def test_agregar_rejeita_metodos_ou_politicas_distintos() -> None:
+    assert "run_id" in AgregadoRegistro.model_fields
+    conforme = _PARAMETROS_POR_ESTADO[EstadoAvaliacao.CONFORME]
+    for campo in ({"metodo": MetodoId.B_ATEND}, {"politica_id": "pol_2"}):
+        avaliacoes = [
+            _avaliacao_no_estado(EstadoAvaliacao.VIOLACAO, "REGRA_A"),
+            _avaliacao(EstadoAvaliacao.CONFORME, rule_id="REGRA_B", **conforme, **campo),
+        ]
+        with pytest.raises(ValueError, match="avaliacoes_de_metodos_distintos"):
+            AgregadoRegistro.agregar("run_1", _ROW, avaliacoes)
+
+
+def test_agregar_rejeita_regra_avaliada_duas_vezes() -> None:
+    assert "run_id" in AgregadoRegistro.model_fields
+    avaliacoes = [
+        _avaliacao_no_estado(EstadoAvaliacao.VIOLACAO, "REGRA_A"),
+        _avaliacao_no_estado(EstadoAvaliacao.CONFORME, "REGRA_A"),
+    ]
+    with pytest.raises(ValueError, match="avaliacao_repetida"):
+        AgregadoRegistro.agregar("run_1", _ROW, avaliacoes)

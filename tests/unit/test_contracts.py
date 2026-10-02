@@ -74,7 +74,7 @@ def test_missing_input_is_not_violation() -> None:
             motivos=["ARQUIVO_AUSENTE"],
         )
     )
-    agregado = AgregadoRegistro.agregar(inconclusiva.row_id, [inconclusiva])
+    agregado = AgregadoRegistro.agregar(inconclusiva.run_id, inconclusiva.row_id, [inconclusiva])
     assert agregado.resultado == "ABSTENCAO"
     assert agregado.violacoes == ()
     assert EstadoAvaliacao.VIOLACAO not in {inconclusiva.estado}

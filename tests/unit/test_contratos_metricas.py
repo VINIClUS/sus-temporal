@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from sustemporal.contracts.evaluation import ValorMetrica
+from sustemporal.contracts.experiment import BootstrapSpec
 
 
 def _metrica(**campos: object) -> ValorMetrica:
@@ -42,3 +43,19 @@ def test_estatistica_declarada_nao_e_conferida_como_razao() -> None:
 def test_tipo_padrao_da_metrica_e_razao() -> None:
     assert "tipo" in ValorMetrica.model_fields
     assert _metrica().tipo == "RAZAO"
+
+
+@pytest.mark.parametrize(
+    "campos",
+    [
+        {"reamostragens": 0},
+        {"reamostragens": -5},
+        {"confianca": "0"},
+        {"confianca": "1"},
+        {"confianca": "2"},
+        {"confianca": "-0.5"},
+    ],
+)
+def test_bootstrap_sem_intervalo_definido_e_rejeitado(campos: dict[str, object]) -> None:
+    with pytest.raises(ValidationError, match="bootstrap_invalido"):
+        BootstrapSpec.model_validate(campos)

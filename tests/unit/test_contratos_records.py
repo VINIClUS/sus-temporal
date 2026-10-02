@@ -17,6 +17,7 @@ from sustemporal.contracts.records import (
     EsquemaCanonico,
     FormatoLeiaute,
     LayoutSpec,
+    Multiplicidade,
     PapelColuna,
     ProductionRecord,
     Reconciliacao,
@@ -337,3 +338,23 @@ def test_filtrar_atributos_nunca_repassa_rotulo_diagnostico_ou_desconhecida(
 ) -> None:
     filtrados = ProductionRecord.filtrar_atributos({n: _valor("x") for n in nomes}, _esquema())
     assert set(filtrados) == nomes & {"idade"}
+
+
+@pytest.mark.parametrize(
+    ("linhas", "distintas", "maximo"),
+    [(1, 2, 1), (0, 0, 1), (0, 1, 0), (3, 0, 0), (3, 3, 2), (4, 1, 3), (5, 2, 2)],
+)
+def test_multiplicidade_impossivel_e_rejeitada(linhas: int, distintas: int, maximo: int) -> None:
+    with pytest.raises(ValidationError, match="multiplicidade_impossivel"):
+        Multiplicidade(linhas_totais=linhas, combinacoes_distintas=distintas, max_repeticoes=maximo)
+
+
+@pytest.mark.parametrize(
+    ("linhas", "distintas", "maximo"),
+    [(0, 0, 0), (1, 1, 1), (5, 2, 3), (5, 2, 4), (4, 4, 1), (10, 3, 8)],
+)
+def test_multiplicidade_possivel_e_aceita(linhas: int, distintas: int, maximo: int) -> None:
+    multiplicidade = Multiplicidade(
+        linhas_totais=linhas, combinacoes_distintas=distintas, max_repeticoes=maximo
+    )
+    assert multiplicidade.max_repeticoes == maximo

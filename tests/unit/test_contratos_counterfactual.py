@@ -218,3 +218,16 @@ def test_solucao_nao_excede_o_maximo_de_operacoes_do_orcamento() -> None:
 def test_solucao_sem_prova_de_minimalidade_exige_solucao() -> None:
     with pytest.raises(ValidationError):
         _resultado(minimalidade=Minimalidade.SOLUCAO_SEM_PROVA_DE_MINIMALIDADE, solucoes=())
+
+
+@pytest.mark.parametrize(("custo", "n_operacoes"), [(0, 1), (-1, 1), (1, 2), (2, 3)])
+def test_custo_do_candidato_cobre_ao_menos_uma_unidade_por_operacao(
+    custo: int, n_operacoes: int
+) -> None:
+    with pytest.raises(ValidationError, match="candidato_custo_invalido"):
+        _candidato(custo=custo, n_operacoes=n_operacoes)
+
+
+def test_custo_negativo_nao_certifica_minimalidade() -> None:
+    with pytest.raises(ValidationError, match="candidato_custo_invalido"):
+        _resultado(solucoes=(_candidato(custo=-1),), custo_max_explorado_completo=0)

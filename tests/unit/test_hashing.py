@@ -83,7 +83,7 @@ def test_hash_segue_codificacao_canonica_documentada() -> None:
     textos = [
         ["é|:日", "7", "1.2", "2024-02-29", "true", "2024-01-01T12:00:00+00:00"],
         [None, "-1", "0", None, "false", None],
-        ["", "0", "-10.5", "0001-01-01", None, "2024-01-01T09:00:00-03:00"],
+        ["", "0", "-10.5", "0001-01-01", None, "2024-01-01T12:00:00+00:00"],
     ]
     assert hash_logico_linhas(colunas, linhas) == _hash_esperado(colunas, textos)
 
@@ -364,3 +364,9 @@ def test_sha256_arquivo_vazio(tmp_path: Path) -> None:
     caminho = tmp_path / "vazio.bin"
     caminho.write_bytes(b"")
     assert sha256_arquivo(caminho) == hashlib.sha256(b"").hexdigest()
+
+
+def test_mesmo_instante_em_fusos_distintos_tem_o_mesmo_hash() -> None:
+    utc = datetime(2024, 1, 1, 12, tzinfo=UTC)
+    brt = datetime(2024, 1, 1, 9, tzinfo=timezone(timedelta(hours=-3)))
+    assert hash_logico_linhas(["instante"], [(utc,)]) == hash_logico_linhas(["instante"], [(brt,)])

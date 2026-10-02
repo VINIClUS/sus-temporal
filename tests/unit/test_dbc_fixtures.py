@@ -103,6 +103,8 @@ def test_rejeita_campo_ou_valor_invalido(campo: CampoDbf, valor: str) -> None:
         {"truncar_bytes": 10_000},
         {"data": (2018, 13, 1)},
         {"data": (1899, 1, 1)},
+        {"data": (2025, 2, 29)},
+        {"data": (2026, 4, 31)},
     ],
 )
 def test_rejeita_parametros_de_arquivo_invalidos(kwargs: dict[str, Any]) -> None:

@@ -6,7 +6,9 @@ desempenho; serve de oráculo para o teste diferencial.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
+from functools import partial
 from typing import TYPE_CHECKING
 
 from sustemporal.contracts.base import FamiliaFonte
@@ -23,7 +25,7 @@ from sustemporal.contracts.rules import (
 from sustemporal.contracts.temporal import EstadoSelecao, TipoPolitica, TipoTempo
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
 __all__ = [
     "AvaliacaoReferencia",
@@ -52,6 +54,15 @@ _MOTIVO_DA_SELECAO: dict[EstadoSelecao, MotivoInconclusao | None] = {
     EstadoSelecao.EM_QUARENTENA: _M.ARQUIVO_EM_QUARENTENA,
     EstadoSelecao.FORA_DO_CORTE: _M.FORA_DO_CORTE,
     EstadoSelecao.NAO_RESOLVIDA: _M.VIGENCIA_NAO_RESOLVIDA,
+}
+
+_COMPETENCIA = re.compile(r"[0-9]{4}(0[1-9]|1[0-2])")
+_DOMINIO_DO_CAMPO: dict[str, re.Pattern[str]] = {
+    "procedimento": re.compile(r"[0-9]{10}"),
+    "cbo": re.compile(r"[0-9A-Z]{6}"),
+    "cnes": re.compile(r"[0-9]{7}"),
+    "competencia_atendimento": _COMPETENCIA,
+    "competencia_processamento": _COMPETENCIA,
 }
 
 _COMPETENCIA_DO_TIPO: dict[TipoTempo, str] = {
@@ -108,55 +119,39 @@ class _Desfecho:
 class _Indices:
     selecoes: dict[tuple[str, str, str], Mapping[str, object]]
     auxiliares: dict[str, ConjuntoAuxiliar]
-    cobertura: dict[tuple[str, str, str, str], str | None] | None
+    cobertura: dict[tuple[str, str, str, str], Mapping[str, str | None]] | None
 
 
-def _indexar_selecoes(
-    selecoes: Sequence[Mapping[str, object]],
-) -> dict[tuple[str, str, str], Mapping[str, object]]:
-    indice: dict[tuple[str, str, str], Mapping[str, object]] = {}
-    for linha in selecoes:
-        chave = (str(linha["row_id"]), str(linha["rule_id"]), str(linha["fonte"]))
-        if chave in indice:
-            raise ValueError(f"selecao_repetida row={chave[0]} regra={chave[1]} fonte={chave[2]}")
-        indice[chave] = linha
+def _indexar[K, V](itens: Iterable[V], chave: Callable[[V], K], erro: str) -> dict[K, V]:
+    indice: dict[K, V] = {}
+    for item in itens:
+        if (k := chave(item)) in indice:
+            raise ValueError(f"{erro} chave={k}")
+        indice[k] = item
     return indice
 
 
-def _indexar_auxiliares(auxiliares: Sequence[ConjuntoAuxiliar]) -> dict[str, ConjuntoAuxiliar]:
-    indice: dict[str, ConjuntoAuxiliar] = {}
-    for conjunto in auxiliares:
-        if conjunto.schema_id in indice:
-            raise ValueError(f"conjunto_auxiliar_repetido schema={conjunto.schema_id}")
-        indice[conjunto.schema_id] = conjunto
-    return indice
+def _chave_selecao(linha: Mapping[str, object]) -> tuple[str, str, str]:
+    return str(linha["row_id"]), str(linha["rule_id"]), str(linha["fonte"])
 
 
-def _indexar_cobertura(
-    cobertura: Sequence[Mapping[str, str | None]] | None,
-) -> dict[tuple[str, str, str, str], str | None] | None:
-    if cobertura is None:
-        return None
-    indice: dict[tuple[str, str, str, str], str | None] = {}
-    for linha in cobertura:
-        chave = (
-            str(linha["familia_regra"]),
-            str(linha["instrumento"]),
-            str(linha["competencia"]),
-            str(linha["base_temporal"]),
-        )
-        if chave in indice:
-            raise ValueError(f"cobertura_repetida chave={'/'.join(chave)}")
-        indice[chave] = linha["estado"]
-    return indice
+def _chave_cobertura(linha: Mapping[str, str | None]) -> tuple[str, str, str, str]:
+    campos = ("familia_regra", "instrumento", "competencia", "base_temporal")
+    familia, instrumento, competencia, base = (str(linha[c]) for c in campos)
+    return familia, instrumento, competencia, base
 
 
 def _valor(
     cenario: CenarioReferencia, registro: Mapping[str, str | None], campo: str
 ) -> str | None:
+    """Valor do campo; ausente, nulo ou fora do domínio do código (§3) conta como nulo."""
     if campo not in cenario.colunas_registros:
         return None
-    return registro.get(campo)
+    valor = registro.get(campo)
+    dominio = _DOMINIO_DO_CAMPO.get(campo)
+    if valor is None or dominio is None:
+        return valor
+    return valor if dominio.fullmatch(valor) else None
 
 
 def _texto_igual(valor: object, codigo: str | None) -> bool:
@@ -270,6 +265,10 @@ def _insumos(
     insumos = _Insumos(motivos=_motivos_de_campos(cenario, registro, regra))
     if cenario.politica_tipo is TipoPolitica.NAO_RESOLVIDA:
         insumos.motivos.add(_M.POLITICA_NAO_RESOLVIDA)
+    artefato = _valor(cenario, registro, "artifact_id")
+    integridade = cenario.integridade.get(artefato) if artefato is not None else None
+    if integridade is not None and integridade.startswith("QUARENTENA_"):
+        insumos.motivos.add(_M.ARQUIVO_EM_QUARENTENA)
     row_id = str(registro["row_id"])
     for requisito in _requisitos_auxiliares(regra):
         selecao = indices.selecoes.get((row_id, regra.rule_id, requisito.fonte.value))
@@ -295,79 +294,65 @@ _ENCONTRADO = "ENCONTRADO"
 _AUSENCIA = "AUSENCIA"
 _DESCONHECIDA = "DESCONHECIDA"
 
+_SEM_LINHA_DA_CHAVE: dict[FamiliaRegra, str | MotivoInconclusao] = {
+    FamiliaRegra.PROCEDIMENTO_CBO: _DESCONHECIDA,
+    FamiliaRegra.ESTABELECIMENTO_CBO: _M.COBERTURA_INSUFICIENTE,
+    FamiliaRegra.INSTRUMENTO_REGISTRO: _M.COBERTURA_INSUFICIENTE,
+}
 
-def _predicado_procedimento_cbo(
-    escopo: Sequence[Mapping[str, object]], procedimento: str | None, cbo: str | None
-) -> str | MotivoInconclusao:
-    do_procedimento = [e for e in escopo if _texto_igual(e.get("co_procedimento"), procedimento)]
-    if any(_texto_igual(e.get("co_ocupacao"), cbo) for e in do_procedimento):
-        return _ENCONTRADO
-    if not do_procedimento:
-        return _DESCONHECIDA
-    return _AUSENCIA
+type _Teste = Callable[[object], bool]
+type _LeitorCampo = Callable[[str], str | None]
+
+
+def _igual(codigo: str | None) -> _Teste:
+    return lambda valor: _texto_igual(valor, codigo)
 
 
 def _vinculos_positivos(valor: object) -> bool:
     return isinstance(valor, int) and not isinstance(valor, bool) and valor > 0
 
 
-def _predicado_estabelecimento_cbo(
-    escopo: Sequence[Mapping[str, object]], cnes: str | None, cbo: str | None
-) -> str | MotivoInconclusao:
-    do_cnes = [e for e in escopo if _texto_igual(e.get("cnes"), cnes)]
-    do_par = [e for e in do_cnes if _texto_igual(e.get("cbo"), cbo)]
-    if any(_vinculos_positivos(e.get("n_vinculos")) for e in do_par):
-        return _ENCONTRADO
-    if any(e.get("n_vinculos") is None for e in do_par):
-        return _M.CAMPO_INSUFICIENTE
-    if not do_cnes:
-        return _M.COBERTURA_INSUFICIENTE
-    return _AUSENCIA
+def _chave(regra: RuleSpec, campo: _LeitorCampo) -> tuple[tuple[str, _Teste], ...]:
+    """Colunas da chave da família (§4) com o teste de igualdade ao valor do registro."""
+    familia = regra.familia
+    procedimento = ("co_procedimento", _igual(campo("procedimento")))
+    if familia is FamiliaRegra.PROCEDIMENTO_CBO:
+        return procedimento, ("co_ocupacao", _igual(campo("cbo")))
+    if familia is FamiliaRegra.ESTABELECIMENTO_CBO:
+        cnes = ("cnes", _igual(campo("cnes")))
+        return cnes, ("cbo", _igual(campo("cbo"))), ("n_vinculos", _vinculos_positivos)
+    if familia is FamiliaRegra.INSTRUMENTO_REGISTRO:
+        registro = _REGISTRO_DO_INSTRUMENTO.get(campo("instrumento") or "")
+        return procedimento, ("co_registro", _igual(registro))
+    if familia is FamiliaRegra.VIGENCIA_PROCEDIMENTO:
+        return (procedimento,)
+    raise ValueError(f"familia_sem_referencia regra={regra.rule_id} familia={familia}")
 
 
-def _predicado_instrumento_registro(
-    escopo: Sequence[Mapping[str, object]], procedimento: str | None, instrumento: str | None
-) -> str | MotivoInconclusao:
-    registro = _REGISTRO_DO_INSTRUMENTO.get(instrumento or "")
-    do_procedimento = [e for e in escopo if _texto_igual(e.get("co_procedimento"), procedimento)]
-    if any(_texto_igual(e.get("co_registro"), registro) for e in do_procedimento):
-        return _ENCONTRADO
-    if not do_procedimento:
-        return _M.COBERTURA_INSUFICIENTE
-    return _AUSENCIA
+def _casa(linha: Mapping[str, object], chave: tuple[tuple[str, _Teste], ...]) -> bool:
+    return all(teste(linha.get(coluna)) for coluna, teste in chave)
 
 
-def _predicado_vigencia_procedimento(
-    escopo: Sequence[Mapping[str, object]], procedimento: str | None
-) -> str | MotivoInconclusao:
-    if any(_texto_igual(e.get("co_procedimento"), procedimento) for e in escopo):
-        return _ENCONTRADO
-    return _AUSENCIA
+def _casa_com_nulo(linha: Mapping[str, object], chave: tuple[tuple[str, _Teste], ...]) -> bool:
+    valores = [(linha.get(coluna), teste) for coluna, teste in chave]
+    com_nulo = any(valor is None for valor, _ in valores)
+    return com_nulo and all(valor is None or teste(valor) for valor, teste in valores)
 
 
 def _predicado(
     regra: RuleSpec, escopo: Sequence[Mapping[str, object]], campo: _LeitorCampo
 ) -> str | MotivoInconclusao:
     """Passo 10: predicado existencial da família sobre Esc(r, g, f)."""
-    familia = regra.familia
-    if familia is FamiliaRegra.PROCEDIMENTO_CBO:
-        return _predicado_procedimento_cbo(escopo, campo("procedimento"), campo("cbo"))
-    if familia is FamiliaRegra.ESTABELECIMENTO_CBO:
-        return _predicado_estabelecimento_cbo(escopo, campo("cnes"), campo("cbo"))
-    if familia is FamiliaRegra.INSTRUMENTO_REGISTRO:
-        return _predicado_instrumento_registro(escopo, campo("procedimento"), campo("instrumento"))
-    if familia is FamiliaRegra.VIGENCIA_PROCEDIMENTO:
-        return _predicado_vigencia_procedimento(escopo, campo("procedimento"))
-    raise ValueError(f"familia_sem_referencia regra={regra.rule_id} familia={familia}")
-
-
-@dataclass(frozen=True)
-class _LeitorCampo:
-    cenario: CenarioReferencia
-    registro: Mapping[str, str | None]
-
-    def __call__(self, campo: str) -> str | None:
-        return _valor(self.cenario, self.registro, campo)
+    chave = _chave(regra, campo)
+    if any(_casa(linha, chave) for linha in escopo):
+        return _ENCONTRADO
+    if any(_casa_com_nulo(linha, chave) for linha in escopo):
+        return _M.CAMPO_INSUFICIENTE
+    coluna, pertence = chave[0]
+    sem_linha = _SEM_LINHA_DA_CHAVE.get(regra.familia)
+    if sem_linha is not None and not any(pertence(linha.get(coluna)) for linha in escopo):
+        return sem_linha
+    return _AUSENCIA
 
 
 def _ausencia_sustentada(
@@ -377,8 +362,17 @@ def _ausencia_sustentada(
     familia, instrumento, competencia, base = chave
     if indices.cobertura is None or instrumento is None or competencia is None or base is None:
         return False
-    estado = indices.cobertura.get((familia, instrumento, competencia, str(base)))
-    return estado == "DISPONIVEL"
+    linha = indices.cobertura.get((familia, instrumento, competencia, str(base)))
+    return linha is not None and linha.get("estado") == "DISPONIVEL"
+
+
+def _versoes_com_linha(insumos: _Insumos) -> bool:
+    """Passo 11: toda versão selecionada tem ao menos uma linha no conjunto auxiliar."""
+    for schema, linhas in insumos.escopos.items():
+        presentes = {linha.get("artifact_id") for linha in linhas}
+        if not _versoes(insumos.selecoes[schema]) <= presentes:
+            return False
+    return True
 
 
 def _decidir_predicado(
@@ -390,7 +384,7 @@ def _decidir_predicado(
 ) -> _Desfecho:
     """Passos 10 e 11, só com insumos completos."""
     schema = _requisito_da_familia(regra).schema_id
-    campo = _LeitorCampo(cenario, registro)
+    campo: _LeitorCampo = partial(_valor, cenario, registro)
     resultado = _predicado(regra, insumos.escopos[schema], campo)
     if resultado == _ENCONTRADO:
         return _Desfecho(EstadoAvaliacao.CONFORME, Aplicabilidade.APLICAVEL, False)
@@ -401,7 +395,7 @@ def _decidir_predicado(
     base = insumos.selecoes[schema].get("base")
     chave = (regra.familia.value, campo("instrumento"), campo("competencia_processamento"), base)
     integras = all(cenario.integridade.get(a) == "OK" for a in insumos.versoes)
-    if integras and _ausencia_sustentada(indices, chave):
+    if integras and _versoes_com_linha(insumos) and _ausencia_sustentada(indices, chave):
         return _Desfecho(EstadoAvaliacao.VIOLACAO, Aplicabilidade.APLICAVEL, True)
     return _inconclusivo(frozenset({_M.COBERTURA_INSUFICIENTE}))
 
@@ -460,9 +454,13 @@ def avaliar_referencia(
     """Uma avaliação por (registro, regra), ordenada por (row_id, rule_id)."""
     _validar_entradas(cenario, regras)
     indices = _Indices(
-        selecoes=_indexar_selecoes(cenario.selecoes),
-        auxiliares=_indexar_auxiliares(cenario.auxiliares),
-        cobertura=_indexar_cobertura(cenario.cobertura),
+        selecoes=_indexar(cenario.selecoes, _chave_selecao, "selecao_repetida"),
+        auxiliares=_indexar(
+            cenario.auxiliares, lambda c: c.schema_id, "conjunto_auxiliar_repetido"
+        ),
+        cobertura=None
+        if cenario.cobertura is None
+        else _indexar(cenario.cobertura, _chave_cobertura, "cobertura_repetida"),
     )
     avaliacoes = []
     for registro in cenario.registros:

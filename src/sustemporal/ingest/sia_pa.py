@@ -1,23 +1,57 @@
-"""Normalização do SIA-PA preservando multiplicidade (T03)."""
+"""Normalização do SIA-PA preservando multiplicidade (T03).
+
+Uma linha canônica por registro físico do DBF, inclusive deletados, sem deduplicação nem filtro.
+Cada campo normalizado guarda o valor, o texto bruto (latin-1, sem aparar) e o motivo de ausência.
+"""
 
 from __future__ import annotations
 
+import logging
+from contextlib import closing
 from dataclasses import dataclass
+from importlib import metadata
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sustemporal.contracts import OrigemDados
+from sustemporal.contracts import (
+    DatasetRef,
+    EsquemaCanonico,
+    EstadoIntegridade,
+    FamiliaFonte,
+    FormatoArquivo,
+    MotivoAusencia,
+    Multiplicidade,
+    OrigemDados,
+    Reconciliacao,
+    RuntimeConfig,
+    TipoCanonico,
+    calcular_dataset_id,
+)
+from sustemporal.duck import conectar, identificador_seguro
+from sustemporal.hashing import hash_logico_relacao, sha256_arquivo
+from sustemporal.ingest.dbc import ler_dbc, ler_dbc_arquivo, verificar_fidelidade
+from sustemporal.ingest.dbf import (
+    COLUNA_DELETADO,
+    COLUNA_INDICE,
+    ArquivoAusente,
+    QuarentenaLeitura,
+    compactar,
+    ler_dbf_arquivo,
+)
+from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    import duckdb
 
-    from sustemporal.contracts import (
-        ArtifactVersion,
-        CampoLeiaute,
-        DatasetRef,
-        LayoutSpec,
-        RuntimeConfig,
-    )
-    from sustemporal.ingest.dbf import CabecalhoDbf
+    from sustemporal.contracts import ArtifactVersion, CampoLeiaute, LayoutSpec
+    from sustemporal.ingest.dbf import CabecalhoDbf, DescritorCampo, LeituraDbf
+
+logger = logging.getLogger(__name__)
+
+RAIZ_CATALOGO = Path(__file__).resolve().parents[3] / "catalog"
+ESQUEMA_PA = RAIZ_CATALOGO / "schemas" / "sia_pa.yaml"
+CODEBOOK_PA = RAIZ_CATALOGO / "labels" / "sia_pa.yaml"
+TABELA = "sia_pa"
 
 PADROES: dict[str, str] = {
     "cnes": r"^[0-9]{7}$",
@@ -43,6 +77,8 @@ DIMENSOES_PERFIL = (
     "instrumento",
     "cnes",
 )
+_INTEIRO = r"^-?[0-9]+$"
+_SEM_LINHAGEM = frozenset({"row_id", "indice_registro"})
 
 
 @dataclass(frozen=True)
@@ -55,9 +91,250 @@ class PerfilPa:
     reconciliado: bool
 
 
+def _leiaute(motivo: str) -> QuarentenaLeitura:
+    return QuarentenaLeitura(EstadoIntegridade.QUARENTENA_LEIAUTE, motivo)
+
+
+def _conferir_descritor(lido: DescritorCampo, esperado: CampoLeiaute) -> None:
+    fisico = (lido.tipo, lido.largura, lido.decimais)
+    alvo = (esperado.tipo_fisico, esperado.largura, esperado.decimais)
+    if fisico != alvo or esperado.inicio not in {None, lido.inicio}:
+        raise _leiaute(
+            f"descritor_divergente campo={lido.nome} lido={compactar(fisico)} "
+            f"esperado={compactar(alvo)}"
+        )
+
+
 def casar_leiaute(cabecalho: CabecalhoDbf, layout: LayoutSpec) -> tuple[CampoLeiaute, ...]:
-    """Campos do leiaute presentes no arquivo, na ordem física; o resto vai para quarentena."""
-    raise NotImplementedError
+    """Campos do leiaute presentes no arquivo, na ordem física; o resto vai para quarentena.
+
+    Campos com `obrigatorio` falso podem faltar; os presentes seguem a ordem do leiaute.
+    """
+    restantes = list(layout.campos)
+    casados: list[CampoLeiaute] = []
+    for posicao, lido in enumerate(cabecalho.campos):
+        while restantes and restantes[0].nome_fisico != lido.nome and not restantes[0].obrigatorio:
+            restantes.pop(0)
+        if not restantes or restantes[0].nome_fisico != lido.nome:
+            raise _leiaute(f"campo_inesperado campo={compactar(lido.nome)} posicao={posicao}")
+        esperado = restantes.pop(0)
+        _conferir_descritor(lido, esperado)
+        casados.append(esperado)
+    faltantes = [campo.nome_fisico for campo in restantes if campo.obrigatorio]
+    if faltantes:
+        raise _leiaute(f"campos_obrigatorios_ausentes campos={compactar(faltantes)}")
+    return tuple(casados)
+
+
+def _exigir_integro(artifact: ArtifactVersion, layout: LayoutSpec) -> Path:
+    if artifact.integridade is not EstadoIntegridade.OK:
+        raise QuarentenaLeitura(
+            artifact.integridade, f"artefato_nao_integro id={artifact.artifact_id}"
+        )
+    if layout.fonte is not FamiliaFonte.SIA_PA or artifact.chave.fonte is not FamiliaFonte.SIA_PA:
+        raise _leiaute(f"fonte_incompativel layout={layout.layout_id} id={artifact.artifact_id}")
+    caminho = Path(artifact.caminho_conteudo)
+    if not caminho.is_file():
+        raise ArquivoAusente(f"arquivo_ausente id={artifact.artifact_id}")
+    if sha256_arquivo(caminho) != artifact.sha256:
+        raise QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_CHECKSUM, f"sha256_divergente id={artifact.artifact_id}"
+        )
+    return caminho
+
+
+def _ler(artifact: ArtifactVersion, caminho: Path, runtime: RuntimeConfig) -> LeituraDbf:
+    if artifact.formato is FormatoArquivo.DBF:
+        return ler_dbf_arquivo(caminho)
+    if artifact.formato is not FormatoArquivo.DBC:
+        raise QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO, f"formato={artifact.formato}"
+        )
+    modo = runtime.verificacao_fidelidade
+    if modo == "DESLIGADA":
+        return ler_dbc_arquivo(caminho).leitura
+    dados = caminho.read_bytes()
+    leitura = ler_dbc(dados).leitura
+    relatorio = verificar_fidelidade(dados, leitura, modo)
+    if not relatorio.fiel:
+        raise QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO,
+            f"fidelidade_reprovada divergencias={compactar(list(relatorio.divergencias))}",
+        )
+    return leitura
+
+
+class _Consulta:
+    """Monta o SELECT canônico com identificadores de allowlist e literais parametrizados."""
+
+    def __init__(self, fisicos: set[str], saida: set[str]) -> None:
+        self._fisicos = fisicos
+        self._saida = saida
+        self.expressoes: list[str] = []
+        self.parametros: dict[str, object] = {}
+
+    def parametro(self, valor: object) -> str:
+        nome = f"p{len(self.parametros)}"
+        self.parametros[nome] = valor
+        return f"${nome}"
+
+    def bruto(self, nome_fisico: str) -> str:
+        return identificador_seguro(nome_fisico.lower(), self._fisicos)
+
+    def coluna(self, expressao: str, nome: str) -> None:
+        self.expressoes.append(f"{expressao} AS {identificador_seguro(nome, self._saida)}")
+
+
+def _tipo_sql(tipo: TipoCanonico, decimais: int) -> str:
+    return {
+        TipoCanonico.TEXTO: "VARCHAR",
+        TipoCanonico.INTEIRO: "BIGINT",
+        TipoCanonico.DECIMAL: f"DECIMAL(38, {decimais})",
+        TipoCanonico.BOOLEANO: "BOOLEAN",
+    }[tipo]
+
+
+def _padrao(campo: CampoLeiaute) -> str | None:
+    if campo.tipo_canonico is TipoCanonico.INTEIRO:
+        return _INTEIRO if campo.nome_canonico != "idade" or campo.unidade else None
+    if campo.tipo_canonico is TipoCanonico.DECIMAL:
+        fracao = rf"(\.[0-9]{{1,{campo.decimais}}})?" if campo.decimais else ""
+        return rf"^-?[0-9]+{fracao}$"
+    return PADROES[campo.nome_canonico]
+
+
+def _motivo_sql(consulta: _Consulta, campo: CampoLeiaute, aparado: str) -> str:
+    casos = [f"WHEN {aparado} = '' THEN {consulta.parametro(MotivoAusencia.VAZIO.value)}"]
+    for bruto, motivo in campo.sentinelas.items():
+        casos.append(
+            f"WHEN {aparado} = {consulta.parametro(bruto)} THEN {consulta.parametro(motivo.value)}"
+        )
+    padrao = _padrao(campo)
+    if padrao is None:
+        casos.append(f"WHEN TRUE THEN {consulta.parametro(MotivoAusencia.DESCONHECIDO.value)}")
+    else:
+        invalido = consulta.parametro(MotivoAusencia.CODIFICACAO_INVALIDA.value)
+        casos.append(
+            f"WHEN NOT regexp_full_match({aparado}, {consulta.parametro(padrao)}) THEN {invalido}"
+        )
+    return f"CASE {' '.join(casos)} END"
+
+
+def _normalizado(consulta: _Consulta, campo: CampoLeiaute) -> None:
+    nome, bruto = campo.nome_canonico, consulta.bruto(campo.nome_fisico)
+    aparado = f"trim({bruto}, ' ')"
+    motivo = _motivo_sql(consulta, campo, aparado)
+    tipo = _tipo_sql(campo.tipo_canonico, campo.decimais)
+    valor = aparado if campo.tipo_canonico is TipoCanonico.TEXTO else f"CAST({aparado} AS {tipo})"
+    consulta.coluna(f"CASE WHEN ({motivo}) IS NULL THEN {valor} END", nome)
+    consulta.coluna(bruto, f"{nome}_bruto")
+    consulta.coluna(motivo, f"{nome}_motivo")
+
+
+def _ausente(consulta: _Consulta, campo: CampoLeiaute, normalizado: bool) -> None:
+    nome = campo.nome_canonico
+    consulta.coluna(f"CAST(NULL AS {_tipo_sql(campo.tipo_canonico, campo.decimais)})", nome)
+    if normalizado:
+        consulta.coluna("CAST(NULL AS VARCHAR)", f"{nome}_bruto")
+        consulta.coluna(consulta.parametro(MotivoAusencia.DESCONHECIDO.value), f"{nome}_motivo")
+
+
+def _campo(consulta: _Consulta, campo: CampoLeiaute, presente: bool, esquema: set[str]) -> None:
+    normalizado = f"{campo.nome_canonico}_bruto" in esquema
+    if not normalizado and campo.tipo_canonico is not TipoCanonico.TEXTO:
+        raise ValueError(f"campo_bruto_deve_ser_texto campo={campo.nome_fisico}")
+    if not presente:
+        _ausente(consulta, campo, normalizado)
+    elif normalizado:
+        _normalizado(consulta, campo)
+    else:
+        consulta.coluna(consulta.bruto(campo.nome_fisico), campo.nome_canonico)
+    if campo.nome_canonico == "idade":
+        unidade = campo.unidade if presente else None
+        consulta.coluna(f"CAST({consulta.parametro(unidade)} AS VARCHAR)", "idade_unidade")
+
+
+def _consulta_canonica(
+    artifact: ArtifactVersion,
+    layout: LayoutSpec,
+    casados: tuple[CampoLeiaute, ...],
+    esquema: EsquemaCanonico,
+) -> _Consulta:
+    fisicos = {COLUNA_INDICE, COLUNA_DELETADO, *(c.nome_fisico.lower() for c in casados)}
+    nomes = [coluna.nome for coluna in esquema.colunas]
+    consulta = _Consulta(fisicos, set(nomes))
+    artefato = consulta.parametro(artifact.artifact_id)
+    indice = identificador_seguro(COLUNA_INDICE, fisicos)
+    consulta.coluna(f"{artefato} || '#' || CAST({indice} AS VARCHAR)", "row_id")
+    consulta.coluna(artefato, "artifact_id")
+    consulta.coluna("CAST(NULL AS VARCHAR)", "membro")
+    consulta.coluna(indice, "indice_registro")
+    consulta.coluna(identificador_seguro(COLUNA_DELETADO, fisicos), "deletado")
+    presentes = {campo.nome_fisico for campo in casados}
+    for campo in layout.campos:
+        if campo.nome_canonico not in CAMPOS_DESCARTADOS:
+            _campo(consulta, campo, campo.nome_fisico in presentes, set(nomes))
+    return consulta
+
+
+def _criar_canonica(con: duckdb.DuckDBPyConnection, consulta: _Consulta, ordem: list[str]) -> None:
+    por_nome = {
+        expressao.rsplit(" AS ", 1)[1].strip('"'): expressao for expressao in consulta.expressoes
+    }
+    if sorted(por_nome) != sorted(ordem):
+        faltando = sorted(set(ordem) ^ set(por_nome))
+        raise ValueError(f"esquema_sem_correspondencia colunas={compactar(faltando)}")
+    selecao = ", ".join(por_nome[nome] for nome in ordem)
+    indice = identificador_seguro(COLUNA_INDICE, {COLUNA_INDICE})
+    sql = f"CREATE TABLE {TABELA} AS SELECT {selecao} FROM bruto ORDER BY {indice}"  # noqa: S608
+    con.execute(sql, consulta.parametros)
+
+
+def _multiplicidade(con: duckdb.DuckDBPyConnection, colunas: list[str]) -> Multiplicidade:
+    conteudo = [identificador_seguro(c, set(colunas)) for c in colunas if c not in _SEM_LINHAGEM]
+    grupos = ", ".join(conteudo)
+    linha = con.execute(
+        f"SELECT coalesce(sum(n), 0), count(*), coalesce(max(n), 0) "  # noqa: S608
+        f"FROM (SELECT count(*) AS n FROM {TABELA} GROUP BY {grupos})"
+    ).fetchone()
+    if linha is None:
+        raise ValueError(f"multiplicidade_sem_resultado tabela={TABELA}")
+    return Multiplicidade(
+        linhas_totais=int(linha[0]),
+        combinacoes_distintas=int(linha[1]),
+        max_repeticoes=int(linha[2]),
+    )
+
+
+def _gravar(con: duckdb.DuckDBPyConnection, tabela: str, destino: Path) -> None:
+    temporario = destino.with_name(f".{destino.name}.tmp")
+    con.table(tabela).write_parquet(str(temporario))
+    temporario.replace(destino)
+
+
+def _materializar(
+    con: duckdb.DuckDBPyConnection,
+    leitura: LeituraDbf,
+    consulta: _Consulta,
+    canonico: EsquemaCanonico,
+    *,
+    artifact_id: str,
+    out: Path,
+) -> tuple[str, Multiplicidade, str, Path]:
+    colunas = [coluna.nome for coluna in canonico.colunas]
+    bruto = leitura.tabela.rename_columns([nome.lower() for nome in leitura.tabela.column_names])
+    con.register("bruto", bruto)
+    _criar_canonica(con, consulta, colunas)
+    hash_logico = hash_logico_relacao(con, TABELA, colunas)
+    multiplicidade = _multiplicidade(con, colunas)
+    dataset_id = calcular_dataset_id(canonico.schema_id, hash_logico, (artifact_id,))
+    destino = out / f"{dataset_id}.parquet"
+    _gravar(con, TABELA, destino)
+    return hash_logico, multiplicidade, dataset_id, destino
+
+
+def produtor(funcao: str) -> str:
+    return f"sustemporal.{funcao}@{metadata.version('sus-temporal')}"
 
 
 def normalize_pa(
@@ -69,10 +346,131 @@ def normalize_pa(
     origem_dados: OrigemDados = OrigemDados.REAL,
     esquema: Path | None = None,
 ) -> DatasetRef:
-    """Normaliza um artefato SIA-PA para o esquema canônico sia_pa.v1."""
-    raise NotImplementedError
+    """Normaliza um artefato SIA-PA para o esquema canônico sia_pa.v1.
+
+    Raises:
+        QuarentenaLeitura: artefato não íntegro, arquivo truncado, leiaute incompatível ou
+            leitura reprovada na verificação de fidelidade.
+        ArquivoAusente: conteúdo do artefato inexistente.
+    """
+    configuracao = runtime or RuntimeConfig()
+    canonico = EsquemaCanonico.de_yaml(esquema or ESQUEMA_PA)
+    caminho = _exigir_integro(artifact, layout)
+    leitura = _ler(artifact, caminho, configuracao)
+    casados = casar_leiaute(leitura.cabecalho, layout)
+    consulta = _consulta_canonica(artifact, layout, casados, canonico)
+    with closing(conectar(configuracao)) as con:
+        hash_logico, multiplicidade, dataset_id, destino = _materializar(
+            con, leitura, consulta, canonico, artifact_id=artifact.artifact_id, out=out
+        )
+    linhas = multiplicidade.linhas_totais
+    descartados = sorted(c.nome_fisico for c in casados if c.nome_canonico in CAMPOS_DESCARTADOS)
+    logger.info(
+        "sia_pa_normalizado id=%s linhas=%s deletados=%s descartados=%s",
+        artifact.artifact_id,
+        linhas,
+        leitura.n_deletados,
+        compactar(descartados),
+    )
+    return DatasetRef(
+        dataset_id=dataset_id,
+        schema_id=canonico.schema_id,
+        caminho=str(destino),
+        hash_logico=hash_logico,
+        linhas=linhas,
+        artifact_ids=(artifact.artifact_id,),
+        origem_dados=origem_dados,
+        produzido_por=produtor(f"ingest.sia_pa.normalize_pa/{layout.layout_id}"),
+        reconciliacao=Reconciliacao(
+            fisicos=leitura.tabela.num_rows, deletados=leitura.n_deletados, canonicas=linhas
+        ),
+        multiplicidade=multiplicidade,
+    )
 
 
-def perfil_pa(dataset: DatasetRef, out: Path, *, runtime: RuntimeConfig | None = None) -> PerfilPa:
-    """Contagens por competência, instrumento e estabelecimento, do bruto e do canônico."""
-    raise NotImplementedError
+def carregar_conferido(
+    con: duckdb.DuckDBPyConnection, dataset: DatasetRef, esquema: EsquemaCanonico, tabela: str
+) -> list[str]:
+    """Carrega o Parquet do dataset e confere colunas, contagem e hash lógico com a referência."""
+    if dataset.schema_id != esquema.schema_id:
+        raise ValueError(f"dataset_divergente esquema={dataset.schema_id}")
+    destino = identificador_seguro(tabela, {tabela})
+    con.execute(
+        f"CREATE TABLE {destino} AS SELECT * FROM read_parquet($caminho)",  # noqa: S608
+        {"caminho": dataset.caminho},
+    )
+    colunas = [coluna.nome for coluna in esquema.colunas]
+    lidas = [str(linha[0]) for linha in con.execute(f"DESCRIBE {destino}").fetchall()]
+    contagem = con.execute(f"SELECT count(*) FROM {destino}").fetchone()  # noqa: S608
+    if lidas != colunas or contagem is None or contagem[0] != dataset.linhas:
+        raise ValueError(f"dataset_divergente dataset_id={dataset.dataset_id} motivo=estrutura")
+    if hash_logico_relacao(con, tabela, colunas) != dataset.hash_logico:
+        raise ValueError(f"dataset_divergente dataset_id={dataset.dataset_id} motivo=hash")
+    return colunas
+
+
+def _codigos_indica(codebook: Path) -> list[str]:
+    conteudo = carregar_yaml(codebook)
+    if not isinstance(conteudo, dict) or not isinstance(conteudo.get("codigos"), dict):
+        raise ValueError(f"codebook_invalido caminho={codebook}")
+    return sorted(str(codigo) for codigo in conteudo["codigos"])
+
+
+def _sql_perfil(codigos: list[str], colunas: set[str]) -> tuple[str, dict[str, object]]:
+    parametros: dict[str, object] = {"codigos": codigos}
+    indica = "trim(pa_indica, ' ')"
+    apelidos = [identificador_seguro(f"indica_{c}", {f"indica_{c}"}) for c in codigos]
+    contagens = [
+        f"count(*) FILTER (WHERE {indica} = $c{i}) AS {apelido}"
+        for i, apelido in enumerate(apelidos)
+    ]
+    parametros.update({f"c{i}": c for i, c in enumerate(codigos)})
+    contagens.append(
+        f"count(*) FILTER (WHERE pa_indica IS NULL OR NOT list_contains($codigos, {indica})) "
+        "AS indica_outros"
+    )
+    blocos = []
+    for dimensao in DIMENSOES_PERFIL:
+        for origem, coluna in (("BRUTO", f"{dimensao}_bruto"), ("CANONICO", dimensao)):
+            citada = identificador_seguro(coluna, colunas)
+            parametros[f"d_{coluna}"] = dimensao
+            parametros[f"o_{coluna}"] = origem
+            blocos.append(
+                f"SELECT $d_{coluna} AS dimensao, $o_{coluna} AS origem, {citada} AS valor, "  # noqa: S608
+                f"count(*) AS linhas, count(*) FILTER (WHERE deletado) AS deletados, "
+                f"{', '.join(contagens)} FROM {TABELA} GROUP BY {citada}"
+            )
+    ordem = " ORDER BY dimensao, origem, valor NULLS FIRST"
+    return " UNION ALL ".join(blocos) + ordem, parametros
+
+
+def perfil_pa(
+    dataset: DatasetRef,
+    out: Path,
+    *,
+    runtime: RuntimeConfig | None = None,
+    codebook: Path | None = None,
+) -> PerfilPa:
+    """Contagens por competência, instrumento e estabelecimento, do bruto e do canônico.
+
+    Cada estrato conta linhas, deletados e o PA_INDICA bruto pelos códigos do codebook (os
+    demais em `indica_outros`); os totais de cada dimensão e origem devem reconciliar com o
+    número de linhas do dataset.
+    """
+    codigos = _codigos_indica(codebook or CODEBOOK_PA)
+    canonico = EsquemaCanonico.de_yaml(ESQUEMA_PA)
+    with closing(conectar(runtime or RuntimeConfig())) as con:
+        colunas = carregar_conferido(con, dataset, canonico, TABELA)
+        sql, parametros = _sql_perfil(codigos, set(colunas))
+        con.execute(f"CREATE TABLE perfil AS {sql}", parametros)
+        destino = out / f"{dataset.dataset_id}.perfil.parquet"
+        _gravar(con, "perfil", destino)
+        linhas = con.execute(
+            "SELECT dimensao, origem, sum(linhas), "
+            "bool_and(linhas = indica_outros + " + " + ".join(f"indica_{c}" for c in codigos) + ") "
+            "FROM perfil GROUP BY dimensao, origem"
+        ).fetchall()
+    totais = {(str(d), str(o)): int(n) for d, o, n, _ in linhas}
+    reconciliado = all(n == dataset.linhas for n in totais.values()) and all(r for *_, r in linhas)
+    logger.info("perfil_sia_pa dataset=%s reconciliado=%s", dataset.dataset_id, reconciliado)
+    return PerfilPa(str(destino), dataset.linhas, totais, reconciliado)

@@ -147,7 +147,7 @@ def test_codigo_desconhecido_vira_desconhecido_com_bruto_preservado(tmp_path: Pa
     ("campos", "esperadas"),
     [
         (
-            {"PA_INDICA": "0", "PA_QTDAPR": "2", "PA_VALAPR": "5.00"},
+            {"PA_INDICA": "0", "PA_QTDPRO": "3", "PA_QTDAPR": "2", "PA_VALAPR": "5.00"},
             "NAO_APROVADO_COM_QUANTIDADE_APROVADA;NAO_APROVADO_COM_VALOR_APROVADO",
         ),
         (

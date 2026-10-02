@@ -143,3 +143,18 @@ def test_casar_leiaute_recusa_leiaute_que_nao_e_dbf() -> None:
     with pytest.raises(QuarentenaLeitura) as erro:
         casar_leiaute(cabecalho, largura_fixa)
     assert erro.value.estado is EstadoIntegridade.QUARENTENA_LEIAUTE
+
+
+@pytest.mark.parametrize(
+    ("codificacao", "aceito"),
+    [("cp1252", False), ("utf-8", False), ("latin-1", True), ("ISO-8859-1", True)],
+)
+def test_casar_leiaute_exige_codificacao_latin1(codificacao: str, aceito: bool) -> None:
+    cabecalho = ler_dbc(dbc_pa([registro_pa()])).leitura.cabecalho
+    layout = leiaute_pa().model_copy(update={"codificacao": codificacao})
+    if aceito:
+        assert casar_leiaute(cabecalho, layout)
+        return
+    with pytest.raises(QuarentenaLeitura) as erro:
+        casar_leiaute(cabecalho, layout)
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_LEIAUTE

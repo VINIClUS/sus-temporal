@@ -537,3 +537,33 @@ def test_perfil_identifica_o_codebook_usado(tmp_path: Path) -> None:
     assert padrao.codebook_sha256 != alternativo.codebook_sha256
     assert Path(padrao.caminho).exists()
     assert Path(alternativo.caminho).exists()
+
+
+def _leiaute_com(**campos: Any) -> LayoutSpec:
+    from sustemporal.contracts import LayoutSpec
+
+    return LayoutSpec.model_validate({**leiaute_pa().model_dump(mode="json"), **campos})
+
+
+@pytest.mark.parametrize(
+    ("vigencia", "aceito"),
+    [
+        ({"valido_de": "201901"}, False),
+        ({"valido_ate": "201712"}, False),
+        ({"valido_de": "201801", "valido_ate": "201801"}, True),
+        ({"valido_de": "201701"}, True),
+    ],
+)
+def test_vigencia_do_leiaute_e_respeitada(
+    tmp_path: Path, vigencia: dict[str, str], aceito: bool
+) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()])
+    layout = _leiaute_com(**vigencia)
+    if aceito:
+        ref = normalize_pa(artefato, layout, _saida(tmp_path), runtime=_runtime(tmp_path))
+        assert ref.linhas == 1
+        return
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(artefato, layout, _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_LEIAUTE
+    assert erro.value.motivo.startswith("leiaute_fora_da_vigencia")

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import zipfile
 from typing import TYPE_CHECKING
 
 from sustemporal.errors import PortaoRecusado, RedeProibida
@@ -25,6 +27,24 @@ def executar_ok(args: argparse.Namespace, config: RunConfig) -> int:
 
 def executar_nao_implementado(args: argparse.Namespace, config: RunConfig) -> int:
     raise NotImplementedError
+
+
+def executar_chama_stub_interno(args: argparse.Namespace, config: RunConfig) -> int:
+    return _etapa_ainda_stub()
+
+
+def _etapa_ainda_stub() -> int:
+    raise NotImplementedError
+
+
+def executar_falha_de_biblioteca(args: argparse.Namespace, config: RunConfig) -> int:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as arquivo:
+        arquivo.writestr("membro.txt", b"1")
+    dados = bytearray(buffer.getvalue())
+    dados[dados.index(b"PK\x01\x02") + 6] = 0xFF
+    zipfile.ZipFile(io.BytesIO(bytes(dados)))
+    return 0
 
 
 def executar_portao(args: argparse.Namespace, config: RunConfig) -> int:

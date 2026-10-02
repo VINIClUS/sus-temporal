@@ -16,6 +16,7 @@ from sustemporal.contracts.base import (
     ContratoBase,
     Falso,
     FamiliaFonte,
+    Identificador,
     InstanteUTC,
     InteiroNaoNegativo,
     Sha256Hex,
@@ -39,6 +40,7 @@ __all__ = [
     "ObservationId",
     "ResultadoTentativa",
     "SourceRequest",
+    "TipoConteudo",
     "TipoLinhaManifesto",
     "calcular_artifact_id",
 ]
@@ -46,6 +48,12 @@ __all__ = [
 ArtifactId = Annotated[str, StringConstraints(pattern=r"^art_[0-9a-f]{64}$")]
 ObservationId = Annotated[str, StringConstraints(pattern=r"^obs_[0-9a-f]{32,64}$")]
 _ESQUEMAS_PERMITIDOS = {"ftp", "https", "file"}
+
+
+class TipoConteudo(StrEnum):
+    """Conteúdo produzido pela própria coleta; ausente (None) é arquivo publicado pela fonte."""
+
+    LISTAGEM_DIRETORIO = "LISTAGEM_DIRETORIO"
 
 
 class ChaveArtefato(ContratoBase):
@@ -56,6 +64,8 @@ class ChaveArtefato(ContratoBase):
     canal: CanalPublicacao
     nome_original: Annotated[str, StringConstraints(min_length=1, max_length=255)]
     versao_publicacao: str | None = None
+    tipo_conteudo: TipoConteudo | None = None
+    documento_id: Identificador | None = None
 
 
 _CHAVE_LOGICA = {"fonte", "uf", "competencia_arquivo", "parte"}
@@ -64,9 +74,15 @@ _CHAVE_LOGICA = {"fonte", "uf", "competencia_arquivo", "parte"}
 def calcular_artifact_id(chave: ChaveArtefato, sha256: str) -> str:
     """Versão de conteúdo: bytes e chave lógica; canal, nome e rótulo de versão ficam de fora.
 
+    `tipo_conteudo` e `documento_id` entram só quando não nulos (ids antigos não mudam).
+
     Os mesmos bytes da mesma chave lógica obtidos por outro canal são a mesma versão (plano §4).
     """
     logica = chave.model_dump(mode="json", include=_CHAVE_LOGICA)
+    if chave.tipo_conteudo is not None:
+        logica["tipo_conteudo"] = chave.tipo_conteudo.value
+    if chave.documento_id is not None:
+        logica["documento_id"] = chave.documento_id
     return f"art_{hash_canonico({'v': VERSAO_IDENTIDADE, **logica, 'sha256': sha256})}"
 
 
@@ -130,6 +146,7 @@ class ResultadoTentativa(StrEnum):
     INTERROMPIDO = "INTERROMPIDO"
     CONTEUDO_INVALIDO = "CONTEUDO_INVALIDO"
     RECUSADO_OFFLINE = "RECUSADO_OFFLINE"
+    FALHA_ARMAZENAMENTO = "FALHA_ARMAZENAMENTO"
 
 
 class MetadadosRemotos(ContratoBase):
@@ -149,6 +166,9 @@ class ArtifactObservation(ContratoBase):
     metadados_remotos: MetadadosRemotos = Field(default_factory=MetadadosRemotos)
     ferramenta: str
     erro: str | None = None
+    localizador: str | None = None
+    integridade: EstadoIntegridade | None = None
+    formato: FormatoArquivo | None = None
 
     @model_validator(mode="after")
     def _coerencia(self) -> ArtifactObservation:
@@ -162,6 +182,7 @@ class ArtifactObservation(ContratoBase):
             ResultadoTentativa.FALHA_TRANSPORTE,
             ResultadoTentativa.INTERROMPIDO,
             ResultadoTentativa.RECUSADO_OFFLINE,
+            ResultadoTentativa.FALHA_ARMAZENAMENTO,
         }
         if self.resultado in sem_conteudo and self.artifact_id is not None:
             raise ValueError(f"observacao_sem_conteudo_com_artefato id={self.observation_id}")

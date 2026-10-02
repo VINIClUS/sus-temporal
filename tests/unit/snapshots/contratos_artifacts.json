@@ -32,6 +32,19 @@
       "default": null,
       "title": "Competencia Arquivo"
      },
+     "documento_id": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Documento Id"
+     },
      "fonte": {
       "$ref": "#/$defs/FamiliaFonte"
      },
@@ -53,6 +66,17 @@
       ],
       "default": null,
       "title": "Parte"
+     },
+     "tipo_conteudo": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/TipoConteudo"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
      },
      "uf": {
       "anyOf": [
@@ -88,6 +112,19 @@
     "title": "ChaveArtefato",
     "type": "object"
    },
+   "EstadoIntegridade": {
+    "enum": [
+     "OK",
+     "QUARENTENA_TRUNCADO",
+     "QUARENTENA_CHECKSUM",
+     "QUARENTENA_CONTEUDO_INESPERADO",
+     "QUARENTENA_LEIAUTE",
+     "QUARENTENA_CAMINHO_INSEGURO",
+     "NAO_VERIFICADO"
+    ],
+    "title": "EstadoIntegridade",
+    "type": "string"
+   },
    "FamiliaFonte": {
     "enum": [
      "SIA_PA",
@@ -100,6 +137,21 @@
      "DOCUMENTO"
     ],
     "title": "FamiliaFonte",
+    "type": "string"
+   },
+   "FormatoArquivo": {
+    "enum": [
+     "DBC",
+     "DBF",
+     "ZIP",
+     "TXT",
+     "CSV",
+     "PDF",
+     "HTML",
+     "YAML",
+     "OUTRO"
+    ],
+    "title": "FormatoArquivo",
     "type": "string"
    },
    "MetadadosRemotos": {
@@ -129,9 +181,18 @@
      "FALHA_TRANSPORTE",
      "INTERROMPIDO",
      "CONTEUDO_INVALIDO",
-     "RECUSADO_OFFLINE"
+     "RECUSADO_OFFLINE",
+     "FALHA_ARMAZENAMENTO"
     ],
     "title": "ResultadoTentativa",
+    "type": "string"
+   },
+   "TipoConteudo": {
+    "description": "Conteúdo produzido pela própria coleta; ausente (None) é arquivo publicado pela fonte.",
+    "enum": [
+     "LISTAGEM_DIRETORIO"
+    ],
+    "title": "TipoConteudo",
     "type": "string"
    }
   },
@@ -174,6 +235,40 @@
    "ferramenta": {
     "title": "Ferramenta",
     "type": "string"
+   },
+   "formato": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/FormatoArquivo"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "integridade": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/EstadoIntegridade"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "localizador": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Localizador"
    },
    "metadados_remotos": {
     "$ref": "#/$defs/MetadadosRemotos"
@@ -254,6 +349,19 @@
       "default": null,
       "title": "Competencia Arquivo"
      },
+     "documento_id": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Documento Id"
+     },
      "fonte": {
       "$ref": "#/$defs/FamiliaFonte"
      },
@@ -275,6 +383,17 @@
       ],
       "default": null,
       "title": "Parte"
+     },
+     "tipo_conteudo": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/TipoConteudo"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
      },
      "uf": {
       "anyOf": [
@@ -389,6 +508,14 @@
     ],
     "title": "MembroArquivo",
     "type": "object"
+   },
+   "TipoConteudo": {
+    "description": "Conteúdo produzido pela própria coleta; ausente (None) é arquivo publicado pela fonte.",
+    "enum": [
+     "LISTAGEM_DIRETORIO"
+    ],
+    "title": "TipoConteudo",
+    "type": "string"
    }
   },
   "additionalProperties": false,
@@ -485,6 +612,14 @@
     ],
     "title": "FamiliaFonte",
     "type": "string"
+   },
+   "TipoConteudo": {
+    "description": "Conteúdo produzido pela própria coleta; ausente (None) é arquivo publicado pela fonte.",
+    "enum": [
+     "LISTAGEM_DIRETORIO"
+    ],
+    "title": "TipoConteudo",
+    "type": "string"
    }
   },
   "additionalProperties": false,
@@ -505,6 +640,19 @@
     ],
     "default": null,
     "title": "Competencia Arquivo"
+   },
+   "documento_id": {
+    "anyOf": [
+     {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Documento Id"
    },
    "fonte": {
     "$ref": "#/$defs/FamiliaFonte"
@@ -527,6 +675,17 @@
     ],
     "default": null,
     "title": "Parte"
+   },
+   "tipo_conteudo": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/TipoConteudo"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
    },
    "uf": {
     "anyOf": [
@@ -604,6 +763,40 @@
      "ferramenta": {
       "title": "Ferramenta",
       "type": "string"
+     },
+     "formato": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/FormatoArquivo"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "integridade": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/EstadoIntegridade"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "localizador": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Localizador"
      },
      "metadados_remotos": {
       "$ref": "#/$defs/MetadadosRemotos"
@@ -751,6 +944,19 @@
       "default": null,
       "title": "Competencia Arquivo"
      },
+     "documento_id": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Documento Id"
+     },
      "fonte": {
       "$ref": "#/$defs/FamiliaFonte"
      },
@@ -772,6 +978,17 @@
       ],
       "default": null,
       "title": "Parte"
+     },
+     "tipo_conteudo": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/TipoConteudo"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
      },
      "uf": {
       "anyOf": [
@@ -914,9 +1131,18 @@
      "FALHA_TRANSPORTE",
      "INTERROMPIDO",
      "CONTEUDO_INVALIDO",
-     "RECUSADO_OFFLINE"
+     "RECUSADO_OFFLINE",
+     "FALHA_ARMAZENAMENTO"
     ],
     "title": "ResultadoTentativa",
+    "type": "string"
+   },
+   "TipoConteudo": {
+    "description": "Conteúdo produzido pela própria coleta; ausente (None) é arquivo publicado pela fonte.",
+    "enum": [
+     "LISTAGEM_DIRETORIO"
+    ],
+    "title": "TipoConteudo",
     "type": "string"
    },
    "TipoLinhaManifesto": {
@@ -1072,6 +1298,19 @@
       "default": null,
       "title": "Competencia Arquivo"
      },
+     "documento_id": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Documento Id"
+     },
      "fonte": {
       "$ref": "#/$defs/FamiliaFonte"
      },
@@ -1093,6 +1332,17 @@
       ],
       "default": null,
       "title": "Parte"
+     },
+     "tipo_conteudo": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/TipoConteudo"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
      },
      "uf": {
       "anyOf": [
@@ -1165,6 +1415,14 @@
      "DOCUMENTO"
     ],
     "title": "MotivoRequisicao",
+    "type": "string"
+   },
+   "TipoConteudo": {
+    "description": "Conteúdo produzido pela própria coleta; ausente (None) é arquivo publicado pela fonte.",
+    "enum": [
+     "LISTAGEM_DIRETORIO"
+    ],
+    "title": "TipoConteudo",
     "type": "string"
    }
   },

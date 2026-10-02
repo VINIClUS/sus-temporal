@@ -1,0 +1,138 @@
+# Fontes do piloto (plano T02). Diretórios, nomes e partes vêm de fontes secundárias listadas em
+# docs/references/fontes.md e NÃO foram verificados neste ambiente (FTP do DATASUS e *.gov.br
+# bloqueados): proveniência SECUNDARIA ou OFICIAL_VISTO_EM_BUSCA, confirmação A_CONFIRMAR.
+# Cada fonte é descoberta por listagem do diretório (a listagem é ela própria uma observação);
+# nenhum nome é presumido. `padrao_nome` é uma expressão regular com {uf}, {aamm} e {aaaamm}
+# substituídos e comparada sem distinguir maiúsculas; o AAMM do nome é a competência do arquivo
+# (no SIA-PA, a de processamento: SECUNDARIA, inventário §1.1).
+versao: "1"
+fontes:
+  - fonte: SIA_PA
+    diretorio: ftp://ftp.datasus.gov.br/dissemin/publicos/SIASUS/200801_/Dados/
+    padrao_nome: 'PA{uf}{aamm}(?P<parte>[a-z]|_[0-9]+)?\.dbc'
+    formato: DBC
+    canal: ATUAL
+    multipartes: "true"
+    tamanho_maximo_bytes: "2147483648"
+    proveniencia: SECUNDARIA
+    confirmacao: A_CONFIRMAR
+    referencias: [O14, S2, S3, S5, S10, S11]
+    observacao: >-
+      SP dividido em partes a–d conforme o mês (inventário §1.2); todas as partes listadas são
+      requisitadas, e parte ausente torna a competência INCOMPLETA na seleção.
+  - fonte: CNES_ST
+    diretorio: ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/Dados/ST/
+    padrao_nome: 'ST{uf}{aamm}(?P<parte>[a-z]|_[0-9]+)?\.dbc'
+    formato: DBC
+    canal: ATUAL
+    tamanho_maximo_bytes: "1073741824"
+    proveniencia: SECUNDARIA
+    confirmacao: A_CONFIRMAR
+    referencias: [O14, S2, S3, S5, S10]
+    observacao: SP não dividido segundo S10; partes, se listadas, são requisitadas.
+  - fonte: CNES_PF
+    diretorio: ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/Dados/PF/
+    padrao_nome: 'PF{uf}{aamm}(?P<parte>[a-z]|_[0-9]+)?\.dbc'
+    formato: DBC
+    canal: ATUAL
+    tamanho_maximo_bytes: "1073741824"
+    proveniencia: SECUNDARIA
+    confirmacao: A_CONFIRMAR
+    referencias: [O14, S2, S3, S5, S10]
+  - fonte: CNES_SR
+    diretorio: ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/Dados/SR/
+    padrao_nome: 'SR{uf}{aamm}(?P<parte>[a-z]|_[0-9]+)?\.dbc'
+    formato: DBC
+    canal: ATUAL
+    tamanho_maximo_bytes: "1073741824"
+    proveniencia: SECUNDARIA
+    confirmacao: A_CONFIRMAR
+    referencias: [O14, S2, S3, S5]
+  - fonte: CNES_HB
+    diretorio: ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/Dados/HB/
+    padrao_nome: 'HB{uf}{aamm}(?P<parte>[a-z]|_[0-9]+)?\.dbc'
+    formato: DBC
+    canal: ATUAL
+    tamanho_maximo_bytes: "1073741824"
+    proveniencia: SECUNDARIA
+    confirmacao: A_CONFIRMAR
+    referencias: [O14, S2, S3, S5]
+  - fonte: SIGTAP
+    diretorio: ftp://ftp2.datasus.gov.br/pub/sistemas/tup/downloads/
+    padrao_nome: 'TabelaUnificada_{aaaamm}_v(?P<versao>[0-9]{10})\.zip'
+    formato: ZIP
+    canal: ATUAL
+    tamanho_maximo_bytes: "536870912"
+    proveniencia: SECUNDARIA
+    confirmacao: A_CONFIRMAR
+    referencias: [O11, S18, S19, W8]
+    observacao: >-
+      Sem UF. Cada geração (v{AAMMDDhhmm}) listada é uma versão de conteúdo distinta; S19 usa
+      /public/ no lugar de /pub/ (A_CONFIRMAR qual diretório vale).
+documentos:
+  - doc_id: W1
+    fonte: DOCUMENTO
+    titulo: Microdatasus, R/process_sia.R
+    localizador: https://github.com/rfsaldanha/microdatasus/blob/master/R/process_sia.R
+    formato: HTML
+    proveniencia: SECUNDARIA
+  - doc_id: W2
+    fonte: DOCUMENTO
+    titulo: DuckDB, Reading and Writing Parquet Files
+    localizador: https://duckdb.org/docs/current/data/parquet/overview
+    formato: HTML
+    proveniencia: SECUNDARIA
+  - doc_id: W3
+    fonte: DOCUMENTO
+    titulo: Ministério da Saúde, Manual do BPA (wiki SIA)
+    localizador: https://wiki.saude.gov.br/sia/index.php/BPA
+    formato: HTML
+    proveniencia: OFICIAL_VISTO_EM_BUSCA
+  - doc_id: W4
+    fonte: DOCUMENTO
+    titulo: W3C, PROV-DM
+    localizador: https://www.w3.org/TR/prov-dm/
+    formato: HTML
+    proveniencia: SECUNDARIA
+  - doc_id: W5
+    fonte: DOCUMENTO
+    titulo: Ministério da Saúde, CNES — Dúvidas Frequentes
+    localizador: https://wiki.saude.gov.br/cnes/index.php/D%C3%BAvidas_Frequentes
+    formato: HTML
+    proveniencia: OFICIAL_VISTO_EM_BUSCA
+  - doc_id: W6
+    fonte: DOCUMENTO
+    titulo: Scikit-learn, Cross-validation
+    localizador: https://scikit-learn.org/stable/modules/cross_validation.html
+    formato: HTML
+    proveniencia: SECUNDARIA
+  - doc_id: W7
+    fonte: DOCUMENTO
+    titulo: Ministério da Saúde, SIGTAP — Gerais
+    localizador: https://wiki.saude.gov.br/sigtap/index.php/Gerais
+    formato: HTML
+    proveniencia: OFICIAL_VISTO_EM_BUSCA
+  - doc_id: W8
+    fonte: DOCUMENTO
+    titulo: Ministério da Saúde, SIGTAP — Download
+    localizador: https://wiki.saude.gov.br/sigtap/index.php/Download
+    formato: HTML
+    proveniencia: OFICIAL_VISTO_EM_BUSCA
+  - doc_id: W9
+    fonte: DOCUMENTO
+    titulo: PySUS, documentação
+    localizador: https://pysus.readthedocs.io/
+    formato: HTML
+    proveniencia: SECUNDARIA
+  - doc_id: O4
+    fonte: TERRITORIO_DRS
+    titulo: SES-SP, projeto DRS XI Presidente Prudente (drs11_pprudente.pdf)
+    localizador: https://www.saude.sp.gov.br/resources/cve-centro-de-vigilancia-epidemiologica/areas-de-vigilancia/doencas-cronicas-nao-transmissiveis/observatorio-promocao-a-saude/mural-de-boas-praticas/projetos/drs11_pprudente.pdf
+    formato: PDF
+    proveniencia: OFICIAL_VISTO_EM_BUSCA
+  - doc_id: O5
+    fonte: TERRITORIO_DRS
+    titulo: SES-SP, E_REG-DRS-XI_2022.pdf
+    localizador: https://ses.sp.bvs.br/wp-content/uploads/2022/05/E_REG-DRS-XI_2022.pdf
+    formato: PDF
+    proveniencia: OFICIAL_VISTO_EM_BUSCA

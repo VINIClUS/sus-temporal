@@ -6,7 +6,6 @@ desempenho; serve de oráculo para o teste diferencial.
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from functools import partial
 from typing import TYPE_CHECKING
@@ -23,6 +22,7 @@ from sustemporal.contracts.rules import (
     decidir_estado,
 )
 from sustemporal.contracts.temporal import EstadoSelecao, TipoPolitica, TipoTempo
+from sustemporal.rules.reference_dominio import DOMINIO_DO_CAMPO, ConjuntoAuxiliar, escopo
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -56,29 +56,10 @@ _MOTIVO_DA_SELECAO: dict[EstadoSelecao, MotivoInconclusao | None] = {
     EstadoSelecao.NAO_RESOLVIDA: _M.VIGENCIA_NAO_RESOLVIDA,
 }
 
-_COMPETENCIA = re.compile(r"[0-9]{4}(0[1-9]|1[0-2])")
-_DOMINIO_DO_CAMPO: dict[str, re.Pattern[str]] = {
-    "procedimento": re.compile(r"[0-9]{10}"),
-    "cbo": re.compile(r"[0-9A-Z]{6}"),
-    "cnes": re.compile(r"[0-9]{7}"),
-    "competencia_atendimento": _COMPETENCIA,
-    "competencia_processamento": _COMPETENCIA,
-}
-
 _COMPETENCIA_DO_TIPO: dict[TipoTempo, str] = {
     TipoTempo.ATENDIMENTO: "competencia_atendimento",
     TipoTempo.PROCESSAMENTO: "competencia_processamento",
 }
-
-
-@dataclass(frozen=True)
-class ConjuntoAuxiliar:
-    """Conjunto canônico auxiliar (DatasetRef) já carregado."""
-
-    schema_id: str
-    colunas: frozenset[str]
-    artifact_ids: frozenset[str]
-    linhas: tuple[Mapping[str, object], ...]
 
 
 @dataclass(frozen=True)
@@ -148,7 +129,7 @@ def _valor(
     if campo not in cenario.colunas_registros:
         return None
     valor = registro.get(campo)
-    dominio = _DOMINIO_DO_CAMPO.get(campo)
+    dominio = DOMINIO_DO_CAMPO.get(campo)
     if valor is None or dominio is None:
         return valor
     return valor if dominio.fullmatch(valor) else None
@@ -185,6 +166,14 @@ def _inconclusivo(motivos: frozenset[MotivoInconclusao]) -> _Desfecho:
 
 
 _SEM_CAMPO = frozenset({_M.CAMPO_INSUFICIENTE, _M.APLICABILIDADE_DESCONHECIDA})
+_EM_QUARENTENA = frozenset({_M.APLICABILIDADE_DESCONHECIDA, _M.ARQUIVO_EM_QUARENTENA})
+
+
+def _registro_em_quarentena(cenario: CenarioReferencia, registro: Mapping[str, str | None]) -> bool:
+    """Passo 0: versão SIA-PA do próprio registro em QUARENTENA_*."""
+    artefato = _valor(cenario, registro, "artifact_id")
+    integridade = cenario.integridade.get(artefato) if artefato is not None else None
+    return integridade is not None and integridade.startswith("QUARENTENA_")
 
 
 def _aplicabilidade(
@@ -230,28 +219,6 @@ def _versoes(selecao: Mapping[str, object]) -> frozenset[str]:
     return frozenset(str(a) for a in artefatos)
 
 
-def _escopo(
-    indices: _Indices,
-    requisito: RequisitoFonte,
-    versoes: frozenset[str],
-    integridade: Mapping[str, str],
-) -> tuple[MotivoInconclusao | None, tuple[Mapping[str, object], ...]]:
-    """Passo 8 para uma fonte com seleção SELECIONADA."""
-    conjunto = indices.auxiliares.get(requisito.schema_id)
-    if conjunto is None:
-        return _M.ARQUIVO_AUSENTE, ()
-    if not {*requisito.campos, "artifact_id"} <= conjunto.colunas:
-        return _M.LEIAUTE_INCOMPATIVEL, ()
-    if not versoes <= conjunto.artifact_ids:
-        return _M.ARQUIVO_AUSENTE, ()
-    if any(integridade.get(v, "").startswith("QUARENTENA_") for v in versoes):
-        return _M.ARQUIVO_EM_QUARENTENA, ()
-    linhas = tuple(linha for linha in conjunto.linhas if linha.get("artifact_id") in versoes)
-    if not linhas:
-        return _M.COBERTURA_INSUFICIENTE, ()
-    return None, linhas
-
-
 @dataclass
 class _Insumos:
     motivos: set[MotivoInconclusao]
@@ -266,14 +233,10 @@ def _insumos(
     registro: Mapping[str, str | None],
     regra: RuleSpec,
 ) -> _Insumos:
-    """Passos 5 a 8."""
+    """Passos 5 a 8 (passo 0 já tratado na aplicabilidade)."""
     insumos = _Insumos(motivos=_motivos_de_campos(cenario, registro, regra))
     if cenario.politica_tipo is TipoPolitica.NAO_RESOLVIDA:
         insumos.motivos.add(_M.POLITICA_NAO_RESOLVIDA)
-    artefato = _valor(cenario, registro, "artifact_id")
-    integridade = cenario.integridade.get(artefato) if artefato is not None else None
-    if integridade is not None and integridade.startswith("QUARENTENA_"):
-        insumos.motivos.add(_M.ARQUIVO_EM_QUARENTENA)
     row_id = str(registro["row_id"])
     for requisito in _requisitos_auxiliares(regra):
         selecao = indices.selecoes.get((row_id, regra.rule_id, requisito.fonte.value))
@@ -285,7 +248,8 @@ def _insumos(
             insumos.motivos.add(motivo_selecao)
             continue
         versoes = _versoes(selecao)
-        motivo, linhas = _escopo(indices, requisito, versoes, cenario.integridade)
+        conjunto = indices.auxiliares.get(requisito.schema_id)
+        motivo, linhas = escopo(conjunto, requisito, selecao, versoes, cenario.integridade)
         if motivo is not None:
             insumos.motivos.add(motivo)
             continue
@@ -411,6 +375,8 @@ def _avaliar_par(
     registro: Mapping[str, str | None],
     regra: RuleSpec,
 ) -> _Desfecho:
+    if _registro_em_quarentena(cenario, registro):
+        return _desconhecida(_EM_QUARENTENA)
     desfecho = _aplicabilidade(cenario, registro, regra)
     if desfecho is not None:
         return desfecho

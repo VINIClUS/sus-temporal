@@ -94,15 +94,16 @@ _PROIBIDOS = ("sustemporal.rules.engine", "sustemporal.rules.sql", "sustemporal.
 
 
 def test_referencia_nao_importa_o_motor_nem_o_seletor() -> None:
-    arvore = ast.parse(Path(reference.__file__).read_text(encoding="utf-8"))
     modulos: set[str] = set()
-    for no in ast.walk(arvore):
-        if isinstance(no, ast.Import):
-            modulos |= {alias.name for alias in no.names}
-        elif isinstance(no, ast.ImportFrom) and no.module:
-            modulos.add(no.module)
+    for arquivo in Path(reference.__file__).parent.glob("reference*.py"):
+        for no in ast.walk(ast.parse(arquivo.read_text(encoding="utf-8"))):
+            if isinstance(no, ast.Import):
+                modulos |= {alias.name for alias in no.names}
+            elif isinstance(no, ast.ImportFrom) and no.module:
+                modulos.add(no.module)
     internos = {m for m in modulos if m.startswith("sustemporal")}
-    assert all(m.startswith("sustemporal.contracts") for m in internos)
+    permitidos = ("sustemporal.contracts", "sustemporal.rules.reference")
+    assert all(m.startswith(permitidos) for m in internos)
     assert "duckdb" not in modulos
     codigo = (
         "import sys, sustemporal.rules.reference; "

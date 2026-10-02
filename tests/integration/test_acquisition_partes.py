@@ -166,3 +166,81 @@ def test_versao_completa_sem_observacao_e_transacao_incompleta(tmp_path: Path) -
     assert pendurada.versao.artifact_id not in estado.versoes
     (fragmento,) = store.glob("manifesto.jsonl.fragmento.*")
     assert pendurada.model_dump_json() in fragmento.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    ("extra", "estado"),
+    [
+        (b"", EstadoIntegridade.OK),
+        (b"\x1a", EstadoIntegridade.OK),
+        (b"\x00", EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO),
+        (b"\x1alixo", EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO),
+    ],
+)
+def test_dbf_avulso_recusa_bytes_depois_dos_registros(
+    tmp_path: Path, extra: bytes, estado: EstadoIntegridade
+) -> None:
+    dbf = escrever_dbf([CampoDbf("PA_X", "C", 1)], [("A",)], com_eof=False) + extra
+    caminho = tmp_path / "x.dbf"
+    caminho.write_bytes(dbf)
+    assert validar_conteudo(caminho, FormatoArquivo.DBF).integridade is estado
+
+
+def test_pdf_incremental_truncado_depois_de_marcador_antigo_fica_truncado(tmp_path: Path) -> None:
+    caminho = tmp_path / "x.pdf"
+    caminho.write_bytes(b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF\n2 0 obj\n<</Ty")
+    veredito = validar_conteudo(caminho, FormatoArquivo.PDF)
+    assert veredito.integridade is EstadoIntegridade.QUARENTENA_TRUNCADO
+    caminho.write_bytes(b"%PDF-1.4\n%%EOF\r\n  \n")
+    assert validar_conteudo(caminho, FormatoArquivo.PDF).integridade is EstadoIntegridade.OK
+
+
+def test_ler_faz_o_retrato_do_manifesto_e_da_ancora_sob_a_trava(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import fcntl
+
+    store = tmp_path / "store"
+    origem = tmp_path / "a.dbc"
+    origem.write_bytes(_dbc("A"))
+    fetch_source(_requisicao(origem), store)
+    manifesto = Manifesto(store / "manifesto.jsonl")
+    eventos: list[str] = []
+    trava_original, partes, ancora = fcntl.flock, Manifesto._partes, Manifesto._ler_ancora
+
+    def flock(descritor: int, operacao: int) -> None:
+        eventos.append({fcntl.LOCK_SH: "SH", fcntl.LOCK_EX: "EX"}.get(operacao, "UN"))
+        trava_original(descritor, operacao)
+
+    def ler_partes(self: Manifesto) -> tuple[str, str]:
+        eventos.append("jsonl")
+        return partes(self)
+
+    def ler_ancora(self: Manifesto) -> tuple[object, object]:
+        eventos.append("ancora")
+        return ancora(self)
+
+    monkeypatch.setattr(fcntl, "flock", flock)
+    monkeypatch.setattr(Manifesto, "_partes", ler_partes)
+    monkeypatch.setattr(Manifesto, "_ler_ancora", ler_ancora)
+    manifesto.ler()
+    assert eventos[0] in {"SH", "EX"}
+    assert eventos[-1] == "UN"
+    assert "jsonl" in eventos[1:-1]
+    assert "ancora" in eventos[1:-1]
+
+
+def test_duas_recuperacoes_seguidas_preservam_os_dois_fragmentos(tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    origem = tmp_path / "a.dbc"
+    origem.write_bytes(_dbc("A"))
+    fetch_source(_requisicao(origem), store)
+    caminho = store / "manifesto.jsonl"
+    for fragmento in ('{"sequencia": 3, "um', '{"sequencia": 3, "dois'):
+        with caminho.open("a", encoding="utf-8") as arquivo:
+            arquivo.write(fragmento)
+        Manifesto(caminho).preparar()
+    guardados = sorted(
+        f.read_text(encoding="utf-8") for f in store.glob("manifesto.jsonl.fragmento.*")
+    )
+    assert guardados == ['{"sequencia": 3, "dois', '{"sequencia": 3, "um']

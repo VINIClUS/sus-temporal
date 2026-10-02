@@ -169,19 +169,21 @@ class ExplanationBundle(ContratoBase):
                 )
 
     def _evidencias_nas_selecoes(self) -> None:
+        """Evidência cita só versões selecionadas; aplicabilidade também o próprio registro."""
         por_id = {e.evidence_id: e for e in self.evidencias}
+        do_registro = {self.registro.origem.artifact_id}
         for avaliacao in self.avaliacoes:
             selecionados = {aid for s in avaliacao.selecoes for aid in s.artifact_ids}
-            citados = {
-                aid
-                for evidencia_id in avaliacao.evidence_ids
-                if (evidencia := por_id.get(evidencia_id)) is not None
-                for aid in evidencia.artifact_ids
-            }
-            if not citados <= selecionados:
-                raise ValueError(
-                    f"evidencia_fora_das_selecoes bundle={self.bundle_id} regra={avaliacao.rule_id}"
-                )
+            for evidencia_id in avaliacao.evidence_ids:
+                evidencia = por_id.get(evidencia_id)
+                if evidencia is None:
+                    continue
+                proprio = do_registro if evidencia.tipo is TipoEvidencia.APLICABILIDADE else set()
+                if not set(evidencia.artifact_ids) <= selecionados | proprio:
+                    raise ValueError(
+                        f"evidencia_fora_das_selecoes bundle={self.bundle_id} "
+                        f"regra={avaliacao.rule_id}"
+                    )
 
 
 def _nao_sustenta(evidencia: Evidence) -> bool:

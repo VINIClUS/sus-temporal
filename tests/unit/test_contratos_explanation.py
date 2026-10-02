@@ -24,6 +24,7 @@ from sustemporal.contracts.temporal import BaseTemporal, EstadoSelecao, MetodoId
 
 _ART = f"art_{'a' * 64}"
 _ART_SELECIONADO = f"art_{'f' * 64}"
+_ART_OUTRO = f"art_{'9' * 64}"
 _ROW = f"{_ART}#0"
 _OUTRA_ROW = f"{_ART}#1"
 _PARAMETROS_POR_ESTADO: dict[EstadoAvaliacao, dict[str, object]] = {
@@ -270,12 +271,26 @@ def test_evidencia_de_ausencia_exige_limitacao_de_que_ausencia_nao_prova_inexist
 def test_evidencia_citada_usa_so_artefatos_das_selecoes_da_avaliacao(
     estado: EstadoAvaliacao,
 ) -> None:
-    de_outra_versao = _evidencia(artifact_ids=(_ART_SELECIONADO, _ART))
+    de_outra_versao = _evidencia(artifact_ids=(_ART_SELECIONADO, _ART_OUTRO))
     assert _bundle(avaliacoes=(_avaliacao(estado),)).evidencias[0].artifact_ids == (
         _ART_SELECIONADO,
     )
     with pytest.raises(ValidationError, match="evidencia_fora_das_selecoes"):
         _bundle(avaliacoes=(_avaliacao(estado),), evidencias=(de_outra_versao,))
+
+
+def test_aplicabilidade_pode_citar_o_artefato_do_proprio_registro() -> None:
+    aplicabilidade = _evidencia(
+        "ev_aplicabilidade", tipo=TipoEvidencia.APLICABILIDADE, artifact_ids=(_ART,), n_resultados=1
+    )
+    nao_aplicavel = _avaliacao(EstadoAvaliacao.NAO_APLICAVEL, evidence_ids=("ev_aplicabilidade",))
+    bundle = _bundle(avaliacoes=(nao_aplicavel,), evidencias=(aplicabilidade,))
+    assert bundle.evidencias[0].artifact_ids == (_ART,)
+
+
+def test_ausencia_nao_pode_citar_o_artefato_do_proprio_registro() -> None:
+    with pytest.raises(ValidationError, match="evidencia_fora_das_selecoes"):
+        _bundle(evidencias=(_evidencia(artifact_ids=(_ART,)),))
 
 
 def test_bundle_rejeita_evidencia_repetida() -> None:

@@ -195,6 +195,18 @@
     "title": "Ferramenta",
     "type": "string"
    },
+   "localizador": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Localizador"
+   },
    "metadados_remotos": {
     "$ref": "#/$defs/MetadadosRemotos"
    },
@@ -662,6 +674,18 @@
      "ferramenta": {
       "title": "Ferramenta",
       "type": "string"
+     },
+     "localizador": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Localizador"
      },
      "metadados_remotos": {
       "$ref": "#/$defs/MetadadosRemotos"

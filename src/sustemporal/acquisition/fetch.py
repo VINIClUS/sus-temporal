@@ -95,6 +95,7 @@ class _Tentativa:
             observado_em=self.relogio(),
             resultado=resultado,
             ferramenta=_ferramenta(self.esquema),
+            localizador=self.request.localizador,
             **campos,
         )
         self.manifesto.registrar(observacao, versao)
@@ -203,7 +204,7 @@ def _executar(
 ) -> ArtifactObservation:
     try:
         recebimento = _receber(tentativa, transporte, temporario)
-    except (ErroTransporte, OSError, EOFError) as erro:
+    except Exception as erro:
         return _registrar_falha(tentativa, erro)
     anunciado = recebimento.tamanho_anunciado
     if anunciado is not None and anunciado != recebimento.bytes_recebidos:
@@ -250,7 +251,7 @@ def fetch_source(
     esquema = urlsplit(request.localizador).scheme
     caminho_manifesto = manifesto or store / NOME_MANIFESTO
     tentativa = _Tentativa(request, store, Manifesto(caminho_manifesto), relogio, esquema)
-    tentativa.manifesto.ler()
+    tentativa.manifesto.preparar()
     if esquema in _ESQUEMAS_DE_REDE and not rede_permitida:
         raise _recusar_offline(tentativa)
     transporte = (transportes_padrao() if transportes is None else transportes).get(esquema)

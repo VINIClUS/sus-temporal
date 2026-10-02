@@ -127,17 +127,24 @@ def executar_acquire(args: argparse.Namespace, config: RunConfig) -> int:
         ConfigInvalida: piloto ausente, catálogo inválido ou competências de atendimento ausentes.
     """
     store, manifesto = _caminhos(config)
-    obter = partial(
+    buscar = partial(
         fetch_source,
         store=store,
         rede_permitida=config.runtime.rede_permitida,
         manifesto=manifesto,
     )
+    observadas: list[ArtifactObservation] = []
+
+    def obter(requisicao: SourceRequest) -> ArtifactObservation:
+        observadas.append(buscar(requisicao))
+        return observadas[-1]
+
     requisicoes = _planejar(args, config, obter)
     obtidas = set() if args.reobservar else _ja_obtidas(manifesto)
     pendentes = [r for r in requisicoes if r.sha256() not in obtidas]
-    resultados = [obter(r) for r in pendentes]
-    falhas = [o for o in resultados if o.resultado is not ResultadoTentativa.OBTIDO]
+    for requisicao in pendentes:
+        obter(requisicao)
+    falhas = [o for o in observadas if o.resultado is not ResultadoTentativa.OBTIDO]
     logger.info(
         "acquire_concluido passada=%s requisicoes=%d puladas=%d falhas=%d",
         args.passada,

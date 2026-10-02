@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import ftplib
 import os
 import urllib.error
@@ -144,11 +145,13 @@ class TransporteFTP:
         tamanho: int | None = None
         try:
             tamanho = cliente.size(caminho)
-            metadados["tamanho"] = str(tamanho)
-            metadados["mdtm"] = cliente.voidcmd(f"MDTM {caminho}").split(" ", 1)[-1]
         except ftplib.error_perm as erro:
             if str(erro).startswith("550"):
                 raise RecursoNaoEncontrado(f"ftp_inexistente caminho={caminho}") from erro
+        if tamanho is not None:
+            metadados["tamanho"] = str(tamanho)
+        with contextlib.suppress(ftplib.error_perm, ftplib.error_reply):
+            metadados["mdtm"] = cliente.voidcmd(f"MDTM {caminho}").split(" ", 1)[-1]
         return tamanho, metadados
 
     def baixar(self, localizador: str, destino: BinaryIO, limite: int) -> Recebimento:
@@ -168,7 +171,9 @@ class TransporteFTP:
             with cliente:
                 nomes = cliente.nlst(caminho)
         except ftplib.error_perm as erro:
-            raise RecursoNaoEncontrado(f"ftp_diretorio_inexistente erro={erro}") from erro
+            if str(erro).startswith("550"):
+                raise RecursoNaoEncontrado(f"ftp_diretorio_inexistente erro={erro}") from erro
+            raise ErroTransporte(f"ftp_recusou_listagem erro={erro}") from erro
         except (OSError, EOFError, ftplib.Error) as erro:
             raise _falha(erro, 0) from erro
         return sorted(nome.rsplit("/", 1)[-1] for nome in nomes)

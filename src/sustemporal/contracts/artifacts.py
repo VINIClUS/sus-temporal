@@ -160,6 +160,7 @@ class ArtifactObservation(ContratoBase):
     metadados_remotos: MetadadosRemotos = Field(default_factory=MetadadosRemotos)
     ferramenta: str
     erro: str | None = None
+    localizador: str | None = None
 
     @model_validator(mode="after")
     def _coerencia(self) -> ArtifactObservation:

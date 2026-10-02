@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import fcntl
+import hashlib
 import json
 import logging
 import os
@@ -155,12 +156,18 @@ class Manifesto:
             raise ManifestoCorrompido(f"manifesto_ancora_divergente sequencia={sequencia}")
 
     def ler(self) -> EstadoManifesto:
-        """Lê e confere a cadeia inteira e a âncora.
+        """Lê e confere a cadeia inteira e a âncora num retrato único, sob trava compartilhada.
 
         Raises:
             ManifestoCorrompido: cadeia, sequência ou referências incoerentes, linha ilegível,
                 âncora ausente ou divergente, ou fragmento final de escrita interrompida.
         """
+        if not self.caminho.parent.is_dir():
+            return EstadoManifesto()
+        with self._travado(fcntl.LOCK_SH):
+            return self._ler_sem_trava()
+
+    def _ler_sem_trava(self) -> EstadoManifesto:
         completas, fragmento = self._partes()
         if fragmento:
             raise ManifestoCorrompido(f"manifesto_sem_quebra_final caminho={self.caminho}")
@@ -192,11 +199,26 @@ class Manifesto:
         confirmadas = textos[:sequencia]
         self._conferir_ancora(_verificar(confirmadas))
         sufixo = "".join(f"{texto}\n" for texto in textos[sequencia:]) + fragmento
-        destino = self.caminho.with_name(f"{self.caminho.name}.fragmento.{sequencia}")
-        destino.write_text(sufixo, encoding="utf-8")
+        destino = self._guardar_fragmento(sequencia, sufixo)
         tamanho = sum(len(f"{texto}\n".encode()) for texto in confirmadas)
         os.truncate(self.caminho, tamanho)
         logger.warning("manifesto_fragmento_separado destino=%s", destino)
+
+    def _guardar_fragmento(self, sequencia: int, sufixo: str) -> Path:
+        """Grava sem sobrescrever: o nome leva a sequência ancorada e o hash do conteúdo."""
+        resumo = hashlib.sha256(sufixo.encode("utf-8")).hexdigest()[:16]
+        destino = self.caminho.with_name(f"{self.caminho.name}.fragmento.{sequencia}.{resumo}")
+        try:
+            with destino.open("x", encoding="utf-8") as arquivo:
+                arquivo.write(sufixo)
+                arquivo.flush()
+                os.fsync(arquivo.fileno())
+        except FileExistsError as existente:
+            if destino.read_text(encoding="utf-8") != sufixo:
+                raise ManifestoCorrompido(
+                    f"manifesto_fragmento_divergente destino={destino}"
+                ) from existente
+        return destino
 
     def _gravar_ancora(self, sequencia: int, sha256: str | None) -> None:
         """Âncora durável: fsync do temporário, `os.replace` e fsync do diretório pai."""
@@ -213,11 +235,11 @@ class Manifesto:
             os.close(diretorio)
 
     @contextlib.contextmanager
-    def _travado(self) -> Iterator[None]:
+    def _travado(self, modo: int = fcntl.LOCK_EX) -> Iterator[None]:
         self.caminho.parent.mkdir(parents=True, exist_ok=True)
         trava = self.caminho.with_name(f"{self.caminho.name}.trava")
         with trava.open("a") as arquivo:
-            fcntl.flock(arquivo.fileno(), fcntl.LOCK_EX)
+            fcntl.flock(arquivo.fileno(), modo)
             try:
                 yield
             finally:
@@ -231,7 +253,7 @@ class Manifesto:
         """
         with self._travado():
             self._separar_fragmento()
-            return self.ler()
+            return self._ler_sem_trava()
 
     def registrar(
         self, observacao: ArtifactObservation, versao: ArtifactVersion | None = None
@@ -243,7 +265,7 @@ class Manifesto:
         """
         with self._travado():
             self._separar_fragmento()
-            estado = self.ler()
+            estado = self._ler_sem_trava()
             if not estado.linhas and not self.ancora.exists():
                 self._gravar_ancora(0, None)
             novas = self._novas_linhas(estado, observacao, versao)

@@ -29,6 +29,7 @@ _TERMINADOR_DBF = 0x0D
 _FIM_DBF = b"\x1a"
 _CABECALHO_DBF_MINIMO = 33
 _CAUDA_PDF = 1024
+_BRANCOS_PDF = b" \t\r\n\x00\x0c"
 _ASSINATURAS_ZIP = (b"PK\x03\x04", b"PK\x05\x06")
 _DRIVE = re.compile(r"^[A-Za-z]:")
 _CRIPTOGRAFADO = 0x1
@@ -106,31 +107,27 @@ def _cabecalho_dbf(amostra: _Amostra) -> tuple[int, int, int] | Veredito:
 
 
 def _validar_dbf(amostra: _Amostra) -> Veredito:
-    tamanho = amostra.tamanho
     cabecalho = _cabecalho_dbf(amostra)
     if isinstance(cabecalho, Veredito):
         return cabecalho
-    registros, tam_cabecalho, tam_registro = cabecalho
-    esperado = tam_cabecalho + registros * tam_registro
-    if tamanho < esperado:
-        return _truncado(f"dbf_truncado esperado={esperado} tamanho={tamanho}")
-    return _OK
+    return _tamanho_dbf_confere(amostra.caminho, cabecalho)
 
 
 def _tamanho_dbf_confere(dbf: Path, cabecalho: tuple[int, int, int]) -> Veredito:
+    """Exatamente H + n×R bytes, ou um byte a mais se for o 0x1A de fim de arquivo."""
     registros, tam_cabecalho, tam_registro = cabecalho
     esperado = tam_cabecalho + registros * tam_registro
     tamanho = dbf.stat().st_size
     if tamanho < esperado:
-        return _truncado(f"dbc_descomprimido_curto esperado={esperado} tamanho={tamanho}")
+        return _truncado(f"dbf_truncado esperado={esperado} tamanho={tamanho}")
     if tamanho > esperado + 1:
-        return _inesperado(f"dbc_descomprimido_longo esperado={esperado} tamanho={tamanho}")
+        return _inesperado(f"dbf_bytes_depois_dos_registros esperado={esperado} tamanho={tamanho}")
     if tamanho == esperado + 1:
         with dbf.open("rb") as arquivo:
             arquivo.seek(esperado)
             final = arquivo.read(1)
         if final != _FIM_DBF:
-            return _inesperado(f"dbc_descomprimido_byte_final byte={final.hex()}")
+            return _inesperado(f"dbf_byte_final_invalido byte={final.hex()}")
     return _OK
 
 
@@ -260,7 +257,9 @@ def _validar_pdf(amostra: _Amostra) -> Veredito:
     with amostra.caminho.open("rb") as arquivo:
         arquivo.seek(max(0, amostra.tamanho - _CAUDA_PDF))
         cauda = arquivo.read()
-    return _OK if b"%%EOF" in cauda else _truncado("pdf_sem_marcador_final")
+    if cauda.rstrip(_BRANCOS_PDF).endswith(b"%%EOF"):
+        return _OK
+    return _truncado("pdf_sem_marcador_final")
 
 
 _VALIDADORES: dict[FormatoArquivo, Callable[[_Amostra], Veredito]] = {

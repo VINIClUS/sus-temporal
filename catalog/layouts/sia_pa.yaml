@@ -8,9 +8,10 @@
 # colunas segundo S4, e PA_FNTORC, presente em arquivos de 2026 segundo S9) podem faltar; quando
 # presentes, aparecem na ordem abaixo. Campo físico sem coluna em sia_pa.v1 (PA_CNPJCPF,
 # PA_CNPJMNT, PA_CNPJ_CC, PA_AUTORIZ, PA_CNSMED, PA_FNTORC) é lido para conferir o leiaute e
-# descartado por minimização ou por falta de semântica; o descarte é contado no perfil.
+# descartado por minimização ou por falta de semântica; o descarte é registrado no log da ingestão.
 # Sentinelas (SECUNDARIA, S1; A_CONFIRMAR): valor bruto aparado -> motivo de ausência.
-# PA_IDADE: unidade ANOS segundo transcrições do IT (SECUNDARIA; A_CONFIRMAR).
+# PA_IDADE: unidade ANOS segundo transcrições do IT (SECUNDARIA; A_CONFIRMAR); 999 tratado como
+# sentinela de idade não informada (INFERIDA; comum no BPA-C agregado; A_CONFIRMAR).
 layout_id: sia_pa.it_2019_07
 fonte: SIA_PA
 versao: "1"
@@ -294,6 +295,8 @@ campos:
     tipo_canonico: INTEIRO
     papel: ATRIBUTO
     obrigatorio: "true"
+    sentinelas:
+      "999": DESCONHECIDO
     unidade: ANOS
   - nome_fisico: IDADEMIN
     tipo_fisico: C

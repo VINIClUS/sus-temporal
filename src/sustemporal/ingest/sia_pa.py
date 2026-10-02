@@ -7,6 +7,7 @@ Cada campo normalizado guarda o valor, o texto bruto (latin-1, sem aparar) e o m
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import closing
 from dataclasses import dataclass
 from importlib import metadata
@@ -78,6 +79,7 @@ DIMENSOES_PERFIL = (
     "cnes",
 )
 _INTEIRO = r"^-?[0-9]+$"
+_CODIGO_INDICA = re.compile(r"[0-9A-Za-z]{1,4}")
 _SEM_LINHAGEM = frozenset({"row_id", "indice_registro"})
 
 
@@ -413,7 +415,11 @@ def _codigos_indica(codebook: Path) -> list[str]:
     conteudo = carregar_yaml(codebook)
     if not isinstance(conteudo, dict) or not isinstance(conteudo.get("codigos"), dict):
         raise ValueError(f"codebook_invalido caminho={codebook}")
-    return sorted(str(codigo) for codigo in conteudo["codigos"])
+    codigos = sorted(str(codigo) for codigo in conteudo["codigos"])
+    invalidos = [codigo for codigo in codigos if not _CODIGO_INDICA.fullmatch(codigo)]
+    if invalidos or not codigos:
+        raise ValueError(f"codebook_codigo_invalido codigos={compactar(invalidos)}")
+    return codigos
 
 
 def _sql_perfil(codigos: list[str], colunas: set[str]) -> tuple[str, dict[str, object]]:
@@ -465,12 +471,18 @@ def perfil_pa(
         con.execute(f"CREATE TABLE perfil AS {sql}", parametros)
         destino = out / f"{dataset.dataset_id}.perfil.parquet"
         _gravar(con, "perfil", destino)
+        indicas = " + ".join(
+            identificador_seguro(f"indica_{c}", {f"indica_{c}"}) for c in [*codigos, "outros"]
+        )
         linhas = con.execute(
-            "SELECT dimensao, origem, sum(linhas), "
-            "bool_and(linhas = indica_outros + " + " + ".join(f"indica_{c}" for c in codigos) + ") "
-            "FROM perfil GROUP BY dimensao, origem"
+            "SELECT dimensao, origem, sum(linhas), sum(deletados), "  # noqa: S608
+            f"bool_and(linhas = {indicas}) FROM perfil GROUP BY dimensao, origem"
         ).fetchall()
-    totais = {(str(d), str(o)): int(n) for d, o, n, _ in linhas}
-    reconciliado = all(n == dataset.linhas for n in totais.values()) and all(r for *_, r in linhas)
+    totais = {(str(d), str(o)): int(n) for d, o, n, *_ in linhas}
+    deletados = dataset.reconciliacao.deletados if dataset.reconciliacao else None
+    reconciliado = all(
+        n == dataset.linhas and indica and deletados in {None, int(d)}
+        for _, _, n, d, indica in linhas
+    )
     logger.info("perfil_sia_pa dataset=%s reconciliado=%s", dataset.dataset_id, reconciliado)
     return PerfilPa(str(destino), dataset.linhas, totais, reconciliado)

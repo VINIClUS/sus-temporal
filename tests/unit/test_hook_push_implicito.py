@@ -92,3 +92,40 @@ def test_push_implicito_de_branch_proprio_e_permitido(repo: Path) -> None:
 def test_push_perigoso_disfarcado_e_bloqueado(repo: Path, comando: str) -> None:
     _git(repo, "checkout", "-q", "-b", "claude/s1-x")
     assert _executar(comando, repo).returncode == 2
+
+
+@pytest.fixture
+def outro(repo: Path, tmp_path: Path) -> Path:
+    clone = tmp_path / "outro"
+    subprocess.run(
+        ["git", "clone", "-q", "-b", "main", str(tmp_path / "remoto.git"), str(clone)],
+        check=True,
+        capture_output=True,
+    )
+    _git(clone, "checkout", "-q", "-b", "claude/s1-x")
+    _git(clone, "push", "-q", "-u", "origin", "claude/s1-x")
+    return clone
+
+
+@pytest.mark.parametrize(
+    "modelo",
+    [
+        "git -C {repo} push",
+        "git -C {repo} push origin HEAD",
+        "cd {repo} && git push",
+        "cd {repo}; git push -u origin",
+        "cd $REPO && git push",
+        "cd ~/x && git push",
+    ],
+)
+def test_push_implicito_no_repositorio_do_comando_e_bloqueado(
+    repo: Path, outro: Path, modelo: str
+) -> None:
+    assert _executar(modelo.format(repo=repo), outro).returncode == 2
+
+
+def test_push_implicito_noutro_diretorio_de_branch_proprio_e_permitido(
+    repo: Path, outro: Path
+) -> None:
+    assert _executar(f"cd {outro} && git push", repo).returncode == 0
+    assert _executar(f"git -C {outro} push", repo).returncode == 0

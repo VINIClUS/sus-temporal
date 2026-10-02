@@ -93,7 +93,10 @@ def test_dbfread_le_registros_e_flags_de_delecao(tmp_path: Path) -> None:
     caminho.write_bytes(_dbf_exemplo(deletados={0, 2}))
     tabela = dbfread.DBF(str(caminho), encoding="latin-1", raw=True, load=True)
     assert [r["PA_CODUNI"] for r in tabela.records] == [b"0000001"]
-    assert [r["PA_CODUNI"] for r in tabela.deleted] == [b"0012345", "ÁÉÇ\xff\x80".encode("latin-1")]
+    assert [r["PA_CODUNI"] for r in tabela.deleted] == [
+        b"0012345",
+        "ÁÉÇ\xff\x80  ".encode("latin-1"),
+    ]
 
 
 @pytest.mark.parametrize("dicionario", [4, 5, 6])

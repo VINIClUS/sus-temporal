@@ -228,3 +228,9 @@ def test_propriedade_blocos_e_bytes_recuperaveis(
         valores = leitura.tabela.column(campo_dbf.nome).to_pylist()
         esperados = [r[campos.index(campo_dbf)].ljust(campo_dbf.largura) for r in registros]
         assert [v.encode("latin-1") for v in valores] == esperados
+
+
+def test_campo_com_nome_de_coluna_interna_vai_para_quarentena_de_leiaute() -> None:
+    dados = bytearray(escrever_dbf([CampoDbf("X", "C", 1)], [("a",)]))
+    dados[32:43] = COLUNA_DELETADO.encode("ascii").ljust(11, b"\x00")
+    assert _estado(bytes(dados)) is EstadoIntegridade.QUARENTENA_LEIAUTE

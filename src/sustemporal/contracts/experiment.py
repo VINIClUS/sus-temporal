@@ -226,6 +226,14 @@ class BootstrapSpec(ContratoBase):
     sensibilidade: Literal["BLOCOS_TEMPORAIS"] = "BLOCOS_TEMPORAIS"
     correcao: CorrecaoMultiplicidade = CorrecaoMultiplicidade.A_DEFINIR
 
+    @model_validator(mode="after")
+    def _intervalo_definido(self) -> BootstrapSpec:
+        if self.reamostragens < 1 or not Decimal(0) < self.confianca < Decimal(1):
+            raise ValueError(
+                f"bootstrap_invalido reamostragens={self.reamostragens} confianca={self.confianca}"
+            )
+        return self
+
 
 class CodeVersion(ContratoBase):
     commit: str

@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from decimal import MAX_EMAX, MAX_PREC, MIN_EMIN, Context, Decimal
 from typing import TYPE_CHECKING, Any
 
@@ -66,7 +66,7 @@ def _texto_decimal(valor: Decimal) -> str:
 def _texto_instante(valor: datetime) -> str:
     if valor.utcoffset() is None:
         raise ValueError(f"instante_sem_fuso valor={valor.isoformat()}")
-    return valor.isoformat()
+    return valor.astimezone(UTC).isoformat()
 
 
 _CONVERSORES: tuple[tuple[type[Any], Callable[[Any], str]], ...] = (

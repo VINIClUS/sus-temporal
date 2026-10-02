@@ -116,6 +116,14 @@ class Candidato(ContratoBase):
     condicoes_pendentes: tuple[str, ...] = ()
     executabilidade: Executabilidade
 
+    @model_validator(mode="after")
+    def _custo(self) -> Candidato:
+        if self.custo < len(self.operacoes):
+            raise ValueError(
+                f"candidato_custo_invalido custo={self.custo} operacoes={len(self.operacoes)}"
+            )
+        return self
+
 
 class MotivoParada(StrEnum):
     ESPACO_ESGOTADO = "ESPACO_ESGOTADO"

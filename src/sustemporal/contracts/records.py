@@ -198,6 +198,27 @@ class Multiplicidade(ContratoBase):
     combinacoes_distintas: InteiroNaoNegativo
     max_repeticoes: InteiroNaoNegativo
 
+    @model_validator(mode="after")
+    def _possivel(self) -> Multiplicidade:
+        linhas, distintas, maximo = (
+            self.linhas_totais,
+            self.combinacoes_distintas,
+            self.max_repeticoes,
+        )
+        if linhas == 0:
+            possivel = distintas == 0 and maximo == 0
+        else:
+            possivel = (
+                1 <= distintas <= linhas
+                and 1 <= maximo <= linhas - distintas + 1
+                and linhas <= distintas * maximo
+            )
+        if not possivel:
+            raise ValueError(
+                f"multiplicidade_impossivel linhas={linhas} distintas={distintas} maximo={maximo}"
+            )
+        return self
+
 
 def calcular_dataset_id(schema_id: str, hash_logico: str, artifact_ids: tuple[str, ...]) -> str:
     conteudo = {"schema": schema_id, "hash": hash_logico, "artefatos": sorted(artifact_ids)}

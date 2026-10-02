@@ -232,6 +232,7 @@ class ResultadoRegistro(StrEnum):
 
 
 class AgregadoRegistro(ContratoBase):
+    run_id: Identificador
     row_id: RowId
     violacoes: tuple[str, ...] = ()
     conformes: tuple[str, ...] = ()
@@ -240,15 +241,16 @@ class AgregadoRegistro(ContratoBase):
     resultado: ResultadoRegistro
 
     @classmethod
-    def agregar(cls, row_id: str, avaliacoes: Iterable[RuleEvaluation]) -> AgregadoRegistro:
+    def agregar(
+        cls, run_id: str, row_id: str, avaliacoes: Iterable[RuleEvaluation]
+    ) -> AgregadoRegistro:
         grupos: dict[EstadoAvaliacao, list[str]] = {estado: [] for estado in EstadoAvaliacao}
-        for avaliacao in avaliacoes:
-            if avaliacao.row_id != row_id:
-                raise ValueError(f"avaliacao_de_outro_registro row={avaliacao.row_id}")
+        for avaliacao in _lote_de_um_registro(run_id, row_id, avaliacoes):
             grupos[avaliacao.estado].append(avaliacao.rule_id)
         violacoes = grupos[EstadoAvaliacao.VIOLACAO]
         inconclusivas = grupos[EstadoAvaliacao.INCONCLUSIVO]
         return cls(
+            run_id=run_id,
             row_id=row_id,
             violacoes=tuple(sorted(violacoes)),
             conformes=tuple(sorted(grupos[EstadoAvaliacao.CONFORME])),
@@ -265,6 +267,25 @@ class AgregadoRegistro(ContratoBase):
         if self.resultado is not esperado:
             raise ValueError(f"agregado_incoerente row={self.row_id}")
         return self
+
+
+def _lote_de_um_registro(
+    run_id: str, row_id: str, avaliacoes: Iterable[RuleEvaluation]
+) -> list[RuleEvaluation]:
+    lote = list(avaliacoes)
+    for avaliacao in lote:
+        if avaliacao.row_id != row_id:
+            raise ValueError(f"avaliacao_de_outro_registro row={avaliacao.row_id}")
+        if avaliacao.run_id != run_id:
+            raise ValueError(
+                f"avaliacao_de_outra_execucao run={avaliacao.run_id} esperado={run_id}"
+            )
+    if len({(avaliacao.metodo, avaliacao.politica_id) for avaliacao in lote}) > 1:
+        raise ValueError(f"avaliacoes_de_metodos_distintos row={row_id}")
+    regras = [avaliacao.rule_id for avaliacao in lote]
+    if len(set(regras)) != len(regras):
+        raise ValueError(f"avaliacao_repetida row={row_id}")
+    return lote
 
 
 def _resultado(tem_violacao: bool, tem_inconclusiva: bool, tem_conforme: bool) -> ResultadoRegistro:

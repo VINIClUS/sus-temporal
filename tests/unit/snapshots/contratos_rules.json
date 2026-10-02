@@ -45,6 +45,11 @@
     "title": "Row Id",
     "type": "string"
    },
+   "run_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Run Id",
+    "type": "string"
+   },
    "violacoes": {
     "default": [],
     "items": {
@@ -55,6 +60,7 @@
    }
   },
   "required": [
+   "run_id",
    "row_id",
    "resultado"
   ],

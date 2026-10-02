@@ -94,6 +94,7 @@ def test_truncado_dentro_do_cabecalho_vai_para_quarentena_truncado() -> None:
 def test_bytes_excedentes_vao_para_quarentena_de_leiaute() -> None:
     assert _estado(_dbf() + b"x") is EstadoIntegridade.QUARENTENA_LEIAUTE
     assert _estado(_dbf(com_eof=False) + b"xy") is EstadoIntegridade.QUARENTENA_LEIAUTE
+    assert _estado(_dbf(com_eof=False) + b"x") is EstadoIntegridade.QUARENTENA_LEIAUTE
 
 
 def test_tamanho_do_registro_incompativel_com_campos_vai_para_quarentena() -> None:

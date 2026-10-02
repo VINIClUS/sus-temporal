@@ -1,15 +1,18 @@
 import dataclasses
 import struct
+from collections.abc import Callable
 from importlib import metadata
 from typing import Any
 
 import dbfread
 import pyarrow as pa
 import pytest
+from dbctodbf import DBCDecompress
 from hypothesis import given
 from hypothesis import strategies as st
 
 from sustemporal.contracts import EstadoIntegridade, VerificacaoFidelidade
+from sustemporal.ingest import dbc as dbc_mod
 from sustemporal.ingest.dbc import descomprimir_dbc, ler_dbc, verificar_fidelidade
 from sustemporal.ingest.dbf import COLUNA_DELETADO, QuarentenaLeitura, ler_dbf
 from tests.fixtures.dbc_encoder import dbf_para_dbc
@@ -172,3 +175,54 @@ def test_propriedade_diferencial_contra_dbfread(
             r[nome] for r in referencia.deleted
         ]
     assert verificar_fidelidade(dbc, leitura).fiel
+
+
+class _DescompressorAdulterado:
+    def __init__(self, alterar: Callable[[bytes], bytes]) -> None:
+        self._alterar = alterar
+
+    def decompress(self, dados: bytes) -> bytes:
+        return self._alterar(bytes(DBCDecompress().decompress(dados)))
+
+
+def _falhar(dados: bytes) -> bytes:
+    raise EOFError("Not enough input data")
+
+
+@pytest.mark.parametrize(
+    "alterar",
+    [
+        lambda b: b[:-1] + bytes([b[-1] ^ 1]),
+        lambda b: b + b"\x00",
+        lambda b: b[:120] + b"Z" + b[121:],
+    ],
+)
+def test_fidelidade_detecta_bytes_divergentes_do_leitor_independente(
+    alterar: Callable[[bytes], bytes], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dbc = dbf_para_dbc(_dbf(com_eof=False))
+    leitura = ler_dbc(dbc).leitura
+    monkeypatch.setattr(dbc_mod, "DBCDecompress", lambda: _DescompressorAdulterado(alterar))
+    relatorio = verificar_fidelidade(dbc, leitura, "COMPLETA")
+    assert not relatorio.fiel
+    assert any(d.startswith("bytes_divergentes") for d in relatorio.divergencias)
+
+
+def test_fidelidade_com_leitor_independente_falhando_nao_compara_registros(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dbc = dbf_para_dbc(_dbf())
+    leitura = ler_dbc(dbc).leitura
+    monkeypatch.setattr(dbc_mod, "DBCDecompress", lambda: _DescompressorAdulterado(_falhar))
+    relatorio = verificar_fidelidade(dbc, leitura, "COMPLETA")
+    assert not relatorio.fiel
+    assert relatorio.registros_comparados == 0
+    assert any(d.startswith("dbctodbf_falhou") for d in relatorio.divergencias)
+
+
+def test_fidelidade_recusa_leitura_de_outro_arquivo_com_mesmos_registros() -> None:
+    dbc = dbf_para_dbc(_dbf(byte_driver=0x58))
+    outra = ler_dbc(dbf_para_dbc(_dbf(byte_driver=0x03, data=(2019, 5, 6)))).leitura
+    relatorio = verificar_fidelidade(dbc, outra, "COMPLETA")
+    assert not relatorio.fiel
+    assert any(d.startswith("cabecalho_divergente") for d in relatorio.divergencias)

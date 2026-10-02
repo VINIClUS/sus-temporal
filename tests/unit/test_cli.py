@@ -106,6 +106,22 @@ def test_manipulador_stub_retorna_nao_implementado(
     assert cli.main(argumentos) == ExitCode.NAO_IMPLEMENTADO
 
 
+def test_stub_interno_do_projeto_retorna_nao_implementado(
+    config_valida: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _apontar(monkeypatch, "pilot-report", "executar_chama_stub_interno")
+    argumentos = ["pilot-report", "--config", str(config_valida)]
+    assert cli.main(argumentos) == ExitCode.NAO_IMPLEMENTADO
+
+
+def test_not_implemented_de_biblioteca_nao_vira_comando_nao_implementado(
+    config_valida: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _apontar(monkeypatch, "acquire", "executar_falha_de_biblioteca")
+    with pytest.raises(NotImplementedError, match="zip file version"):
+        cli.main(["acquire", "--config", str(config_valida)])
+
+
 def test_portao_recusado_retorna_codigo_4(
     config_valida: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

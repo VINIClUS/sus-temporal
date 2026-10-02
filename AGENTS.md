@@ -87,14 +87,26 @@ uv run sustemporal --help               # CLI
 
 ## Git e PRs
 - Branch por sessão `claude/sN-<slug>` (definido pelo orquestrador ao criar a sessão); orquestrador
-  em `claude/determined-ritchie-b9o2qg` ou `claude/orq-*`. Branch `claude/*` sem dono no mapa de
-  propriedade reprova no CI. Commits `<tipo>(<escopo>): <descrição>`.
-- Push forçado, remoção de branch e qualquer push para `main` são bloqueados por hook.
+  só em `claude/determined-ritchie-b9o2qg`; humanos em `humano/*`. Em PR, branch sem dono no mapa
+  de propriedade reprova no CI, salvo `humano/*`. Commits `<tipo>(<escopo>): <descrição>`.
+- Push forçado, remoção de branch e qualquer push para `main` são bloqueados em duas camadas: o
+  hook PreToolUse do Bash e o `pre-push` do git em `.githooks/` (o SessionStart roda
+  `git config core.hooksPath .githooks`; o `pre-push` também recusa push não fast-forward). O hook
+  do Bash ainda recusa `git push --no-verify`, `core.hooksPath` trocado por `-c`/`--config-env`,
+  `git send-pack`, `gh pr merge` e `gh api` com `DELETE` ou caminho com `/merge`, `/merges` ou
+  `/git/refs`; push implícito e alias persistido são resolvidos no repositório do comando (`cd`,
+  `-C`, `--git-dir`, `--work-tree`, `GIT_DIR`) e, se ele é indeterminado, recusados.
+- Ferramentas MCP do GitHub passam pela guarda `.claude/hooks/bloquear_mcp_github.py`:
+  `merge_pull_request`, `enable_pr_auto_merge` e `delete_file` são recusadas, assim como qualquer
+  chamada com `branch`, `ref` ou `head` igual a `main`. Só o orquestrador
+  (`SUSTEMPORAL_PAPEL=orquestrador` no ambiente do processo) pode `merge_pull_request`; escrita
+  direta em `main` é recusada para todos.
 - Nunca force-push, rebase de commits publicados, commit direto em `main` ou merge de PR por
   sessões-filhas. Atualizar com `git fetch origin && git merge --no-edit origin/main`.
 - PR em rascunho até ficar pronto (rascunho não roda CI); corpo segue
   `.github/pull_request_template.md`.
-- Propriedade de arquivos: `docs/process/propriedade.yaml` (checada no CI).
+- Propriedade de arquivos: `docs/process/propriedade.yaml` (checada no CI; no PR, mapa e checador
+  vêm da base, `origin/<base>`).
 - Dependências: só o orquestrador altera `pyproject.toml`/`uv.lock`.
 - Pendências humanas ou de dados reais: `docs/pendencias/TNN.md`.
 

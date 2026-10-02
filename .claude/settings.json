@@ -88,6 +88,15 @@
             "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/bloquear_push_perigoso.py\""
           }
         ]
+      },
+      {
+        "matcher": "mcp__github__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/bloquear_mcp_github.py\""
+          }
+        ]
       }
     ]
   }

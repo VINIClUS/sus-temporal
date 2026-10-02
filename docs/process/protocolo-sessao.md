@@ -12,7 +12,8 @@ pacote de tarefas do plano (§8). Este documento é o contrato operacional de ca
 4. Testes sem rede externa e sem dados reais. Nada de LLM para causas, rótulos ou texto de
    explicação.
 5. Não criar decisões G0/G1/G2 nem alterar `docs/spec`, `docs/plan`, `pyproject.toml`, `uv.lock`,
-   `.github`, `.claude` ou `src/sustemporal/cli.py`.
+   `.github`, `.claude`, `.githooks`, `scripts` ou `src/sustemporal/cli.py`; PR que toque
+   `.github/`, `.claude/`, `.githooks/` ou `scripts/` é recusado no merge.
 6. Nenhuma afirmação empírica; o que é sintético é marcado `SINTETICO`.
 7. Não usar `subscribe_pr_activity` (o orquestrador acompanha os PRs).
 

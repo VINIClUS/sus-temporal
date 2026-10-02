@@ -8,6 +8,7 @@ o marcador e o índice físico. Qualquer incoerência física vira ``QuarentenaL
 from __future__ import annotations
 
 import logging
+import re
 import struct
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -23,7 +24,7 @@ from sustemporal.errors import FalhaOperacionalErro
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from sustemporal.contracts import LayoutSpec
+    from sustemporal.contracts import CampoLeiaute, LayoutSpec
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,15 @@ class LeituraDbf:
     tamanho_bytes: int
 
 
+def compactar(valor: object) -> str:
+    """Valor de motivo `chave=valor` sem espaços (sequências viram itens separados por vírgula)."""
+    if isinstance(valor, list | tuple):
+        return ",".join(compactar(item) for item in valor)
+    if isinstance(valor, bytes):
+        return valor.hex()
+    return re.sub(r"\s+", "_", str(valor))
+
+
 def _leiaute(motivo: str) -> QuarentenaLeitura:
     return QuarentenaLeitura(EstadoIntegridade.QUARENTENA_LEIAUTE, motivo)
 
@@ -98,10 +108,12 @@ def _conferir_prefixo(dados: Bytes) -> None:
 def _descritor(bruto: bytes, inicio: int) -> DescritorCampo:
     nome_bruto = bruto[:11].split(b"\x00", 1)[0]
     if not nome_bruto or not all(0x21 <= b <= 0x7E for b in nome_bruto):
-        raise _leiaute(f"nome_de_campo_invalido nome={nome_bruto!r}")
+        raise _leiaute(f"nome_de_campo_invalido nome={compactar(nome_bruto)}")
     tipo, largura, decimais = chr(bruto[11]), bruto[16], bruto[17]
     if not tipo.isascii() or not tipo.isalpha() or largura == 0:
-        raise _leiaute(f"descritor_invalido nome={nome_bruto!r} tipo={tipo!r} largura={largura}")
+        raise _leiaute(
+            f"descritor_invalido nome={compactar(nome_bruto)} tipo={bruto[11]} largura={largura}"
+        )
     return DescritorCampo(nome_bruto.decode("ascii"), tipo, largura, decimais, inicio)
 
 
@@ -116,11 +128,11 @@ def _descritores(cabecalho: bytes) -> tuple[DescritorCampo, ...]:
     if posicao != len(cabecalho) - 1 or cabecalho[posicao] != _TERMINADOR:
         raise _leiaute(f"terminador_ausente posicao={posicao} cabecalho={len(cabecalho)}")
     nomes = [campo.nome for campo in campos]
-    if not campos or len(set(nomes)) != len(nomes):
-        raise _leiaute(f"campos_vazios_ou_repetidos campos={nomes}")
+    if not campos or len({nome.upper() for nome in nomes}) != len(nomes):
+        raise _leiaute(f"campos_vazios_ou_repetidos campos={compactar(nomes)}")
     reservados = sorted(set(nomes) & {COLUNA_INDICE, COLUNA_DELETADO})
     if reservados:
-        raise _leiaute(f"campo_com_nome_reservado campos={reservados}")
+        raise _leiaute(f"campo_com_nome_reservado campos={compactar(reservados)}")
     return tuple(campos)
 
 
@@ -129,7 +141,10 @@ def _ler_cabecalho(dados: Bytes) -> CabecalhoDbf:
     prefixo = dados[:_TAM_PREFIXO].tobytes()
     n_registros, tam_cabecalho, tam_registro = struct.unpack_from("<IHH", prefixo, 4)
     if tam_cabecalho < _TAM_PREFIXO + 1:
-        raise _leiaute(f"tamanho_cabecalho_invalido cabecalho={tam_cabecalho}")
+        raise QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO,
+            f"tamanho_cabecalho_invalido cabecalho={tam_cabecalho}",
+        )
     if dados.size < tam_cabecalho:
         raise QuarentenaLeitura(
             EstadoIntegridade.QUARENTENA_TRUNCADO,
@@ -231,24 +246,33 @@ def ler_dbf(dados: bytes, *, tamanho_bloco: int = TAMANHO_BLOCO_PADRAO) -> Leitu
 
 def ler_dbf_arquivo(caminho: Path, *, tamanho_bloco: int = TAMANHO_BLOCO_PADRAO) -> LeituraDbf:
     """Como `ler_dbf`, mapeando o arquivo em memória (memmap) e lendo em blocos."""
+    if not caminho.is_file():
+        raise ArquivoAusente(f"arquivo_ausente arquivo={compactar(caminho.name)}")
     if caminho.stat().st_size == 0:
         return ler_dbf(b"", tamanho_bloco=tamanho_bloco)
     mapa: Bytes = np.memmap(caminho, dtype=np.uint8, mode="r")
     return _ler(mapa, tamanho_bloco)
 
 
+def _coincide(lido: DescritorCampo, esperado: CampoLeiaute) -> bool:
+    fisico = (lido.nome, lido.tipo, lido.largura, lido.decimais)
+    alvo = (esperado.nome_fisico, esperado.tipo_fisico, esperado.largura, esperado.decimais)
+    return fisico == alvo and esperado.inicio in {None, lido.inicio}
+
+
 def conferir_leiaute(cabecalho: CabecalhoDbf, layout: LayoutSpec) -> None:
-    """Descritores devem coincidir com o leiaute (nome, tipo, largura, decimais, ordem)."""
+    """Descritores devem coincidir com o leiaute (nome, tipo, largura, decimais, ordem).
+
+    `CampoLeiaute.inicio`, quando informado, é o deslocamento no registro contando o marcador de
+    deleção (o primeiro campo começa em 1).
+    """
     if layout.formato is not FormatoLeiaute.DBF:
         raise _leiaute(f"leiaute_nao_dbf layout={layout.layout_id} formato={layout.formato}")
-    lidos = [(c.nome, c.tipo, c.largura, c.decimais) for c in cabecalho.campos]
-    esperados = [(c.nome_fisico, c.tipo_fisico, c.largura, c.decimais) for c in layout.campos]
-    if lidos == esperados:
+    lidos, esperados = cabecalho.campos, layout.campos
+    pares = list(zip(lidos, esperados, strict=False))
+    if len(lidos) == len(esperados) and all(_coincide(a, b) for a, b in pares):
         return
-    divergente = next(
-        (i for i, (a, b) in enumerate(zip(lidos, esperados, strict=False)) if a != b),
-        min(len(lidos), len(esperados)),
-    )
+    divergente = next((i for i, (a, b) in enumerate(pares) if not _coincide(a, b)), len(pares))
     raise _leiaute(
         f"descritores_divergentes layout={layout.layout_id} posicao={divergente} "
         f"lidos={len(lidos)} esperados={len(esperados)}"

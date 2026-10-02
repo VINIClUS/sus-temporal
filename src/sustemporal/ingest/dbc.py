@@ -9,6 +9,7 @@ parte, porque o parser próprio já exige o terminador no arquivo original.
 from __future__ import annotations
 
 import logging
+import shutil
 import struct
 import tempfile
 from dataclasses import dataclass
@@ -17,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-from datasus_dbc import decompress_bytes
+from datasus_dbc import decompress, decompress_bytes
 from dbctodbf import DBCDecompress  # type: ignore[import-untyped]  # override cita dbc_to_dbf
 from dbfread import DBF
 
@@ -27,8 +28,11 @@ from sustemporal.ingest.dbf import (
     COLUNA_INDICE,
     TAMANHO_BLOCO_PADRAO,
     VERSOES_DBASE,
+    ArquivoAusente,
     QuarentenaLeitura,
+    compactar,
     ler_dbf,
+    ler_dbf_arquivo,
 )
 
 if TYPE_CHECKING:
@@ -44,6 +48,8 @@ logger = logging.getLogger(__name__)
 FLAGS_LITERAIS = frozenset({0, 1})
 DICIONARIOS = frozenset({4, 5, 6})
 _TAM_POS_CABECALHO = 4
+_MAX_CABECALHO = 0xFFFF
+_BIBLIOTECAS_LEITURA = ("datasus-dbc", "numpy", "pyarrow", "sus-temporal")
 _MAX_DIVERGENCIAS = 20
 
 
@@ -101,38 +107,63 @@ def _conferir_envelope(dados: bytes) -> tuple[int, int, int]:
     return tam_cabecalho, flag, dicionario
 
 
+def _classificar(erro: ValueError) -> QuarentenaLeitura:
+    texto = compactar(str(erro))
+    if "end_of_input" in texto:
+        return QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_TRUNCADO, f"fluxo_dcl_incompleto erro={texto}"
+        )
+    return _inesperado(f"fluxo_dcl_invalido erro={texto}")
+
+
 def _descomprimir(dados: bytes) -> bytes:
     try:
         return bytes(decompress_bytes(dados))
     except ValueError as erro:
-        texto = str(erro)
-        if "end of input" in texto:
-            raise QuarentenaLeitura(
-                EstadoIntegridade.QUARENTENA_TRUNCADO, f"fluxo_dcl_incompleto erro={texto}"
-            ) from erro
-        raise _inesperado(f"fluxo_dcl_invalido erro={texto}") from erro
+        raise _classificar(erro) from erro
+
+
+def _sobra_apos_fim(dados: bytes) -> QuarentenaLeitura:
+    return _inesperado(f"bytes_apos_fim_dcl tamanho={len(dados)}")
+
+
+def _conferir_fim_dcl(dados: bytes) -> None:
+    """Sem o último byte o fluxo tem de falhar; se não falha, há bytes após o código de fim."""
+    try:
+        decompress_bytes(dados[:-1])
+    except ValueError:
+        return
+    raise _sobra_apos_fim(dados)
+
+
+def _metadados(prefixo: bytes, tam_cabecalho: int, flag: int, dicionario: int) -> MetadadosDbc:
+    pos_cabecalho = prefixo[tam_cabecalho : tam_cabecalho + _TAM_POS_CABECALHO]
+    return MetadadosDbc(
+        tam_cabecalho=tam_cabecalho,
+        bytes_pos_cabecalho_hex=pos_cabecalho.hex(),
+        flag_literais=flag,
+        dicionario=dicionario,
+        bibliotecas=_versoes(*_BIBLIOTECAS_LEITURA),
+    )
+
+
+def _conferir_cabecalho_preservado(dbf_inicio: bytes, prefixo: bytes, tam_cabecalho: int) -> None:
+    if len(dbf_inicio) < tam_cabecalho:
+        raise QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_TRUNCADO,
+            f"dbf_menor_que_cabecalho tamanho={len(dbf_inicio)} cabecalho={tam_cabecalho}",
+        )
+    if dbf_inicio[:tam_cabecalho] != prefixo[:tam_cabecalho]:
+        raise _inesperado(f"cabecalho_alterado_na_descompressao cabecalho={tam_cabecalho}")
 
 
 def descomprimir_dbc(dados: bytes) -> tuple[bytes, MetadadosDbc]:
     """DBF descomprimido pelo datasus-dbc, sem reescrever bytes do cabeçalho."""
     tam_cabecalho, flag, dicionario = _conferir_envelope(dados)
     dbf = _descomprimir(dados)
-    if len(dbf) < tam_cabecalho:
-        raise QuarentenaLeitura(
-            EstadoIntegridade.QUARENTENA_TRUNCADO,
-            f"dbf_menor_que_cabecalho tamanho={len(dbf)} cabecalho={tam_cabecalho}",
-        )
-    if dbf[:tam_cabecalho] != dados[:tam_cabecalho]:
-        raise _inesperado(f"cabecalho_alterado_na_descompressao cabecalho={tam_cabecalho}")
-    pos_cabecalho = dados[tam_cabecalho : tam_cabecalho + _TAM_POS_CABECALHO]
-    metadados = MetadadosDbc(
-        tam_cabecalho=tam_cabecalho,
-        bytes_pos_cabecalho_hex=pos_cabecalho.hex(),
-        flag_literais=flag,
-        dicionario=dicionario,
-        bibliotecas=_versoes("datasus-dbc", "sus-temporal"),
-    )
-    return dbf, metadados
+    _conferir_fim_dcl(dados)
+    _conferir_cabecalho_preservado(dbf[:tam_cabecalho], dados, tam_cabecalho)
+    return dbf, _metadados(dados, tam_cabecalho, flag, dicionario)
 
 
 def ler_dbc(dados: bytes, *, tamanho_bloco: int = TAMANHO_BLOCO_PADRAO) -> LeituraDbc:
@@ -148,6 +179,58 @@ def ler_dbc(dados: bytes, *, tamanho_bloco: int = TAMANHO_BLOCO_PADRAO) -> Leitu
     return LeituraDbc(leitura, metadados)
 
 
+def _descomprimir_arquivo(origem: Path, destino: Path) -> None:
+    try:
+        decompress(str(origem), str(destino))
+    except ValueError as erro:
+        raise _classificar(erro) from erro
+
+
+def _conferir_fim_dcl_arquivo(caminho: Path, pasta: Path) -> None:
+    cortado, saida = pasta / "sem_ultimo_byte.dbc", pasta / "descarte.dbf"
+    shutil.copyfile(caminho, cortado)
+    with cortado.open("r+b") as arquivo:
+        arquivo.truncate(caminho.stat().st_size - 1)
+    try:
+        decompress(str(cortado), str(saida))
+    except ValueError:
+        return
+    finally:
+        cortado.unlink()
+        saida.unlink(missing_ok=True)
+    raise _inesperado(f"bytes_apos_fim_dcl tamanho={caminho.stat().st_size}")
+
+
+def ler_dbc_arquivo(
+    caminho: Path,
+    *,
+    dir_temporario: Path | None = None,
+    tamanho_bloco: int = TAMANHO_BLOCO_PADRAO,
+    verificar_fim: bool = True,
+) -> LeituraDbc:
+    """Descomprime de arquivo para arquivo temporário e lê por memmap; remove o temporário.
+
+    `verificar_fim` repete a descompressão sem o último byte para detectar bytes após o código
+    de fim DCL (custo de uma segunda descompressão em disco).
+    """
+    if not caminho.is_file():
+        raise ArquivoAusente(f"arquivo_ausente arquivo={compactar(caminho.name)}")
+    with caminho.open("rb") as arquivo:
+        prefixo = arquivo.read(_MAX_CABECALHO + _TAM_POS_CABECALHO + 2)
+    tam_cabecalho, flag, dicionario = _conferir_envelope(prefixo)
+    with tempfile.TemporaryDirectory(dir=dir_temporario) as nome_pasta:
+        pasta = Path(nome_pasta)
+        destino = pasta / "descomprimido.dbf"
+        _descomprimir_arquivo(caminho, destino)
+        if verificar_fim:
+            _conferir_fim_dcl_arquivo(caminho, pasta)
+        with destino.open("rb") as arquivo:
+            _conferir_cabecalho_preservado(arquivo.read(tam_cabecalho), prefixo, tam_cabecalho)
+        leitura = ler_dbf_arquivo(destino, tamanho_bloco=tamanho_bloco)
+    logger.info("dbc_arquivo_lido arquivo=%s registros=%s", caminho.name, leitura.tabela.num_rows)
+    return LeituraDbc(leitura, _metadados(prefixo, tam_cabecalho, flag, dicionario))
+
+
 def _bytes_independentes(dbc: bytes, h: int) -> tuple[bytes | None, list[str]]:
     producao = _descomprimir(dbc)
     try:
@@ -159,7 +242,17 @@ def _bytes_independentes(dbc: bytes, h: int) -> tuple[bytes | None, list[str]]:
         return None, [
             f"bytes_divergentes producao={len(producao)} independente={len(independente)}"
         ]
-    return independente, []
+    return independente, _fim_dcl_independente(dbc)
+
+
+def _fim_dcl_independente(dbc: bytes) -> list[str]:
+    try:
+        DBCDecompress().decompress(dbc[:-1])
+    except EOFError:
+        return []
+    except Exception as erro:
+        return [f"dbctodbf_falhou erro={type(erro).__name__}"]
+    return [f"bytes_apos_fim_dcl tamanho={len(dbc)}"]
 
 
 def _indices_coincidem(leitura: LeituraDbf) -> list[str]:
@@ -173,18 +266,30 @@ def _cabecalho_coincide(independente: bytes, leitura: LeituraDbf) -> list[str]:
     cabecalho = leitura.cabecalho
     lido = (
         leitura.tamanho_bytes,
+        cabecalho.versao,
         cabecalho.data_atualizacao,
         cabecalho.n_registros,
         cabecalho.tam_cabecalho,
         cabecalho.tam_registro,
         cabecalho.byte_driver,
+        leitura.tem_eof,
     )
     if len(independente) < 32:
         return [f"cabecalho_divergente independente={len(independente)}"]
     n, h, r = struct.unpack_from("<IHH", independente, 4)
-    referencia = (len(independente), independente[1:4], n, h, r, independente[29])
+    eof = len(independente) == h + n * r + 1 and independente[-1] == 0x1A
+    referencia = (
+        len(independente),
+        independente[0],
+        independente[1:4],
+        n,
+        h,
+        r,
+        independente[29],
+        eof,
+    )
     if lido != referencia:
-        return [f"cabecalho_divergente lido={lido} independente={referencia}"]
+        return [f"cabecalho_divergente lido={compactar(lido)} independente={compactar(referencia)}"]
     return []
 
 
@@ -213,6 +318,10 @@ def _referencia(
         return descritores, _coletar(ref.records, ranks_a), _coletar(ref.deleted, ranks_d)
 
 
+class _FalhaReferencia(Exception):
+    pass
+
+
 def _flags_independentes(dbf: bytes) -> NDArray[np.bool_]:
     """Marcadores de deleção lidos por posição física, direto dos bytes independentes."""
     n, h, r = struct.unpack_from("<IHH", dbf, 4)
@@ -232,9 +341,12 @@ def _comparar_registros(dbf: bytes, leitura: LeituraDbf, posicoes: NDArray[np.in
     rank = np.where(flags, rank_deletado, np.arange(flags.size) - rank_deletado)
     ranks_d = {int(rank[p]) for p in posicoes if flags[p]}
     ranks_a = {int(rank[p]) for p in posicoes if not flags[p]}
-    descritores_ref, (n_ativos, ativos), (n_deletados, deletados) = _referencia(
-        dbf, ranks_a, ranks_d
-    )
+    try:
+        descritores_ref, (n_ativos, ativos), (n_deletados, deletados) = _referencia(
+            dbf, ranks_a, ranks_d
+        )
+    except Exception as erro:
+        raise _FalhaReferencia(f"dbfread_falhou erro={type(erro).__name__}") from erro
     descritores = [(c.nome, c.tipo, c.largura, c.decimais) for c in leitura.cabecalho.campos]
     if descritores_ref != descritores:
         divergencias.append("campos_divergentes")
@@ -271,9 +383,9 @@ def verificar_fidelidade(
         divergencias += _cabecalho_coincide(independente, leitura)
         try:
             divergencias += _comparar_registros(independente, leitura, posicoes)
-        except Exception as erro:
+        except _FalhaReferencia as falha:
             posicoes = posicoes[:0]
-            divergencias.append(f"dbfread_falhou erro={type(erro).__name__}")
+            divergencias.append(str(falha))
     logger.info(
         "fidelidade_verificada modo=%s comparados=%s divergencias=%s",
         modo,
@@ -283,13 +395,3 @@ def verificar_fidelidade(
     return RelatorioFidelidade(
         modo, True, int(posicoes.size), tuple(divergencias[:_MAX_DIVERGENCIAS]), bibliotecas
     )
-
-
-def ler_dbc_arquivo(
-    caminho: Path,
-    *,
-    dir_temporario: Path | None = None,
-    tamanho_bloco: int = TAMANHO_BLOCO_PADRAO,
-) -> LeituraDbc:
-    """Descomprime de arquivo para arquivo temporário e lê por memmap; remove o temporário."""
-    raise NotImplementedError

@@ -171,6 +171,10 @@ def test_expansao_em_push_falha_fechado(comando: str) -> None:
         "git config --global core.hooksPath ''",
         "git config --unset core.hooksPath",
         "git config set core.hooksPath /tmp/vazio",
+        "git -c include.path=/tmp/outra.cfg push origin claude/s1-x",
+        "git -c includeIf.onbranch:x.path=/tmp/outra.cfg push origin claude/s1-x",
+        "HOME=/tmp/outra git push origin claude/s1-x",
+        "XDG_CONFIG_HOME=/tmp/outra git push origin claude/s1-x",
     ],
 )
 def test_desvio_de_hooks_por_ambiente_ou_config_e_bloqueado(comando: str) -> None:

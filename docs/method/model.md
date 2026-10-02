@@ -193,7 +193,8 @@ nunca é lida como conformidade.
 
 ## 7. Saídas, identidade e determinismo
 
-Cada evidência carrega consulta (`query_id`), SHA-256 do SQL, parâmetros em JSON, conjunto
+Cada evidência carrega consulta (`query_id`), SHA-256 do SQL efetivamente executado (modelo com
+os marcadores resolvidos), parâmetros em JSON, conjunto
 consultado (`dataset_id`, hash lógico, versões), cobertura, integridade (`OK` só se todas as versões
 selecionadas forem `OK`; senão o pior estado, `NAO_VERIFICADO` quando não informado), número de
 resultados e chaves encontradas. O `evidence_id` deriva desse conteúdo, então registros com os
@@ -205,7 +206,10 @@ Toda tabela de entrada passa por um único verificador de tipos físicos contra 
 antes de qualquer projeção ou conversão. Divergência no conjunto SIA-PA ou na seleção fornecida é
 falha de carga (`FalhaOperacional`, execução `FALHOU`); no conjunto auxiliar é
 `LEIAUTE_INCOMPATIVEL`; na cobertura, a matriz não é utilizável. Integridade com estado fora de
-`EstadoIntegridade` também é falha de carga. Códigos são sempre texto e nunca são convertidos de
+`EstadoIntegridade` também é falha de carga. Chave nula ou repetida no conjunto SIA-PA (`row_id`)
+ou na seleção (`row_id, rule_id, fonte`) é falha de carga; a matriz de cobertura com coluna
+ausente, tipo divergente ou chave nula não é utilizável (conta como não fornecida). Linhas
+auxiliares com chave nula seguem a regra de `CAMPO_INSUFICIENTE` do §4. Códigos são sempre texto e nunca são convertidos de
 número.
 
 No modo confirmatório, antes de qualquer avaliação, o motor exige dados `REAL` e a decisão humana

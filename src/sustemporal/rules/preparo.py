@@ -148,9 +148,28 @@ def _projecao_registros(
     return ", ".join(partes)
 
 
+def _chaves_nulas(
+    con: duckdb.DuckDBPyConnection, tabela: str, chave: tuple[str, ...], tipos: Mapping[str, str]
+) -> int:
+    tabela_sql = identificador_seguro(tabela, {tabela})
+    condicao = " OR ".join(f"{identificador_seguro(nome, tipos)} IS NULL" for nome in chave)
+    resultado = con.execute(
+        f"SELECT count(*) FROM {tabela_sql} WHERE {condicao}"  # noqa: S608
+    ).fetchall()[0][0]
+    return int(resultado)
+
+
 def _exigir_chave_unica(
     con: duckdb.DuckDBPyConnection, tabela: str, chave: tuple[str, ...], tipos: Mapping[str, str]
 ) -> None:
+    """Recusa chave nula ou repetida (falha de carga).
+
+    Raises:
+        ValueError: alguma coluna da chave nula ou combinação repetida.
+    """
+    nulas = _chaves_nulas(con, tabela, chave, tipos)
+    if nulas:
+        raise ValueError(f"chave_nula tabela={tabela} linhas={nulas}")
     tabela_sql = identificador_seguro(tabela, {tabela})
     colunas = ", ".join(identificador_seguro(nome, tipos) for nome in chave)
     repetidas = con.execute(
@@ -285,33 +304,41 @@ def derivar_selecoes(
 def carregar_cobertura(con: duckdb.DuckDBPyConnection, dataset: DatasetRef | None) -> None:
     """Cria `cobertura`; vazia sem matriz utilizável (ausência nunca sustenta violação).
 
-    Matriz com coluna de tipo físico diferente do esquema canônico não é utilizável.
+    Não é utilizável a matriz com coluna ausente, de tipo físico diferente do esquema canônico
+    ou com chave nula.
 
     Raises:
-        ValueError: coluna ausente ou chave repetida.
+        ValueError: chave repetida.
     """
     tipos = _tipos("cobertura.v1")
-    presentes, incompativeis = (
-        _conferir_tipos(con, dataset.caminho, "cobertura.v1", _COLUNAS_COBERTURA)
-        if dataset
-        else (set(), [])
-    )
-    if dataset is None or incompativeis:
-        if incompativeis:
-            logger.warning("cobertura_nao_utilizavel colunas=%s", incompativeis)
-        colunas = ", ".join(f"{identificador_seguro(c, tipos)} VARCHAR" for c in _COLUNAS_COBERTURA)
-        con.execute(f"CREATE OR REPLACE TEMP TABLE cobertura ({colunas})")
+    if dataset is None:
+        _cobertura_vazia(con, tipos)
         return
+    presentes, incompativeis = _conferir_tipos(
+        con, dataset.caminho, "cobertura.v1", _COLUNAS_COBERTURA
+    )
     faltantes = sorted(set(_COLUNAS_COBERTURA) - presentes)
-    if faltantes:
-        raise ValueError(f"cobertura_sem_coluna colunas={faltantes}")
+    if faltantes or incompativeis:
+        logger.warning("cobertura_nao_utilizavel faltantes=%s tipos=%s", faltantes, incompativeis)
+        _cobertura_vazia(con, tipos)
+        return
     projecao = _projecao(_COLUNAS_COBERTURA, presentes, tipos)
     con.execute(
         f"CREATE OR REPLACE TEMP TABLE cobertura AS SELECT {projecao} "  # noqa: S608
         "FROM read_parquet($c)",
         {"c": dataset.caminho},
     )
+    nulas = _chaves_nulas(con, "cobertura", _COLUNAS_COBERTURA[:4], tipos)
+    if nulas:
+        logger.warning("cobertura_nao_utilizavel chaves_nulas=%d", nulas)
+        _cobertura_vazia(con, tipos)
+        return
     _exigir_chave_unica(con, "cobertura", _COLUNAS_COBERTURA[:4], tipos)
+
+
+def _cobertura_vazia(con: duckdb.DuckDBPyConnection, tipos: Mapping[str, str]) -> None:
+    colunas = ", ".join(f"{identificador_seguro(c, tipos)} VARCHAR" for c in _COLUNAS_COBERTURA)
+    con.execute(f"CREATE OR REPLACE TEMP TABLE cobertura ({colunas})")
 
 
 def carregar_integridade(

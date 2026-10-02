@@ -94,8 +94,8 @@ def _exigir_mesma_origem(dataset: DatasetRef, insumos: InsumosAvaliacao) -> None
         raise ValueError(f"insumos_de_outra_origem datasets={divergentes}")
 
 
-def _campo_faltando(regra: RuleSpec, presentes: frozenset[str]) -> str:
-    permitidas = set(presentes) | set(regra.campos_necessarios)
+def _campo_faltando(regra: RuleSpec) -> str:
+    permitidas = set(regra.campos_necessarios)
     termos = [f"r.{identificador_seguro(c, permitidas)} IS NULL" for c in regra.campos_necessarios]
     if regra.familia.value == _FAMILIA_COM_DOMINIO:
         termos.append("r.instrumento NOT IN (SELECT instrumento FROM mapa_registro)")
@@ -109,7 +109,6 @@ def _parametros(
     auxiliar: Auxiliar,
 ) -> dict[str, object]:
     vigencia = regra.vigencia
-    modelo = sql_de_avaliacao()
     return {
         "rule_id": regra.rule_id,
         "fonte": str(requisito_auxiliar(regra).fonte),
@@ -122,8 +121,6 @@ def _parametros(
         "vig_inicio": vigencia.inicio if vigencia else None,
         "vig_fim": vigencia.fim if vigencia else None,
         "query_id": f"{regra.familia.value.lower()}.existencia",
-        "sql_sha256": sql_sha256(modelo + sql_da_familia(regra.familia)),
-        "sql_sha256_aplicabilidade": sql_sha256(modelo),
         "ds_registro": dataset.dataset_id,
         "hash_registro": dataset.hash_logico,
         "ds_auxiliar": auxiliar.dataset.dataset_id if auxiliar.dataset else None,
@@ -133,33 +130,33 @@ def _parametros(
 
 def montar_consulta(regra: RuleSpec) -> str:
     """SQL executado para a regra (modelo comum com marcadores resolvidos)."""
-    raise NotImplementedError
+    return (
+        sql_de_avaliacao()
+        .replace("{campo_faltando}", _campo_faltando(regra))
+        .replace("{predicado}", sql_da_familia(regra.familia))
+    )
 
 
 def _avaliar_regra(
     con: duckdb.DuckDBPyConnection,
     contexto: ContextoSaida,
     regra: RuleSpec,
-    presentes: frozenset[str],
 ) -> None:
     insumos = contexto.insumos
     auxiliar = preparar_auxiliar(con, regra, insumos.auxiliares)
     preparar_conjuntos(con, regra, auxiliar, insumos.integridade)
-    consulta = (
-        sql_de_avaliacao()
-        .replace("{campo_faltando}", _campo_faltando(regra, presentes))
-        .replace("{predicado}", sql_da_familia(regra.familia))
-    )
+    consulta = montar_consulta(regra)
     parametros = _parametros(regra, contexto.politica, contexto.dataset, auxiliar)
+    parametros |= dict.fromkeys(("sql_sha256", "sql_sha256_aplicabilidade"), sql_sha256(consulta))
     con.execute(f"INSERT INTO avaliacoes_brutas {consulta}", parametros)
     logger.info("regra_avaliada regra=%s leiaute=%s", regra.rule_id, auxiliar.leiaute)
 
 
 def _preparar(
     con: duckdb.DuckDBPyConnection, contexto: ContextoSaida, snapshots: SnapshotSet
-) -> frozenset[str]:
+) -> None:
     insumos = contexto.insumos
-    presentes = carregar_registros(con, contexto.dataset, contexto.regras)
+    carregar_registros(con, contexto.dataset, contexto.regras)
     if insumos.selecoes is not None:
         carregar_selecoes(con, insumos.selecoes)
         criar_regras_fontes(con, contexto.regras, contexto.politica)
@@ -170,7 +167,6 @@ def _preparar(
     carregar_integridade(con, insumos.integridade)
     colunas = ", ".join(f"{nome} {tipo}" for nome, tipo in COLUNAS_BRUTAS)
     con.execute(f"CREATE OR REPLACE TEMP TABLE avaliacoes_brutas ({colunas})")
-    return presentes
 
 
 def _executar(
@@ -178,14 +174,14 @@ def _executar(
 ) -> bool:
     falhas = contexto.falhas
     try:
-        presentes = _preparar(con, contexto, snapshots)
+        _preparar(con, contexto, snapshots)
     except ERROS_OPERACIONAIS as erro:
         etapa = "conferir_selecao" if isinstance(erro, SelecaoIncoerente) else "carregar_insumos"
         falhas.registrar(etapa, erro)
         return False
     for regra in contexto.regras:
         try:
-            _avaliar_regra(con, contexto, regra, presentes)
+            _avaliar_regra(con, contexto, regra)
         except ERROS_OPERACIONAIS as erro:
             falhas.registrar("avaliar_regra", erro, rule_id=regra.rule_id)
     return True

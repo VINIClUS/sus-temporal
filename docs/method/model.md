@@ -59,9 +59,15 @@ vazio. Os passos são aplicados em ordem; "fim" encerra a avaliação de `(r, g)
 
 Domínio dos códigos do registro: `P(r)` fora de `^[0-9]{10}$`, `C(r)` fora de `^[0-9A-Z]{6}$`,
 `E(r)` fora de `^[0-9]{7}$` e competências fora de `^[0-9]{4}(0[1-9]|1[0-2])$` contam como nulos
-em todos os passos (campo insuficiente, vigência, chave de cobertura). `I(r)` vale como está.
+em todos os passos (campo insuficiente, vigência, chave de cobertura). `I(r)` fora de
+`^[CIPSAB]$` (domínio PA_DOCORIG) também conta como nulo.
 
 ### 3.1 Aplicabilidade
+0. Integridade da versão SIA-PA do próprio registro (`artifact_id`) em qualquer estado
+   `QUARENTENA_*`: aplicabilidade `DESCONHECIDA`,
+   `M = {APLICABILIDADE_DESCONHECIDA, ARQUIVO_EM_QUARENTENA}`, `insumos_completos = falso`,
+   incompatibilidade nula. Fim (registro de arquivo em quarentena não demonstra nada, nem a não
+   aplicabilidade). Integridade não informada ou `NAO_VERIFICADO` não muda nada.
 1. `I(r)` nulo (ou coluna ausente): aplicabilidade `DESCONHECIDA`,
    `M = {CAMPO_INSUFICIENTE, APLICABILIDADE_DESCONHECIDA}`, `insumos_completos = falso`,
    incompatibilidade nula. Fim.
@@ -75,9 +81,7 @@ em todos os passos (campo insuficiente, vigência, chave de cobertura). `I(r)` v
 4. Caso contrário, `APLICAVEL`.
 
 ### 3.2 Insumos (só com `APLICAVEL`)
-5. Política: `p.tipo = NAO_RESOLVIDA` acrescenta `POLITICA_NAO_RESOLVIDA`. Integridade da versão
-   SIA-PA do próprio registro (`artifact_id`) em qualquer estado `QUARENTENA_*` acrescenta
-   `ARQUIVO_EM_QUARENTENA` (não informada ou `NAO_VERIFICADO` não acrescenta nada).
+5. Política: `p.tipo = NAO_RESOLVIDA` acrescenta `POLITICA_NAO_RESOLVIDA`.
 6. Campos: cada `c ∈ g.campos_necessarios` ausente do conjunto SIA-PA ou nulo em `r` acrescenta
    `CAMPO_INSUFICIENTE`. Domínio da família `INSTRUMENTO_REGISTRO`: `I(r)` fora do mapa
    instrumento→registro (§4.3) acrescenta `CAMPO_INSUFICIENTE`.
@@ -90,11 +94,16 @@ em todos os passos (campo insuficiente, vigência, chave de cobertura). `I(r)` v
 8. Leiaute e escopo, para cada `f` com seleção `SELECIONADA` e requisito `(f, schema, campos)`:
    nenhum conjunto auxiliar com aquele `schema_id` → `ARQUIVO_AUSENTE`; conjunto sem alguma coluna
    de `campos ∪ {artifact_id}`, ou com coluna de tipo físico diferente do esquema canônico (código
-   `TEXTO` gravado como número, por exemplo) → `LEIAUTE_INCOMPATIVEL`; senão, alguma versão
-   selecionada fora de `DatasetRef.artifact_ids` → `ARQUIVO_AUSENTE`; senão, alguma versão
-   selecionada com integridade `QUARENTENA_*` → `ARQUIVO_EM_QUARENTENA` (vale também para
-   correspondência encontrada: nunca `CONFORME` sobre arquivo em quarentena); senão, escopo vazio →
-   `COBERTURA_INSUFICIENTE`. Integridade não informada ou `NAO_VERIFICADO` não impede
+   `TEXTO` gravado como número, por exemplo), ou com algum valor não nulo fora do domínio numa
+   coluna de chave ou competência (`co_procedimento` `[0-9]{10}`; `co_ocupacao` e `cbo`
+   `[0-9A-Z]{6}`; `cnes` `[0-9]{7}`; `co_registro` `[0-9]{2}`; `dt_competencia` e
+   `competencia_arquivo` AAAAMM; em qualquer linha do conjunto) → `LEIAUTE_INCOMPATIVEL`; senão,
+   alguma versão selecionada fora de `DatasetRef.artifact_ids` → `ARQUIVO_AUSENTE`; senão, alguma
+   versão selecionada com integridade `QUARENTENA_*` → `ARQUIVO_EM_QUARENTENA` (vale também para
+   correspondência encontrada: nunca `CONFORME` sobre arquivo em quarentena); senão, alguma linha
+   do escopo com competência do conteúdo (`dt_competencia` ou `competencia_arquivo`) diferente da
+   `competencia_requerida` da seleção, ou nula → `VIGENCIA_NAO_RESOLVIDA` (nunca o mês vizinho);
+   senão, escopo vazio → `COBERTURA_INSUFICIENTE`. Integridade não informada ou `NAO_VERIFICADO` não impede
    `CONFORME` (a correspondência foi observada no conteúdo), mas impede ausência (passo 11).
    O escopo `Esc(r, g, f)` são as linhas do conjunto auxiliar cujo `artifact_id` pertence às
    versões selecionadas: conjunto vazio nunca vira ausência cadastral.
@@ -173,6 +182,11 @@ de `p` para `f`, competência requerida `= base(r) + deslocamento` (base `ATENDI
 `PROCESSAMENTO → Q(r)`); a seleção é a única `SelecaoVersao` do `SnapshotSet` com a mesma fonte,
 base e competência; nenhuma → `AUSENTE`; competência base nula ou política sem critério para `f` →
 `NAO_RESOLVIDA`; duas entradas para a mesma chave no `SnapshotSet` → falha operacional.
+
+Em `M_TEMP`, o critério da política para a fonte `f` só vale quando coincide (base e deslocamento)
+com o critério documental da regra para `f` (`RuleSpec.criterios_temporais`); senão, a regra não
+tem critério para `f` e a seleção é `NAO_RESOLVIDA` (abstenção). Assim, uma política
+`DOCUMENTADA` não impõe critério a regras cujo critério documental não está resolvido.
 
 Uma tabela de seleção fornecida precisa ser coerente com a política da execução: toda linha com
 estado diferente de `NAO_RESOLVIDA` tem `base` igual à base do critério de `p` para a fonte e

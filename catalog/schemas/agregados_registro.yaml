@@ -2,8 +2,9 @@ schema_id: agregados_registro.v1
 descricao: >-
   Agregação por registro, espelho de AgregadoRegistro: violações, conformes, inconclusivas e não
   aplicáveis em listas separadas. ALERTA exige ao menos uma violação e vale mesmo com outra regra
-  inconclusiva; ABSTENCAO é ausência de violação com ao menos uma inconclusiva; não existe estado
-  aprovado.
+  inconclusiva; ABSTENCAO é ausência de violação com ao menos uma inconclusiva ou nenhuma conforme
+  (inclusive registro só com regras não aplicáveis ou sem regra avaliada); SEM_VIOLACAO_VERIFICADA
+  exige ao menos uma conforme e nenhuma violação ou inconclusiva; não existe estado aprovado.
 chave: [run_id, row_id]
 colunas:
   - nome: run_id

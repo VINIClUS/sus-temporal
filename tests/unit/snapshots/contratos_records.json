@@ -1,6 +1,17 @@
 {
  "CampoLeiaute": {
   "$defs": {
+   "MotivoAusencia": {
+    "enum": [
+     "VAZIO",
+     "DESCONHECIDO",
+     "NAO_APLICAVEL",
+     "SENTINELA",
+     "CODIFICACAO_INVALIDA"
+    ],
+    "title": "MotivoAusencia",
+    "type": "string"
+   },
    "PapelColuna": {
     "enum": [
      "CHAVE",
@@ -71,6 +82,13 @@
    "papel": {
     "$ref": "#/$defs/PapelColuna"
    },
+   "sentinelas": {
+    "additionalProperties": {
+     "$ref": "#/$defs/MotivoAusencia"
+    },
+    "title": "Sentinelas",
+    "type": "object"
+   },
    "tipo_canonico": {
     "$ref": "#/$defs/TipoCanonico"
    },
@@ -79,6 +97,18 @@
     "minLength": 1,
     "title": "Tipo Fisico",
     "type": "string"
+   },
+   "unidade": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Unidade"
    }
   },
   "required": [
@@ -451,6 +481,13 @@
      "papel": {
       "$ref": "#/$defs/PapelColuna"
      },
+     "sentinelas": {
+      "additionalProperties": {
+       "$ref": "#/$defs/MotivoAusencia"
+      },
+      "title": "Sentinelas",
+      "type": "object"
+     },
      "tipo_canonico": {
       "$ref": "#/$defs/TipoCanonico"
      },
@@ -459,6 +496,18 @@
       "minLength": 1,
       "title": "Tipo Fisico",
       "type": "string"
+     },
+     "unidade": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Unidade"
      }
     },
     "required": [
@@ -590,6 +639,17 @@
      "LARGURA_FIXA"
     ],
     "title": "FormatoLeiaute",
+    "type": "string"
+   },
+   "MotivoAusencia": {
+    "enum": [
+     "VAZIO",
+     "DESCONHECIDO",
+     "NAO_APLICAVEL",
+     "SENTINELA",
+     "CODIFICACAO_INVALIDA"
+    ],
+    "title": "MotivoAusencia",
     "type": "string"
    },
    "PapelColuna": {

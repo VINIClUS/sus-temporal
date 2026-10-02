@@ -19,8 +19,10 @@ from sustemporal.contracts.base import (
     DatasetId,
     DocRef,
     FamiliaFonte,
+    HashLogico,
     Identificador,
     InteiroNaoNegativo,
+    MotivoAusencia,
     OrigemDados,
     Proveniencia,
     ValorMonetario,
@@ -60,7 +62,6 @@ __all__ = [
 
 RowId = Annotated[str, StringConstraints(pattern=r"^art_[0-9a-f]{64}(/[^#\s]+)?#[0-9]+$")]
 SchemaId = Annotated[str, StringConstraints(pattern=r"^[a-z0-9_]+\.v[0-9]+$")]
-HashLogico = Annotated[str, StringConstraints(pattern=r"^lh1:[0-9a-f]{64}$")]
 NomeColuna = Annotated[str, StringConstraints(pattern=r"^[a-z][a-z0-9_]*$")]
 
 
@@ -97,6 +98,8 @@ class CampoLeiaute(ContratoBase):
     tipo_canonico: TipoCanonico
     papel: PapelColuna
     obrigatorio: Booleano = False
+    sentinelas: dict[str, MotivoAusencia] = Field(default_factory=dict)
+    unidade: str | None = None
 
     @model_validator(mode="after")
     def _coerencia(self) -> CampoLeiaute:

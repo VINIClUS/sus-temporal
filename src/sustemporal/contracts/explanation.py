@@ -108,6 +108,9 @@ class ExplanationBundle(ContratoBase):
     def _coerencia(self) -> ExplanationBundle:
         if Limitacao.RESULTADO_NAO_E_CAUSA_OFICIAL not in self.limitacoes:
             raise ValueError(f"explicacao_sem_limitacao_de_causa bundle={self.bundle_id}")
+        ausencia = any(e.tipo is TipoEvidencia.AUSENCIA_NA_FONTE for e in self.evidencias)
+        if ausencia and Limitacao.AUSENCIA_NAO_PROVA_INEXISTENCIA not in self.limitacoes:
+            raise ValueError(f"explicacao_ausencia_sem_limitacao bundle={self.bundle_id}")
         if self.registro.row_id != self.row_id:
             raise ValueError(f"explicacao_registro_incoerente bundle={self.bundle_id}")
         if any(avaliacao.row_id != self.row_id for avaliacao in self.avaliacoes):
@@ -116,6 +119,7 @@ class ExplanationBundle(ContratoBase):
             raise ValueError(f"explicacao_mistura_execucoes bundle={self.bundle_id}")
         self._referencias_resolvem()
         self._violacoes_sustentadas()
+        self._evidencias_nas_selecoes()
         return self
 
     def _referencias_resolvem(self) -> None:
@@ -136,6 +140,21 @@ class ExplanationBundle(ContratoBase):
                 raise ValueError(f"violacao_cita_evidencia_ausente bundle={self.bundle_id}")
             if any(_nao_sustenta(e) for e in citadas if e is not None):
                 raise ValueError(f"violacao_sem_ausencia_sustentada bundle={self.bundle_id}")
+
+    def _evidencias_nas_selecoes(self) -> None:
+        por_id = {e.evidence_id: e for e in self.evidencias}
+        for avaliacao in self.avaliacoes:
+            selecionados = {aid for s in avaliacao.selecoes for aid in s.artifact_ids}
+            citados = {
+                aid
+                for evidencia_id in avaliacao.evidence_ids
+                if (evidencia := por_id.get(evidencia_id)) is not None
+                for aid in evidencia.artifact_ids
+            }
+            if not citados <= selecionados:
+                raise ValueError(
+                    f"evidencia_fora_das_selecoes bundle={self.bundle_id} regra={avaliacao.rule_id}"
+                )
 
 
 def _nao_sustenta(evidencia: Evidence) -> bool:

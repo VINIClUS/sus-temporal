@@ -517,6 +517,19 @@
     "title": "Artifact Ids",
     "type": "array"
    },
+   "cobertura_hash_logico": {
+    "anyOf": [
+     {
+      "pattern": "^lh1:[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Cobertura Hash Logico"
+   },
    "congelado": {
     "default": false,
     "title": "Congelado",

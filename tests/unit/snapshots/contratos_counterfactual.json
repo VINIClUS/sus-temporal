@@ -105,6 +105,15 @@
     "title": "Operacoes",
     "type": "array"
    },
+   "regras_revalidadas": {
+    "items": {
+     "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+     "type": "string"
+    },
+    "minItems": 1,
+    "title": "Regras Revalidadas",
+    "type": "array"
+   },
    "resolve_alvo": {
     "title": "Resolve Alvo",
     "type": "boolean"
@@ -114,7 +123,8 @@
    "operacoes",
    "custo",
    "resolve_alvo",
-   "executabilidade"
+   "executabilidade",
+   "regras_revalidadas"
   ],
   "title": "Candidato",
   "type": "object"
@@ -155,6 +165,15 @@
       "title": "Operacoes",
       "type": "array"
      },
+     "regras_revalidadas": {
+      "items": {
+       "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+       "type": "string"
+      },
+      "minItems": 1,
+      "title": "Regras Revalidadas",
+      "type": "array"
+     },
      "resolve_alvo": {
       "title": "Resolve Alvo",
       "type": "boolean"
@@ -164,7 +183,8 @@
      "operacoes",
      "custo",
      "resolve_alvo",
-     "executabilidade"
+     "executabilidade",
+     "regras_revalidadas"
     ],
     "title": "Candidato",
     "type": "object"

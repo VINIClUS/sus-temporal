@@ -96,10 +96,11 @@ colunas:
       PA_INCURG (posição 7; INFERIDA): incremento (urgência); significado A_CONFIRMAR.
   - nome: tipo_unidade
     tipo: TEXTO
-    papel: ATRIBUTO
+    papel: DIAGNOSTICO
     descricao: >-
       PA_TPUPS (posição 8; INFERIDA): tipo de estabelecimento no CNES, 2 dígitos (decodificador S1,
-      SECUNDARIA).
+      SECUNDARIA). DIAGNOSTICO, não atributo: o SIA pode preenchê-lo a partir do cadastro no
+      processamento (inventário de campos: ATRIBUTO? †).
   - nome: tipo_unidade_bruto
     tipo: TEXTO
     papel: BRUTO

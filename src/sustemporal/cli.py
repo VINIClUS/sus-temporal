@@ -9,8 +9,13 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pydantic import TypeAdapter, ValidationError
+
 from sustemporal.config import load_config
-from sustemporal.errors import ConfigInvalida, ErroSustemporal, ExitCode
+from sustemporal.contracts.base import Identificador, OrigemDados
+from sustemporal.contracts.experiment import FreezeId, ModoExecucao, Portao
+from sustemporal.errors import ConfigInvalida, ErroSustemporal, ExitCode, PortaoRecusado
+from sustemporal.gates import DIR_DECISOES, exigir_confirmatorio_valido, exigir_portao
 from sustemporal.log import configurar_log
 
 if TYPE_CHECKING:
@@ -43,6 +48,18 @@ MANIPULADORES: dict[str, str] = {
 
 POLITICAS = ("documented", "atendimento", "processamento")
 _COM_CONFIG_OBRIGATORIA = ("acquire", "watch", "ingest", "pilot-report", "validate", "freeze")
+_IDENTIFICADOR: TypeAdapter[str] = TypeAdapter(Identificador)
+_FREEZE_ID: TypeAdapter[str] = TypeAdapter(FreezeId)
+
+
+def _validador(adaptador: TypeAdapter[str], nome: str) -> Callable[[str], str]:
+    def validar(valor: str) -> str:
+        try:
+            return adaptador.validate_python(valor)
+        except ValidationError as erro:
+            raise argparse.ArgumentTypeError(f"{nome}_invalido valor={valor!r}") from erro
+
+    return validar
 
 
 def _configurar_comando(nome: str, sub: argparse.ArgumentParser) -> None:
@@ -52,10 +69,10 @@ def _configurar_comando(nome: str, sub: argparse.ArgumentParser) -> None:
     if nome == "validate":
         sub.add_argument("--policy", required=True, choices=POLITICAS)
     if nome in {"explain", "counterfactual"}:
-        sub.add_argument("--run", required=True)
+        sub.add_argument("--run", required=True, type=_validador(_IDENTIFICADOR, "run"))
         sub.add_argument("--row", required=True)
     if nome in {"evaluate", "annotation-export", "reproduce"}:
-        sub.add_argument("--freeze", required=True)
+        sub.add_argument("--freeze", required=True, type=_validador(_FREEZE_ID, "freeze_id"))
     if nome == "evaluate":
         sub.add_argument("--exploratory", action="store_true")
     if nome == "reproduce":
@@ -93,6 +110,13 @@ def _resolver(comando: str) -> tuple[ModuleType | None, Manipulador | None]:
     return modulo, funcao if callable(funcao) else None
 
 
+def _exigir_portoes(comando: str, config: RunConfig) -> None:
+    if comando == "freeze":
+        exigir_portao(DIR_DECISOES, Portao.G0)
+    if comando == "evaluate" and config.modo is ModoExecucao.CONFIRMATORIO:
+        exigir_confirmatorio_valido(config, config.origem_dados or OrigemDados.SINTETICO)
+
+
 def _executar(funcao: Manipulador, args: argparse.Namespace, config: RunConfig) -> int:
     try:
         return int(funcao(args, config))
@@ -119,6 +143,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ConfigInvalida as erro:
         logger.error("config_invalida comando=%s erro=%s", args.comando, erro)
         return ExitCode.CONFIG_INVALIDA
+    try:
+        _exigir_portoes(args.comando, config)
+    except PortaoRecusado as erro:
+        logger.error("portao_recusado comando=%s erro=%s", args.comando, erro)
+        return ExitCode.PORTAO_RECUSADO
     if funcao is None:
         logger.error("comando_nao_implementado comando=%s", args.comando)
         return ExitCode.NAO_IMPLEMENTADO

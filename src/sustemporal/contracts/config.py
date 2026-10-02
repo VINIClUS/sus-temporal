@@ -14,13 +14,14 @@ from sustemporal.contracts.base import (
     Inteiro,
     OrigemDados,
     SiglaUF,
-    hash_canonico,
+    hash_identidade,
 )
 from sustemporal.contracts.experiment import (
     BootstrapSpec,
     CohortSpec,
     FreezeId,
     ModoExecucao,
+    Particao,
     SplitSpec,
     contem_a_definir,
 )
@@ -86,6 +87,15 @@ class OrcamentoContrafactual(ContratoBase):
     max_operacoes: Inteiro = 3
     max_candidatos: Inteiro = 1000
 
+    @model_validator(mode="after")
+    def _positivo(self) -> OrcamentoContrafactual:
+        if self.max_operacoes < 1 or self.max_candidatos < 1:
+            raise ValueError(
+                f"orcamento_invalido max_operacoes={self.max_operacoes} "
+                f"max_candidatos={self.max_candidatos}"
+            )
+        return self
+
 
 class RunConfig(ContratoBase):
     versao: Literal["1"]
@@ -113,10 +123,26 @@ class RunConfig(ContratoBase):
             raise ValueError("confirmatorio_exige_freeze_id")
         if self.origem_dados is not OrigemDados.REAL:
             raise ValueError("confirmatorio_exige_dados_reais")
+        if self.runtime.rede_permitida:
+            raise ValueError("confirmatorio_exige_rede_desligada")
         if contem_a_definir(self.model_dump(mode="json")):
             raise ValueError("confirmatorio_com_valor_a_definir")
         return self
 
+    @model_validator(mode="after")
+    def _recortes_dentro_das_particoes(self) -> RunConfig:
+        if self.particoes is None:
+            return self
+        intervalos = self.particoes.intervalos
+        desenvolvimento = next(i for i in intervalos if i.particao is Particao.DESENVOLVIMENTO)
+        competencias = self.piloto.competencias_processamento if self.piloto else ()
+        if any(not desenvolvimento.inicio <= c <= desenvolvimento.fim for c in competencias):
+            raise ValueError("piloto_fora_do_desenvolvimento")
+        coorte = self.coorte
+        if coorte and (intervalos[0].inicio < coorte.inicio or coorte.fim < intervalos[-1].fim):
+            raise ValueError(f"particoes_fora_da_coorte coorte={coorte.cohort_id}")
+        return self
+
     @property
     def config_hash(self) -> str:
-        return hash_canonico(self.model_dump(mode="json"))
+        return hash_identidade(self)

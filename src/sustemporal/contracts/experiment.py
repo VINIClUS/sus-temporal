@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated, Any, Literal
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 
 from pydantic import Field, StringConstraints, ValidationInfo, model_validator
 
@@ -28,14 +28,19 @@ from sustemporal.contracts.base import (
     Sha256Hex,
     SiglaUF,
     Verdadeiro,
+    conteudo_identidade,
     hash_canonico,
 )
 from sustemporal.contracts.records import DatasetRef, EsquemaCanonico, PapelColuna, SchemaId
 from sustemporal.contracts.rules import FamiliaRegra
 from sustemporal.contracts.temporal import CompetenciaProcessamento, MetodoId
 
+if TYPE_CHECKING:
+    from collections.abc import Iterable
+
 __all__ = [
     "A_DEFINIR",
+    "COLUNAS_PROIBIDAS_EM_ATRIBUTOS",
     "Ambiente",
     "Atributo",
     "BootstrapSpec",
@@ -60,6 +65,7 @@ __all__ = [
     "Territorio",
     "TipoExecucao",
     "contem_a_definir",
+    "validar_features",
 ]
 
 A_DEFINIR = "A_DEFINIR"
@@ -197,6 +203,33 @@ class Atributo(ContratoBase):
     transformacao: str
 
 
+_ROTULOS_E_ERROS = (
+    "pa_indica",
+    "rotulo",
+    "contradicoes",
+    "pa_codoco",
+    "pa_flqt",
+    "pa_fler",
+    "pa_flidade",
+)
+_VALORES_DO_PROCESSAMENTO = (
+    "quantidade_aprovada",
+    "valor_aprovado",
+    "valor_apresentado",
+    "pa_dif_val",
+    "nu_vpa_tot",
+    "nu_pa_tot",
+    "pa_vl_cf",
+    "pa_vl_cl",
+    "pa_vl_inc",
+)
+COLUNAS_PROIBIDAS_EM_ATRIBUTOS = frozenset(
+    f"{nome}{sufixo}"
+    for nome in (*_ROTULOS_E_ERROS, *_VALORES_DO_PROCESSAMENTO)
+    for sufixo in ("", "_bruto", "_motivo")
+)
+
+
 class FeatureSpec(ContratoBase):
     feature_set_id: Identificador
     atributos: tuple[Atributo, ...]
@@ -206,6 +239,12 @@ class FeatureSpec(ContratoBase):
         nomes = [atributo.nome for atributo in self.atributos]
         if len(set(nomes)) != len(nomes):
             raise ValueError(f"atributo_repetido feature_set={self.feature_set_id}")
+        colunas = {atributo.coluna.lower() for atributo in self.atributos}
+        if proibidas := sorted(colunas & COLUNAS_PROIBIDAS_EM_ATRIBUTOS):
+            raise ValueError(
+                f"feature_com_coluna_proibida feature_set={self.feature_set_id} "
+                f"colunas={','.join(proibidas)}"
+            )
         return self
 
     def colunas_proibidas(self, esquema: EsquemaCanonico) -> tuple[str, ...]:
@@ -215,6 +254,27 @@ class FeatureSpec(ContratoBase):
             if atributo.schema_id == esquema.schema_id
             and esquema.papel_de(atributo.coluna) is not PapelColuna.ATRIBUTO
         )
+
+
+def validar_features(features: FeatureSpec, esquemas: Iterable[EsquemaCanonico]) -> None:
+    """Exige que cada atributo seja coluna ATRIBUTO do esquema que ele cita.
+
+    Raises:
+        ValueError: esquema não informado, ou coluna ausente ou com papel diferente de ATRIBUTO.
+    """
+    por_id = {esquema.schema_id: esquema for esquema in esquemas}
+    for atributo in features.atributos:
+        esquema = por_id.get(atributo.schema_id)
+        if esquema is None:
+            raise ValueError(
+                f"feature_sem_esquema atributo={atributo.nome} schema={atributo.schema_id}"
+            )
+        papeis = {coluna.nome: coluna.papel for coluna in esquema.colunas}
+        if papeis.get(atributo.coluna) is not PapelColuna.ATRIBUTO:
+            raise ValueError(
+                f"feature_coluna_nao_atributo atributo={atributo.nome} "
+                f"schema={atributo.schema_id} coluna={atributo.coluna}"
+            )
 
 
 class CorrecaoMultiplicidade(StrEnum):
@@ -292,7 +352,13 @@ class RunResult(ContratoBase):
     origem_dados: OrigemDados
 
     @model_validator(mode="after")
-    def _confirmatorio(self) -> RunResult:
+    def _coerencia(self) -> RunResult:
+        if self.falhas > 0 and self.estado is EstadoExecucao.CONCLUIDA:
+            raise ValueError(
+                f"execucao_concluida_com_falhas run={self.run_id} falhas={self.falhas}"
+            )
+        if self.concluido_em is not None and self.concluido_em < self.iniciado_em:
+            raise ValueError(f"execucao_conclusao_antes_do_inicio run={self.run_id}")
         if self.modo is not ModoExecucao.CONFIRMATORIO:
             return self
         if self.freeze_id is None or self.codigo.sujo or self.origem_dados is not OrigemDados.REAL:
@@ -306,13 +372,13 @@ class FreezeManifest(ContratoBase):
     config_hash: Sha256Hex
     codigo: CodeVersion
     ambiente: Ambiente
-    catalogos_sha256: dict[str, Sha256Hex]
-    datasets: tuple[DatasetRef, ...]
-    split: SplitManifest | None = None
-    features: FeatureSpec | None = None
+    catalogos_sha256: dict[str, Sha256Hex] = Field(min_length=1)
+    datasets: tuple[DatasetRef, ...] = Field(min_length=1)
+    split: SplitManifest
+    features: FeatureSpec
     bootstrap: BootstrapSpec
-    metricas: tuple[str, ...]
-    comparacoes_primarias: tuple[str, ...]
+    metricas: tuple[str, ...] = Field(min_length=1)
+    comparacoes_primarias: tuple[str, ...] = Field(min_length=1)
     margens: dict[str, DecimalExato] = Field(default_factory=dict)
     decisao_g0: ReferenciaDecisao
 
@@ -325,17 +391,21 @@ class FreezeManifest(ContratoBase):
         provisorio = cls.model_validate(
             {**campos, "freeze_id": _PROVISORIO}, context={_PROVISORIO: True}
         )
-        conteudo = provisorio.model_dump(mode="json", exclude={"freeze_id"})
-        return cls.model_validate({**conteudo, "freeze_id": cls.calcular_id(conteudo)})
+        dados = provisorio.model_dump(mode="json", exclude={"freeze_id"})
+        return cls.model_validate({**dados, "freeze_id": provisorio.id_do_conteudo()})
+
+    def id_do_conteudo(self) -> str:
+        return self.calcular_id(conteudo_identidade(self, excluir={"freeze_id"}))
 
     @model_validator(mode="after")
     def _identidade(self, info: ValidationInfo) -> FreezeManifest:
-        conteudo = self.model_dump(mode="json", exclude={"freeze_id"})
-        if contem_a_definir(conteudo):
+        if contem_a_definir(self.model_dump(mode="json", exclude={"freeze_id"})):
             raise ValueError("congelamento_com_valor_a_definir")
+        if self.codigo.sujo:
+            raise ValueError(f"congelamento_com_codigo_sujo commit={self.codigo.commit}")
         if self.freeze_id == _PROVISORIO and (info.context or {}).get(_PROVISORIO):
             return self
-        if self.freeze_id != self.calcular_id(conteudo):
+        if self.freeze_id != self.id_do_conteudo():
             raise ValueError("freeze_id_nao_corresponde_ao_conteudo")
         return self
 

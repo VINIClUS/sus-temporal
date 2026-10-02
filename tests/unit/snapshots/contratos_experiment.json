@@ -844,6 +844,7 @@
      "pattern": "^[0-9a-f]{64}$",
      "type": "string"
     },
+    "minProperties": 1,
     "title": "Catalogos Sha256",
     "type": "object"
    },
@@ -854,6 +855,7 @@
     "items": {
      "type": "string"
     },
+    "minItems": 1,
     "title": "Comparacoes Primarias",
     "type": "array"
    },
@@ -871,6 +873,7 @@
     "items": {
      "$ref": "#/$defs/DatasetRef"
     },
+    "minItems": 1,
     "title": "Datasets",
     "type": "array"
    },
@@ -880,15 +883,7 @@
     "type": "string"
    },
    "features": {
-    "anyOf": [
-     {
-      "$ref": "#/$defs/FeatureSpec"
-     },
-     {
-      "type": "null"
-     }
-    ],
-    "default": null
+    "$ref": "#/$defs/FeatureSpec"
    },
    "freeze_id": {
     "title": "Freeze Id",
@@ -913,19 +908,12 @@
     "items": {
      "type": "string"
     },
+    "minItems": 1,
     "title": "Metricas",
     "type": "array"
    },
    "split": {
-    "anyOf": [
-     {
-      "$ref": "#/$defs/SplitManifest"
-     },
-     {
-      "type": "null"
-     }
-    ],
-    "default": null
+    "$ref": "#/$defs/SplitManifest"
    }
   },
   "required": [
@@ -936,6 +924,8 @@
    "ambiente",
    "catalogos_sha256",
    "datasets",
+   "split",
+   "features",
    "bootstrap",
    "metricas",
    "comparacoes_primarias",

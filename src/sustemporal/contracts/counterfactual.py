@@ -9,14 +9,17 @@ from pydantic import Field, model_validator
 
 from sustemporal.contracts.base import (
     Booleano,
+    Confirmacao,
     ContratoBase,
     DocRef,
     Falso,
     Identificador,
     Inteiro,
     InteiroNaoNegativo,
+    Proveniencia,
 )
 from sustemporal.contracts.records import SchemaId
+from sustemporal.contracts.rules import RuleId
 from sustemporal.contracts.temporal import CompetenciaArquivo
 
 __all__ = [
@@ -37,6 +40,14 @@ _COLUNAS_IMUTAVEIS = frozenset(
     {"cid", "cid_principal", "cid_secundario", "idade", "sexo", "data_atendimento"}
 )
 _PREFIXOS_FATOS_DO_ATENDIMENTO = ("sia_pa",)
+_PREFIXO_CADASTRO = "cnes_"
+_PROVENIENCIAS_OFICIAIS = frozenset(
+    {
+        Proveniencia.OFICIAL_DOCUMENTO,
+        Proveniencia.OFICIAL_ARQUIVO,
+        Proveniencia.OFICIAL_VISTO_EM_BUSCA,
+    }
+)
 
 
 class Autoridade(StrEnum):
@@ -81,7 +92,20 @@ class OperationSpec(ContratoBase):
             raise ValueError(f"operacao_altera_fato_do_atendimento op={self.op_id}")
         if _COLUNAS_IMUTAVEIS & {coluna.lower() for coluna in self.alvo.colunas}:
             raise ValueError(f"operacao_altera_coluna_imutavel op={self.op_id}")
+        if not self.alvo.schema_id.startswith(_PREFIXO_CADASTRO):
+            raise ValueError(
+                f"operacao_fora_do_cadastro_cnes op={self.op_id} schema={self.alvo.schema_id}"
+            )
+        if self.governanca is Governanca.MUNICIPAL_DOCUMENTADA and not self._documentada():
+            raise ValueError(f"governanca_municipal_sem_documentacao op={self.op_id}")
         return self
+
+    def _documentada(self) -> bool:
+        return (
+            self.autoridade is not Autoridade.DESCONHECIDA
+            and self.referencia.proveniencia in _PROVENIENCIAS_OFICIAIS
+            and self.referencia.confirmacao is Confirmacao.CONFIRMADO
+        )
 
 
 class Minimalidade(StrEnum):
@@ -101,6 +125,15 @@ class Orcamento(ContratoBase):
     max_operacoes: Inteiro = 3
     max_candidatos: Inteiro = 1000
 
+    @model_validator(mode="after")
+    def _positivo(self) -> Orcamento:
+        if self.max_operacoes < 1 or self.max_candidatos < 1:
+            raise ValueError(
+                f"orcamento_invalido max_operacoes={self.max_operacoes} "
+                f"max_candidatos={self.max_candidatos}"
+            )
+        return self
+
 
 class OperacaoAplicada(ContratoBase):
     op_id: Identificador
@@ -115,6 +148,7 @@ class Candidato(ContratoBase):
     novas_violacoes: tuple[str, ...] = ()
     condicoes_pendentes: tuple[str, ...] = ()
     executabilidade: Executabilidade
+    regras_revalidadas: tuple[RuleId, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def _custo(self) -> Candidato:
@@ -122,6 +156,9 @@ class Candidato(ContratoBase):
             raise ValueError(
                 f"candidato_custo_invalido custo={self.custo} operacoes={len(self.operacoes)}"
             )
+        sob_condicoes = Executabilidade.POTENCIALMENTE_EXECUTAVEL_SOB_CONDICOES
+        if self.executabilidade is sob_condicoes and not self.condicoes_pendentes:
+            raise ValueError("candidato_executavel_sem_condicoes")
         return self
 
 

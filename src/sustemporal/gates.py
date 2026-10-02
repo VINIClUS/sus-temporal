@@ -9,11 +9,15 @@ from typing import TYPE_CHECKING
 
 from sustemporal.contracts.base import OrigemDados
 from sustemporal.contracts.experiment import DecisaoPortao, ModoExecucao, Portao
+from sustemporal.contracts.temporal import TipoPolitica
 from sustemporal.errors import PortaoRecusado
 from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from sustemporal.contracts.config import RunConfig
+    from sustemporal.contracts.temporal import PoliticaTemporal
 
 logger = logging.getLogger(__name__)
 
@@ -126,3 +130,22 @@ def exigir_confirmatorio_valido(
     if origem is not OrigemDados.REAL:
         raise PortaoRecusado(f"confirmatorio_exige_dados_reais origem={origem}")
     exigir_portao(diretorio, Portao.G2, freeze_id=config.freeze_id, hoje=hoje)
+
+
+def exigir_politicas_resolvidas(politicas: Iterable[PoliticaTemporal], modo: ModoExecucao) -> None:
+    """No confirmatório, recusa política não resolvida ou documentada com documento pendente.
+
+    Raises:
+        PortaoRecusado: política NAO_RESOLVIDA ou DOCUMENTADA com documento PENDENTE.
+    """
+    if modo is not ModoExecucao.CONFIRMATORIO:
+        return
+    for politica in politicas:
+        if politica.tipo is TipoPolitica.NAO_RESOLVIDA:
+            raise PortaoRecusado(
+                f"politica_nao_resolvida_no_confirmatorio politica={politica.politica_id}"
+            )
+        if politica.tipo is TipoPolitica.DOCUMENTADA and politica.documento_pendente:
+            raise PortaoRecusado(
+                f"politica_com_documento_pendente_no_confirmatorio politica={politica.politica_id}"
+            )

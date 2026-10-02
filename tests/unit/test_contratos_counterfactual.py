@@ -55,6 +55,7 @@ def _candidato(custo: int = 1, n_operacoes: int = 1, **campos: object) -> Candid
         "custo": custo,
         "resolve_alvo": True,
         "executabilidade": Executabilidade.HIPOTESE_PASSADA,
+        "regras_revalidadas": ("ESTAB_CBO_001",),
     }
     return Candidato.model_validate(base | campos)
 

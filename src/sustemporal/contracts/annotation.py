@@ -49,4 +49,13 @@ class AnnotationSample(ContratoBase):
             raise ValueError(f"caso_de_treino_na_amostra_final amostra={self.sample_id}")
         if len(set(self.casos)) != len(self.casos):
             raise ValueError(f"caso_repetido amostra={self.sample_id}")
+        nomes = [estrato.nome for estrato in self.estratos]
+        if len(set(nomes)) != len(nomes):
+            raise ValueError(f"estrato_repetido amostra={self.sample_id}")
+        total = sum(estrato.amostra for estrato in self.estratos)
+        if total != len(self.casos):
+            raise ValueError(
+                f"amostra_estratos_divergem_dos_casos amostra={self.sample_id} "
+                f"estratos={total} casos={len(self.casos)}"
+            )
         return self

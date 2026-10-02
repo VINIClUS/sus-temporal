@@ -17,9 +17,11 @@ from sustemporal.contracts.base import (
     DocRef,
     EstadoDocumento,
     FamiliaFonte,
+    HashLogico,
     Identificador,
     InstanteUTC,
     Inteiro,
+    conteudo_identidade,
     hash_canonico,
 )
 
@@ -173,6 +175,22 @@ class CriterioTemporal(ContratoBase):
     canal: CanalPublicacao | None = None
 
 
+_BASE_DA_BASELINE = {
+    MetodoId.B_ATEND: BaseTemporal.ATENDIMENTO,
+    MetodoId.B_PROC: BaseTemporal.PROCESSAMENTO,
+}
+_METODOS_SEM_SELECAO_TEMPORAL = {MetodoId.B_ML, MetodoId.CONTROLE_TRIVIAL}
+
+
+def _criterios_do_metodo(metodo: MetodoId, criterios: tuple[CriterioTemporal, ...]) -> bool:
+    if metodo in _METODOS_SEM_SELECAO_TEMPORAL:
+        return not criterios
+    base = _BASE_DA_BASELINE.get(metodo)
+    return base is None or all(
+        criterio.base is base and criterio.deslocamento_meses == 0 for criterio in criterios
+    )
+
+
 class PoliticaTemporal(ContratoBase):
     politica_id: Identificador
     tipo: TipoPolitica
@@ -191,6 +209,10 @@ class PoliticaTemporal(ContratoBase):
             raise ValueError(f"politica_sem_criterios politica={self.politica_id}")
         if self.tipo is TipoPolitica.DOCUMENTADA and self.documento is None:
             raise ValueError(f"politica_documentada_exige_documento politica={self.politica_id}")
+        if not _criterios_do_metodo(self.metodo, self.criterios):
+            raise ValueError(
+                f"politica_incoerente_com_metodo politica={self.politica_id} metodo={self.metodo}"
+            )
         return self
 
     @property
@@ -244,6 +266,15 @@ class SelecaoVersao(ContratoBase):
     def _coerencia(self) -> SelecaoVersao:
         if any(not re.fullmatch(_PADRAO_ARTEFATO, a) for a in self.artifact_ids):
             raise ValueError("selecao_artifact_id_invalido")
+        resolvida = self.estado is not EstadoSelecao.NAO_RESOLVIDA
+        if resolvida and (self.base is None or self.competencia_requerida is None):
+            raise ValueError(
+                f"selecao_sem_base_ou_competencia fonte={self.fonte} estado={self.estado}"
+            )
+        self._artefatos_do_estado()
+        return self
+
+    def _artefatos_do_estado(self) -> None:
         quantidade = len(self.artifact_ids)
         if self.estado is EstadoSelecao.SELECIONADA and quantidade == 0:
             raise ValueError(f"selecao_sem_artefato fonte={self.fonte}")
@@ -252,7 +283,6 @@ class SelecaoVersao(ContratoBase):
         vazios = {EstadoSelecao.AUSENTE, EstadoSelecao.NAO_RESOLVIDA}
         if self.estado in vazios and quantidade:
             raise ValueError(f"selecao_vazia_com_artefatos fonte={self.fonte}")
-        return self
 
 
 class SnapshotSet(ContratoBase):
@@ -263,6 +293,7 @@ class SnapshotSet(ContratoBase):
     selecoes: tuple[SelecaoVersao, ...]
     corte_observacao: InstanteObservacao | None = None
     congelado: Booleano = False
+    cobertura_hash_logico: HashLogico | None = None
 
     @classmethod
     def calcular_id(cls, conteudo: dict[str, Any]) -> str:
@@ -273,8 +304,11 @@ class SnapshotSet(ContratoBase):
         provisorio = cls.model_validate(
             {**campos, "snapshot_id": _PROVISORIO}, context={_PROVISORIO: True}
         )
-        conteudo = provisorio.model_dump(mode="json", exclude={"snapshot_id"})
-        return cls.model_validate({**conteudo, "snapshot_id": cls.calcular_id(conteudo)})
+        dados = provisorio.model_dump(mode="json", exclude={"snapshot_id"})
+        return cls.model_validate({**dados, "snapshot_id": provisorio.id_do_conteudo()})
+
+    def id_do_conteudo(self) -> str:
+        return self.calcular_id(conteudo_identidade(self, excluir={"snapshot_id"}))
 
     @model_validator(mode="after")
     def _identidade(self, info: ValidationInfo) -> SnapshotSet:
@@ -284,8 +318,7 @@ class SnapshotSet(ContratoBase):
         self._selecoes_contidas()
         if self.snapshot_id == _PROVISORIO and (info.context or {}).get(_PROVISORIO):
             return self
-        conteudo = self.model_dump(mode="json", exclude={"snapshot_id"})
-        if self.snapshot_id != self.calcular_id(conteudo):
+        if self.snapshot_id != self.id_do_conteudo():
             raise ValueError("snapshot_id_nao_corresponde_ao_conteudo")
         return self
 

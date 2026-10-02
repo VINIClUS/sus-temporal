@@ -22,6 +22,7 @@ from pydantic import (
 )
 
 __all__ = [
+    "VERSAO_IDENTIDADE",
     "Booleano",
     "CanalPublicacao",
     "CodigoCBO",
@@ -40,6 +41,7 @@ __all__ = [
     "Falso",
     "FamiliaFonte",
     "FileRef",
+    "HashLogico",
     "Identificador",
     "InstanteUTC",
     "Inteiro",
@@ -54,7 +56,9 @@ __all__ = [
     "ValorMonetario",
     "ValorNormalizado",
     "Verdadeiro",
+    "conteudo_identidade",
     "hash_canonico",
+    "hash_identidade",
     "json_canonico",
 ]
 
@@ -93,10 +97,12 @@ SiglaUF = Annotated[str, Strict(), StringConstraints(pattern=r"^[A-Z]{2}$")]
 Sha256Hex = Annotated[str, Strict(), StringConstraints(pattern=r"^[0-9a-f]{64}$")]
 Identificador = Annotated[str, Strict(), StringConstraints(pattern=r"^[A-Za-z0-9_.:-]{1,128}$")]
 DatasetId = Annotated[str, Strict(), StringConstraints(pattern=r"^ds_[0-9a-f]{64}$")]
+HashLogico = Annotated[str, StringConstraints(pattern=r"^lh1:[0-9a-f]{64}$")]
 ReferenciaDecisao = Annotated[
     str, Strict(), StringConstraints(pattern=r"^experiments/decisions/[A-Za-z0-9_.-]+\.ya?ml$")
 ]
 _PADRAO_DATA = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+VERSAO_IDENTIDADE = 1
 
 
 def _inteiro(valor: object) -> object:
@@ -278,3 +284,16 @@ def json_canonico(conteudo: object) -> str:
 
 def hash_canonico(conteudo: object) -> str:
     return hashlib.sha256(json_canonico(conteudo).encode("utf-8")).hexdigest()
+
+
+def conteudo_identidade(modelo: BaseModel, *, excluir: set[str] | None = None) -> dict[str, object]:
+    """Conteúdo versionado que deriva ids e hashes; campo nulo fica de fora.
+
+    Assim um campo opcional novo (padrão None) não muda ids já emitidos.
+    """
+    conteudo = modelo.model_dump(mode="json", exclude=excluir, exclude_none=True)
+    return {"v": VERSAO_IDENTIDADE, "conteudo": conteudo}
+
+
+def hash_identidade(modelo: BaseModel, *, excluir: set[str] | None = None) -> str:
+    return hash_canonico(conteudo_identidade(modelo, excluir=excluir))

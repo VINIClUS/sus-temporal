@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from pydantic import Field, StringConstraints, model_validator
 
 from sustemporal.contracts.base import (
+    VERSAO_IDENTIDADE,
     Booleano,
     CanalPublicacao,
     ContratoBase,
@@ -20,6 +21,7 @@ from sustemporal.contracts.base import (
     Sha256Hex,
     SiglaUF,
     hash_canonico,
+    hash_identidade,
 )
 from sustemporal.contracts.temporal import CompetenciaArquivo
 
@@ -56,8 +58,16 @@ class ChaveArtefato(ContratoBase):
     versao_publicacao: str | None = None
 
 
+_CHAVE_LOGICA = {"fonte", "uf", "competencia_arquivo", "parte"}
+
+
 def calcular_artifact_id(chave: ChaveArtefato, sha256: str) -> str:
-    return f"art_{hash_canonico({'chave': chave.model_dump(mode='json'), 'sha256': sha256})}"
+    """Versão de conteúdo: bytes e chave lógica; canal, nome e rótulo de versão ficam de fora.
+
+    Os mesmos bytes da mesma chave lógica obtidos por outro canal são a mesma versão (plano §4).
+    """
+    logica = chave.model_dump(mode="json", include=_CHAVE_LOGICA)
+    return f"art_{hash_canonico({'v': VERSAO_IDENTIDADE, **logica, 'sha256': sha256})}"
 
 
 class FormatoArquivo(StrEnum):
@@ -195,7 +205,7 @@ class SourceRequest(ContratoBase):
         return self
 
     def sha256(self) -> str:
-        return hash_canonico(self.model_dump(mode="json"))
+        return hash_identidade(self)
 
 
 class TipoLinhaManifesto(StrEnum):
@@ -223,4 +233,4 @@ class LinhaManifesto(ContratoBase):
         return self
 
     def sha256(self) -> str:
-        return hash_canonico(self.model_dump(mode="json"))
+        return hash_identidade(self)

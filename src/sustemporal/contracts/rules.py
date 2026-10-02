@@ -195,6 +195,8 @@ class RuleSpec(ContratoBase):
         _exigir_unidade_cadastral(self.familia, self.unidade_avaliacao, self.rule_id)
         if not self.requisitos_fonte:
             raise ValueError(f"regra_sem_requisito_de_fonte regra={self.rule_id}")
+        if not self.campos_necessarios:
+            raise ValueError(f"regra_sem_campos_necessarios regra={self.rule_id}")
         return self
 
 
@@ -223,6 +225,10 @@ class RuleEvaluation(ContratoBase):
         )
         if self.estado is not esperado:
             raise ValueError(f"estado_incoerente row={self.row_id} regra={self.rule_id}")
+        self._sustentacao_do_estado()
+        return self
+
+    def _sustentacao_do_estado(self) -> None:
         selecionadas = bool(self.selecoes) and all(
             selecao.estado is EstadoSelecao.SELECIONADA for selecao in self.selecoes
         )
@@ -232,7 +238,8 @@ class RuleEvaluation(ContratoBase):
             raise ValueError(f"conforme_sem_insumos row={self.row_id} regra={self.rule_id}")
         if self.estado is EstadoAvaliacao.INCONCLUSIVO and not self.motivos:
             raise ValueError(f"inconclusivo_sem_motivo row={self.row_id} regra={self.rule_id}")
-        return self
+        if self.estado is EstadoAvaliacao.NAO_APLICAVEL and not self.evidence_ids:
+            raise ValueError(f"nao_aplicavel_sem_evidencia row={self.row_id} regra={self.rule_id}")
 
 
 class ResultadoRegistro(StrEnum):

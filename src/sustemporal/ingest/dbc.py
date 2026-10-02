@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import pyarrow as pa
 from datasus_dbc import decompress, decompress_bytes
 from dbctodbf import DBCDecompress  # type: ignore[import-untyped]  # override cita dbc_to_dbf
 from dbfread import DBF
@@ -256,10 +257,21 @@ def _fim_dcl_independente(dbc: bytes) -> list[str]:
 
 
 def _colunas_coincidem(leitura: LeituraDbf) -> list[str]:
-    esperadas = [COLUNA_INDICE, COLUNA_DELETADO, *(c.nome for c in leitura.cabecalho.campos)]
-    if leitura.tabela.column_names == esperadas:
-        return []
-    return [f"colunas_divergentes colunas={compactar(leitura.tabela.column_names)}"]
+    """Esquema exato (nomes, ordem e tipos) e nenhum nulo, antes de comparar registros."""
+    esperado = pa.schema(
+        [
+            (COLUNA_INDICE, pa.int64()),
+            (COLUNA_DELETADO, pa.bool_()),
+            *((c.nome, pa.large_string()) for c in leitura.cabecalho.campos),
+        ]
+    )
+    tabela = leitura.tabela
+    if not tabela.schema.equals(esperado):
+        return [f"colunas_divergentes colunas={compactar(tabela.column_names)}"]
+    com_nulos = [nome for nome in tabela.column_names if tabela.column(nome).null_count]
+    if com_nulos:
+        return [f"colunas_divergentes nulos={compactar(com_nulos)}"]
+    return []
 
 
 def _indices_coincidem(leitura: LeituraDbf) -> list[str]:

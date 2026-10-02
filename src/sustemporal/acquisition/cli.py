@@ -24,13 +24,18 @@ from sustemporal.contracts.temporal import (
     CompetenciaProcessamento,
 )
 from sustemporal.errors import ConfigInvalida, ExitCode
+from sustemporal.hashing import sha256_arquivo
 
 if TYPE_CHECKING:
     import argparse
     from collections.abc import Callable, Iterable
 
     from sustemporal.acquisition.sources import CatalogoFontes
-    from sustemporal.contracts.artifacts import ArtifactObservation, SourceRequest
+    from sustemporal.contracts.artifacts import (
+        ArtifactObservation,
+        ArtifactVersion,
+        SourceRequest,
+    )
     from sustemporal.contracts.config import PilotSpec, RunConfig
 
     Obter = Callable[[SourceRequest], ArtifactObservation]
@@ -94,11 +99,28 @@ def _por_listagem(
     return requisicoes_da_listagem(catalogo, fonte, uf, competencias, nomes, motivo=motivo)
 
 
-def _ja_obtidas(manifesto: Path) -> set[str]:
+def _conteudo_integro(store: Path, versao: ArtifactVersion) -> bool:
+    caminho = store / versao.caminho_conteudo
+    if not caminho.is_file() or caminho.stat().st_size != versao.tamanho_bytes:
+        return False
+    return sha256_arquivo(caminho) == versao.sha256
+
+
+def _ja_obtidas(manifesto: Path, store: Path) -> set[str]:
+    """Pedidos já obtidos cujos bytes guardados ainda conferem; os demais são refeitos."""
     estado = Manifesto(manifesto).ler()
-    return {
-        o.request_sha256 for o in estado.observacoes if o.resultado is ResultadoTentativa.OBTIDO
-    }
+    obtidas: set[str] = set()
+    for observacao in estado.observacoes:
+        versao = estado.versoes.get(observacao.artifact_id or "")
+        if observacao.resultado is not ResultadoTentativa.OBTIDO or versao is None:
+            continue
+        if _conteudo_integro(store, versao):
+            obtidas.add(observacao.request_sha256)
+        else:
+            logger.warning(
+                "conteudo_guardado_ausente_ou_divergente artefato=%s", versao.artifact_id
+            )
+    return obtidas
 
 
 def _planejar(args: argparse.Namespace, config: RunConfig, obter: Obter) -> list[SourceRequest]:
@@ -140,7 +162,7 @@ def executar_acquire(args: argparse.Namespace, config: RunConfig) -> int:
         return observadas[-1]
 
     requisicoes = _planejar(args, config, obter)
-    obtidas = set() if args.reobservar else _ja_obtidas(manifesto)
+    obtidas = set() if args.reobservar else _ja_obtidas(manifesto, store)
     pendentes = [r for r in requisicoes if r.sha256() not in obtidas]
     for requisicao in pendentes:
         obter(requisicao)

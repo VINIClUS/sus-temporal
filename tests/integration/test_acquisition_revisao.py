@@ -18,15 +18,18 @@ from tests.fixtures.aquisicao_dados import (
 
 from sustemporal import cli
 from sustemporal.acquisition.fetch import fetch_source
-from sustemporal.acquisition.manifest import Manifesto, ManifestoCorrompido
+from sustemporal.acquisition.manifest import EstadoManifesto, Manifesto, ManifestoCorrompido
 from sustemporal.acquisition.sources import carregar_catalogo, requisicoes_da_listagem
 from sustemporal.contracts.artifacts import (
+    ArtifactVersion,
     ChaveArtefato,
     EstadoIntegridade,
     FormatoArquivo,
     MotivoRequisicao,
     ResultadoTentativa,
     SourceRequest,
+    TipoLinhaManifesto,
+    calcular_artifact_id,
 )
 from sustemporal.contracts.base import CanalPublicacao, FamiliaFonte
 from sustemporal.contracts.temporal import CompetenciaArquivo
@@ -285,11 +288,9 @@ def test_fragmento_apos_linha_de_versao_completa_e_separado(tmp_path: Path) -> N
         update={
             "sequencia": estado.linhas[-1].sequencia + 1,
             "anterior_sha256": estado.linhas[-1].sha256(),
-            "tipo": "VERSAO",
+            "tipo": TipoLinhaManifesto.VERSAO,
             "observacao": None,
-            "versao": estado.versoes[next(iter(estado.versoes))].model_copy(
-                update={"artifact_id": f"art_{'f' * 64}"}
-            ),
+            "versao": _versao_falsa(estado),
         }
     )
     with caminho.open("a", encoding="utf-8") as arquivo:
@@ -300,6 +301,14 @@ def test_fragmento_apos_linha_de_versao_completa_e_separado(tmp_path: Path) -> N
     assert Manifesto(caminho).ler().observacoes[-1] == observacao
     (fragmento,) = caminho.parent.glob("manifesto.jsonl.fragmento.*")
     assert proxima.model_dump_json() in fragmento.read_text(encoding="utf-8")
+
+
+def _versao_falsa(estado: EstadoManifesto) -> ArtifactVersion:
+    modelo = next(iter(estado.versoes.values()))
+    sha256 = "f" * 64
+    return modelo.model_copy(
+        update={"sha256": sha256, "artifact_id": calcular_artifact_id(modelo.chave, sha256)}
+    )
 
 
 class _Resposta(io.BytesIO):

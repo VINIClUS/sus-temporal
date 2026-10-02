@@ -10,11 +10,12 @@ import urllib.request
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol
+from typing import IO, TYPE_CHECKING, Any, Protocol, override
 from urllib.parse import unquote, urlsplit
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from http.client import HTTPMessage
     from typing import BinaryIO
 
 __all__ = [
@@ -22,6 +23,7 @@ __all__ = [
     "LimiteExcedido",
     "Recebimento",
     "RecursoNaoEncontrado",
+    "RedirecionamentoSoHTTPS",
     "TransferenciaInterrompida",
     "Transporte",
     "TransporteArquivo",
@@ -179,11 +181,33 @@ class TransporteFTP:
         return sorted(nome.rsplit("/", 1)[-1] for nome in nomes)
 
 
+class RedirecionamentoSoHTTPS(urllib.request.HTTPRedirectHandler):
+    """Segue redirecionamento só para outro endereço https; recusa rebaixamento de canal."""
+
+    @override
+    def redirect_request(
+        self,
+        req: urllib.request.Request,
+        fp: IO[bytes],
+        code: int,
+        msg: str,
+        headers: HTTPMessage,
+        newurl: str,
+    ) -> urllib.request.Request | None:
+        if urlsplit(newurl).scheme != "https":
+            raise ErroTransporte(f"redirecionamento_fora_de_https destino={newurl}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
 class TransporteHTTPS:
-    """HTTPS com timeout; não lista diretórios."""
+    """HTTPS com timeout; não lista diretórios; a URL final fica nos metadados."""
 
     def __init__(self, timeout: float = 60.0) -> None:
         self.timeout = timeout
+        self._abridor = urllib.request.build_opener(RedirecionamentoSoHTTPS())
+
+    def _abrir(self, requisicao: urllib.request.Request) -> Any:
+        return self._abridor.open(requisicao, timeout=self.timeout)
 
     def baixar(self, localizador: str, destino: BinaryIO, limite: int) -> Recebimento:
         if urlsplit(localizador).scheme != "https":
@@ -191,9 +215,10 @@ class TransporteHTTPS:
         gravador = _Gravador(destino, limite)
         requisicao = urllib.request.Request(localizador, method="GET")  # noqa: S310
         try:
-            with urllib.request.urlopen(requisicao, timeout=self.timeout) as resposta:  # noqa: S310
+            with self._abrir(requisicao) as resposta:
                 cabecalhos = resposta.headers
                 metadados = {c: cabecalhos[c] for c in _CABECALHOS_HTTP if c in cabecalhos}
+                metadados["url_final"] = resposta.geturl()
                 gravador.copiar(resposta.read)
         except urllib.error.HTTPError as erro:
             if erro.code in _HTTP_AUSENTE:

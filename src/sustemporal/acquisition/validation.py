@@ -6,6 +6,7 @@ import re
 import stat
 import struct
 import zipfile
+import zlib
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -145,9 +146,28 @@ def _validar_zip(amostra: _Amostra) -> Veredito:
         return _inesperado("zip_vazio")
     if not all(m.seguro for m in membros):
         return Veredito(EstadoIntegridade.QUARENTENA_CAMINHO_INSEGURO, membros, "membro_inseguro")
+    return _conteudo_dos_membros(amostra.caminho, infos, membros)
+
+
+def _conteudo_dos_membros(
+    caminho: Path, infos: list[zipfile.ZipInfo], membros: tuple[MembroArquivo, ...]
+) -> Veredito:
     if any(info.flag_bits & _CRIPTOGRAFADO for info in infos):
         return Veredito(EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO, membros, "zip_cifrado")
+    corrompido = _membro_corrompido(caminho)
+    if corrompido is not None:
+        return Veredito(EstadoIntegridade.QUARENTENA_TRUNCADO, membros, corrompido)
     return Veredito(EstadoIntegridade.OK, membros)
+
+
+def _membro_corrompido(caminho: Path) -> str | None:
+    """Lê cada membro em memória (sem gravar em disco) e confere limites e CRC."""
+    try:
+        with zipfile.ZipFile(caminho) as arquivo:
+            ruim = arquivo.testzip()
+    except (zipfile.BadZipFile, zlib.error, EOFError, OSError, NotImplementedError) as erro:
+        return f"zip_membro_ilegivel erro={erro}"
+    return None if ruim is None else f"zip_crc_divergente membro={ruim}"
 
 
 def _validar_pdf(amostra: _Amostra) -> Veredito:

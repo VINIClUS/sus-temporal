@@ -125,13 +125,10 @@ class Manifesto:
 
     def _conferir_ancora(self, estado: EstadoManifesto) -> None:
         """Âncora 0 marca manifesto criado sem linha confirmada; nunca à frente do arquivo."""
+        sequencia = self._sequencia_ancorada(len(estado.linhas))
         if not self.ancora.exists():
-            if estado.linhas:
-                raise ManifestoCorrompido(f"manifesto_sem_ancora caminho={self.ancora}")
             return
-        sequencia, sha256 = self._ler_ancora()
-        if not isinstance(sequencia, int) or not 0 <= sequencia <= len(estado.linhas):
-            raise ManifestoCorrompido(f"manifesto_ancora_alem_do_fim sequencia={sequencia}")
+        _, sha256 = self._ler_ancora()
         esperado = estado.linhas[sequencia - 1].sha256() if sequencia else None
         if esperado != sha256:
             raise ManifestoCorrompido(f"manifesto_ancora_divergente sequencia={sequencia}")
@@ -150,18 +147,33 @@ class Manifesto:
         self._conferir_ancora(estado)
         return estado
 
+    def _sequencia_ancorada(self, total: int) -> int:
+        if not self.ancora.exists():
+            if total:
+                raise ManifestoCorrompido(f"manifesto_sem_ancora caminho={self.ancora}")
+            return 0
+        sequencia, _ = self._ler_ancora()
+        if not isinstance(sequencia, int) or not 0 <= sequencia <= total:
+            raise ManifestoCorrompido(f"manifesto_ancora_alem_do_fim sequencia={sequencia}")
+        return sequencia
+
     def _separar_fragmento(self) -> None:
-        """Separa o fragmento de uma escrita interrompida, se a âncora cobre o resto inteiro."""
+        """Separa a transação interrompida: linhas após a âncora mais o fragmento final.
+
+        Só age quando há fragmento; as linhas até a âncora precisam passar na verificação.
+        """
         completas, fragmento = self._partes()
         if not fragmento:
             return
-        estado = _verificar(completas.splitlines())
-        self._conferir_ancora(estado)
-        if self._ler_ancora()[0] != len(estado.linhas):
-            raise ManifestoCorrompido(f"manifesto_fragmento_sem_ancora caminho={self.caminho}")
-        destino = self.caminho.with_name(f"{self.caminho.name}.fragmento.{len(estado.linhas)}")
-        destino.write_text(fragmento, encoding="utf-8")
-        os.truncate(self.caminho, len(completas.encode("utf-8")))
+        textos = completas.splitlines()
+        sequencia = self._sequencia_ancorada(len(textos))
+        confirmadas = textos[:sequencia]
+        self._conferir_ancora(_verificar(confirmadas))
+        sufixo = "".join(f"{texto}\n" for texto in textos[sequencia:]) + fragmento
+        destino = self.caminho.with_name(f"{self.caminho.name}.fragmento.{sequencia}")
+        destino.write_text(sufixo, encoding="utf-8")
+        tamanho = sum(len(f"{texto}\n".encode()) for texto in confirmadas)
+        os.truncate(self.caminho, tamanho)
         logger.warning("manifesto_fragmento_separado destino=%s", destino)
 
     def _gravar_ancora(self, sequencia: int, sha256: str | None) -> None:

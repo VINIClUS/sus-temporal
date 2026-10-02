@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation, localcontext
+from enum import StrEnum
 
 from pydantic import model_validator
 
@@ -17,7 +18,7 @@ from sustemporal.contracts.base import (
 from sustemporal.contracts.experiment import FreezeId, ModoExecucao
 from sustemporal.contracts.records import DatasetRef
 
-__all__ = ["EvaluationReport", "IntervaloConfianca", "ValorMetrica"]
+__all__ = ["EvaluationReport", "IntervaloConfianca", "TipoMetrica", "ValorMetrica"]
 
 
 class IntervaloConfianca(ContratoBase):
@@ -32,8 +33,29 @@ class IntervaloConfianca(ContratoBase):
         return self
 
 
+class TipoMetrica(StrEnum):
+    RAZAO = "RAZAO"
+    ESTATISTICA = "ESTATISTICA"
+
+
+def _razao_confere(numerador: int, denominador: int, valor: Decimal) -> bool:
+    expoente = valor.as_tuple().exponent
+    if not isinstance(expoente, int):
+        return False
+    with localcontext() as contexto:
+        contexto.prec = 200
+        try:
+            razao = (Decimal(numerador) / Decimal(denominador)).quantize(
+                Decimal(1).scaleb(expoente), rounding=ROUND_HALF_EVEN
+            )
+        except InvalidOperation:
+            return False
+    return razao == valor
+
+
 class ValorMetrica(ContratoBase):
     nome: Identificador
+    tipo: TipoMetrica = TipoMetrica.RAZAO
     estrato: str = "TOTAL"
     numerador: InteiroNaoNegativo
     denominador: InteiroNaoNegativo
@@ -46,6 +68,15 @@ class ValorMetrica(ContratoBase):
             raise ValueError(f"metrica_com_denominador_zero nome={self.nome}")
         if self.denominador > 0 and self.valor is None:
             raise ValueError(f"metrica_sem_valor nome={self.nome}")
+        if (
+            self.tipo is TipoMetrica.RAZAO
+            and self.valor is not None
+            and not _razao_confere(self.numerador, self.denominador, self.valor)
+        ):
+            raise ValueError(
+                f"metrica_valor_diverge_da_razao nome={self.nome} numerador={self.numerador} "
+                f"denominador={self.denominador} valor={self.valor}"
+            )
         return self
 
 

@@ -19,6 +19,7 @@ _OPCOES_GIT_COM_VALOR = {
     "--super-prefix",
 }
 _INTERPRETADORES = {"bash", "sh", "zsh", "dash", "ksh"}
+_OPCOES_SHELL_COM_VALOR = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
 _FLAGS_PERIGOSAS = {"--delete", "--mirror", "--all", "--tags", "--prune"}
 _CURTAS_PERIGOSAS = re.compile(r"^-[a-zA-Z]*[fd][a-zA-Z]*$")
 _ALVOS_PROIBIDOS = {"main", "refs/heads/main"}
@@ -43,17 +44,22 @@ def _segmentos(tokens: list[str]) -> list[list[str]]:
     return segmentos
 
 
-def _subcomando_git(tokens: list[str], inicio: int) -> int:
+def _subcomando_git(tokens: list[str], inicio: int) -> tuple[int, dict[str, str]]:
+    aliases: dict[str, str] = {}
     indice = inicio
     while indice < len(tokens):
-        token = tokens[indice]
-        if token in _OPCOES_GIT_COM_VALOR:
+        opcao = tokens[indice]
+        if opcao in _OPCOES_GIT_COM_VALOR:
+            valor = tokens[indice + 1] if indice + 1 < len(tokens) else ""
+            nome, _, expansao = valor.partition("=")
+            if opcao == "-c" and nome.lower().startswith("alias."):
+                aliases[nome[len("alias.") :].lower()] = expansao
             indice += 2
-        elif token.startswith("-"):
+        elif opcao.startswith("-"):
             indice += 1
         else:
-            return indice
-    return indice
+            return indice, aliases
+    return indice, aliases
 
 
 def _argumento_perigoso(token: str) -> bool:
@@ -64,19 +70,52 @@ def _argumento_perigoso(token: str) -> bool:
     return token.rsplit(":", 1)[-1] in _ALVOS_PROIBIDOS
 
 
+def _alias_perigoso(expansao: str, resto: list[str]) -> bool:
+    argumentos = " ".join(shlex.quote(token) for token in resto)
+    if expansao.startswith("!"):
+        return comando_perigoso(f"{expansao[1:]} {argumentos}")
+    return comando_perigoso(f"git {expansao} {argumentos}")
+
+
 def _push_perigoso(tokens: list[str], posicao_git: int) -> bool:
-    indice = _subcomando_git(tokens, posicao_git + 1)
-    if indice >= len(tokens) or tokens[indice] != "push":
+    indice, aliases = _subcomando_git(tokens, posicao_git + 1)
+    if indice >= len(tokens):
         return False
-    return any(_argumento_perigoso(token) for token in tokens[indice + 1 :])
+    subcomando, resto = tokens[indice], tokens[indice + 1 :]
+    if subcomando.lower() in aliases:
+        return _alias_perigoso(aliases[subcomando.lower()], resto)
+    if subcomando != "push":
+        return False
+    return any(_argumento_perigoso(token) for token in resto)
+
+
+def _comando_do_interpretador(argumentos: list[str]) -> str | None:
+    modo_comando = False
+    indice = 0
+    while indice < len(argumentos):
+        argumento = argumentos[indice]
+        if argumento == "--":
+            indice += 1
+            break
+        if argumento in _OPCOES_SHELL_COM_VALOR:
+            indice += 2
+        elif argumento.startswith(("-", "+")) and len(argumento) > 1:
+            modo_comando = modo_comando or _agrupa_opcao_c(argumento)
+            indice += 1
+        else:
+            break
+    if modo_comando and indice < len(argumentos):
+        return argumentos[indice]
+    return None
+
+
+def _agrupa_opcao_c(argumento: str) -> bool:
+    return argumento.startswith("-") and not argumento.startswith("--") and "c" in argumento[1:]
 
 
 def _interpretado_perigoso(tokens: list[str], posicao: int) -> bool:
-    restantes = tokens[posicao + 1 :]
-    if "-c" not in restantes:
-        return False
-    indice = restantes.index("-c") + 1
-    return indice < len(restantes) and comando_perigoso(restantes[indice])
+    comando = _comando_do_interpretador(tokens[posicao + 1 :])
+    return comando is not None and comando_perigoso(comando)
 
 
 def _segmento_perigoso(tokens: list[str]) -> bool:
@@ -85,6 +124,8 @@ def _segmento_perigoso(tokens: list[str]) -> bool:
         if nome == "git" and _push_perigoso(tokens, posicao):
             return True
         if nome in _INTERPRETADORES and _interpretado_perigoso(tokens, posicao):
+            return True
+        if nome == "eval" and comando_perigoso(" ".join(tokens[posicao + 1 :])):
             return True
     return False
 

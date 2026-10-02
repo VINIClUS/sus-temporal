@@ -8,7 +8,7 @@ import re
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal, NoReturn, Self
 
 from pydantic import (
     AfterValidator,
@@ -44,6 +44,7 @@ __all__ = [
     "InstanteUTC",
     "Inteiro",
     "InteiroNaoNegativo",
+    "MapaCongelado",
     "MotivoAusencia",
     "OrigemDados",
     "Proveniencia",
@@ -57,8 +58,28 @@ __all__ = [
 ]
 
 
+class MapaCongelado(dict[Any, Any]):
+    """Dicionário que recusa mutação; contratos congelados guardam mapas assim."""
+
+    def _recusar(self, *_args: object, **_kwargs: object) -> NoReturn:
+        raise TypeError("mapa_congelado_nao_aceita_mutacao")
+
+    __setitem__ = __delitem__ = __ior__ = _recusar
+    clear = pop = popitem = setdefault = update = _recusar
+
+    def __reduce__(self) -> tuple[type[MapaCongelado], tuple[dict[Any, Any]]]:
+        return (MapaCongelado, (dict(self),))
+
+
 class ContratoBase(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", coerce_numbers_to_str=False)
+
+    @model_validator(mode="after")
+    def _congelar_mapas(self) -> Self:
+        for nome, valor in list(self.__dict__.items()):
+            if type(valor) is dict:
+                object.__setattr__(self, nome, MapaCongelado(valor))
+        return self
 
 
 CodigoProcedimento = Annotated[str, Strict(), StringConstraints(pattern=r"^[0-9]{10}$")]

@@ -6,8 +6,6 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pydantic import ValidationError
-
 from sustemporal.contracts.base import OrigemDados
 from sustemporal.contracts.experiment import DecisaoPortao, ModoExecucao, Portao
 from sustemporal.errors import PortaoRecusado
@@ -39,30 +37,42 @@ def carregar_decisoes(diretorio: Path, portao: Portao) -> list[DecisaoPortao]:
             continue
         try:
             decisao = DecisaoPortao.model_validate(carregar_yaml(arquivo))
-        except ValidationError as erro:
+        except (ValueError, OSError) as erro:
             raise PortaoRecusado(f"decisao_invalida arquivo={arquivo.name}") from erro
         if decisao.portao is portao:
             decisoes.append(decisao)
     return decisoes
 
 
+def _ultima_decisao(decisoes: list[DecisaoPortao], portao: Portao) -> DecisaoPortao:
+    data_mais_recente = max(decisao.data for decisao in decisoes)
+    ultimas = [decisao for decisao in decisoes if decisao.data == data_mais_recente]
+    if any(decisao != ultimas[0] for decisao in ultimas[1:]):
+        raise PortaoRecusado(f"portao_decisoes_empatadas portao={portao} data={data_mais_recente}")
+    return ultimas[0]
+
+
 def exigir_portao(
     diretorio: Path, portao: Portao, *, freeze_id: str | None = None
 ) -> DecisaoPortao:
-    """Exige decisão humana que libere o portão (e o congelamento indicado, no G2).
+    """Exige que a decisão humana mais recente do portão o libere (no G2, para o congelamento).
 
     Raises:
-        PortaoRecusado: não há decisão liberadora registrada.
+        PortaoRecusado: sem decisão, decisões divergentes na mesma data ou a última não libera.
     """
-    liberadoras = [
+    aplicaveis = [
         decisao
         for decisao in carregar_decisoes(diretorio, portao)
-        if decisao.decisao in _DECISOES_QUE_LIBERAM[portao]
-        and (freeze_id is None or decisao.freeze_id == freeze_id)
+        if freeze_id is None or decisao.freeze_id == freeze_id
     ]
-    if not liberadoras:
-        raise PortaoRecusado(f"portao_sem_decisao_liberadora portao={portao} freeze={freeze_id}")
-    escolhida = max(liberadoras, key=lambda decisao: decisao.data)
+    if not aplicaveis:
+        raise PortaoRecusado(f"portao_sem_decisao portao={portao} freeze={freeze_id}")
+    escolhida = _ultima_decisao(aplicaveis, portao)
+    if escolhida.decisao not in _DECISOES_QUE_LIBERAM[portao]:
+        raise PortaoRecusado(
+            f"portao_ultima_decisao_nao_libera portao={portao} decisao={escolhida.decisao} "
+            f"data={escolhida.data}"
+        )
     logger.info("portao_liberado portao=%s data=%s", portao, escolhida.data)
     return escolhida
 

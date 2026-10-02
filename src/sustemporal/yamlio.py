@@ -22,10 +22,24 @@ _CarregadorTexto.yaml_implicit_resolvers = {
 }
 
 
+class YamlInvalido(ValueError):
+    """Texto que não é YAML legível (sintaxe ou caractere não imprimível)."""
+
+
 def carregar_texto_yaml(texto: str) -> Any:
-    carregador = _CarregadorTexto(texto)
+    """Lê YAML com escalares textuais.
+
+    Raises:
+        YamlInvalido: texto ilegível como YAML.
+    """
+    try:
+        carregador = _CarregadorTexto(texto)
+    except yaml.YAMLError as erro:
+        raise YamlInvalido(f"yaml_invalido erro={erro}") from erro
     try:
         return carregador.get_single_data()
+    except yaml.YAMLError as erro:
+        raise YamlInvalido(f"yaml_invalido erro={erro}") from erro
     finally:
         carregador.dispose()
 

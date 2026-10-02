@@ -211,6 +211,14 @@
     "title": "Reconciliacao",
     "type": "object"
    },
+   "TipoMetrica": {
+    "enum": [
+     "RAZAO",
+     "ESTATISTICA"
+    ],
+    "title": "TipoMetrica",
+    "type": "string"
+   },
    "ValorMetrica": {
     "additionalProperties": false,
     "properties": {
@@ -244,6 +252,10 @@
       "ge": 0,
       "title": "Numerador",
       "type": "integer"
+     },
+     "tipo": {
+      "$ref": "#/$defs/TipoMetrica",
+      "default": "RAZAO"
      },
      "valor": {
       "anyOf": [
@@ -453,6 +465,14 @@
     ],
     "title": "IntervaloConfianca",
     "type": "object"
+   },
+   "TipoMetrica": {
+    "enum": [
+     "RAZAO",
+     "ESTATISTICA"
+    ],
+    "title": "TipoMetrica",
+    "type": "string"
    }
   },
   "additionalProperties": false,
@@ -487,6 +507,10 @@
     "ge": 0,
     "title": "Numerador",
     "type": "integer"
+   },
+   "tipo": {
+    "$ref": "#/$defs/TipoMetrica",
+    "default": "RAZAO"
    },
    "valor": {
     "anyOf": [

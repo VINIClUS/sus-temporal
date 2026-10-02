@@ -106,6 +106,39 @@ def test_push_sem_verificacao_e_bloqueado(comando: str) -> None:
 @pytest.mark.parametrize(
     "comando",
     [
+        'echo "$(git push --no-verify origin HEAD:main)"',
+        "echo `git push --no-verify origin HEAD:main`",
+        'echo "`git push --no-verify origin claude/s1-x`"',
+        'echo "$(echo ")"; git push --no-verify origin HEAD:main)"',
+        'X="$(git -c core.hooksPath=/dev/null push origin claude/s1-x)"',
+        "cat <(git push --force origin claude/s1-x)",
+        "echo \"$(bash -c 'git push --no-verify origin claude/s1-x')\"",
+        'echo "${X:-$(git push --no-verify origin claude/s1-x)}"',
+    ],
+)
+def test_substituicao_de_comando_e_inspecionada(comando: str) -> None:
+    resultado = _executar(comando)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        'echo "$(git rev-parse HEAD)"',
+        "git commit -m \"$(printf 'feat: x\\n\\ncorpo')\"",
+        "git commit -m \"$(cat <<'EOF'\nfeat(x): descreve a mudança\nEOF\n)\"",
+        'git push -u origin "$(git branch --show-current)"',
+        "echo $((1 + 2))",
+    ],
+)
+def test_substituicao_segura_continua_permitida(comando: str) -> None:
+    assert _executar(comando).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
         "git -c core.hooksPath=/dev/null push origin claude/s1-x",
         "git -c CORE.HOOKSPATH= push origin claude/s1-x",
         "git -c core.hooksPath=/tmp/vazio commit -m x",

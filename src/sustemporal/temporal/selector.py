@@ -221,7 +221,9 @@ def motivo_pendencia(politica: PoliticaTemporal) -> str | None:
 
 
 def fontes_auxiliares(rule: RuleSpec) -> list[FamiliaFonte]:
-    return [r.fonte for r in rule.requisitos_fonte if r.fonte is not FamiliaFonte.SIA_PA]
+    """Fontes auxiliares sem repetição, na ordem da primeira ocorrência na regra."""
+    fontes = (r.fonte for r in rule.requisitos_fonte if r.fonte is not FamiliaFonte.SIA_PA)
+    return list(dict.fromkeys(fontes))
 
 
 def _competencia_base(record: ProductionRecord, base: BaseTemporal) -> str | None:

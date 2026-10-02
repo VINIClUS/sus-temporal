@@ -89,7 +89,12 @@ uv run sustemporal --help               # CLI
 - Branch por sessão `claude/sN-<slug>` (definido pelo orquestrador ao criar a sessão); orquestrador
   em `claude/determined-ritchie-b9o2qg` ou `claude/orq-*`. Branch `claude/*` sem dono no mapa de
   propriedade reprova no CI. Commits `<tipo>(<escopo>): <descrição>`.
-- Push forçado, remoção de branch e qualquer push para `main` são bloqueados por hook.
+- Push forçado, remoção de branch e qualquer push para `main` são bloqueados em duas camadas: o
+  hook PreToolUse do Bash e o `pre-push` do git em `.githooks/` (o SessionStart roda
+  `git config core.hooksPath .githooks`; o `pre-push` também recusa push não fast-forward). O hook
+  do Bash ainda recusa `git push --no-verify`, `core.hooksPath` trocado por `-c`/`--config-env`,
+  `git send-pack`, `gh pr merge` e `gh api` com `DELETE` ou caminho com `/merge`, `/merges` ou
+  `/git/refs`.
 - Nunca force-push, rebase de commits publicados, commit direto em `main` ou merge de PR por
   sessões-filhas. Atualizar com `git fetch origin && git merge --no-edit origin/main`.
 - PR em rascunho até ficar pronto (rascunho não roda CI); corpo segue

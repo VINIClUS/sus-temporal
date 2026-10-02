@@ -1,4 +1,4 @@
-"""Hook PreToolUse (Bash): bloqueia push forçado, remoção de branch e push para main."""
+"""Hook PreToolUse (Bash): bloqueia push forçado ou para main, remoção, merge e desvio de hook."""
 
 from __future__ import annotations
 
@@ -26,6 +26,14 @@ _FLAGS_PERIGOSAS = {"--delete", "--mirror", "--all", "--tags", "--prune"}
 _CURTAS_PERIGOSAS = re.compile(r"^-[a-zA-Z]*[fd][a-zA-Z]*$")
 _ALVOS_PROIBIDOS = {"main", "heads/main", "refs/heads/main"}
 _OPCOES_PUSH_COM_VALOR = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+_SEM_VERIFICACAO = "--no-verify"
+_MENOR_ABREVIACAO_SEM_VERIFICACAO = len("--no-v")
+_CHAVE_HOOKS = "core.hookspath"
+_OPCOES_DE_CONFIG = {"-c", "--config-env"}
+_SUBCOMANDOS_PROIBIDOS = {"send-pack"}
+_OPCOES_GH_COM_VALOR = {"-R", "--repo", "--hostname"}
+_OPCOES_METODO_GH = {"-X", "--method"}
+_TRECHOS_PROIBIDOS_GH_API = ("/merge", "/git/refs")
 _ORIGENS_IMPLICITAS = {"HEAD", "@"}
 _COMANDOS_DE_DIRETORIO = {"cd", "pushd"}
 _SUBCOMANDOS_NATIVOS = frozenset(
@@ -150,12 +158,33 @@ def _subcomando_git(
     return indice, aliases, diretorio
 
 
+def _sem_verificacao(token: str) -> bool:
+    return len(token) >= _MENOR_ABREVIACAO_SEM_VERIFICACAO and _SEM_VERIFICACAO.startswith(token)
+
+
 def _argumento_perigoso(token: str) -> bool:
-    if token.startswith("--force") or token in _FLAGS_PERIGOSAS:
+    if token.startswith("--force") or token in _FLAGS_PERIGOSAS or _sem_verificacao(token):
         return True
     if _CURTAS_PERIGOSAS.match(token) or token.startswith(("+", ":")):
         return True
     return token.rsplit(":", 1)[-1] in _ALVOS_PROIBIDOS
+
+
+def _valor_de_config(opcoes: list[str], posicao: int) -> str | None:
+    opcao = opcoes[posicao]
+    if opcao.startswith("--config-env="):
+        return opcao.partition("=")[2]
+    if opcao in _OPCOES_DE_CONFIG and posicao + 1 < len(opcoes):
+        return opcoes[posicao + 1]
+    return None
+
+
+def _sobrescreve_hooks(opcoes: list[str]) -> bool:
+    for posicao in range(len(opcoes)):
+        valor = _valor_de_config(opcoes, posicao)
+        if valor is not None and valor.partition("=")[0].strip().lower() == _CHAVE_HOOKS:
+            return True
+    return False
 
 
 def _alias_perigoso(expansao: str, resto: list[str], diretorio: str | None) -> bool:
@@ -167,18 +196,27 @@ def _alias_perigoso(expansao: str, resto: list[str], diretorio: str | None) -> b
     return comando_perigoso(f"git {expansao} {argumentos}", diretorio)
 
 
-def _push_perigoso(tokens: list[str], posicao_git: int, diretorio: str | None) -> bool:
+def _git_perigoso(tokens: list[str], posicao_git: int, diretorio: str | None) -> bool:
     indice, aliases, diretorio = _subcomando_git(tokens, posicao_git + 1, diretorio)
+    if _sobrescreve_hooks(tokens[posicao_git + 1 : indice]):
+        return True
     if indice >= len(tokens):
         return False
     subcomando, resto = tokens[indice], tokens[indice + 1 :]
+    if subcomando in _SUBCOMANDOS_PROIBIDOS:
+        return True
+    if subcomando == "push":
+        return _push_perigoso(resto, diretorio)
     if subcomando.lower() in aliases:
         return _alias_perigoso(aliases[subcomando.lower()], resto, diretorio)
-    if subcomando != "push":
-        return _alias_persistido_perigoso(subcomando, resto, diretorio)
-    if any(_argumento_perigoso(token) for token in resto):
+    return _alias_persistido_perigoso(subcomando, resto, diretorio)
+
+
+def _push_perigoso(argumentos: list[str], diretorio: str | None) -> bool:
+    if any(_argumento_perigoso(token) for token in argumentos):
         return True
-    return _destino_implicito_perigoso(_posicionais_push(resto), diretorio)
+    posicionais = _posicionais(argumentos, _OPCOES_PUSH_COM_VALOR)
+    return _destino_implicito_perigoso(posicionais, diretorio)
 
 
 def _alias_persistido_perigoso(subcomando: str, resto: list[str], diretorio: str | None) -> bool:
@@ -188,18 +226,47 @@ def _alias_persistido_perigoso(subcomando: str, resto: list[str], diretorio: str
     return bool(expansao) and _alias_perigoso(expansao, resto, diretorio)
 
 
-def _posicionais_push(argumentos: list[str]) -> list[str]:
+def _posicionais(argumentos: list[str], opcoes_com_valor: set[str]) -> list[str]:
     posicionais: list[str] = []
     indice = 0
     while indice < len(argumentos):
         argumento = argumentos[indice]
-        if argumento in _OPCOES_PUSH_COM_VALOR:
+        if argumento in opcoes_com_valor:
             indice += 2
             continue
         if not argumento.startswith("-"):
             posicionais.append(argumento)
         indice += 1
     return posicionais
+
+
+def _gh_perigoso(argumentos: list[str]) -> bool:
+    comando = _posicionais(argumentos, _OPCOES_GH_COM_VALOR)[:2]
+    if comando == ["pr", "merge"]:
+        return True
+    return comando[:1] == ["api"] and _gh_api_perigoso(argumentos)
+
+
+def _gh_api_perigoso(argumentos: list[str]) -> bool:
+    if _metodo_delete(argumentos):
+        return True
+    minusculos = [argumento.lower() for argumento in argumentos]
+    return any(trecho in arg for arg in minusculos for trecho in _TRECHOS_PROIBIDOS_GH_API)
+
+
+def _metodo_delete(argumentos: list[str]) -> bool:
+    for posicao, argumento in enumerate(argumentos):
+        if argumento in _OPCOES_METODO_GH:
+            valor = argumentos[posicao + 1] if posicao + 1 < len(argumentos) else ""
+        elif argumento.startswith("--method="):
+            valor = argumento.partition("=")[2]
+        elif argumento.startswith("-X"):
+            valor = argumento[2:].removeprefix("=")
+        else:
+            continue
+        if valor.upper() == "DELETE":
+            return True
+    return False
 
 
 def _git(diretorio: str | None, *argumentos: str) -> str:
@@ -259,7 +326,9 @@ def _interpretado_perigoso(tokens: list[str], posicao: int, diretorio: str | Non
 def _segmento_perigoso(tokens: list[str], diretorio: str | None) -> bool:
     for posicao, token in enumerate(tokens):
         nome = token.rsplit("/", 1)[-1]
-        if nome == "git" and _push_perigoso(tokens, posicao, diretorio):
+        if nome == "git" and _git_perigoso(tokens, posicao, diretorio):
+            return True
+        if nome == "gh" and _gh_perigoso(tokens[posicao + 1 :]):
             return True
         if nome in _INTERPRETADORES and _interpretado_perigoso(tokens, posicao, diretorio):
             return True
@@ -283,7 +352,9 @@ def main() -> int:
         return 0
     comando = str(entrada.get("tool_input", {}).get("command", ""))
     if comando_perigoso(comando):
-        sys.stderr.write(f"push_bloqueado motivo=force_delete_ou_main comando={comando}\n")
+        sys.stderr.write(
+            f"push_bloqueado motivo=force_delete_main_merge_ou_desvio_de_hook comando={comando}\n"
+        )
         return 2
     return 0
 

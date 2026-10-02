@@ -19,10 +19,11 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import pyarrow as pa
-from datasus_dbc import decompress, decompress_bytes
+from datasus_dbc import decompress_bytes
 from dbctodbf import DBCDecompress  # type: ignore[import-untyped]  # override cita dbc_to_dbf
 from dbfread import DBF
 
+from sustemporal.acquisition.descompressao import DesfechoDescompressao, descomprimir_limitado
 from sustemporal.contracts import EstadoIntegridade
 from sustemporal.ingest.dbf import (
     COLUNA_DELETADO,
@@ -181,26 +182,38 @@ def ler_dbc(dados: bytes, *, tamanho_bloco: int = TAMANHO_BLOCO_PADRAO) -> Leitu
     return LeituraDbc(leitura, metadados)
 
 
-def _descomprimir_arquivo(origem: Path, destino: Path) -> None:
-    try:
-        decompress(str(origem), str(destino))
-    except ValueError as erro:
-        raise _classificar(erro) from erro
+def _limite_declarado(prefixo: bytes) -> int:
+    """Teto de bytes do DBF descomprimido: H + n × R + 1 (0x1A opcional), do cabeçalho."""
+    n_registros, tam_cabecalho, tam_registro = struct.unpack_from("<IHH", prefixo, 4)
+    return tam_cabecalho + n_registros * tam_registro + 1
 
 
-def _conferir_fim_dcl_arquivo(caminho: Path, pasta: Path) -> None:
+def _descomprimir_arquivo(origem: Path, destino: Path, limite: int) -> None:
+    resultado = descomprimir_limitado(origem, destino, limite)
+    texto = compactar(resultado.mensagem)
+    if resultado.desfecho is DesfechoDescompressao.OK:
+        return
+    if resultado.desfecho is DesfechoDescompressao.EXCEDEU_LIMITE:
+        raise _inesperado(f"dbf_excede_tamanho_declarado limite={limite} erro={texto}")
+    if resultado.desfecho is DesfechoDescompressao.TRUNCADO:
+        raise QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_TRUNCADO, f"fluxo_dcl_incompleto erro={texto}"
+        )
+    raise _inesperado(f"fluxo_dcl_invalido erro={texto}")
+
+
+def _conferir_fim_dcl_arquivo(caminho: Path, pasta: Path, limite: int) -> None:
     cortado, saida = pasta / "sem_ultimo_byte.dbc", pasta / "descarte.dbf"
     shutil.copyfile(caminho, cortado)
     with cortado.open("r+b") as arquivo:
         arquivo.truncate(caminho.stat().st_size - 1)
     try:
-        decompress(str(cortado), str(saida))
-    except ValueError:
-        return
+        resultado = descomprimir_limitado(cortado, saida, limite)
     finally:
         cortado.unlink()
         saida.unlink(missing_ok=True)
-    raise _inesperado(f"bytes_apos_fim_dcl tamanho={caminho.stat().st_size}")
+    if resultado.desfecho is DesfechoDescompressao.OK:
+        raise _inesperado(f"bytes_apos_fim_dcl tamanho={caminho.stat().st_size}")
 
 
 def ler_dbc_arquivo(
@@ -212,6 +225,9 @@ def ler_dbc_arquivo(
 ) -> LeituraDbc:
     """Descomprime de arquivo para arquivo temporário e lê por memmap; remove o temporário.
 
+    A descompressão roda em processo filho com teto de bytes gravados igual ao tamanho declarado
+    no cabeçalho (H + n × R + 1); fluxo que produz mais vai para quarentena.
+
     `verificar_fim` repete a descompressão sem o último byte para detectar bytes após o código
     de fim DCL (custo de uma segunda descompressão em disco).
     """
@@ -220,12 +236,13 @@ def ler_dbc_arquivo(
     with caminho.open("rb") as arquivo:
         prefixo = arquivo.read(_MAX_CABECALHO + _TAM_POS_CABECALHO + 2)
     tam_cabecalho, flag, dicionario = _conferir_envelope(prefixo)
+    limite = _limite_declarado(prefixo)
     with tempfile.TemporaryDirectory(dir=dir_temporario) as nome_pasta:
         pasta = Path(nome_pasta)
         destino = pasta / "descomprimido.dbf"
-        _descomprimir_arquivo(caminho, destino)
+        _descomprimir_arquivo(caminho, destino, limite)
         if verificar_fim:
-            _conferir_fim_dcl_arquivo(caminho, pasta)
+            _conferir_fim_dcl_arquivo(caminho, pasta, limite)
         with destino.open("rb") as arquivo:
             _conferir_cabecalho_preservado(arquivo.read(tam_cabecalho), prefixo, tam_cabecalho)
         leitura = ler_dbf_arquivo(destino, tamanho_bloco=tamanho_bloco)

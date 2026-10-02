@@ -272,3 +272,7 @@ def select_snapshots(
         corte_observacao=corte,
         congelado=corte is not None,
     )
+
+
+def unir_snapshots(conjuntos: Iterable[SnapshotSet]) -> SnapshotSet:
+    raise NotImplementedError

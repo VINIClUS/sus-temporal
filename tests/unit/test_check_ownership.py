@@ -1,4 +1,5 @@
 import ast
+import sys
 from pathlib import Path
 
 import pytest
@@ -217,6 +218,7 @@ def test_checador_so_importa_biblioteca_padrao_e_yaml() -> None:
         no.module.split(".")[0] for no in importados if isinstance(no, ast.ImportFrom) and no.module
     }
     assert not nomes & {"sustemporal", "scripts", "tests"}
+    assert nomes <= set(sys.stdlib_module_names) | {"yaml"}
     assert all(no.level == 0 for no in importados if isinstance(no, ast.ImportFrom))
 
 

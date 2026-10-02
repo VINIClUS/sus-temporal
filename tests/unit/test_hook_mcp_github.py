@@ -97,6 +97,7 @@ def test_orquestrador_pode_mesclar_pr() -> None:
         ("mcp__github__create_or_update_file", {"branch": "refs/heads/main", "path": "a"}),
         ("mcp__github__enable_pr_auto_merge", {"pullNumber": 1}),
         ("mcp__github__delete_file", {"branch": "claude/s1-x", "path": "a"}),
+        ("mcp__github__merge_pull_request", {"pullNumber": 1, "head": "main"}),
     ],
 )
 def test_orquestrador_nao_escreve_em_main_nem_usa_outras_proibidas(

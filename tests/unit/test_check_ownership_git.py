@@ -112,6 +112,15 @@ def test_branch_sem_dono_fora_de_humanos_falha_em_pr(repo: Path) -> None:
     assert verificar(repo, "decisao-g0", "main") == 1
 
 
+def test_branches_humanos_vem_do_mapa_da_base(repo: Path) -> None:
+    variante = ESPECIFICACAO.replace('branches: ["humano/*"]', 'branches: ["pesquisador/*"]')
+    _gravar(repo, "docs/process/propriedade.yaml", variante)
+    _git(repo, "commit", "-q", "-am", "humanos")
+    _branch_com(repo, "pesquisador/g0", ["experiments/decisions/G0.yaml"])
+    assert verificar(repo, "pesquisador/g0", "main") == 0
+    assert verificar(repo, "humano/g0", "main") == 1
+
+
 def test_decisao_com_caixa_trocada_e_violacao_ate_para_integrador(repo: Path) -> None:
     _branch_com(repo, "claude/orq-x", ["experiments/Decisions/G0.yaml"])
     assert verificar(repo, "claude/orq-x", "main") == 1

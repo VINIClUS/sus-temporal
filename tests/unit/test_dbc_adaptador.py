@@ -514,3 +514,13 @@ def test_fidelidade_conta_so_registros_realmente_comparados() -> None:
     relatorio = verificar_fidelidade(dbc, dataclasses.replace(leitura, tabela=tabela), "COMPLETA")
     assert not relatorio.fiel
     assert relatorio.registros_comparados == 4
+
+
+def test_fidelidade_com_cabecalho_divergente_nao_compara_registros_nem_levanta() -> None:
+    leitura = ler_dbc(dbf_para_dbc(_dbf())).leitura
+    dbc_truncado = dbf_para_dbc(_dbf(truncar_bytes=4))
+    relatorio = verificar_fidelidade(dbc_truncado, leitura, "COMPLETA")
+    assert relatorio.verificado
+    assert not relatorio.fiel
+    assert relatorio.registros_comparados == 0
+    assert any(d.startswith("cabecalho_divergente") for d in relatorio.divergencias)

@@ -163,3 +163,50 @@ def test_cauda_truncada_no_meio_de_caractere_utf8_e_separada(tmp_path: Path) -> 
     assert len(Manifesto(caminho).ler().observacoes) == 2
     (fragmento,) = store.glob("manifesto.jsonl.fragmento.*")
     assert fragmento.read_bytes().endswith(b"configura\xc3")
+
+
+def test_checksum_divergente_registra_integridade_e_formato_na_observacao(tmp_path: Path) -> None:
+    origem = tmp_path / "a.dbc"
+    origem.write_bytes(dbc_sintetico())
+    requisicao = _requisicao(origem.as_uri()).model_copy(update={"sha256_esperado": "0" * 64})
+    observacao = fetch_source(requisicao, tmp_path / "store")
+    assert observacao.resultado is ResultadoTentativa.CONTEUDO_INVALIDO
+    assert observacao.integridade is EstadoIntegridade.QUARENTENA_CHECKSUM
+    assert observacao.formato is FormatoArquivo.DBC
+
+
+@pytest.mark.parametrize(
+    "nomes",
+    [
+        ("a/./b.txt",),
+        ("a//b.txt",),
+        ("./b.txt",),
+        ("a/b.txt", "a/./b.txt"),
+        ("a/b.txt", "a//b.txt"),
+    ],
+)
+def test_membro_com_componente_vazio_ou_ponto_fica_inseguro(
+    tmp_path: Path, nomes: tuple[str, ...]
+) -> None:
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as arquivo:
+        for nome in nomes:
+            arquivo.writestr(zipfile.ZipInfo(nome), b"1")
+    caminho = tmp_path / "x.zip"
+    caminho.write_bytes(buffer.getvalue())
+    veredito = validar_conteudo(caminho, FormatoArquivo.ZIP)
+    assert veredito.integridade is EstadoIntegridade.QUARENTENA_CAMINHO_INSEGURO
+
+
+def test_diretorio_com_barra_final_continua_seguro(tmp_path: Path) -> None:
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as arquivo:
+        arquivo.writestr(zipfile.ZipInfo("dados/"), b"")
+        arquivo.writestr("dados/tb.txt", b"1")
+    caminho = tmp_path / "x.zip"
+    caminho.write_bytes(buffer.getvalue())
+    assert validar_conteudo(caminho, FormatoArquivo.ZIP).integridade is EstadoIntegridade.OK

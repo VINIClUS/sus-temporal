@@ -213,27 +213,38 @@ def _referencia(
         return descritores, _coletar(ref.records, ranks_a), _coletar(ref.deleted, ranks_d)
 
 
+def _flags_independentes(dbf: bytes) -> NDArray[np.bool_]:
+    """Marcadores de deleção lidos por posição física, direto dos bytes independentes."""
+    n, h, r = struct.unpack_from("<IHH", dbf, 4)
+    registros = np.frombuffer(dbf, dtype=np.uint8, count=n * r, offset=h).reshape(n, r)
+    return np.asarray(registros[:, 0] == ord("*"), dtype=np.bool_)
+
+
 def _comparar_registros(dbf: bytes, leitura: LeituraDbf, posicoes: NDArray[np.int64]) -> list[str]:
     tabela = leitura.tabela
-    flags = tabela.column(COLUNA_DELETADO).to_numpy().astype(bool)
+    proprios_flags = tabela.column(COLUNA_DELETADO).to_numpy().astype(bool)
+    flags = _flags_independentes(dbf)
+    divergencias: list[str] = []
+    if not np.array_equal(flags, proprios_flags):
+        divergencias.append(f"flags_delecao_divergentes linhas={flags.size}")
+        posicoes = posicoes[posicoes < min(flags.size, proprios_flags.size)]
     rank_deletado = np.cumsum(flags) - flags
     rank = np.where(flags, rank_deletado, np.arange(flags.size) - rank_deletado)
-    nomes = [campo.nome for campo in leitura.cabecalho.campos]
     ranks_d = {int(rank[p]) for p in posicoes if flags[p]}
     ranks_a = {int(rank[p]) for p in posicoes if not flags[p]}
     descritores_ref, (n_ativos, ativos), (n_deletados, deletados) = _referencia(
         dbf, ranks_a, ranks_d
     )
     descritores = [(c.nome, c.tipo, c.largura, c.decimais) for c in leitura.cabecalho.campos]
-    divergencias = [] if descritores_ref == descritores else ["campos_divergentes"]
-    contagem_coluna = int(flags.sum())
-    lidas = (int((~flags).sum()), contagem_coluna, leitura.n_deletados)
+    if descritores_ref != descritores:
+        divergencias.append("campos_divergentes")
+    lidas = (int((~proprios_flags).sum()), int(proprios_flags.sum()), leitura.n_deletados)
     if (n_ativos, n_deletados, n_deletados) != lidas:
         divergencias.append(f"contagens_divergentes ativos={n_ativos} deletados={n_deletados}")
+    nomes = [campo.nome for campo in leitura.cabecalho.campos]
     proprios = tabela.take(posicoes).select(nomes).to_pylist()
     for posicao, proprio in zip(posicoes.tolist(), proprios, strict=True):
-        origem = deletados if flags[posicao] else ativos
-        esperado = origem.get(int(rank[posicao]))
+        esperado = (deletados if flags[posicao] else ativos).get(int(rank[posicao]))
         obtido = {nome: valor.encode("latin-1") for nome, valor in proprio.items()}
         if esperado is None or dict(esperado) != obtido:
             divergencias.append(f"registro_divergente indice={posicao}")

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime
 import re
 import struct
 from dataclasses import dataclass
@@ -40,8 +41,12 @@ def _validar_campo(campo: CampoDbf) -> None:
 
 def _validar_arquivo(data: tuple[int, int, int], byte_driver: int, truncar_bytes: int) -> None:
     ano, mes, dia = data
-    if not (1900 <= ano <= 2155 and 1 <= mes <= 12 and 1 <= dia <= 31):
-        raise ValueError(f"data_invalida data={data}")
+    try:
+        datetime.date(ano, mes, dia)
+    except ValueError as erro:
+        raise ValueError(f"data_invalida data={data}") from erro
+    if not 1900 <= ano <= 2155:
+        raise ValueError(f"data_fora_do_intervalo data={data}")
     if not 0 <= byte_driver <= 255:
         raise ValueError(f"byte_driver_invalido byte_driver={byte_driver}")
     if truncar_bytes < 0:

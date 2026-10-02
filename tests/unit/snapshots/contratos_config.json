@@ -407,6 +407,30 @@
    "VigilanciaSpec": {
     "additionalProperties": false,
     "properties": {
+     "cadencia_dias": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Cadencia Dias"
+     },
+     "duracao_meses": {
+      "anyOf": [
+       {
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Duracao Meses"
+     },
      "familias_fontes": {
       "default": [],
       "items": {
@@ -643,6 +667,30 @@
   },
   "additionalProperties": false,
   "properties": {
+   "cadencia_dias": {
+    "anyOf": [
+     {
+      "type": "integer"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Cadencia Dias"
+   },
+   "duracao_meses": {
+    "anyOf": [
+     {
+      "type": "integer"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Duracao Meses"
+   },
    "familias_fontes": {
     "default": [],
     "items": {

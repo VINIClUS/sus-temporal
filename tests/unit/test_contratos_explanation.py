@@ -292,3 +292,49 @@ def test_bundle_rejeita_evidencia_citada_inexistente_fora_de_violacao() -> None:
 def test_evidencia_de_ausencia_exige_artefato() -> None:
     with pytest.raises(ValidationError, match="ausencia_sem_artefato"):
         _evidencia(artifact_ids=())
+
+
+_EVIDENCIAS_INUTILIZAVEIS = [
+    {"cobertura": EstadoCobertura.INSUFICIENTE},
+    {"cobertura": EstadoCobertura.AUSENTE},
+    {"integridade": EstadoIntegridade.QUARENTENA_TRUNCADO},
+    {"integridade": EstadoIntegridade.QUARENTENA_LEIAUTE},
+    {"integridade": EstadoIntegridade.NAO_VERIFICADO},
+]
+_OUTROS_TIPOS = [
+    (TipoEvidencia.VINCULO_ENCONTRADO, 3),
+    (TipoEvidencia.APLICABILIDADE, 1),
+    (TipoEvidencia.SELECAO_TEMPORAL, 0),
+]
+
+
+@pytest.mark.parametrize("campos", _EVIDENCIAS_INUTILIZAVEIS)
+@pytest.mark.parametrize(("tipo", "n_resultados"), _OUTROS_TIPOS)
+def test_violacao_citando_evidencia_inutilizavel_de_qualquer_tipo_e_rejeitada(
+    tipo: TipoEvidencia, n_resultados: int, campos: dict[str, object]
+) -> None:
+    avaliacao = _avaliacao(evidence_ids=("ev_ausencia", "ev_extra"))
+    extra = _evidencia("ev_extra", tipo=tipo, n_resultados=n_resultados, **campos)
+    with pytest.raises(ValidationError, match="violacao_com_evidencia_inutilizavel"):
+        _bundle(avaliacoes=(avaliacao,), evidencias=(_evidencia(), extra))
+
+
+@pytest.mark.parametrize("campos", _EVIDENCIAS_INUTILIZAVEIS)
+@pytest.mark.parametrize(("tipo", "n_resultados"), _OUTROS_TIPOS)
+def test_evidencia_inutilizavel_de_qualquer_tipo_sustenta_apenas_inconclusao(
+    tipo: TipoEvidencia, n_resultados: int, campos: dict[str, object]
+) -> None:
+    inconclusiva = _avaliacao(EstadoAvaliacao.INCONCLUSIVO, evidence_ids=("ev_extra",))
+    extra = _evidencia("ev_extra", tipo=tipo, n_resultados=n_resultados, **campos)
+    bundle = _bundle(avaliacoes=(inconclusiva,), evidencias=(extra,))
+    assert bundle.avaliacoes[0].estado is EstadoAvaliacao.INCONCLUSIVO
+
+
+@pytest.mark.parametrize(("tipo", "n_resultados"), _OUTROS_TIPOS)
+def test_violacao_com_evidencias_utilizaveis_de_outros_tipos_e_aceita(
+    tipo: TipoEvidencia, n_resultados: int
+) -> None:
+    avaliacao = _avaliacao(evidence_ids=("ev_ausencia", "ev_extra"))
+    extra = _evidencia("ev_extra", tipo=tipo, n_resultados=n_resultados)
+    bundle = _bundle(avaliacoes=(avaliacao,), evidencias=(_evidencia(), extra))
+    assert bundle.avaliacoes[0].estado is EstadoAvaliacao.VIOLACAO

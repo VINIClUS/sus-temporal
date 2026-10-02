@@ -69,11 +69,17 @@ class Evidence(ContratoBase):
         return self
 
     @property
+    def utilizavel(self) -> bool:
+        return (
+            self.cobertura is EstadoCobertura.DISPONIVEL
+            and self.integridade is EstadoIntegridade.OK
+        )
+
+    @property
     def sustenta_ausencia(self) -> bool:
         return (
             self.tipo is TipoEvidencia.AUSENCIA_NA_FONTE
-            and self.cobertura is EstadoCobertura.DISPONIVEL
-            and self.integridade is EstadoIntegridade.OK
+            and self.utilizavel
             and self.n_resultados == 0
         )
 
@@ -153,8 +159,14 @@ class ExplanationBundle(ContratoBase):
             citadas = [por_id.get(i) for i in avaliacao.evidence_ids]
             if any(e is None for e in citadas):
                 raise ValueError(f"violacao_cita_evidencia_ausente bundle={self.bundle_id}")
-            if any(_nao_sustenta(e) for e in citadas if e is not None):
+            presentes = [e for e in citadas if e is not None]
+            if any(_nao_sustenta(e) for e in presentes):
                 raise ValueError(f"violacao_sem_ausencia_sustentada bundle={self.bundle_id}")
+            if not all(e.utilizavel for e in presentes):
+                raise ValueError(
+                    f"violacao_com_evidencia_inutilizavel bundle={self.bundle_id} "
+                    f"regra={avaliacao.rule_id}"
+                )
 
     def _evidencias_nas_selecoes(self) -> None:
         por_id = {e.evidence_id: e for e in self.evidencias}

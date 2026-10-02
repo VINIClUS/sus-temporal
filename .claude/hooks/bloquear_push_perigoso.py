@@ -1,4 +1,4 @@
-"""Hook PreToolUse (Bash): bloqueia push forçado, remoção de branch e push para main."""
+"""Hook PreToolUse (Bash): recusa push forçado ou para main, remoção, merge e desvio de hook."""
 
 from __future__ import annotations
 
@@ -8,6 +8,10 @@ import re
 import shlex
 import subprocess
 import sys
+from dataclasses import dataclass, replace
+
+from guarda_codigo import codigo_perigoso
+from guarda_gh import gh_perigoso, posicionais
 
 _OPERADORES = {"&&", "||", ";", "|", "&", ";;", "|&"}
 _OPCOES_GIT_COM_VALOR = {
@@ -20,70 +24,64 @@ _OPCOES_GIT_COM_VALOR = {
     "--config-env",
     "--super-prefix",
 }
+_OPCOES_DE_REPOSITORIO = {"--git-dir", "--work-tree"}
+_VARIAVEIS_DE_REPOSITORIO = {"GIT_DIR": "--git-dir", "GIT_WORK_TREE": "--work-tree"}
 _INTERPRETADORES = {"bash", "sh", "zsh", "dash", "ksh"}
+_EXECUTAVEIS_COM_AMBIENTE = {"git", "eval", *_INTERPRETADORES}
 _OPCOES_SHELL_COM_VALOR = {"-o", "+o", "-O", "+O", "--rcfile", "--init-file"}
 _FLAGS_PERIGOSAS = {"--delete", "--mirror", "--all", "--tags", "--prune"}
 _CURTAS_PERIGOSAS = re.compile(r"^-[a-zA-Z]*[fd][a-zA-Z]*$")
 _ALVOS_PROIBIDOS = {"main", "heads/main", "refs/heads/main"}
 _OPCOES_PUSH_COM_VALOR = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+_SEM_VERIFICACAO = "--no-verify"
+_MENOR_ABREVIACAO_SEM_VERIFICACAO = len("--no-v")
+_CHAVE_HOOKS = "core.hookspath"
+_OPCOES_DE_CONFIG = {"-c", "--config-env"}
+_SUBCOMANDOS_PROIBIDOS = {"send-pack"}
 _ORIGENS_IMPLICITAS = {"HEAD", "@"}
 _COMANDOS_DE_DIRETORIO = {"cd", "pushd"}
+_CARACTERES_INDETERMINADOS = "$~`"
+_ABERTURAS_DE_SUBSTITUICAO = ("$(", "`", "<(", ">(")
+_SINTAXE_DE_SUBSTITUICAO = re.compile(r"\$\(|[<>]\(|[`\"'()]")
+_EXPANSIVEIS = frozenset("$`{*?[")
+_INVOLUCROS = frozenset(
+    {"env", "command", "exec", "nohup", "sudo", "time", "nice", "xargs", "timeout", "stdbuf"}
+)
+_ATRIBUICAO = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_CONFIG_POR_AMBIENTE = re.compile(
+    r"^(GIT_CONFIG_(COUNT|PARAMETERS|GLOBAL|SYSTEM|KEY_\d+|VALUE_\d+)|HOME|XDG_CONFIG_HOME)="
+)
+_REMOCOES_DE_CONFIG = frozenset(
+    {"--unset", "--unset-all", "--remove-section", "--rename-section", "unset", "remove-section"}
+)
+_HOOKS_DO_REPOSITORIO = ".githooks"
+_PALAVRA_PUSH = re.compile(r"\bpush\b")
+_MARCAS_DE_DESVIO = ("--no-v", "hookspath")
+_ARGUMENTO_DE_INVOLUCRO = re.compile(r"^\d+(\.\d+)?[smhd]?$")
 _SUBCOMANDOS_NATIVOS = frozenset(
-    [
-        "add",
-        "am",
-        "apply",
-        "archive",
-        "bisect",
-        "blame",
-        "branch",
-        "cat-file",
-        "checkout",
-        "cherry-pick",
-        "clean",
-        "clone",
-        "commit",
-        "config",
-        "describe",
-        "diff",
-        "fetch",
-        "for-each-ref",
-        "format-patch",
-        "gc",
-        "grep",
-        "hash-object",
-        "init",
-        "log",
-        "ls-files",
-        "ls-remote",
-        "ls-tree",
-        "merge",
-        "mv",
-        "notes",
-        "pull",
-        "rebase",
-        "reflog",
-        "remote",
-        "reset",
-        "restore",
-        "rev-list",
-        "rev-parse",
-        "rm",
-        "shortlog",
-        "show",
-        "show-ref",
-        "stash",
-        "status",
-        "submodule",
-        "switch",
-        "symbolic-ref",
-        "tag",
-        "update-ref",
-        "worktree",
-    ]
+    """
+    add am apply archive bisect blame branch cat-file checkout cherry-pick clean clone commit
+    config describe diff fetch for-each-ref format-patch gc grep hash-object init log ls-files
+    ls-remote ls-tree merge mv notes pull rebase reflog remote reset restore rev-list rev-parse
+    rm shortlog show show-ref stash status submodule switch symbolic-ref tag update-ref worktree
+    """.split()
 )
 _INDETERMINADO = "\x00indeterminado"
 _ALIAS_DESCONHECIDO = "\x00alias_desconhecido"
+
+
+@dataclass(frozen=True)
+class _Contexto:
+    diretorio: str | None = None
+    repositorio: tuple[str, ...] = ()
+
+    @property
+    def indeterminado(self) -> bool:
+        return self.diretorio == _INDETERMINADO
+
+    @property
+    def explicito(self) -> bool:
+        return self.diretorio is not None or bool(self.repositorio)
 
 
 def _tokens(comando: str) -> list[str]:
@@ -106,14 +104,35 @@ def _segmentos(tokens: list[str]) -> list[list[str]]:
     return segmentos
 
 
+def _indeterminado(caminho: str) -> bool:
+    return any(caractere in caminho for caractere in _CARACTERES_INDETERMINADOS)
+
+
 def _novo_diretorio(atual: str | None, destino: str | None) -> str:
-    if destino is None or atual == _INDETERMINADO:
-        return _INDETERMINADO
-    if any(caractere in destino for caractere in "$~`"):
+    if destino is None or destino == "-" or atual == _INDETERMINADO or _indeterminado(destino):
         return _INDETERMINADO
     if atual is None or os.path.isabs(destino):
         return destino
     return os.path.join(atual, destino)
+
+
+def _com_opcao(contexto: _Contexto, opcao: str, valor: str) -> _Contexto:
+    if opcao == "-C":
+        return replace(contexto, diretorio=_novo_diretorio(contexto.diretorio, valor))
+    if opcao not in _OPCOES_DE_REPOSITORIO:
+        return contexto
+    if _indeterminado(valor):
+        return replace(contexto, diretorio=_INDETERMINADO)
+    return replace(contexto, repositorio=(*contexto.repositorio, f"{opcao}={valor}"))
+
+
+def _com_ambiente(contexto: _Contexto, atribuicoes: list[str]) -> _Contexto:
+    for atribuicao in atribuicoes:
+        nome, igual, valor = atribuicao.partition("=")
+        opcao = _VARIAVEIS_DE_REPOSITORIO.get(nome)
+        if igual and opcao is not None:
+            contexto = _com_opcao(contexto, opcao, valor)
+    return contexto
 
 
 def _registrar_alias(aliases: dict[str, str], opcao: str, valor: str) -> None:
@@ -127,103 +146,158 @@ def _registrar_alias(aliases: dict[str, str], opcao: str, valor: str) -> None:
         aliases[alias] = _ALIAS_DESCONHECIDO
 
 
+def _opcao_global(tokens: list[str], indice: int) -> tuple[str, str, int]:
+    opcao = tokens[indice]
+    nome, igual, valor = opcao.partition("=")
+    if opcao.startswith("--") and igual and nome in _OPCOES_GIT_COM_VALOR:
+        return nome, valor, 1
+    if opcao in _OPCOES_GIT_COM_VALOR:
+        return opcao, tokens[indice + 1] if indice + 1 < len(tokens) else "", 2
+    return opcao, "", 1
+
+
 def _subcomando_git(
-    tokens: list[str], inicio: int, diretorio: str | None
-) -> tuple[int, dict[str, str], str | None]:
+    tokens: list[str], inicio: int, contexto: _Contexto
+) -> tuple[int, dict[str, str], _Contexto]:
     aliases: dict[str, str] = {}
     indice = inicio
-    while indice < len(tokens):
-        opcao = tokens[indice]
-        if opcao.startswith("--config-env="):
-            _registrar_alias(aliases, "--config-env", opcao.partition("=")[2])
-            indice += 1
-        elif opcao in _OPCOES_GIT_COM_VALOR:
-            valor = tokens[indice + 1] if indice + 1 < len(tokens) else ""
-            _registrar_alias(aliases, opcao, valor)
-            if opcao == "-C":
-                diretorio = _novo_diretorio(diretorio, valor)
-            indice += 2
-        elif opcao.startswith("-"):
-            indice += 1
-        else:
-            return indice, aliases, diretorio
-    return indice, aliases, diretorio
+    while indice < len(tokens) and tokens[indice].startswith("-"):
+        opcao, valor, passo = _opcao_global(tokens, indice)
+        _registrar_alias(aliases, opcao, valor)
+        contexto = _com_opcao(contexto, opcao, valor)
+        indice += passo
+    return indice, aliases, contexto
+
+
+def _sem_verificacao(token: str) -> bool:
+    return len(token) >= _MENOR_ABREVIACAO_SEM_VERIFICACAO and _SEM_VERIFICACAO.startswith(token)
 
 
 def _argumento_perigoso(token: str) -> bool:
-    if token.startswith("--force") or token in _FLAGS_PERIGOSAS:
+    if token.startswith("--force") or token in _FLAGS_PERIGOSAS or _sem_verificacao(token):
         return True
     if _CURTAS_PERIGOSAS.match(token) or token.startswith(("+", ":")):
         return True
     return token.rsplit(":", 1)[-1] in _ALVOS_PROIBIDOS
 
 
-def _alias_perigoso(expansao: str, resto: list[str], diretorio: str | None) -> bool:
+def _valor_de_config(opcoes: list[str], posicao: int) -> str | None:
+    opcao = opcoes[posicao]
+    if opcao.startswith("--config-env="):
+        return opcao.partition("=")[2]
+    if opcao in _OPCOES_DE_CONFIG and posicao + 1 < len(opcoes):
+        return opcoes[posicao + 1]
+    return None
+
+
+def _expansivel(token: str) -> bool:
+    return any(caractere in token for caractere in _EXPANSIVEIS)
+
+
+def _programa_indeterminado(token: str) -> bool:
+    return "$" in token or "`" in token
+
+
+def _chave_de_desvio(chave: str) -> bool:
+    """Chave que troca ou inclui configuração capaz de desligar os hooks."""
+    minuscula = chave.strip().lower()
+    return minuscula in (_CHAVE_HOOKS, "include.path") or minuscula.startswith("includeif.")
+
+
+def _sobrescreve_hooks(opcoes: list[str]) -> bool:
+    for posicao in range(len(opcoes)):
+        valor = _valor_de_config(opcoes, posicao)
+        if valor is None:
+            continue
+        if _expansivel(valor) or _chave_de_desvio(valor.partition("=")[0]):
+            return True
+    return False
+
+
+def _config_de_hooks_perigosa(argumentos: list[str]) -> bool:
+    soltos = [argumento for argumento in argumentos if not argumento.startswith("-")]
+    chave = next((i for i, a in enumerate(soltos) if _chave_de_desvio(a)), None)
+    if chave is None:
+        return False
+    if any(a.lower() in _REMOCOES_DE_CONFIG or _expansivel(a) for a in argumentos):
+        return True
+    valor = soltos[chave + 1 : chave + 2]
+    permitido = soltos[chave].lower() == _CHAVE_HOOKS and valor == [_HOOKS_DO_REPOSITORIO]
+    return bool(valor) and not permitido
+
+
+def _alias_perigoso(expansao: str, resto: list[str], contexto: _Contexto) -> bool:
     if expansao == _ALIAS_DESCONHECIDO:
         return True
     argumentos = " ".join(shlex.quote(token) for token in resto)
     if expansao.startswith("!"):
-        return comando_perigoso(f"{expansao[1:]} {argumentos}", diretorio)
-    return comando_perigoso(f"git {expansao} {argumentos}", diretorio)
+        return comando_perigoso(f"{expansao[1:]} {argumentos}", contexto)
+    return comando_perigoso(f"git {expansao} {argumentos}", contexto)
 
 
-def _push_perigoso(tokens: list[str], posicao_git: int, diretorio: str | None) -> bool:
-    indice, aliases, diretorio = _subcomando_git(tokens, posicao_git + 1, diretorio)
+def _git_perigoso(tokens: list[str], posicao_git: int, contexto: _Contexto) -> bool:
+    indice, aliases, contexto = _subcomando_git(tokens, posicao_git + 1, contexto)
+    if _sobrescreve_hooks(tokens[posicao_git + 1 : indice]):
+        return True
     if indice >= len(tokens):
         return False
     subcomando, resto = tokens[indice], tokens[indice + 1 :]
-    if subcomando.lower() in aliases:
-        return _alias_perigoso(aliases[subcomando.lower()], resto, diretorio)
-    if subcomando != "push":
-        return _alias_persistido_perigoso(subcomando, resto, diretorio)
-    if any(_argumento_perigoso(token) for token in resto):
+    if _expansivel(subcomando) or subcomando in _SUBCOMANDOS_PROIBIDOS:
         return True
-    return _destino_implicito_perigoso(_posicionais_push(resto), diretorio)
+    if subcomando == "push":
+        return _push_perigoso(resto, contexto)
+    if subcomando == "config":
+        return _config_de_hooks_perigosa(resto)
+    if subcomando.lower() in aliases:
+        return _alias_perigoso(aliases[subcomando.lower()], resto, contexto)
+    return _alias_persistido_perigoso(subcomando, resto, contexto)
 
 
-def _alias_persistido_perigoso(subcomando: str, resto: list[str], diretorio: str | None) -> bool:
-    if subcomando in _SUBCOMANDOS_NATIVOS or diretorio == _INDETERMINADO:
+def _push_perigoso(argumentos: list[str], contexto: _Contexto) -> bool:
+    if any(_expansivel(token) or _argumento_perigoso(token) for token in argumentos):
+        return True
+    return _destino_implicito_perigoso(posicionais(argumentos, _OPCOES_PUSH_COM_VALOR), contexto)
+
+
+def _builtin(subcomando: str) -> bool:
+    return subcomando in _git(_Contexto(), "--list-cmds=builtins").split()
+
+
+def _alias_persistido_perigoso(subcomando: str, resto: list[str], contexto: _Contexto) -> bool:
+    if subcomando in _SUBCOMANDOS_NATIVOS:
         return False
-    expansao = _git(diretorio, "config", "--get", f"alias.{subcomando}")
-    return bool(expansao) and _alias_perigoso(expansao, resto, diretorio)
+    if contexto.indeterminado:
+        return not _builtin(subcomando)
+    expansao = _git(contexto, "config", "--get", f"alias.{subcomando}")
+    return bool(expansao) and _alias_perigoso(expansao, resto, contexto)
 
 
-def _posicionais_push(argumentos: list[str]) -> list[str]:
-    posicionais: list[str] = []
-    indice = 0
-    while indice < len(argumentos):
-        argumento = argumentos[indice]
-        if argumento in _OPCOES_PUSH_COM_VALOR:
-            indice += 2
-            continue
-        if not argumento.startswith("-"):
-            posicionais.append(argumento)
-        indice += 1
-    return posicionais
-
-
-def _git(diretorio: str | None, *argumentos: str) -> str:
-    prefixo = ["git"] if diretorio is None else ["git", "-C", diretorio]
+def _git(contexto: _Contexto, *argumentos: str) -> str:
+    prefixo = ["git"] if contexto.diretorio is None else ["git", "-C", contexto.diretorio]
     try:
         resultado = subprocess.run(
-            [*prefixo, *argumentos], capture_output=True, text=True, timeout=10, check=False
+            [*prefixo, *contexto.repositorio, *argumentos],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
         )
     except (OSError, subprocess.SubprocessError):
         return ""
     return resultado.stdout.strip() if resultado.returncode == 0 else ""
 
 
-def _destino_implicito_perigoso(posicionais: list[str], diretorio: str | None) -> bool:
+def _destino_implicito_perigoso(posicionais: list[str], contexto: _Contexto) -> bool:
     refspecs = posicionais[1:]
     implicitos = [r for r in refspecs if r.lstrip("+") in _ORIGENS_IMPLICITAS]
     if refspecs and not implicitos:
         return False
-    if diretorio == _INDETERMINADO:
+    if contexto.indeterminado:
         return True
-    ramo = _git(diretorio, "rev-parse", "--abbrev-ref", "HEAD")
-    if ramo == "main" or (diretorio is not None and not ramo):
+    ramo = _git(contexto, "rev-parse", "--abbrev-ref", "HEAD")
+    if ramo == "main" or (contexto.explicito and not ramo):
         return True
-    upstream = _git(diretorio, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    upstream = _git(contexto, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
     return not refspecs and upstream.endswith("/main")
 
 
@@ -251,30 +325,143 @@ def _agrupa_opcao_c(argumento: str) -> bool:
     return argumento.startswith("-") and not argumento.startswith("--") and "c" in argumento[1:]
 
 
-def _interpretado_perigoso(tokens: list[str], posicao: int, diretorio: str | None) -> bool:
+def _interpretado_perigoso(tokens: list[str], posicao: int, contexto: _Contexto) -> bool:
     comando = _comando_do_interpretador(tokens[posicao + 1 :])
-    return comando is not None and comando_perigoso(comando, diretorio)
+    return comando is not None and comando_perigoso(comando, contexto)
 
 
-def _segmento_perigoso(tokens: list[str], diretorio: str | None) -> bool:
-    for posicao, token in enumerate(tokens):
+def _primeiro_operando(argumentos: list[str]) -> str | None:
+    indice = 0
+    while indice < len(argumentos):
+        argumento = argumentos[indice]
+        if argumento == "--":
+            return argumentos[indice + 1] if indice + 1 < len(argumentos) else None
+        if argumento in _OPCOES_SHELL_COM_VALOR:
+            indice += 2
+        elif argumento.startswith(("-", "+")) and len(argumento) > 1:
+            if not argumento.startswith("--") and "s" in argumento[1:]:
+                return "-"
+            indice += 1
+        else:
+            return argumento
+    return None
+
+
+def _le_programa_da_entrada(argumentos: list[str]) -> bool:
+    """Programa do shell vindo da entrada padrão não é visível (heredoc literal é)."""
+    if _comando_do_interpretador(argumentos) is not None:
+        return False
+    if "<<" in argumentos:
+        corpo = argumentos[argumentos.index("<<") + 1 :]
+        return any(_programa_indeterminado(token) for token in corpo)
+    operando = _primeiro_operando(argumentos)
+    return operando is None or operando == "-" or operando.startswith("<")
+
+
+def _executavel_perigoso(tokens: list[str], posicao: int, contexto: _Contexto) -> bool:
+    nome = tokens[posicao].rsplit("/", 1)[-1]
+    if nome == "gh":
+        return gh_perigoso(tokens[posicao + 1 :])
+    if nome not in _EXECUTAVEIS_COM_AMBIENTE:
+        return False
+    local = _com_ambiente(contexto, tokens[:posicao])
+    if nome == "git":
+        return _git_perigoso(tokens, posicao, local)
+    if nome == "eval":
+        argumentos = tokens[posicao + 1 :]
+        if any(_programa_indeterminado(argumento) for argumento in argumentos):
+            return True
+        return comando_perigoso(" ".join(argumentos), local)
+    return _interpretado_perigoso(tokens, posicao, local)
+
+
+def _contexto_do_segmento(segmento: list[str], contexto: _Contexto) -> _Contexto | None:
+    if segmento and segmento[0] in _COMANDOS_DE_DIRETORIO:
+        destino = segmento[1] if len(segmento) > 1 else None
+        return replace(contexto, diretorio=_novo_diretorio(contexto.diretorio, destino))
+    if segmento and segmento[0] == "export":
+        return _com_ambiente(contexto, segmento[1:])
+    return None
+
+
+def _achatado(comando: str) -> str:
+    """Remove aspas e delimitadores de substituição, expondo os comandos internos."""
+    return _SINTAXE_DE_SUBSTITUICAO.sub(" ", comando)
+
+
+def _posicoes_de_comando(segmento: list[str]) -> list[int]:
+    posicoes: list[int] = []
+    indice = 0
+    while indice < len(segmento):
+        token = segmento[indice]
+        de_involucro = posicoes and (token.startswith("-") or _ARGUMENTO_DE_INVOLUCRO.match(token))
+        if _ATRIBUICAO.match(token) or de_involucro:
+            indice += 1
+            continue
+        posicoes.append(indice)
         nome = token.rsplit("/", 1)[-1]
-        if nome == "git" and _push_perigoso(tokens, posicao, diretorio):
-            return True
-        if nome in _INTERPRETADORES and _interpretado_perigoso(tokens, posicao, diretorio):
-            return True
-        if nome == "eval" and comando_perigoso(" ".join(tokens[posicao + 1 :]), diretorio):
+        if nome == "uv" and segmento[indice + 1 : indice + 2] == ["run"]:
+            indice += 2
+        elif nome in _INVOLUCROS:
+            indice += 1
+        else:
+            break
+    return posicoes
+
+
+def _comando_indeterminado_perigoso(segmento: list[str], contexto: _Contexto) -> bool:
+    """Programa expansível em posição de comando é tratado como git (falha fechado)."""
+    for posicao in _posicoes_de_comando(segmento):
+        if _programa_indeterminado(segmento[posicao]):
+            local = _com_ambiente(contexto, segmento[:posicao])
+            if _git_perigoso(segmento, posicao, local):
+                return True
+    return False
+
+
+def _interpretador_le_entrada(segmento: list[str]) -> bool:
+    for posicao in _posicoes_de_comando(segmento):
+        nome = segmento[posicao].rsplit("/", 1)[-1]
+        if nome in _INTERPRETADORES and _le_programa_da_entrada(segmento[posicao + 1 :]):
             return True
     return False
 
 
-def comando_perigoso(comando: str, diretorio: str | None = None) -> bool:
+def _segmento_perigoso(segmento: list[str], contexto: _Contexto, comando: str) -> bool:
+    if _comando_indeterminado_perigoso(segmento, contexto) or _interpretador_le_entrada(segmento):
+        return True
+    if codigo_perigoso(segmento, _posicoes_de_comando(segmento), comando):
+        return True
+    return any(_executavel_perigoso(segmento, p, contexto) for p in range(len(segmento)))
+
+
+def _segmentos_perigosos(comando: str, contexto: _Contexto) -> bool:
+    atual = contexto
     for segmento in _segmentos(_tokens(comando)):
-        if segmento and segmento[0] in _COMANDOS_DE_DIRETORIO:
-            diretorio = _novo_diretorio(diretorio, segmento[1] if len(segmento) > 1 else None)
-        elif _segmento_perigoso(segmento, diretorio):
+        if any(_CONFIG_POR_AMBIENTE.match(token) for token in segmento):
+            return True
+        novo = _contexto_do_segmento(segmento, atual)
+        if novo is not None:
+            atual = novo
+        elif _segmento_perigoso(segmento, atual, comando):
             return True
     return False
+
+
+def _desvio_textual(comando: str) -> bool:
+    """Rede final: push citado junto de uma marca de desvio de hooks, em qualquer forma."""
+    minusculo = comando.casefold()
+    return bool(_PALAVRA_PUSH.search(minusculo)) and any(m in minusculo for m in _MARCAS_DE_DESVIO)
+
+
+def comando_perigoso(comando: str, contexto: _Contexto | None = None) -> bool:
+    if _desvio_textual(comando):
+        return True
+    atual = contexto or _Contexto()
+    substitui = any(abertura in comando for abertura in _ABERTURAS_DE_SUBSTITUICAO)
+    if substitui and _segmentos_perigosos(_achatado(comando), atual):
+        return True
+    return _segmentos_perigosos(comando, atual)
 
 
 def main() -> int:
@@ -283,7 +470,9 @@ def main() -> int:
         return 0
     comando = str(entrada.get("tool_input", {}).get("command", ""))
     if comando_perigoso(comando):
-        sys.stderr.write(f"push_bloqueado motivo=force_delete_ou_main comando={comando}\n")
+        sys.stderr.write(
+            f"push_bloqueado motivo=force_delete_main_merge_ou_desvio_de_hook comando={comando}\n"
+        )
         return 2
     return 0
 

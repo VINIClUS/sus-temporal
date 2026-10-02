@@ -335,3 +335,33 @@ def test_caminho_padrao_le_partes_esperadas_do_catalogo(
     linha = registro_producao("201801", "201801")
     (sel,) = select_snapshots(linha, regra(), config).selecoes
     assert sel.estado is estado
+
+
+def _regra_com_fonte_repetida():
+    from sustemporal.contracts.rules import RequisitoFonte
+
+    base = regra()
+    extra = RequisitoFonte(fonte=PF, schema_id="cnes_estab_cbo.v1", campos=("cnes",))
+    return base.model_copy(update={"requisitos_fonte": (*base.requisitos_fonte, extra)})
+
+
+def test_fonte_repetida_na_regra_gera_uma_selecao_por_fonte() -> None:
+    linha = registro_producao("201801", "201801")
+    snapshot = select_snapshots(linha, _regra_com_fonte_repetida(), _config(), registro=_registro())
+    assert [s.fonte for s in snapshot.selecoes] == [PF]
+    con = duckdb.connect()
+    con.execute(
+        "CREATE TABLE registros (row_id VARCHAR, competencia_atendimento VARCHAR, "
+        "competencia_processamento VARCHAR)"
+    )
+    con.execute("INSERT INTO registros VALUES (?, '201801', '201801')", [linha.row_id])
+    selecionar_lote(
+        con,
+        "registros",
+        [_regra_com_fonte_repetida()],
+        _politica(),
+        _registro(),
+        run_id="r",
+        uf="SP",
+    )
+    assert con.execute("SELECT count(*) FROM selecao_versoes").fetchall() == [(1,)]

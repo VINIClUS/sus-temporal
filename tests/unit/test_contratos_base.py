@@ -10,6 +10,7 @@ from hypothesis import strategies as st
 from pydantic import TypeAdapter, ValidationError
 
 import sustemporal.contracts as contratos
+from sustemporal.contracts import base
 from sustemporal.contracts.base import (
     Booleano,
     CodigoCBO,
@@ -260,6 +261,71 @@ def test_data_aceita_iso_e_rejeita_formato_local() -> None:
     assert _DATA.validate_python("2026-01-31") == date(2026, 1, 31)
     with pytest.raises(ValidationError):
         _DATA.validate_python("31/01/2026")
+
+
+@pytest.mark.parametrize(
+    "entrada",
+    [
+        0,
+        1_700_000_000,
+        1.5,
+        True,
+        b"2026-01-31",
+        datetime(2026, 1, 1, tzinfo=UTC).replace(tzinfo=None),
+        datetime(2026, 1, 1, tzinfo=UTC),
+        "20260131",
+        "2026-W05-6",
+    ],
+    ids=repr,
+)
+def test_data_rejeita_numero_bool_datetime_e_texto_fora_de_aaaa_mm_dd(entrada: object) -> None:
+    with pytest.raises(ValidationError, match=r"data_exige_date_ou_iso|data_invalida"):
+        _DATA.validate_python(entrada)
+
+
+def test_data_aceita_somente_date_ou_texto_aaaa_mm_dd() -> None:
+    assert _DATA.validate_python(date(2026, 1, 31)) == date(2026, 1, 31)
+    assert _DATA.validate_python("2026-01-31") == date(2026, 1, 31)
+    with pytest.raises(ValidationError, match="data_exige_date_ou_iso"):
+        _DATA.validate_python(0)
+
+
+@pytest.mark.parametrize("valor", [" ", "   ", "\t", " \n "])
+def test_valor_normalizado_so_de_espacos_exige_motivo_vazio(valor: str) -> None:
+    assert ValorNormalizado(bruto=valor, valor=None, motivo=MotivoAusencia.VAZIO).bruto == valor
+    with pytest.raises(ValidationError, match="valor_vazio_exige_motivo_vazio"):
+        ValorNormalizado(bruto=valor, valor=valor)
+
+
+def test_valor_normalizado_com_valor_exige_bruto() -> None:
+    assert ValorNormalizado(bruto=None, valor=None, motivo=MotivoAusencia.VAZIO).bruto is None
+    with pytest.raises(ValidationError, match="valor_normalizado_exige_bruto"):
+        ValorNormalizado(bruto=None, valor="0301")
+
+
+@pytest.mark.parametrize(
+    "referencia",
+    [
+        "",
+        "   ",
+        "G0.yaml",
+        "experiments/decisions/",
+        "experiments/decisions/G0.txt",
+        "experiments/decisions/../G0.yaml",
+        "/experiments/decisions/G0.yaml",
+        "experiments/decisions/sub/G0.yaml",
+        "experiments/decisions/G0.yaml\n",
+        7,
+    ],
+    ids=repr,
+)
+def test_referencia_de_decisao_exige_yaml_em_experiments_decisions(referencia: object) -> None:
+    assert "ReferenciaDecisao" in base.__all__
+    adaptador = TypeAdapter(getattr(base, "ReferenciaDecisao", None))
+    for valida in ("experiments/decisions/G0.yaml", "experiments/decisions/g2_2027-06.yml"):
+        assert adaptador.validate_python(valida) == valida
+    with pytest.raises(ValidationError):
+        adaptador.validate_python(referencia)
 
 
 @pytest.mark.parametrize(

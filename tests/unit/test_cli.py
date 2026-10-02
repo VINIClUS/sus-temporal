@@ -69,6 +69,22 @@ def test_comando_sem_modulo_retorna_nao_implementado(
     assert cli.main(["ingest", "--config", str(config_valida)]) == ExitCode.NAO_IMPLEMENTADO
 
 
+def test_modulo_ausente_cujo_nome_e_prefixo_textual_do_comando_nao_e_mascarado(
+    config_valida: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pacote = tmp_path / "pacote_cli1"
+    pacote.mkdir()
+    (pacote / "__init__.py").write_text("", encoding="utf-8")
+    (pacote / "comando_cli.py").write_text("import pacote_cli1.comando\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    argumentos = ["ingest", "--config", str(config_valida)]
+    monkeypatch.setitem(cli.MANIPULADORES, "ingest", "sustemporal.nao_existe.cli:executar")
+    assert cli.main(argumentos) == ExitCode.NAO_IMPLEMENTADO
+    monkeypatch.setitem(cli.MANIPULADORES, "ingest", "pacote_cli1.comando_cli:executar")
+    with pytest.raises(ModuleNotFoundError, match=r"pacote_cli1\.comando"):
+        cli.main(argumentos)
+
+
 def test_manipulador_stub_retorna_nao_implementado(
     config_valida: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

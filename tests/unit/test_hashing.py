@@ -6,6 +6,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import duckdb
+import pyarrow as pa
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
@@ -21,6 +22,15 @@ CRIAR_T = (
 INSERIR_T = "INSERT INTO t VALUES (?, ?, ?, ?, ?)"
 LIMITE_DECIMAL = Decimal("9999999999999999.99")
 CASOS_NULO = [None, "\x00N", "N"]
+_COM_PARTE_INTEIRA = ("1.2", "0", "-0.5", "100", "10.01", "0.05")
+_SEM_PARTE_INTEIRA = ("0.05", "0.1", "-0.5", "0", "-0.01", "0.99")
+DECIMAIS_POR_TIPO = {
+    "DECIMAL(18,2)": _COM_PARTE_INTEIRA,
+    "DECIMAL(12,4)": _COM_PARTE_INTEIRA,
+    "DECIMAL(3,2)": _SEM_PARTE_INTEIRA,
+    "DECIMAL(2,2)": _SEM_PARTE_INTEIRA,
+    "DECIMAL(4,4)": ("0.0005", "-0.1", "0"),
+}
 TABELA_GRANDE = """
 CREATE TABLE t AS
 SELECT
@@ -195,16 +205,36 @@ def test_todo_zero_decimal_tem_o_mesmo_hash(zero: str) -> None:
     )
 
 
-def test_duckdb_normaliza_decimais_de_escalas_diferentes() -> None:
-    valores = [[Decimal(texto)] for texto in ("1.2", "0", "-0.5", "100", "10.01")]
-    esperado = hash_logico_linhas(["valor"], valores)
+@pytest.mark.parametrize(("tipo", "textos"), DECIMAIS_POR_TIPO.items(), ids=list(DECIMAIS_POR_TIPO))
+def test_duckdb_normaliza_decimais_de_escalas_diferentes(
+    tipo: str, textos: tuple[str, ...]
+) -> None:
+    valores = [[Decimal(texto)] for texto in textos]
     with _conexao() as con:
-        con.execute("CREATE TABLE a (valor DECIMAL(18,2))")
-        con.execute("CREATE TABLE b (valor DECIMAL(12,4))")
+        con.execute(f"CREATE TABLE t (valor {tipo})")
+        con.executemany("INSERT INTO t VALUES (?)", valores)
+        assert hash_logico_relacao(con, "t", ["valor"]) == hash_logico_linhas(["valor"], valores)
+
+
+def test_duckdb_coincide_com_referencia_em_decimal_sem_parte_inteira_vindo_do_arrow() -> None:
+    valores = [Decimal("0.05"), Decimal("0.10")]
+    tabela = pa.table({"valor": pa.array(valores)})
+    assert tabela.schema.field("valor").type == pa.decimal128(2, 2)
+    with _conexao() as con:
+        con.register("t", tabela)
+        hash_duckdb = hash_logico_relacao(con, "t", ["valor"])
+    assert hash_duckdb == hash_logico_linhas(["valor"], [[valor] for valor in valores])
+    assert hash_duckdb == _hash_esperado(["valor"], [["0.05"], ["0.1"]])
+
+
+def test_mesmo_valor_tem_o_mesmo_hash_em_decimal_2_2_e_3_2() -> None:
+    valores = [[Decimal("0.05")], [Decimal("-0.5")], [Decimal("0")]]
+    with _conexao() as con:
+        con.execute("CREATE TABLE a (valor DECIMAL(2,2))")
+        con.execute("CREATE TABLE b (valor DECIMAL(3,2))")
         con.executemany("INSERT INTO a VALUES (?)", valores)
         con.executemany("INSERT INTO b VALUES (?)", valores)
-        assert hash_logico_relacao(con, "a", ["valor"]) == esperado
-        assert hash_logico_relacao(con, "b", ["valor"]) == esperado
+        assert hash_logico_relacao(con, "a", ["valor"]) == hash_logico_relacao(con, "b", ["valor"])
 
 
 def test_duckdb_preserva_zeros_de_decimal_sem_casas() -> None:
@@ -277,6 +307,12 @@ def test_instante_sem_fuso_e_recusado() -> None:
 def test_linha_com_aridade_divergente_e_recusada() -> None:
     with pytest.raises(ValueError, match="linha_com_aridade_divergente esperado=2 obtido=1"):
         hash_logico_linhas(["a", "b"], [["x"]])
+
+
+@pytest.mark.parametrize("linha", [{"texto": "x"}, "x", b"x", {"x"}, range(1)], ids=repr)
+def test_linha_que_nao_e_tupla_nem_lista_e_recusada(linha: object) -> None:
+    with pytest.raises(ValueError, match="linha_nao_sequencia"):
+        hash_logico_linhas(["texto"], [linha])
 
 
 def test_referencia_recusa_lista_de_colunas_vazia() -> None:

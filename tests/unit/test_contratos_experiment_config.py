@@ -260,7 +260,10 @@ def test_particao_de_teste_nao_precede_desenvolvimento() -> None:
 
 def test_manifesto_rejeita_artefato_de_teste_ja_inspecionado() -> None:
     campos = {"split_id": "split_1", "spec": _split(), "dataset_hash": _SHA}
-    contagens = {"linhas_por_particao": {}, "hash_por_particao": {}}
+    contagens = {
+        "linhas_por_particao": dict.fromkeys(Particao, 1),
+        "hash_por_particao": dict.fromkeys(Particao, _SHA),
+    }
     disjunto = SplitManifest(**campos, **contagens, artefatos_teste=(_ART_A,))
     assert disjunto.artefatos_teste == (_ART_A,)
     with pytest.raises(ValidationError, match="teste_contem_artefato_inspecionado"):
@@ -320,7 +323,7 @@ def test_congelamento_rejeita_id_que_nao_deriva_do_conteudo(freeze_id: str) -> N
 @pytest.mark.parametrize(
     "campos",
     [
-        {"decisao_g0": A_DEFINIR},
+        {"comparacoes_primarias": (A_DEFINIR,)},
         {"metricas": ("cobertura", A_DEFINIR)},
         {"bootstrap": BootstrapSpec()},
         {"ambiente": _ambiente(pacotes={"duckdb": A_DEFINIR})},
@@ -339,7 +342,8 @@ def test_congelamento_rejeita_a_definir_em_chave_de_dicionario() -> None:
 
 @pytest.mark.parametrize(("portao", "decisao"), _VALIDAS)
 def test_decisao_valida_do_portao_e_aceita(portao: Portao, decisao: str) -> None:
-    assert _decisao(portao, decisao).decisao == decisao
+    familias = ("PROCEDIMENTO_CBO",) if decisao == "RESTRINGIR_FAMILIAS" else ()
+    assert _decisao(portao, decisao, familias_aprovadas=familias).decisao == decisao
 
 
 @pytest.mark.parametrize(

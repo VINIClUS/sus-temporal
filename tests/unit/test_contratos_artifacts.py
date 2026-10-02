@@ -212,6 +212,15 @@ def test_falha_de_coleta_e_registrada_como_observacao_sem_artefato(
     assert observacao.artifact_id is None
 
 
+@pytest.mark.parametrize(
+    "resultado", [ResultadoTentativa.NAO_ENCONTRADO, ResultadoTentativa.RECUSADO_OFFLINE]
+)
+def test_observacao_sem_bytes_rejeita_bytes_recebidos(resultado: ResultadoTentativa) -> None:
+    assert _sem_artefato(resultado, bytes_recebidos=0).bytes_recebidos == 0
+    with pytest.raises(ValidationError, match="observacao_sem_bytes_com_bytes_recebidos"):
+        _sem_artefato(resultado, bytes_recebidos=1)
+
+
 def test_observacao_com_artefato_exige_hash_obtido() -> None:
     with pytest.raises(ValidationError, match="observacao_artefato_sem_hash"):
         _observacao(sha256_obtido=None)

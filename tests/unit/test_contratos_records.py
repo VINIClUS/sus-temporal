@@ -358,3 +358,25 @@ def test_multiplicidade_possivel_e_aceita(linhas: int, distintas: int, maximo: i
         linhas_totais=linhas, combinacoes_distintas=distintas, max_repeticoes=maximo
     )
     assert multiplicidade.max_repeticoes == maximo
+
+
+@pytest.mark.parametrize(
+    "campos",
+    [
+        {"reconciliacao": Reconciliacao(fisicos=9, canonicas=9)},
+        {"reconciliacao": Reconciliacao(fisicos=12, canonicas=11, quarentena=1)},
+        {
+            "multiplicidade": Multiplicidade(
+                linhas_totais=9, combinacoes_distintas=9, max_repeticoes=1
+            )
+        },
+    ],
+)
+def test_dataset_rejeita_contagens_divergentes_das_linhas(campos: dict[str, object]) -> None:
+    coerente = _dataset(
+        reconciliacao=Reconciliacao(fisicos=11, canonicas=10, quarentena=1),
+        multiplicidade=Multiplicidade(linhas_totais=10, combinacoes_distintas=4, max_repeticoes=4),
+    )
+    assert coerente.linhas == 10
+    with pytest.raises(ValidationError, match="dataset_contagens_divergentes"):
+        _dataset(**campos)

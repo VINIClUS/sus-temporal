@@ -1,15 +1,19 @@
 import re
+import stat
+import tempfile
 from pathlib import Path
 
 import duckdb
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
+from pydantic import ValidationError
 
 from sustemporal.contracts.config import RuntimeConfig
 from sustemporal.duck import conectar, identificador_seguro
 
 PADRAO_IDENTIFICADOR = re.compile(r"[a-z_][a-z0-9_]*")
+RAIZ = Path(__file__).resolve().parents[2]
 
 
 def _configuracao(con: duckdb.DuckDBPyConnection, nome: str) -> object:
@@ -38,6 +42,25 @@ def test_conectar_desliga_instalacao_e_carga_automatica_de_extensoes() -> None:
 def test_conectar_usa_diretorio_temporario_informado(tmp_path: Path) -> None:
     with conectar(RuntimeConfig(), temporario=tmp_path) as con:
         assert _configuracao(con, "temp_directory") == str(tmp_path)
+
+
+def test_conectar_sem_temporario_usa_diretorio_privado_fora_do_repositorio() -> None:
+    with conectar(RuntimeConfig()) as con, conectar(RuntimeConfig()) as outra:
+        caminhos = [Path(str(_configuracao(c, "temp_directory"))) for c in (con, outra)]
+    assert caminhos[0] != caminhos[1]
+    for caminho in caminhos:
+        assert caminho.is_absolute()
+        assert not caminho.is_relative_to(RAIZ)
+        assert caminho.is_relative_to(Path(tempfile.gettempdir()))
+        assert caminho.parent.name.startswith("sustemporal_duckdb_")
+        assert stat.S_IMODE(caminho.parent.stat().st_mode) == 0o700
+
+
+@pytest.mark.parametrize("memoria", ["0MB", "0GB", "00GB", "08GB"])
+def test_runtime_rejeita_limite_de_memoria_nulo_ou_com_zero_a_esquerda(memoria: str) -> None:
+    assert RuntimeConfig(duckdb_memoria="1GB").duckdb_memoria == "1GB"
+    with pytest.raises(ValidationError):
+        RuntimeConfig(duckdb_memoria=memoria)
 
 
 def test_conectar_abre_banco_em_arquivo(tmp_path: Path) -> None:

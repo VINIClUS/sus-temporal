@@ -387,3 +387,12 @@ def test_snapshot_rejeita_selecao_de_artefato_fora_do_conjunto() -> None:
 def test_snapshot_rejeita_artifact_id_malformado() -> None:
     with pytest.raises(ValidationError):
         SnapshotSet.criar(**_campos_snapshot(artifact_ids=("qualquer",), selecoes=()))
+
+
+@pytest.mark.parametrize("observacao", [f"obs_{'2' * 32}", "obs_curto", "", f"obs_{'1' * 32}\n"])
+def test_snapshot_rejeita_selecao_com_observacao_fora_do_conjunto(observacao: str) -> None:
+    citada = _selecao(observation_ids=(f"obs_{'1' * 32}",))
+    assert SnapshotSet.criar(**_campos_snapshot(selecoes=(citada,))).selecoes == (citada,)
+    externa = _selecao(observation_ids=(f"obs_{'1' * 32}", observacao))
+    with pytest.raises(ValidationError, match="snapshot_selecao_com_observacao_externa"):
+        SnapshotSet.criar(**_campos_snapshot(selecoes=(externa,)))

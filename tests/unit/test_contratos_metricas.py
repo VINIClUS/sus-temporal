@@ -3,7 +3,7 @@ from decimal import Decimal
 import pytest
 from pydantic import ValidationError
 
-from sustemporal.contracts.evaluation import ValorMetrica
+from sustemporal.contracts.evaluation import IntervaloConfianca, ValorMetrica
 from sustemporal.contracts.experiment import BootstrapSpec
 
 
@@ -59,3 +59,10 @@ def test_tipo_padrao_da_metrica_e_razao() -> None:
 def test_bootstrap_sem_intervalo_definido_e_rejeitado(campos: dict[str, object]) -> None:
     with pytest.raises(ValidationError, match="bootstrap_invalido"):
         BootstrapSpec.model_validate(campos)
+
+
+@pytest.mark.parametrize("nivel", ["0", "1", "1.5", "-0.1", "95"])
+def test_intervalo_de_confianca_exige_nivel_entre_zero_e_um(nivel: str) -> None:
+    assert IntervaloConfianca(inferior="0.1", superior="0.2", nivel="0.9").nivel == Decimal("0.9")
+    with pytest.raises(ValidationError, match="intervalo_nivel_invalido"):
+        IntervaloConfianca(inferior="0.1", superior="0.2", nivel=nivel)

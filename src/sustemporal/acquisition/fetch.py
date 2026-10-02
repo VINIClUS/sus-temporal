@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import logging
 import os
@@ -40,7 +41,7 @@ from sustemporal.hashing import sha256_arquivo
 from sustemporal.store import caminho_conteudo, promover_sem_sobrescrever
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
+    from collections.abc import Callable, Iterator, Mapping
     from typing import BinaryIO
 
     from sustemporal.acquisition.transport import Transporte
@@ -141,11 +142,26 @@ def _abrir_temporario(caminho: Path) -> BinaryIO:
     return caminho.open("wb")
 
 
+@contextlib.contextmanager
+def _temporario_local(caminho: Path) -> Iterator[_DestinoLocal]:
+    """Abre e fecha o temporário tratando qualquer OSError local como falha de armazenamento."""
+    try:
+        arquivo = _abrir_temporario(caminho)
+    except OSError as erro:
+        raise FalhaDestinoLocal(f"temporario_falhou operacao=open erro={erro}") from erro
+    try:
+        yield _DestinoLocal(arquivo)
+    finally:
+        try:
+            arquivo.close()
+        except OSError as erro:
+            raise FalhaDestinoLocal(f"temporario_falhou operacao=close erro={erro}") from erro
+
+
 def _receber(tentativa: _Tentativa, transporte: Transporte, temporario: Path) -> Recebimento:
     request = tentativa.request
     limite = request.tamanho_maximo_bytes
-    with _abrir_temporario(temporario) as arquivo:
-        destino = _DestinoLocal(arquivo)
+    with _temporario_local(temporario) as destino:
         if request.chave.tipo_conteudo is TipoConteudo.LISTAGEM_DIRETORIO:
             nomes = transporte.listar(request.localizador)
             conteudo = "".join(f"{nome}\n" for nome in sorted(nomes)).encode("utf-8")

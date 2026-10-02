@@ -10,15 +10,14 @@ import zipfile
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import datasus_dbc
-
+from sustemporal.acquisition.descompressao import DesfechoDescompressao, descomprimir_limitado
 from sustemporal.contracts.artifacts import EstadoIntegridade, FormatoArquivo, MembroArquivo
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-__all__ = ["LimitesZip", "Veredito", "parece_html", "validar_conteudo"]
+__all__ = ["LIMITE_DBF_PADRAO", "LimitesZip", "Veredito", "parece_html", "validar_conteudo"]
 
 _AMOSTRA = 4096
 _INICIO_HTML = (b"<!doctype html", b"<html", b"<head", b"<body", b"<?xml", b"<!--")
@@ -31,6 +30,8 @@ _CABECALHO_DBF_MINIMO = 33
 # dBASE III: 32 bytes fixos + 32 por campo + terminador 0x0D (H = 33 + 32·n).
 _DESCRITOR_DBF = 32
 _CAUDA_PDF = 1024
+# Teto do DBF descomprimido de um DBC (proposta; A_CONFIRMAR com os maiores PA de SP).
+LIMITE_DBF_PADRAO = 8 * 1024**3
 _BRANCOS_PDF = b" \t\r\n\x00\x0c"
 _ASSINATURAS_ZIP = (b"PK\x03\x04", b"PK\x05\x06")
 _DRIVE = re.compile(r"^[A-Za-z]:")
@@ -53,6 +54,7 @@ class _Amostra:
     inicio: bytes
     tamanho: int
     limites: LimitesZip
+    limite_dbf: int
 
 
 @dataclass(frozen=True)
@@ -145,16 +147,18 @@ def _tamanho_dbf_confere(dbf: Path, cabecalho: tuple[int, int, int]) -> Veredito
     return _OK
 
 
-def _descomprimir_dbc(caminho: Path, cabecalho: tuple[int, int, int]) -> Veredito:
-    """Descomprime arquivo→arquivo ao lado do temporário (memória limitada) e apaga o DBF."""
+def _descomprimir_dbc(caminho: Path, cabecalho: tuple[int, int, int], teto: int) -> Veredito:
+    """Descomprime arquivo→arquivo num processo com teto de gravação e apaga o DBF gerado."""
     destino = caminho.with_name(f"{caminho.name}.dbf_validacao")
     try:
-        datasus_dbc.decompress(str(caminho), str(destino))
-        return _tamanho_dbf_confere(destino, cabecalho)
-    except ValueError as erro:
-        if "end of input" in str(erro):
-            return _truncado(f"dbc_fluxo_truncado erro={erro}")
-        return _inesperado(f"dbc_fluxo_invalido erro={erro}")
+        resultado = descomprimir_limitado(caminho, destino, teto)
+        if resultado.desfecho is DesfechoDescompressao.OK:
+            return _tamanho_dbf_confere(destino, cabecalho)
+        if resultado.desfecho is DesfechoDescompressao.EXCEDEU_LIMITE:
+            return _inesperado(f"dbc_descomprimido_excede teto={teto}")
+        if resultado.desfecho is DesfechoDescompressao.TRUNCADO:
+            return _truncado(f"dbc_fluxo_truncado erro={resultado.mensagem}")
+        return _inesperado(f"dbc_fluxo_invalido erro={resultado.mensagem}")
     finally:
         destino.unlink(missing_ok=True)
 
@@ -173,7 +177,13 @@ def _validar_dbc(amostra: _Amostra) -> Veredito:
         literais, dicionario = arquivo.read(2)
     if literais not in {0, 1} or dicionario not in {4, 5, 6}:
         return _inesperado(f"dbc_fluxo_invalido bytes={literais:#04x}{dicionario:02x}")
-    return _descomprimir_dbc(amostra.caminho, cabecalho)
+    registros, tam_cabecalho, tam_registro = cabecalho
+    declarado = tam_cabecalho + registros * tam_registro + 1
+    if declarado > amostra.limite_dbf:
+        return _inesperado(
+            f"dbc_declarado_excede declarado={declarado} limite={amostra.limite_dbf}"
+        )
+    return _descomprimir_dbc(amostra.caminho, cabecalho, declarado)
 
 
 def _nome_inseguro(nome: str) -> bool:
@@ -205,6 +215,28 @@ def _membro(info: zipfile.ZipInfo, vistos: set[str]) -> MembroArquivo:
     return MembroArquivo(nome=info.orig_filename, tamanho_bytes=info.file_size, seguro=seguro)
 
 
+def _diretorios_implicitos(infos: list[zipfile.ZipInfo]) -> set[str]:
+    diretorios: set[str] = set()
+    for info in infos:
+        partes = _nome_canonico(info.filename).removesuffix("/").split("/")
+        fim = len(partes) if info.filename.endswith("/") else len(partes) - 1
+        diretorios.update("/".join(partes[:i]) for i in range(1, fim + 1))
+    return diretorios
+
+
+def _marcar_conflitos(
+    infos: list[zipfile.ZipInfo], membros: tuple[MembroArquivo, ...]
+) -> tuple[MembroArquivo, ...]:
+    """Arquivo cujo nome canônico também é diretório (explícito ou prefixo) fica inseguro."""
+    diretorios = _diretorios_implicitos(infos)
+    return tuple(
+        membro.model_copy(update={"seguro": False})
+        if not info.filename.endswith("/") and _nome_canonico(info.filename) in diretorios
+        else membro
+        for info, membro in zip(infos, membros, strict=True)
+    )
+
+
 def _listar_zip(caminho: Path) -> list[zipfile.ZipInfo] | Veredito:
     try:
         with zipfile.ZipFile(caminho) as arquivo:
@@ -234,7 +266,7 @@ def _validar_zip(amostra: _Amostra) -> Veredito:
     if isinstance(infos, Veredito):
         return infos
     vistos: set[str] = set()
-    membros = tuple(_membro(info, vistos) for info in infos)
+    membros = _marcar_conflitos(infos, tuple(_membro(info, vistos) for info in infos))
     if not membros:
         return _inesperado("zip_vazio")
     if not all(m.seguro for m in membros):
@@ -309,4 +341,6 @@ def validar_conteudo(
     validador = _VALIDADORES.get(formato)
     if validador is None:
         return Veredito(EstadoIntegridade.NAO_VERIFICADO)
-    return validador(_Amostra(caminho, inicio, tamanho, limites or LimitesZip()))
+    teto_dbf = LIMITE_DBF_PADRAO if limite_dbf_bytes is None else limite_dbf_bytes
+    amostra = _Amostra(caminho, inicio, tamanho, limites or LimitesZip(), teto_dbf)
+    return validador(amostra)

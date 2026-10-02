@@ -209,7 +209,16 @@ falha de carga (`FalhaOperacional`, execução `FALHOU`); no conjunto auxiliar �
 `EstadoIntegridade` também é falha de carga. Chave nula ou repetida no conjunto SIA-PA (`row_id`)
 ou na seleção (`row_id, rule_id, fonte`) é falha de carga; a matriz de cobertura com coluna
 ausente, tipo divergente ou chave nula não é utilizável (conta como não fornecida). Linhas
-auxiliares com chave nula seguem a regra de `CAMPO_INSUFICIENTE` do §4. Códigos são sempre texto e nunca são convertidos de
+auxiliares com chave nula seguem a regra de `CAMPO_INSUFICIENTE` do §4.
+
+Antes de avaliar, todo `DatasetRef` lido (SIA-PA, auxiliares, seleção, cobertura) tem o conteúdo
+conferido: contagem de linhas e hash lógico `lh1` das colunas do esquema canônico presentes no
+arquivo, na ordem do esquema (a mesma convenção das saídas). Divergência é falha operacional
+`conteudo_divergente`; arquivo canônico ausente, truncado ou ilegível também é falha operacional
+(a quarentena de arquivo original acontece na ingestão). Nos dois casos, o auxiliar vira falha da
+regra que depende dele (as demais seguem, execução `PARCIAL`) e o SIA-PA, a seleção ou a cobertura
+viram falha em `carregar_insumos` (execução `FALHOU`); nunca `VIOLACAO` nem `INCONCLUSIVO`. A
+evidência cita o hash do conteúdo conferido. Códigos são sempre texto e nunca são convertidos de
 número.
 
 No modo confirmatório, antes de qualquer avaliação, o motor exige dados `REAL` e a decisão humana

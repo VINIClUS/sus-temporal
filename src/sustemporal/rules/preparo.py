@@ -15,6 +15,7 @@ from sustemporal.rules.catalog import (
     requisito_auxiliar,
 )
 from sustemporal.rules.coerencia import SQL_REQUERIDAS, criar_regras_fontes
+from sustemporal.rules.conteudo import verificar_conteudo
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
@@ -188,6 +189,7 @@ def carregar_registros(
     Raises:
         ValueError: sem `row_id`/`artifact_id` ou `row_id` repetido.
     """
+    verificar_conteudo(con, dataset)
     tipos = _tipos("sia_pa.v1")
     usadas = dict.fromkeys(COLUNAS_BASE_REGISTRO)
     usadas.update(dict.fromkeys(campo for regra in regras for campo in regra.campos_necessarios))
@@ -218,6 +220,7 @@ def carregar_selecoes(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> No
     Raises:
         ValueError: coluna ausente ou chave (row_id, rule_id, fonte) repetida.
     """
+    verificar_conteudo(con, dataset)
     tipos = _tipos("selecao_versoes.v1")
     presentes, incompativeis = _conferir_tipos(
         con, dataset.caminho, "selecao_versoes.v1", _COLUNAS_SELECAO
@@ -314,6 +317,7 @@ def carregar_cobertura(con: duckdb.DuckDBPyConnection, dataset: DatasetRef | Non
     if dataset is None:
         _cobertura_vazia(con, tipos)
         return
+    verificar_conteudo(con, dataset)
     presentes, incompativeis = _conferir_tipos(
         con, dataset.caminho, "cobertura.v1", _COLUNAS_COBERTURA
     )
@@ -383,6 +387,8 @@ def preparar_auxiliar(
     if len(candidatos) > 1:
         raise ValueError(f"auxiliar_repetido schema_id={requisito.schema_id}")
     dataset = candidatos[0] if candidatos else None
+    if dataset is not None:
+        verificar_conteudo(con, dataset)
     presentes, incompativeis = (
         _conferir_tipos(con, dataset.caminho, requisito.schema_id, colunas)
         if dataset

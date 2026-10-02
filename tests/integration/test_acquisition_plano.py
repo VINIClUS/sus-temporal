@@ -212,3 +212,28 @@ def test_acquire_auxiliar_usa_so_competencias_observadas(tmp_path: Path) -> None
     }
     motivos = {o.chave.fonte for o in _observacoes(tmp_path)}
     assert FamiliaFonte.SIA_PA not in motivos
+
+
+@pytest.mark.parametrize("dano", ["remover", "adulterar"])
+def test_acquire_reobtem_quando_os_bytes_guardados_sumiram_ou_mudaram(
+    tmp_path: Path, dano: str
+) -> None:
+    _publicar_origem(tmp_path)
+    config = str(_config(tmp_path, rede=False, catalogo=_catalogo_local(tmp_path)))
+    cli.main(["acquire", "--config", config])
+    guardados = sorted((tmp_path / "data" / "raw" / "sha256").rglob("*.dbc"))
+    alvo = guardados[0]
+    if dano == "remover":
+        alvo.unlink()
+    else:
+        alvo.chmod(0o644)
+        alvo.write_bytes(b"adulterado")
+    resultado = cli.main(["acquire", "--config", config])
+    arquivos = [o for o in _observacoes(tmp_path) if o.chave.tipo_conteudo is None]
+    assert len(arquivos) == 3
+    if dano == "remover":
+        assert resultado == ExitCode.OK
+        assert alvo.exists()
+    else:
+        assert resultado == ExitCode.FALHA_OPERACIONAL
+        assert arquivos[-1].resultado is ResultadoTentativa.FALHA_ARMAZENAMENTO

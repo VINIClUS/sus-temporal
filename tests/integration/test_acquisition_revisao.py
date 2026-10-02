@@ -262,3 +262,84 @@ def test_pdf_com_marcador_final_e_obtido(tmp_path: Path) -> None:
     conteudo = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
     observacao = fetch_source(_local(tmp_path, conteudo, FormatoArquivo.PDF), tmp_path / "store")
     assert observacao.resultado is ResultadoTentativa.OBTIDO
+
+
+def test_zip_com_membro_corrompido_fica_em_quarentena(tmp_path: Path) -> None:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as arquivo:
+        arquivo.writestr("tb_procedimento.txt", b"0101010010" * 200)
+    conteudo = bytearray(buffer.getvalue())
+    dados = 30 + len("tb_procedimento.txt")
+    conteudo[dados + 5] ^= 0xFF
+    observacao = fetch_source(
+        _local(tmp_path, bytes(conteudo), FormatoArquivo.ZIP), tmp_path / "store"
+    )
+    versao = _versao(tmp_path / "store", observacao.artifact_id)
+    assert versao.integridade is EstadoIntegridade.QUARENTENA_TRUNCADO
+
+
+def test_fragmento_apos_linha_de_versao_completa_e_separado(tmp_path: Path) -> None:
+    caminho = _tres_registros(tmp_path)
+    estado = Manifesto(caminho).ler()
+    proxima = estado.linhas[-1].model_copy(
+        update={
+            "sequencia": estado.linhas[-1].sequencia + 1,
+            "anterior_sha256": estado.linhas[-1].sha256(),
+            "tipo": "VERSAO",
+            "observacao": None,
+            "versao": estado.versoes[next(iter(estado.versoes))].model_copy(
+                update={"artifact_id": f"art_{'f' * 64}"}
+            ),
+        }
+    )
+    with caminho.open("a", encoding="utf-8") as arquivo:
+        arquivo.write(proxima.model_dump_json() + "\n" + '{"sequencia": 99, "ti')
+    observacao = fetch_source(
+        _local(tmp_path, dbc_sintetico("D"), FormatoArquivo.DBC), caminho.parent
+    )
+    assert Manifesto(caminho).ler().observacoes[-1] == observacao
+    (fragmento,) = caminho.parent.glob("manifesto.jsonl.fragmento.*")
+    assert proxima.model_dump_json() in fragmento.read_text(encoding="utf-8")
+
+
+class _Resposta(io.BytesIO):
+    def __init__(self, url: str) -> None:
+        super().__init__(b"%PDF-1.4\n%%EOF\n")
+        self.headers: dict[str, str] = {}
+        self.url = url
+
+    def geturl(self) -> str:
+        return self.url
+
+    def __enter__(self) -> _Resposta:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
+
+
+@pytest.mark.parametrize("destino", ["http://exemplo.invalid/d.pdf", "ftp://exemplo.invalid/d"])
+def test_redirecionamento_que_sai_do_https_e_recusado(destino: str) -> None:
+    import urllib.request
+
+    from sustemporal.acquisition.transport import ErroTransporte, RedirecionamentoSoHTTPS
+
+    manipulador = RedirecionamentoSoHTTPS()
+    requisicao = urllib.request.Request("https://exemplo.invalid/d.pdf")
+    with pytest.raises(ErroTransporte, match="redirecionamento_fora_de_https"):
+        manipulador.redirect_request(requisicao, io.BytesIO(), 302, "Found", {}, destino)
+    seguro = manipulador.redirect_request(
+        requisicao, io.BytesIO(), 302, "Found", {}, "https://outro.invalid/d.pdf"
+    )
+    assert seguro is not None
+    assert seguro.full_url == "https://outro.invalid/d.pdf"
+
+
+def test_url_final_do_https_fica_nos_metadados(monkeypatch: pytest.MonkeyPatch) -> None:
+    from sustemporal.acquisition import transport
+
+    final = "https://espelho.invalid/d.pdf"
+    monkeypatch.setattr(transport.TransporteHTTPS, "_abrir", lambda _self, _req: _Resposta(final))
+    destino = io.BytesIO()
+    recebimento = transport.TransporteHTTPS().baixar("https://exemplo.invalid/d.pdf", destino, 1000)
+    assert recebimento.metadados["url_final"] == final

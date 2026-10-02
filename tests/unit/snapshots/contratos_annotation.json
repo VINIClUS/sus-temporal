@@ -1,0 +1,152 @@
+{
+ "AnnotationSample": {
+  "$defs": {
+   "Estrato": {
+    "additionalProperties": false,
+    "properties": {
+     "amostra": {
+      "ge": 0,
+      "title": "Amostra",
+      "type": "integer"
+     },
+     "nome": {
+      "title": "Nome",
+      "type": "string"
+     },
+     "populacao": {
+      "ge": 0,
+      "title": "Populacao",
+      "type": "integer"
+     },
+     "prob_inclusao": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+        "type": "string"
+       }
+      ],
+      "title": "Prob Inclusao"
+     }
+    },
+    "required": [
+     "nome",
+     "populacao",
+     "amostra",
+     "prob_inclusao"
+    ],
+    "title": "Estrato",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "casos": {
+    "items": {
+     "type": "string"
+    },
+    "title": "Casos",
+    "type": "array"
+   },
+   "casos_treino": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Casos Treino",
+    "type": "array"
+   },
+   "colunas_excluidas": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Colunas Excluidas",
+    "type": "array"
+   },
+   "estratos": {
+    "items": {
+     "$ref": "#/$defs/Estrato"
+    },
+    "title": "Estratos",
+    "type": "array"
+   },
+   "formulario_versao": {
+    "title": "Formulario Versao",
+    "type": "string"
+   },
+   "freeze_id": {
+    "anyOf": [
+     {
+      "pattern": "^frz_[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Freeze Id"
+   },
+   "sample_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Sample Id",
+    "type": "string"
+   },
+   "semente": {
+    "title": "Semente",
+    "type": "integer"
+   }
+  },
+  "required": [
+   "sample_id",
+   "semente",
+   "estratos",
+   "casos",
+   "formulario_versao"
+  ],
+  "title": "AnnotationSample",
+  "type": "object"
+ },
+ "Estrato": {
+  "additionalProperties": false,
+  "properties": {
+   "amostra": {
+    "ge": 0,
+    "title": "Amostra",
+    "type": "integer"
+   },
+   "nome": {
+    "title": "Nome",
+    "type": "string"
+   },
+   "populacao": {
+    "ge": 0,
+    "title": "Populacao",
+    "type": "integer"
+   },
+   "prob_inclusao": {
+    "anyOf": [
+     {
+      "type": "number"
+     },
+     {
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "type": "string"
+     }
+    ],
+    "title": "Prob Inclusao"
+   }
+  },
+  "required": [
+   "nome",
+   "populacao",
+   "amostra",
+   "prob_inclusao"
+  ],
+  "title": "Estrato",
+  "type": "object"
+ }
+}

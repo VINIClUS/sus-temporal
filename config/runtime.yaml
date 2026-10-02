@@ -1,0 +1,7 @@
+# Perfil de ensaio (plano §10): DuckDB com 8 GB e 4 threads só com memória física suficiente;
+# reduzir em máquinas menores. Núcleo experimental sem rede.
+versao: 1
+runtime:
+  duckdb_memoria: 8GB
+  duckdb_threads: 4
+  rede_permitida: false

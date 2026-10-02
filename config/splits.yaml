@@ -1,0 +1,22 @@
+# Partições e reamostragem (plano §7): proposta inicial por competência de processamento,
+# congelada antes do teste (G2); correção por multiplicidade ainda a definir no protocolo.
+base: runtime.yaml
+particoes:
+  base_temporal: PROCESSAMENTO
+  intervalos:
+    - particao: DESENVOLVIMENTO
+      inicio: 201801
+      fim: 202212
+    - particao: CALIBRACAO
+      inicio: 202301
+      fim: 202312
+    - particao: TESTE
+      inicio: 202401
+      fim: 202512
+bootstrap:
+  reamostragens: 2000
+  semente: 2027
+  unidade: ESTABELECIMENTO
+  confianca: 0.95
+  sensibilidade: BLOCOS_TEMPORAIS
+  correcao: A_DEFINIR

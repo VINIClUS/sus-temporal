@@ -1,0 +1,43 @@
+schema_id: cnes_estabelecimento.v1
+descricao: >-
+  Estabelecimentos do CNES ST: uma linha por competência do arquivo, CNES e versão de conteúdo.
+  Fonte ST{UF}{AAMM}.dbc em /dissemin/publicos/CNES/200508_/Dados/ST/ (O14, SECUNDARIA). Nomes
+  físicos CNES, CODUFMUN, TP_UNID, TPGESTAO e NAT_JUR INFERIDA do leiaute PF observado (S33); IT
+  CNES 1706 (O7) ainda não lido; A_CONFIRMAR. CPF, CNPJ e dados de pessoas não entram no esquema.
+chave: [competencia_arquivo, cnes, artifact_id]
+colunas:
+  - nome: competencia_arquivo
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Competência AAAAMM do arquivo ST (CompetenciaArquivo).
+  - nome: cnes
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Campo CNES, 7 dígitos com zeros à esquerda.
+  - nome: artifact_id
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: Versão de conteúdo do arquivo ST.
+  - nome: municipio_estabelecimento
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      Campo CODUFMUN: município do estabelecimento, código IBGE de 6 dígitos.
+  - nome: tipo_unidade
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      Campo TP_UNID: tipo de unidade, texto como lido.
+  - nome: tipo_gestao
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      Campo TPGESTAO: tipo de gestão, texto como lido.
+  - nome: natureza_juridica
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      Campo NAT_JUR: natureza jurídica, texto como lido.

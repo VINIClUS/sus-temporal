@@ -36,9 +36,10 @@ sobre o plano quanto ao escopo científico.
 ## Engenharia
 - Python 3.12, uv (`uv sync --locked`), pacote em `src/sustemporal/`, CLI `sustemporal`.
 - Contratos em `sustemporal.contracts` (pydantic v2, `frozen`, `extra="forbid"`; pydantic v2 não
-  converte número em texto). Use os tipos de `contracts/base.py` (`Inteiro`, `DecimalExato`,
-  `ValorMonetario`, `Booleano`, `InstanteUTC`, códigos com padrão) em vez de `int`/`float`/`bool`
-  crus: eles recusam float, bool disfarçado e instantes sem UTC.
+  converte número em texto). Campo novo em contrato com id derivado do conteúdo tem default
+  `None`, assim ids já emitidos continuam válidos. Use os tipos de `contracts/base.py` (`Inteiro`,
+  `DecimalExato`, `ValorMonetario`, `Booleano`, `InstanteUTC`, códigos com padrão) em vez de
+  `int`/`float`/`bool` crus: eles recusam float, bool disfarçado e instantes sem UTC.
 - Limites: função ≤ 50 linhas, complexidade ≤ 10, aninhamento ≤ 3, arquivo ≤ 500 linhas, linha
   ≤ 100 colunas, ≤ 5 parâmetros posicionais (extras só keyword-only com default). Verificados por
   `tests/unit/test_limites_codigo.py` e ruff; supressões (`# ruff: noqa`, `noqa: C901/PLR09`,

@@ -1,0 +1,109 @@
+versao: 1
+familias:
+  - familia: PROCEDIMENTO_CBO
+    estado: CANDIDATA_PRE_G0
+    descricao: >-
+      Compatibilidade procedimento–CBO: o CBO do registro SIA-PA consta, para o procedimento, na
+      relação rl_procedimento_ocupacao da versão do SIGTAP escolhida pela política temporal.
+      Ausência na relação só sustenta violação com cobertura suficiente; a aplicabilidade a
+      procedimentos sem ocupação listada é A_CONFIRMAR. Candidata do primeiro incremento (plano
+      §5); escolher as duas primeiras famílias observáveis é decisão do G0. Leiaute SECUNDARIA
+      (S16); A_CONFIRMAR.
+    instrumentos: [C, I, P, S, A, B]
+    unidade_avaliacao: OCORRENCIA
+    requisitos_fonte:
+      - fonte: SIA_PA
+        schema_id: sia_pa.v1
+        campos: [procedimento, cbo, instrumento, competencia_atendimento, competencia_processamento]
+      - fonte: SIGTAP
+        schema_id: sigtap_proc_ocupacao.v1
+        campos: [dt_competencia, co_procedimento, co_ocupacao]
+    referencia:
+      doc_id: O12
+      titulo: SIGTAP, membros do zip da Tabela Unificada
+      localizador: >-
+        rl_procedimento_ocupacao.txt e rl_procedimento_ocupacao_layout.txt em
+        TabelaUnificada_{AAAAMM}_v{geração}.zip; leiaute lido na cópia 2026-02 (S16)
+      estado: PENDENTE
+      proveniencia: SECUNDARIA
+      confirmacao: A_CONFIRMAR
+  - familia: ESTABELECIMENTO_CBO
+    estado: CANDIDATA_PRE_G0
+    descricao: >-
+      Existência do par estabelecimento–CBO no CNES, quando exigida pela regra: o CNES e o CBO do
+      registro SIA-PA aparecem com ao menos um vínculo no arquivo CNES PF da competência escolhida
+      pela política temporal, reduzido a contagens por estabelecimento–CBO. A verificação fica no
+      nível estabelecimento–CBO, sem identificar nem inferir o vínculo de um profissional
+      específico; presença em retrato mensal não data o início do vínculo. Candidata do primeiro
+      incremento (plano §5). Base normativa da exigência a localizar; A_CONFIRMAR.
+    instrumentos: [C, I, P, S, A, B]
+    unidade_avaliacao: ESTABELECIMENTO_CBO
+    requisitos_fonte:
+      - fonte: SIA_PA
+        schema_id: sia_pa.v1
+        campos: [cnes, cbo, instrumento, competencia_atendimento, competencia_processamento]
+      - fonte: CNES_PF
+        schema_id: cnes_estab_cbo.v1
+        campos: [competencia_arquivo, cnes, cbo, n_vinculos]
+    referencia:
+      doc_id: O7
+      titulo: Informe Técnico CNES 1706 (IT_CNES_1706.pdf)
+      url: ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/doc/IT_CNES_1706.pdf
+      localizador: >-
+        leiaute do grupo PF (profissionais); existência vista no inventário S10, conteúdo ainda
+        não lido
+      estado: PENDENTE
+      proveniencia: SECUNDARIA
+      confirmacao: A_CONFIRMAR
+  - familia: INSTRUMENTO_REGISTRO
+    estado: CANDIDATA_PRE_G0
+    descricao: >-
+      Instrumento de registro: o instrumento do registro SIA-PA (PA_DOCORIG) é admitido para o
+      procedimento na relação rl_procedimento_registro da versão do SIGTAP escolhida pela política
+      temporal. A correspondência PA_DOCORIG–CO_REGISTRO (C 01, I 02, P 06, S 07, A 08, B 09) é
+      INFERIDA dos rótulos. Candidata do primeiro incremento (plano §5). Leiaute SECUNDARIA (S16);
+      A_CONFIRMAR.
+    instrumentos: [C, I, P, S, A, B]
+    unidade_avaliacao: OCORRENCIA
+    requisitos_fonte:
+      - fonte: SIA_PA
+        schema_id: sia_pa.v1
+        campos: [procedimento, instrumento, competencia_atendimento, competencia_processamento]
+      - fonte: SIGTAP
+        schema_id: sigtap_proc_registro.v1
+        campos: [dt_competencia, co_procedimento, co_registro]
+    referencia:
+      doc_id: O12
+      titulo: SIGTAP, membros do zip da Tabela Unificada
+      localizador: >-
+        rl_procedimento_registro.txt, tb_registro.txt e respectivos *_layout.txt em
+        TabelaUnificada_{AAAAMM}_v{geração}.zip; leiaute lido na cópia 2026-02 (S16)
+      estado: PENDENTE
+      proveniencia: SECUNDARIA
+      confirmacao: A_CONFIRMAR
+  - familia: VIGENCIA_PROCEDIMENTO
+    estado: CANDIDATA_PRE_G0
+    descricao: >-
+      Vigência do procedimento: o procedimento do registro SIA-PA consta em tb_procedimento da
+      versão do SIGTAP escolhida pela política temporal. Versão ausente, ambígua ou em quarentena
+      leva a inconclusão, nunca ao mês vizinho. Candidata do primeiro incremento (plano §5).
+      Leiaute SECUNDARIA (S16); A_CONFIRMAR.
+    instrumentos: [C, I, P, S, A, B]
+    unidade_avaliacao: OCORRENCIA
+    requisitos_fonte:
+      - fonte: SIA_PA
+        schema_id: sia_pa.v1
+        campos: [procedimento, competencia_atendimento, competencia_processamento]
+      - fonte: SIGTAP
+        schema_id: sigtap_procedimento.v1
+        campos: [dt_competencia, co_procedimento]
+    referencia:
+      doc_id: O12
+      titulo: SIGTAP, membros do zip da Tabela Unificada
+      localizador: >-
+        tb_procedimento.txt e tb_procedimento_layout.txt em
+        TabelaUnificada_{AAAAMM}_v{geração}.zip; leiaute lido na cópia 2026-02 (S16)
+      estado: PENDENTE
+      proveniencia: SECUNDARIA
+      confirmacao: A_CONFIRMAR
+reservadas: [SERVICO_CLASSIFICACAO, HABILITACAO, CID, IDADE, SEXO, QUANTIDADE_MAXIMA]

@@ -62,10 +62,15 @@ def test_not_exists_sem_matriz_de_cobertura_e_inconclusivo(tmp_path: Path) -> No
 
 
 @pytest.mark.parametrize(
-    "integridade", [EstadoIntegridade.QUARENTENA_TRUNCADO, EstadoIntegridade.NAO_VERIFICADO, None]
+    ("integridade", "motivo"),
+    [
+        (EstadoIntegridade.QUARENTENA_TRUNCADO, "ARQUIVO_EM_QUARENTENA"),
+        (EstadoIntegridade.NAO_VERIFICADO, "COBERTURA_INSUFICIENTE"),
+        (None, "COBERTURA_INSUFICIENTE"),
+    ],
 )
 def test_not_exists_sem_integridade_ok_e_inconclusivo(
-    tmp_path: Path, integridade: EstadoIntegridade | None
+    tmp_path: Path, integridade: EstadoIntegridade | None, motivo: str
 ) -> None:
     cenario = cenario_base(registro(cbo="999999"))
     estados = dict(cenario.integridade)
@@ -73,7 +78,7 @@ def test_not_exists_sem_integridade_ok_e_inconclusivo(
     if integridade is not None:
         estados[ART_SIGTAP] = integridade
     avaliacao = _avaliacao(tmp_path, cenario.com(integridade=estados))
-    assert (avaliacao["estado"], avaliacao["motivos"]) == ("INCONCLUSIVO", "COBERTURA_INSUFICIENTE")
+    assert (avaliacao["estado"], avaliacao["motivos"]) == ("INCONCLUSIVO", motivo)
 
 
 def test_procedimento_sem_ocupacao_listada_tem_aplicabilidade_desconhecida(tmp_path: Path) -> None:

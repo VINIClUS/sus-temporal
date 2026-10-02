@@ -14,6 +14,7 @@ from sustemporal.rules.catalog import (
     carregar_esquema,
     requisito_auxiliar,
 )
+from sustemporal.rules.coerencia import SQL_REQUERIDAS, criar_regras_fontes
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
@@ -69,6 +70,9 @@ _DOMINIO_REGISTRO = {
     "competencia_atendimento": _COMPETENCIA,
     "competencia_processamento": _COMPETENCIA,
 }
+_INTEIROS_FISICOS = frozenset(
+    {"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT"}
+)
 _COLUNAS_COBERTURA = ("familia_regra", "instrumento", "competencia", "base_temporal", "estado")
 _TIPO_SQL = {TipoCanonico.INTEIRO: "BIGINT", TipoCanonico.BOOLEANO: "BOOLEAN"}
 _LISTA_NORMALIZADA = (
@@ -88,6 +92,27 @@ class Auxiliar:
 def _colunas_do_parquet(con: duckdb.DuckDBPyConnection, caminho: str) -> set[str]:
     descricao = con.execute("DESCRIBE SELECT * FROM read_parquet($c)", {"c": caminho}).fetchall()
     return {str(linha[0]) for linha in descricao}
+
+
+def _tipos_do_parquet(con: duckdb.DuckDBPyConnection, caminho: str) -> dict[str, str]:
+    descricao = con.execute("DESCRIBE SELECT * FROM read_parquet($c)", {"c": caminho}).fetchall()
+    return {str(linha[0]): str(linha[1]) for linha in descricao}
+
+
+def _tipo_compativel(esperado: str, fisico: str) -> bool:
+    if esperado == "BIGINT":
+        return fisico in _INTEIROS_FISICOS
+    return fisico == esperado
+
+
+def _incompativeis(
+    colunas: Collection[str], fisicos: Mapping[str, str], tipos: Mapping[str, str]
+) -> list[str]:
+    return sorted(
+        nome
+        for nome in colunas
+        if nome in fisicos and not _tipo_compativel(tipos[nome], fisicos[nome])
+    )
 
 
 def _tipos(schema_id: str) -> dict[str, str]:
@@ -141,10 +166,14 @@ def carregar_registros(
     tipos = _tipos("sia_pa.v1")
     usadas = dict.fromkeys(COLUNAS_BASE_REGISTRO)
     usadas.update(dict.fromkeys(campo for regra in regras for campo in regra.campos_necessarios))
-    presentes = _colunas_do_parquet(con, dataset.caminho)
+    fisicos = _tipos_do_parquet(con, dataset.caminho)
+    presentes = set(fisicos)
     faltantes = [nome for nome in _OBRIGATORIAS_REGISTRO if nome not in presentes]
     if faltantes:
         raise ValueError(f"registros_sem_coluna_obrigatoria colunas={faltantes}")
+    nao_textuais = _incompativeis(usadas, fisicos, tipos)
+    if nao_textuais:
+        raise ValueError(f"registros_com_codigo_nao_textual colunas={nao_textuais}")
     projecao = _projecao_registros(list(usadas), presentes, tipos)
     dominios = {
         f"dominio_{nome}": padrao
@@ -185,27 +214,9 @@ def carregar_selecoes(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> No
     _exigir_chave_unica(con, "selecoes", ("row_id", "rule_id", "fonte"), tipos)
 
 
-_SQL_DERIVAR = """
+_SQL_DERIVAR = f"""
 CREATE OR REPLACE TEMP TABLE selecoes AS
-WITH pedidos AS (
-    SELECT r.row_id, g.rule_id, g.fonte, g.base, g.deslocamento,
-        CASE g.base
-            WHEN 'ATENDIMENTO' THEN r.competencia_atendimento
-            WHEN 'PROCESSAMENTO' THEN r.competencia_processamento
-        END AS comp_base
-    FROM registros AS r CROSS JOIN regras_fontes AS g
-),
-requeridas AS (
-    SELECT *,
-        CASE
-            WHEN comp_base IS NULL THEN NULL
-            WHEN deslocamento = 0 THEN comp_base
-            ELSE strftime(
-                try_strptime(comp_base || '01', '%Y%m%d') + to_months(deslocamento), '%Y%m'
-            )
-        END AS comp
-    FROM pedidos
-)
+WITH {SQL_REQUERIDAS}
 SELECT
     q.row_id, q.rule_id, q.fonte,
     CASE WHEN q.comp IS NULL THEN NULL ELSE q.base END AS base,
@@ -222,7 +233,7 @@ SELECT
 FROM requeridas AS q
 LEFT JOIN snapshot_selecoes AS s
     ON s.fonte = q.fonte AND s.base = q.base AND s.competencia_requerida = q.comp
-"""
+"""  # noqa: S608
 
 
 def derivar_selecoes(
@@ -252,15 +263,6 @@ def derivar_selecoes(
     chaves = [entrada[:3] for entrada in entradas]
     if len(set(chaves)) != len(chaves):
         raise ValueError("snapshot_com_selecao_repetida_por_fonte_base_competencia")
-    criterios = {criterio.fonte: criterio for criterio in politica.criterios}
-    pedidos = []
-    for regra in regras:
-        fonte = requisito_auxiliar(regra).fonte
-        criterio = criterios.get(fonte)
-        base = str(criterio.base) if criterio else None
-        pedidos.append(
-            (regra.rule_id, str(fonte), base, criterio.deslocamento_meses if criterio else 0)
-        )
     con.execute(
         "CREATE OR REPLACE TEMP TABLE snapshot_selecoes (fonte VARCHAR, base VARCHAR, "
         "competencia_requerida VARCHAR, estado VARCHAR, artifact_ids VARCHAR, "
@@ -268,12 +270,7 @@ def derivar_selecoes(
     )
     if entradas:
         con.executemany("INSERT INTO snapshot_selecoes VALUES (?, ?, ?, ?, ?, ?, ?)", entradas)
-    con.execute(
-        "CREATE OR REPLACE TEMP TABLE regras_fontes "
-        "(rule_id VARCHAR, fonte VARCHAR, base VARCHAR, deslocamento BIGINT)"
-    )
-    if pedidos:
-        con.executemany("INSERT INTO regras_fontes VALUES (?, ?, ?, ?)", pedidos)
+    criar_regras_fontes(con, regras, politica)
     con.execute(_SQL_DERIVAR)
 
 
@@ -332,11 +329,12 @@ def preparar_auxiliar(
     if len(candidatos) > 1:
         raise ValueError(f"auxiliar_repetido schema_id={requisito.schema_id}")
     dataset = candidatos[0] if candidatos else None
-    presentes = _colunas_do_parquet(con, dataset.caminho) if dataset else set()
+    fisicos = _tipos_do_parquet(con, dataset.caminho) if dataset else {}
+    presentes = set(fisicos)
     leiaute = "OK"
     if dataset is None:
         leiaute = "ARQUIVO_AUSENTE"
-    elif not set(colunas) <= presentes:
+    elif not set(colunas) <= presentes or _incompativeis(colunas, fisicos, tipos):
         leiaute = "LEIAUTE_INCOMPATIVEL"
     projecao = _projecao(colunas, presentes if leiaute == "OK" else set(), tipos)
     origem = "read_parquet($c)" if leiaute == "OK" else "(SELECT 1) WHERE false"
@@ -354,19 +352,27 @@ def _estado_do_conjunto(
     auxiliar: Auxiliar,
     com_linhas: set[str],
     integridade: Mapping[str, EstadoIntegridade],
-) -> tuple[bool, bool, bool, str, bool]:
+) -> tuple[bool, bool, bool, bool, str, bool]:
     conhecidos = set(auxiliar.dataset.artifact_ids) if auxiliar.dataset else set()
     fora = any(artefato not in conhecidos for artefato in artefatos)
     vazio = not any(artefato in com_linhas for artefato in artefatos)
     todas = bool(artefatos) and all(artefato in com_linhas for artefato in artefatos)
     estados = [integridade.get(artefato) for artefato in artefatos]
+    quarentena = any(e is not None and e.value.startswith("QUARENTENA_") for e in estados)
     ok = bool(estados) and all(estado is EstadoIntegridade.OK for estado in estados)
     ruins = sorted(
         str(e) if e is not None else "NAO_VERIFICADO"
         for e in estados
         if e is not EstadoIntegridade.OK
     )
-    return fora, vazio, todas, "OK" if ok else (ruins[0] if ruins else "NAO_VERIFICADO"), ok
+    return (
+        fora,
+        quarentena,
+        vazio,
+        todas,
+        "OK" if ok else (ruins[0] if ruins else "NAO_VERIFICADO"),
+        ok,
+    )
 
 
 def preparar_conjuntos(
@@ -389,9 +395,9 @@ def preparar_conjuntos(
         artefatos = [a for a in str(chave or "").split(";") if a]
         linhas.append((chave, *_estado_do_conjunto(artefatos, auxiliar, com_linhas, integridade)))
     con.execute(
-        "CREATE OR REPLACE TEMP TABLE conjuntos (chave VARCHAR, fora BOOLEAN, "
+        "CREATE OR REPLACE TEMP TABLE conjuntos (chave VARCHAR, fora BOOLEAN, quarentena BOOLEAN, "
         "escopo_vazio BOOLEAN, todas_com_linhas BOOLEAN, integridade VARCHAR, "
         "integridade_ok BOOLEAN)"
     )
     if linhas:
-        con.executemany("INSERT INTO conjuntos VALUES (?, ?, ?, ?, ?, ?)", linhas)
+        con.executemany("INSERT INTO conjuntos VALUES (?, ?, ?, ?, ?, ?, ?)", linhas)

@@ -18,6 +18,7 @@ WITH base AS (
         s.observation_ids AS sel_observacoes,
         s.motivo AS sel_motivo,
         k.fora AS sel_fora,
+        k.quarentena AS sel_quarentena,
         k.escopo_vazio AS sel_escopo_vazio,
         k.todas_com_linhas AS sel_todas_com_linhas,
         k.integridade AS sel_integridade,
@@ -75,6 +76,7 @@ insumos AS (
                     WHEN 'SELECIONADA' THEN CASE
                         WHEN $leiaute <> 'OK' THEN $leiaute
                         WHEN sel_fora THEN 'ARQUIVO_AUSENTE'
+                        WHEN sel_quarentena THEN 'ARQUIVO_EM_QUARENTENA'
                         WHEN sel_escopo_vazio THEN 'COBERTURA_INSUFICIENTE'
                     END
                 END

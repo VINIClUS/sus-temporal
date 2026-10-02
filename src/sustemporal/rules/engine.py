@@ -18,6 +18,7 @@ from sustemporal.rules.catalog import (
     sql_de_avaliacao,
     sql_sha256,
 )
+from sustemporal.rules.coerencia import SelecaoIncoerente, conferir_selecoes, criar_regras_fontes
 from sustemporal.rules.falhas import ERROS_OPERACIONAIS, RegistroFalhas
 from sustemporal.rules.insumos import InsumosAvaliacao, politica_da_execucao
 from sustemporal.rules.preparo import (
@@ -156,6 +157,8 @@ def _preparar(
     presentes = carregar_registros(con, contexto.dataset, contexto.regras)
     if insumos.selecoes is not None:
         carregar_selecoes(con, insumos.selecoes)
+        criar_regras_fontes(con, contexto.regras, contexto.politica)
+        conferir_selecoes(con)
     else:
         derivar_selecoes(con, snapshots, contexto.regras, contexto.politica)
     carregar_cobertura(con, insumos.cobertura)
@@ -172,7 +175,8 @@ def _executar(
     try:
         presentes = _preparar(con, contexto, snapshots)
     except ERROS_OPERACIONAIS as erro:
-        falhas.registrar("carregar_insumos", erro)
+        etapa = "conferir_selecao" if isinstance(erro, SelecaoIncoerente) else "carregar_insumos"
+        falhas.registrar(etapa, erro)
         return False
     for regra in contexto.regras:
         try:

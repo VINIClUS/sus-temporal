@@ -239,12 +239,14 @@ def _bytes_independentes(dbc: bytes, h: int) -> tuple[bytes | None, list[str]]:
         independente = bytes(DBCDecompress().decompress(dbc))
     except Exception as erro:
         return None, [f"dbctodbf_falhou erro={type(erro).__name__}"]
+    terminador = [] if producao[h - 1 : h] == b"\x0d" else [f"terminador_ausente cabecalho={h}"]
     ajustado = independente[: h - 1] + producao[h - 1 : h] + independente[h:]
     if ajustado != producao:
         return None, [
-            f"bytes_divergentes producao={len(producao)} independente={len(independente)}"
+            *terminador,
+            f"bytes_divergentes producao={len(producao)} independente={len(independente)}",
         ]
-    return independente, _fim_dcl_independente(dbc)
+    return independente, terminador + _fim_dcl_independente(dbc)
 
 
 def _fim_dcl_independente(dbc: bytes) -> list[str]:
@@ -361,7 +363,10 @@ def _flags_independentes(dbf: bytes) -> NDArray[np.bool_]:
     return np.asarray(registros[:, 0] == ord("*"), dtype=np.bool_)
 
 
-def _comparar_registros(dbf: bytes, leitura: LeituraDbf, posicoes: NDArray[np.int64]) -> list[str]:
+def _comparar_registros(
+    dbf: bytes, leitura: LeituraDbf, posicoes: NDArray[np.int64]
+) -> tuple[list[str], int]:
+    """Divergências e número de posições realmente comparadas."""
     tabela = leitura.tabela
     proprios_flags = tabela.column(COLUNA_DELETADO).to_numpy().astype(bool)
     flags = _flags_independentes(dbf)
@@ -394,7 +399,7 @@ def _comparar_registros(dbf: bytes, leitura: LeituraDbf, posicoes: NDArray[np.in
         obtido = _bytes_latin1(proprio)
         if esperado is None or dict(esperado) != obtido:
             divergencias.append(f"registro_divergente indice={posicao}")
-    return divergencias
+    return divergencias, int(posicoes.size)
 
 
 def verificar_fidelidade(
@@ -420,7 +425,9 @@ def verificar_fidelidade(
     else:
         divergencias += _cabecalho_coincide(independente, leitura)
         try:
-            divergencias += _comparar_registros(independente, leitura, posicoes)
+            novas, comparados = _comparar_registros(independente, leitura, posicoes)
+            divergencias += novas
+            posicoes = posicoes[:comparados]
         except _FalhaReferencia as falha:
             posicoes = posicoes[:0]
             divergencias.append(str(falha))

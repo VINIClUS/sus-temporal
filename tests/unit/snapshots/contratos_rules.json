@@ -932,6 +932,25 @@
  },
  "RuleSpec": {
   "$defs": {
+   "BaseTemporal": {
+    "enum": [
+     "ATENDIMENTO",
+     "PROCESSAMENTO"
+    ],
+    "title": "BaseTemporal",
+    "type": "string"
+   },
+   "CanalPublicacao": {
+    "enum": [
+     "ATUAL",
+     "PRELIMINAR",
+     "HISTORICO",
+     "IMPORTACAO_MANUAL",
+     "DESCONHECIDO"
+    ],
+    "title": "CanalPublicacao",
+    "type": "string"
+   },
    "Confirmacao": {
     "enum": [
      "CONFIRMADO",
@@ -939,6 +958,39 @@
     ],
     "title": "Confirmacao",
     "type": "string"
+   },
+   "CriterioTemporal": {
+    "additionalProperties": false,
+    "properties": {
+     "base": {
+      "$ref": "#/$defs/BaseTemporal"
+     },
+     "canal": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/CanalPublicacao"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "deslocamento_meses": {
+      "default": 0,
+      "title": "Deslocamento Meses",
+      "type": "integer"
+     },
+     "fonte": {
+      "$ref": "#/$defs/FamiliaFonte"
+     }
+    },
+    "required": [
+     "fonte",
+     "base"
+    ],
+    "title": "CriterioTemporal",
+    "type": "object"
    },
    "DocRef": {
     "additionalProperties": false,
@@ -1183,6 +1235,14 @@
     "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
     "title": "Condicao Aplicabilidade",
     "type": "string"
+   },
+   "criterios_temporais": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/CriterioTemporal"
+    },
+    "title": "Criterios Temporais",
+    "type": "array"
    },
    "decisao_g0": {
     "anyOf": [

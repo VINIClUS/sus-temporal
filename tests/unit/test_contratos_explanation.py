@@ -287,3 +287,8 @@ def test_bundle_rejeita_evidencia_citada_inexistente_fora_de_violacao() -> None:
     nao_aplicavel = _avaliacao(EstadoAvaliacao.NAO_APLICAVEL, evidence_ids=("ev_inexistente",))
     with pytest.raises(ValidationError, match="avaliacao_cita_evidencia_ausente"):
         _bundle(avaliacoes=(nao_aplicavel,))
+
+
+def test_evidencia_de_ausencia_exige_artefato() -> None:
+    with pytest.raises(ValidationError, match="ausencia_sem_artefato"):
+        _evidencia(artifact_ids=())

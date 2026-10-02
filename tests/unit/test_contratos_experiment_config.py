@@ -449,13 +449,17 @@ def test_territorio_exige_municipios_unicos_e_fonte(campos: dict[str, object]) -
 def test_relatorio_sintetico_nao_pode_ser_confirmatorio() -> None:
     assert _relatorio().origem_dados is OrigemDados.SINTETICO
     with pytest.raises(ValidationError, match="relatorio_sintetico_confirmatorio"):
-        _relatorio(modo=ModoExecucao.CONFIRMATORIO, freeze_id=_FREEZE, decisao_g2="G2.yaml")
+        _relatorio(
+            modo=ModoExecucao.CONFIRMATORIO,
+            freeze_id=_FREEZE,
+            decisao_g2="experiments/decisions/G2.yaml",
+        )
 
 
 @pytest.mark.parametrize("campos", [{"freeze_id": None}, {"decisao_g2": None}, {"freeze_id": ""}])
 def test_relatorio_confirmatorio_exige_freeze_e_decisao_g2(campos: dict[str, object]) -> None:
     confirmatorio = {"modo": ModoExecucao.CONFIRMATORIO, "origem_dados": OrigemDados.REAL}
-    completo = confirmatorio | {"freeze_id": _FREEZE, "decisao_g2": "G2.yaml"}
+    completo = confirmatorio | {"freeze_id": _FREEZE, "decisao_g2": "experiments/decisions/G2.yaml"}
     assert _relatorio(**completo).modo is ModoExecucao.CONFIRMATORIO
     with pytest.raises(ValidationError, match=r"relatorio_confirmatorio_sem_freeze_ou_g2|frz_"):
         _relatorio(**(completo | campos))

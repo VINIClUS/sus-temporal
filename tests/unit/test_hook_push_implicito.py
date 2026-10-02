@@ -136,3 +136,25 @@ def test_push_implicito_noutro_diretorio_de_branch_proprio_e_permitido(
 )
 def test_push_implicito_em_diretorio_nao_resolvido_e_bloqueado(repo: Path, comando: str) -> None:
     assert _executar(comando, repo).returncode == 2
+
+
+@pytest.mark.parametrize(
+    ("expansao", "comando"),
+    [
+        ("push", "git p origin main"),
+        ("push -f", "git p origin claude/s1-x"),
+        ("!git push -f", "git p"),
+    ],
+)
+def test_alias_persistido_no_repositorio_e_resolvido(
+    repo: Path, expansao: str, comando: str
+) -> None:
+    _git(repo, "checkout", "-q", "-b", "claude/s1-x")
+    _git(repo, "config", "alias.p", expansao)
+    assert _executar(comando, repo).returncode == 2
+
+
+def test_alias_persistido_seguro_e_permitido(repo: Path) -> None:
+    _git(repo, "checkout", "-q", "-b", "claude/s1-x")
+    _git(repo, "config", "alias.p", "push")
+    assert _executar("git p origin claude/s1-x", repo).returncode == 0

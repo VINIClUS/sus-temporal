@@ -24,6 +24,7 @@ from tests.fixtures.sintetico.contratos import dataset_sintetico, split_sintetic
 from tests.unit.test_contratos_experiment_config import (
     _ART_A,
     _EXPLORATORIO,
+    _FREEZE,
     _INSTANTE,
     _amostra,
     _campos_freeze,
@@ -31,6 +32,7 @@ from tests.unit.test_contratos_experiment_config import (
     _decisao,
     _esquema,
     _features,
+    _relatorio,
     _run_config,
     _run_result,
     _split,
@@ -294,3 +296,39 @@ def test_execucao_exige_datasets_da_mesma_origem() -> None:
         _run_result(
             modo="EXPLORATORIO", origem_dados=OrigemDados.SINTETICO, freeze_id=None, saidas=(real,)
         )
+
+
+_CONFIRMATORIO_REAL = {
+    "modo": "CONFIRMATORIO",
+    "origem_dados": OrigemDados.REAL,
+    "freeze_id": _FREEZE,
+    "decisao_g2": "experiments/decisions/G2.yaml",
+}
+
+
+def test_relatorio_exige_tabelas_da_mesma_origem() -> None:
+    real = dataset_sintetico()
+    sintetica = DatasetRef.model_validate(real.model_dump() | {"origem_dados": "SINTETICO"})
+    assert _relatorio(**_CONFIRMATORIO_REAL, tabelas=(real,)).tabelas == (real,)
+    with pytest.raises(ValidationError, match="relatorio_com_tabela_de_outra_origem"):
+        _relatorio(**_CONFIRMATORIO_REAL, tabelas=(sintetica,))
+
+
+@pytest.mark.parametrize("decisao", ["inventada", "G2.yaml", "experiments/decisions/../g2.yaml"])
+def test_relatorio_confirmatorio_exige_referencia_de_decisao(decisao: str) -> None:
+    with pytest.raises(ValidationError):
+        _relatorio(**(_CONFIRMATORIO_REAL | {"decisao_g2": decisao}))
+
+
+@pytest.mark.parametrize(
+    ("populacao", "amostra", "prob"), [(100, 10, "1"), (100, 10, "0.2"), (0, 0, "1")]
+)
+def test_estrato_exige_probabilidade_igual_a_fracao_amostral(
+    populacao: int, amostra: int, prob: str
+) -> None:
+    with pytest.raises(ValidationError, match="estrato_"):
+        Estrato(nome="E", populacao=populacao, amostra=amostra, prob_inclusao=prob)
+
+
+def test_estrato_aceita_fracao_amostral_na_escala_da_probabilidade() -> None:
+    assert Estrato(nome="E", populacao=3, amostra=1, prob_inclusao="0.3333").amostra == 1

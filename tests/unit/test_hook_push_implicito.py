@@ -1,0 +1,94 @@
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+HOOK = Path(__file__).resolve().parents[2] / ".claude" / "hooks" / "bloquear_push_perigoso.py"
+
+
+def _git(repo: Path, *argumentos: str) -> None:
+    subprocess.run(
+        ["git", "-c", "commit.gpgsign=false", *argumentos],
+        cwd=repo,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _executar(comando: str, repo: Path) -> subprocess.CompletedProcess[str]:
+    entrada = json.dumps({"tool_name": "Bash", "tool_input": {"command": comando}})
+    return subprocess.run(
+        [sys.executable, str(HOOK)],
+        input=entrada,
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=repo,
+    )
+
+
+@pytest.fixture
+def repo(tmp_path: Path) -> Path:
+    remoto = tmp_path / "remoto.git"
+    local = tmp_path / "local"
+    subprocess.run(["git", "init", "-q", "--bare", str(remoto)], check=True)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(local)], check=True)
+    _git(
+        local,
+        "-c",
+        "user.name=t",
+        "-c",
+        "user.email=t@t",
+        "commit",
+        "-q",
+        "--allow-empty",
+        "-m",
+        "x",
+    )
+    _git(local, "remote", "add", "origin", str(remoto))
+    _git(local, "push", "-q", "-u", "origin", "main")
+    return local
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "git push",
+        "git push origin",
+        "git push -u origin",
+        "git push origin HEAD",
+        "git push origin @",
+    ],
+)
+def test_push_implicito_estando_em_main_e_bloqueado(repo: Path, comando: str) -> None:
+    resultado = _executar(comando, repo)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+def test_push_implicito_para_upstream_main_e_bloqueado(repo: Path) -> None:
+    _git(repo, "checkout", "-q", "-b", "claude/s1-x")
+    _git(repo, "branch", "-q", "-u", "origin/main")
+    assert _executar("git push", repo).returncode == 2
+
+
+def test_push_implicito_de_branch_proprio_e_permitido(repo: Path) -> None:
+    _git(repo, "checkout", "-q", "-b", "claude/s1-x")
+    _git(repo, "push", "-q", "-u", "origin", "claude/s1-x")
+    assert _executar("git push", repo).returncode == 0
+    assert _executar("git push origin HEAD", repo).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "git commit -m 'corrige #12' && git push origin main",
+        "git log -1 --format=%h#%s && git push origin HEAD:main",
+        "git push origin HEAD:heads/main",
+    ],
+)
+def test_push_perigoso_disfarcado_e_bloqueado(repo: Path, comando: str) -> None:
+    _git(repo, "checkout", "-q", "-b", "claude/s1-x")
+    assert _executar(comando, repo).returncode == 2

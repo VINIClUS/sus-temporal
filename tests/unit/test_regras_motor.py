@@ -1,6 +1,7 @@
 """Comportamento transversal SINTETICO do motor: seleção, falhas, agregação, saídas e portões."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import duckdb
@@ -170,8 +171,8 @@ def test_selecao_com_chave_repetida_e_falha_operacional(tmp_path: Path) -> None:
 def test_falha_de_programa_nao_vira_inconclusivo(tmp_path: Path) -> None:
     cenario = cenario_base()
     dataset, insumos = materializar(cenario, tmp_path / "entrada")
-    corrompido = next(r for r in insumos.auxiliares if r.schema_id == "sigtap_procedimento.v1")
-    Path(corrompido.caminho).write_bytes(b"isto nao e parquet")
+    repetido = next(r for r in insumos.auxiliares if r.schema_id == "sigtap_procedimento.v1")
+    insumos = replace(insumos, auxiliares=(*insumos.auxiliares, repetido))
     resultado = evaluate_rules(
         dataset,
         snapshot_vazio(),

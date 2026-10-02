@@ -10,6 +10,7 @@ from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.experiment import EstadoExecucao, RunResult
 from sustemporal.contracts.temporal import MetodoId
+from sustemporal.rules import saidas
 from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.engine import evaluate_rules
 from tests.fixtures.regras_cenario import materializar, politica, snapshot_vazio
@@ -119,3 +120,34 @@ def test_codigo_numerico_no_auxiliar_e_leiaute_incompativel(tmp_path: Path) -> N
     )
     avaliacao = avaliacoes_por_chave(resultado)[(LINHA, PROC)]
     assert (avaliacao["estado"], avaliacao["motivos"]) == ("INCONCLUSIVO", "LEIAUTE_INCOMPATIVEL")
+
+
+def test_cobertura_com_competencia_numerica_nunca_fica_disponivel(tmp_path: Path) -> None:
+    dataset, insumos = materializar(cenario_base(registro(cbo="999999")), tmp_path / "entrada")
+    assert insumos.cobertura is not None
+    _reescrever_inteiro(insumos.cobertura.caminho, "competencia", 202001)
+    resultado = evaluate_rules(
+        dataset,
+        snapshot_vazio(),
+        carregar_regras(),
+        RunConfig(versao="1"),
+        tmp_path / "s",
+        insumos=insumos,
+    )
+    avaliacao = avaliacoes_por_chave(resultado)[(LINHA, PROC)]
+    assert (avaliacao["estado"], avaliacao["motivos"]) == ("INCONCLUSIVO", "COBERTURA_INSUFICIENTE")
+
+
+def test_evidencia_rejeitada_nao_e_gravada(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    original = saidas.Evidence
+
+    def recusar_aplicabilidade(**campos: object) -> object:
+        if campos["tipo"] == "APLICABILIDADE":
+            raise ValueError("evidencia_sintetica_invalida")
+        return original(**campos)
+
+    monkeypatch.setattr(saidas, "Evidence", recusar_aplicabilidade)
+    resultado = executar(tmp_path, cenario_base(registro(0), registro(1, instrumento="Z")))
+    assert {e["tipo"] for e in tabela(resultado, "evidencias.v1")} == {"VINCULO_ENCONTRADO"}
+    assert all(a["estado"] != "NAO_APLICAVEL" for a in tabela(resultado, "avaliacoes.v1"))
+    assert {f["etapa"] for f in tabela(resultado, "falhas.v1")} >= {"validar_evidencia"}

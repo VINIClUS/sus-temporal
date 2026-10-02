@@ -296,3 +296,42 @@ def test_lote_equivale_ao_registro_com_deslocamento_uf_e_quarentena(cenario) -> 
             sel.motivo,
         )
         assert lote[linha.row_id] == esperado
+
+
+def _ambiente_padrao(tmp_path, partes: tuple[str, ...]):
+    from pathlib import Path
+
+    from sustemporal.acquisition.manifest import Manifesto
+
+    manifesto = Manifesto(tmp_path / "manifests" / "aquisicao.jsonl")
+    for parte in partes:
+        obs, versao = observar(PF, "201801", f"P{parte}", 1, parte=parte)
+        manifesto.registrar(obs, versao)
+    texto = Path("catalog/sources.yaml").read_text(encoding="utf-8")
+    marcador = "  - fonte: CNES_PF\n"
+    texto = texto.replace(
+        marcador, marcador + '    partes_esperadas:\n      "201801": [a, b, c]\n', 1
+    )
+    catalogo = tmp_path / "sources.yaml"
+    catalogo.write_text(texto, encoding="utf-8")
+    return _config().model_copy(
+        update={
+            "runtime": _config().runtime.model_copy(
+                update={"raiz_manifestos": str(tmp_path / "manifests")}
+            ),
+            "catalogos": {"fontes": str(catalogo)},
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    ("partes", "estado"),
+    [(("a", "b", "c"), EstadoSelecao.SELECIONADA), (("a", "b"), EstadoSelecao.INCOMPLETA)],
+)
+def test_caminho_padrao_le_partes_esperadas_do_catalogo(
+    tmp_path, partes: tuple[str, ...], estado: EstadoSelecao
+) -> None:
+    config = _ambiente_padrao(tmp_path, partes)
+    linha = registro_producao("201801", "201801")
+    (sel,) = select_snapshots(linha, regra(), config).selecoes
+    assert sel.estado is estado

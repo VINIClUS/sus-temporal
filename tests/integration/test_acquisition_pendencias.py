@@ -149,3 +149,27 @@ def test_descompressao_roda_filho_isolado_com_caminhos_absolutos(
     (comando,) = chamadas
     assert "-I" in comando
     assert all(os.path.isabs(c) for c in comando[-2:])
+
+
+class _RespostaComParcial(_RespostaCortada):
+    def read(self, tamanho: int | None = -1) -> bytes:
+        if self.tell() == 0:
+            return super(_RespostaCortada, self).read(5)
+        raise http.client.IncompleteRead(b"abc", 10)
+
+
+def test_bytes_parciais_do_incomplete_read_sao_gravados_e_limitados(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from sustemporal.acquisition.transport import LimiteExcedido
+
+    monkeypatch.setattr(
+        transport.TransporteHTTPS, "_abrir", lambda _s, _r: _RespostaComParcial(b"%PDF-123456789")
+    )
+    destino = io.BytesIO()
+    with pytest.raises(TransferenciaInterrompida) as erro:
+        transport.TransporteHTTPS().baixar("https://exemplo.invalid/d.pdf", destino, 1000)
+    assert erro.value.recebidos == 8
+    assert destino.getvalue() == b"%PDF-abc"
+    with pytest.raises(LimiteExcedido):
+        transport.TransporteHTTPS().baixar("https://exemplo.invalid/d.pdf", io.BytesIO(), 6)

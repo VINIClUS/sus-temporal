@@ -7,11 +7,12 @@ import io
 import os
 from typing import TYPE_CHECKING
 
+import pytest
 from tests.fixtures.aquisicao_dados import TransporteFalso, dbc_sintetico
 
 from sustemporal.acquisition import fetch as modulo_fetch
 from sustemporal.acquisition.fetch import fetch_source
-from sustemporal.acquisition.manifest import Manifesto
+from sustemporal.acquisition.manifest import Manifesto, ManifestoCorrompido
 from sustemporal.acquisition.validation import validar_conteudo
 from sustemporal.contracts.artifacts import (
     ChaveArtefato,
@@ -25,8 +26,6 @@ from sustemporal.contracts.base import CanalPublicacao, FamiliaFonte
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-    import pytest
 
 
 def _requisicao(localizador: str) -> SourceRequest:
@@ -111,3 +110,56 @@ def test_falha_de_escrita_no_temporario_e_falha_de_armazenamento(
     assert observacao.erro is not None
     assert "temporario" in observacao.erro
     assert Manifesto(store / "manifesto.jsonl").ler().observacoes == (observacao,)
+
+
+def test_dbf_com_cabecalho_desalinhado_fica_em_quarentena(tmp_path: Path) -> None:
+    from tests.fixtures.dbf_writer import CampoDbf, escrever_dbf
+
+    dbf = bytearray(escrever_dbf([CampoDbf("PA_X", "C", 1)], [("A",)], com_eof=False))
+    corpo = dbf[65:]
+    desalinhado = dbf[:64] + b" " + b"\x0d" + corpo
+    desalinhado[8:10] = (66).to_bytes(2, "little")
+    caminho = tmp_path / "x.dbf"
+    caminho.write_bytes(bytes(desalinhado))
+    veredito = validar_conteudo(caminho, FormatoArquivo.DBF)
+    assert veredito.integridade is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+
+
+def _registrar(store: Path, valor: str) -> None:
+    origem = store.parent / f"{valor}.dbc"
+    origem.write_bytes(dbc_sintetico(valor))
+    fetch_source(_requisicao(origem.as_uri()), store)
+
+
+def test_recuperacao_preserva_transacoes_completas_apos_a_ancora(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    store = tmp_path / "store"
+    _registrar(store, "A")
+    caminho = store / "manifesto.jsonl"
+    original = Manifesto._gravar_ancora
+    with monkeypatch.context() as contexto:
+        contexto.setattr(Manifesto, "_gravar_ancora", lambda *_a: None)
+        _registrar(store, "B")
+    linhas_antes = caminho.read_text(encoding="utf-8").splitlines()
+    with caminho.open("a", encoding="utf-8") as arquivo:
+        arquivo.write('{"sequencia": 99, "par')
+    assert Manifesto._gravar_ancora is original
+    Manifesto(caminho).preparar()
+    assert caminho.read_text(encoding="utf-8").splitlines() == linhas_antes
+    (fragmento,) = store.glob("manifesto.jsonl.fragmento.*")
+    assert fragmento.read_text(encoding="utf-8") == '{"sequencia": 99, "par'
+
+
+def test_cauda_truncada_no_meio_de_caractere_utf8_e_separada(tmp_path: Path) -> None:
+    store = tmp_path / "store"
+    _registrar(store, "A")
+    caminho = store / "manifesto.jsonl"
+    with caminho.open("ab") as arquivo:
+        arquivo.write(b'{"erro": "configura' + "ç".encode()[:1])
+    with pytest.raises(ManifestoCorrompido):
+        Manifesto(caminho).ler()
+    _registrar(store, "B")
+    assert len(Manifesto(caminho).ler().observacoes) == 2
+    (fragmento,) = store.glob("manifesto.jsonl.fragmento.*")
+    assert fragmento.read_bytes().endswith(b"configura\xc3")

@@ -237,3 +237,22 @@ def test_acquire_reobtem_quando_os_bytes_guardados_sumiram_ou_mudaram(
     else:
         assert resultado == ExitCode.FALHA_OPERACIONAL
         assert arquivos[-1].resultado is ResultadoTentativa.FALHA_ARMAZENAMENTO
+
+
+def test_acquire_refaz_quando_a_versao_mais_recente_some_mesmo_com_a_antiga_integra(
+    tmp_path: Path,
+) -> None:
+    _publicar_origem(tmp_path)
+    config = str(_config(tmp_path, rede=False, catalogo=_catalogo_local(tmp_path)))
+    cli.main(["acquire", "--config", config])
+    dados = tmp_path / "origem" / "SIASUS" / "200801_" / "Dados"
+    (dados / "PASP1801a.dbc").write_bytes(dbc_sintetico("Z"))
+    cli.main(["acquire", "--config", config, "--reobservar"])
+    ultima = [o for o in _observacoes(tmp_path) if o.chave.nome_original == "PASP1801a.dbc"][-1]
+    guardado = tmp_path / "data" / "raw" / "sha256" / str(ultima.sha256_obtido)[:2]
+    (alvo,) = guardado.glob(f"{ultima.sha256_obtido}.*")
+    alvo.unlink()
+    cli.main(["acquire", "--config", config])
+    novas = [o for o in _observacoes(tmp_path) if o.chave.nome_original == "PASP1801a.dbc"]
+    assert len(novas) == 3
+    assert alvo.exists()

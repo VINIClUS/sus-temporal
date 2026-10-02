@@ -226,7 +226,9 @@ def _comparar_registros(dbf: bytes, leitura: LeituraDbf, posicoes: NDArray[np.in
     )
     descritores = [(c.nome, c.tipo, c.largura, c.decimais) for c in leitura.cabecalho.campos]
     divergencias = [] if descritores_ref == descritores else ["campos_divergentes"]
-    if (n_ativos, n_deletados) != (int((~flags).sum()), int(flags.sum())):
+    contagem_coluna = int(flags.sum())
+    lidas = (int((~flags).sum()), contagem_coluna, leitura.n_deletados)
+    if (n_ativos, n_deletados, n_deletados) != lidas:
         divergencias.append(f"contagens_divergentes ativos={n_ativos} deletados={n_deletados}")
     proprios = tabela.take(posicoes).select(nomes).to_pylist()
     for posicao, proprio in zip(posicoes.tolist(), proprios, strict=True):

@@ -268,3 +268,12 @@ def test_fidelidade_detecta_descritor_de_campo_divergente(alterar: dict[str, Any
     relatorio = verificar_fidelidade(dbc, dataclasses.replace(leitura, cabecalho=cabecalho))
     assert not relatorio.fiel
     assert "campos_divergentes" in relatorio.divergencias
+
+
+@pytest.mark.parametrize("n_deletados", [0, 2, 5])
+def test_fidelidade_detecta_contagem_de_deletados_informada_errada(n_deletados: int) -> None:
+    dbc = dbf_para_dbc(_dbf(deletados={1}))
+    leitura = dataclasses.replace(ler_dbc(dbc).leitura, n_deletados=n_deletados)
+    relatorio = verificar_fidelidade(dbc, leitura, "COMPLETA")
+    assert not relatorio.fiel
+    assert any(d.startswith("contagens_divergentes") for d in relatorio.divergencias)

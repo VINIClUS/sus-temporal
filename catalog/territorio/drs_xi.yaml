@@ -1,0 +1,91 @@
+territorio_id: drs_xi
+descricao: >-
+  Municípios do Departamento Regional de Saúde XI (Presidente Prudente), SP: 45 municípios em 5
+  regiões de saúde. Lista, códigos e regiões SECUNDARIA (S23, S24 e S25 concordam); as fontes
+  oficiais O4 e O5 foram vistas só em busca e sustentam apenas o total de 45 municípios e as 5
+  regiões com 12, 19, 5, 5 e 4 municípios. ibge7 é o código IBGE de 7 dígitos e ibge6 o prefixo de
+  6 dígitos usado pelo DATASUS (PA_UFMUN, CODUFMUN). Composição ao longo de 2018 a 2025 e pertença
+  fixa ou histórica A_CONFIRMAR.
+uf: SP
+proveniencia: SECUNDARIA
+confirmacao: A_CONFIRMAR
+fontes:
+  - doc_id: O4
+    titulo: SES-SP, projeto DRS XI Presidente Prudente (drs11_pprudente.pdf)
+    url: https://www.saude.sp.gov.br/resources/cve-centro-de-vigilancia-epidemiologica/areas-de-vigilancia/doencas-cronicas-nao-transmissiveis/observatorio-promocao-a-saude/mural-de-boas-praticas/projetos/drs11_pprudente.pdf
+    localizador: total de 45 municípios e 5 colegiados de gestão regional
+    estado: PENDENTE
+    proveniencia: OFICIAL_VISTO_EM_BUSCA
+    confirmacao: A_CONFIRMAR
+  - doc_id: O5
+    titulo: SES-SP, E_REG-DRS-XI_2022.pdf
+    url: https://ses.sp.bvs.br/wp-content/uploads/2022/05/E_REG-DRS-XI_2022.pdf
+    localizador: RRAS 11; 5 regiões de saúde com 12, 19, 5, 5 e 4 municípios
+    estado: PENDENTE
+    proveniencia: OFICIAL_VISTO_EM_BUSCA
+    confirmacao: A_CONFIRMAR
+  - doc_id: S23
+    titulo: covid19br/now_fcts, data-raw/DRS_SP.csv
+    localizador: municípios do DRS XI com códigos de 6 dígitos; ramo e commit A_CONFIRMAR
+    estado: PENDENTE
+    proveniencia: SECUNDARIA
+    confirmacao: A_CONFIRMAR
+  - doc_id: S24
+    titulo: vpedrota/ProjetoIA, tratados/dados/ibge_drs.csv
+    localizador: municípios do DRS XI com códigos de 7 dígitos; ramo e commit A_CONFIRMAR
+    estado: PENDENTE
+    proveniencia: SECUNDARIA
+    confirmacao: A_CONFIRMAR
+  - doc_id: S25
+    titulo: AlertaDengue, regional_by_states.json
+    localizador: >-
+      municípios do DRS XI com códigos de 7 dígitos e região; repositório e commit A_CONFIRMAR
+    estado: PENDENTE
+    proveniencia: SECUNDARIA
+    confirmacao: A_CONFIRMAR
+municipios:
+  - {ibge7: 3514403, ibge6: 351440, nome: Dracena, regiao: Alta Paulista}
+  - {ibge7: 3515806, ibge6: 351580, nome: Flora Rica, regiao: Alta Paulista}
+  - {ibge7: 3521606, ibge6: 352160, nome: Irapuru, regiao: Alta Paulista}
+  - {ibge7: 3526001, ibge6: 352600, nome: Junqueirópolis, regiao: Alta Paulista}
+  - {ibge7: 3531605, ibge6: 353160, nome: Monte Castelo, regiao: Alta Paulista}
+  - {ibge7: 3533106, ibge6: 353310, nome: Nova Guataporanga, regiao: Alta Paulista}
+  - {ibge7: 3534807, ibge6: 353480, nome: Ouro Verde, regiao: Alta Paulista}
+  - {ibge7: 3535408, ibge6: 353540, nome: Panorama, regiao: Alta Paulista}
+  - {ibge7: 3536406, ibge6: 353640, nome: Paulicéia, regiao: Alta Paulista}
+  - {ibge7: 3547106, ibge6: 354710, nome: Santa Mercedes, regiao: Alta Paulista}
+  - {ibge7: 3549300, ibge6: 354930, nome: São João do Pau d'Alho, regiao: Alta Paulista}
+  - {ibge7: 3555109, ibge6: 355510, nome: Tupi Paulista, regiao: Alta Paulista}
+  - {ibge7: 3500808, ibge6: 350080, nome: Alfredo Marcondes, regiao: Alta Sorocabana}
+  - {ibge7: 3501301, ibge6: 350130, nome: Álvares Machado, regiao: Alta Sorocabana}
+  - {ibge7: 3502408, ibge6: 350240, nome: Anhumas, regiao: Alta Sorocabana}
+  - {ibge7: 3508900, ibge6: 350890, nome: Caiabu, regiao: Alta Sorocabana}
+  - {ibge7: 3515129, ibge6: 351512, nome: Emilianópolis, regiao: Alta Sorocabana}
+  - {ibge7: 3515301, ibge6: 351530, nome: Estrela do Norte, regiao: Alta Sorocabana}
+  - {ibge7: 3520608, ibge6: 352060, nome: Indiana, regiao: Alta Sorocabana}
+  - {ibge7: 3529203, ibge6: 352920, nome: Martinópolis, regiao: Alta Sorocabana}
+  - {ibge7: 3532207, ibge6: 353220, nome: Narandiba, regiao: Alta Sorocabana}
+  - {ibge7: 3539202, ibge6: 353920, nome: Pirapozinho, regiao: Alta Sorocabana}
+  - {ibge7: 3541208, ibge6: 354120, nome: Presidente Bernardes, regiao: Alta Sorocabana}
+  - {ibge7: 3541406, ibge6: 354140, nome: Presidente Prudente, regiao: Alta Sorocabana}
+  - {ibge7: 3542404, ibge6: 354240, nome: Regente Feijó, regiao: Alta Sorocabana}
+  - {ibge7: 3543238, ibge6: 354323, nome: Ribeirão dos Índios, regiao: Alta Sorocabana}
+  - {ibge7: 3545506, ibge6: 354550, nome: Sandovalina, regiao: Alta Sorocabana}
+  - {ibge7: 3547700, ibge6: 354770, nome: Santo Anastácio, regiao: Alta Sorocabana}
+  - {ibge7: 3548302, ibge6: 354830, nome: Santo Expedito, regiao: Alta Sorocabana}
+  - {ibge7: 3552908, ibge6: 355290, nome: Taciba, regiao: Alta Sorocabana}
+  - {ibge7: 3553906, ibge6: 355390, nome: Tarabai, regiao: Alta Sorocabana}
+  - {ibge7: 3519907, ibge6: 351990, nome: Iepê, regiao: Alto Capivari}
+  - {ibge7: 3525607, ibge6: 352560, nome: João Ramalho, regiao: Alto Capivari}
+  - {ibge7: 3532157, ibge6: 353215, nome: Nantes, regiao: Alto Capivari}
+  - {ibge7: 3541703, ibge6: 354170, nome: Quatá, regiao: Alto Capivari}
+  - {ibge7: 3542206, ibge6: 354220, nome: Rancharia, regiao: Alto Capivari}
+  - {ibge7: 3509106, ibge6: 350910, nome: Caiuá, regiao: Extremo Oeste Paulista}
+  - {ibge7: 3528700, ibge6: 352870, nome: Marabá Paulista, regiao: Extremo Oeste Paulista}
+  - {ibge7: 3538303, ibge6: 353830, nome: Piquerobi, regiao: Extremo Oeste Paulista}
+  - {ibge7: 3541307, ibge6: 354130, nome: Presidente Epitácio, regiao: Extremo Oeste Paulista}
+  - {ibge7: 3541505, ibge6: 354150, nome: Presidente Venceslau, regiao: Extremo Oeste Paulista}
+  - {ibge7: 3515350, ibge6: 351535, nome: Euclides da Cunha Paulista, regiao: Pontal do Paranapanema}
+  - {ibge7: 3530201, ibge6: 353020, nome: Mirante do Paranapanema, regiao: Pontal do Paranapanema}
+  - {ibge7: 3544251, ibge6: 354425, nome: Rosana, regiao: Pontal do Paranapanema}
+  - {ibge7: 3554300, ibge6: 355430, nome: Teodoro Sampaio, regiao: Pontal do Paranapanema}

@@ -1,0 +1,541 @@
+{
+ "EvaluationReport": {
+  "$defs": {
+   "DatasetRef": {
+    "additionalProperties": false,
+    "properties": {
+     "artifact_ids": {
+      "items": {
+       "pattern": "^art_[0-9a-f]{64}$",
+       "type": "string"
+      },
+      "title": "Artifact Ids",
+      "type": "array"
+     },
+     "caminho": {
+      "title": "Caminho",
+      "type": "string"
+     },
+     "dataset_id": {
+      "pattern": "^ds_[0-9a-f]{64}$",
+      "title": "Dataset Id",
+      "type": "string"
+     },
+     "hash_logico": {
+      "pattern": "^lh1:[0-9a-f]{64}$",
+      "title": "Hash Logico",
+      "type": "string"
+     },
+     "linhas": {
+      "ge": 0,
+      "title": "Linhas",
+      "type": "integer"
+     },
+     "multiplicidade": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/Multiplicidade"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "origem_dados": {
+      "$ref": "#/$defs/OrigemDados"
+     },
+     "produzido_por": {
+      "title": "Produzido Por",
+      "type": "string"
+     },
+     "reconciliacao": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/Reconciliacao"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "schema_id": {
+      "pattern": "^[a-z0-9_]+\\.v[0-9]+$",
+      "title": "Schema Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "dataset_id",
+     "schema_id",
+     "caminho",
+     "hash_logico",
+     "linhas",
+     "artifact_ids",
+     "origem_dados",
+     "produzido_por"
+    ],
+    "title": "DatasetRef",
+    "type": "object"
+   },
+   "IntervaloConfianca": {
+    "additionalProperties": false,
+    "properties": {
+     "inferior": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+        "type": "string"
+       }
+      ],
+      "title": "Inferior"
+     },
+     "nivel": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+        "type": "string"
+       }
+      ],
+      "default": "0.95",
+      "title": "Nivel"
+     },
+     "superior": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+        "type": "string"
+       }
+      ],
+      "title": "Superior"
+     }
+    },
+    "required": [
+     "inferior",
+     "superior"
+    ],
+    "title": "IntervaloConfianca",
+    "type": "object"
+   },
+   "ModoExecucao": {
+    "enum": [
+     "EXPLORATORIO",
+     "CONFIRMATORIO"
+    ],
+    "title": "ModoExecucao",
+    "type": "string"
+   },
+   "Multiplicidade": {
+    "additionalProperties": false,
+    "properties": {
+     "combinacoes_distintas": {
+      "ge": 0,
+      "title": "Combinacoes Distintas",
+      "type": "integer"
+     },
+     "linhas_totais": {
+      "ge": 0,
+      "title": "Linhas Totais",
+      "type": "integer"
+     },
+     "max_repeticoes": {
+      "ge": 0,
+      "title": "Max Repeticoes",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "linhas_totais",
+     "combinacoes_distintas",
+     "max_repeticoes"
+    ],
+    "title": "Multiplicidade",
+    "type": "object"
+   },
+   "OrigemDados": {
+    "enum": [
+     "SINTETICO",
+     "REAL"
+    ],
+    "title": "OrigemDados",
+    "type": "string"
+   },
+   "Reconciliacao": {
+    "additionalProperties": false,
+    "properties": {
+     "canonicas": {
+      "ge": 0,
+      "title": "Canonicas",
+      "type": "integer"
+     },
+     "deletados": {
+      "default": 0,
+      "ge": 0,
+      "title": "Deletados",
+      "type": "integer"
+     },
+     "excluidas_por_motivo": {
+      "additionalProperties": {
+       "ge": 0,
+       "type": "integer"
+      },
+      "title": "Excluidas Por Motivo",
+      "type": "object"
+     },
+     "fisicos": {
+      "ge": 0,
+      "title": "Fisicos",
+      "type": "integer"
+     },
+     "quarentena": {
+      "default": 0,
+      "ge": 0,
+      "title": "Quarentena",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "fisicos",
+     "canonicas"
+    ],
+    "title": "Reconciliacao",
+    "type": "object"
+   },
+   "TipoMetrica": {
+    "enum": [
+     "RAZAO",
+     "ESTATISTICA"
+    ],
+    "title": "TipoMetrica",
+    "type": "string"
+   },
+   "ValorMetrica": {
+    "additionalProperties": false,
+    "properties": {
+     "denominador": {
+      "ge": 0,
+      "title": "Denominador",
+      "type": "integer"
+     },
+     "estrato": {
+      "default": "TOTAL",
+      "title": "Estrato",
+      "type": "string"
+     },
+     "ic": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/IntervaloConfianca"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "nome": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Nome",
+      "type": "string"
+     },
+     "numerador": {
+      "ge": 0,
+      "title": "Numerador",
+      "type": "integer"
+     },
+     "tipo": {
+      "$ref": "#/$defs/TipoMetrica",
+      "default": "RAZAO"
+     },
+     "valor": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Valor"
+     }
+    },
+    "required": [
+     "nome",
+     "numerador",
+     "denominador"
+    ],
+    "title": "ValorMetrica",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "criado_em": {
+    "format": "date-time",
+    "title": "Criado Em",
+    "type": "string"
+   },
+   "decisao_g2": {
+    "anyOf": [
+     {
+      "pattern": "^experiments/decisions/[A-Za-z0-9_.-]+\\.ya?ml$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Decisao G2"
+   },
+   "freeze_id": {
+    "anyOf": [
+     {
+      "pattern": "^frz_[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Freeze Id"
+   },
+   "metricas": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/ValorMetrica"
+    },
+    "title": "Metricas",
+    "type": "array"
+   },
+   "modo": {
+    "$ref": "#/$defs/ModoExecucao"
+   },
+   "notas": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Notas",
+    "type": "array"
+   },
+   "origem_dados": {
+    "$ref": "#/$defs/OrigemDados"
+   },
+   "report_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Report Id",
+    "type": "string"
+   },
+   "runs": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Runs",
+    "type": "array"
+   },
+   "tabelas": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/DatasetRef"
+    },
+    "title": "Tabelas",
+    "type": "array"
+   }
+  },
+  "required": [
+   "report_id",
+   "modo",
+   "origem_dados",
+   "criado_em"
+  ],
+  "title": "EvaluationReport",
+  "type": "object"
+ },
+ "IntervaloConfianca": {
+  "additionalProperties": false,
+  "properties": {
+   "inferior": {
+    "anyOf": [
+     {
+      "type": "number"
+     },
+     {
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "type": "string"
+     }
+    ],
+    "title": "Inferior"
+   },
+   "nivel": {
+    "anyOf": [
+     {
+      "type": "number"
+     },
+     {
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "type": "string"
+     }
+    ],
+    "default": "0.95",
+    "title": "Nivel"
+   },
+   "superior": {
+    "anyOf": [
+     {
+      "type": "number"
+     },
+     {
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "type": "string"
+     }
+    ],
+    "title": "Superior"
+   }
+  },
+  "required": [
+   "inferior",
+   "superior"
+  ],
+  "title": "IntervaloConfianca",
+  "type": "object"
+ },
+ "ValorMetrica": {
+  "$defs": {
+   "IntervaloConfianca": {
+    "additionalProperties": false,
+    "properties": {
+     "inferior": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+        "type": "string"
+       }
+      ],
+      "title": "Inferior"
+     },
+     "nivel": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+        "type": "string"
+       }
+      ],
+      "default": "0.95",
+      "title": "Nivel"
+     },
+     "superior": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+        "type": "string"
+       }
+      ],
+      "title": "Superior"
+     }
+    },
+    "required": [
+     "inferior",
+     "superior"
+    ],
+    "title": "IntervaloConfianca",
+    "type": "object"
+   },
+   "TipoMetrica": {
+    "enum": [
+     "RAZAO",
+     "ESTATISTICA"
+    ],
+    "title": "TipoMetrica",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "denominador": {
+    "ge": 0,
+    "title": "Denominador",
+    "type": "integer"
+   },
+   "estrato": {
+    "default": "TOTAL",
+    "title": "Estrato",
+    "type": "string"
+   },
+   "ic": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/IntervaloConfianca"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "nome": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Nome",
+    "type": "string"
+   },
+   "numerador": {
+    "ge": 0,
+    "title": "Numerador",
+    "type": "integer"
+   },
+   "tipo": {
+    "$ref": "#/$defs/TipoMetrica",
+    "default": "RAZAO"
+   },
+   "valor": {
+    "anyOf": [
+     {
+      "type": "number"
+     },
+     {
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Valor"
+   }
+  },
+  "required": [
+   "nome",
+   "numerador",
+   "denominador"
+  ],
+  "title": "ValorMetrica",
+  "type": "object"
+ }
+}

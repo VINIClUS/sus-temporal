@@ -1,0 +1,1315 @@
+{
+ "CampoLeiaute": {
+  "$defs": {
+   "MotivoAusencia": {
+    "enum": [
+     "VAZIO",
+     "DESCONHECIDO",
+     "NAO_APLICAVEL",
+     "SENTINELA",
+     "CODIFICACAO_INVALIDA"
+    ],
+    "title": "MotivoAusencia",
+    "type": "string"
+   },
+   "PapelColuna": {
+    "enum": [
+     "CHAVE",
+     "LINHAGEM",
+     "ATRIBUTO",
+     "ROTULO",
+     "DIAGNOSTICO",
+     "BRUTO",
+     "MOTIVO"
+    ],
+    "title": "PapelColuna",
+    "type": "string"
+   },
+   "TipoCanonico": {
+    "enum": [
+     "TEXTO",
+     "INTEIRO",
+     "DECIMAL",
+     "DATA",
+     "BOOLEANO"
+    ],
+    "title": "TipoCanonico",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "decimais": {
+    "default": 0,
+    "ge": 0,
+    "title": "Decimais",
+    "type": "integer"
+   },
+   "inicio": {
+    "anyOf": [
+     {
+      "ge": 0,
+      "type": "integer"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Inicio"
+   },
+   "largura": {
+    "ge": 0,
+    "title": "Largura",
+    "type": "integer"
+   },
+   "nome_canonico": {
+    "pattern": "^[a-z][a-z0-9_]*$",
+    "title": "Nome Canonico",
+    "type": "string"
+   },
+   "nome_fisico": {
+    "maxLength": 64,
+    "minLength": 1,
+    "title": "Nome Fisico",
+    "type": "string"
+   },
+   "obrigatorio": {
+    "default": false,
+    "title": "Obrigatorio",
+    "type": "boolean"
+   },
+   "papel": {
+    "$ref": "#/$defs/PapelColuna"
+   },
+   "sentinelas": {
+    "additionalProperties": {
+     "$ref": "#/$defs/MotivoAusencia"
+    },
+    "title": "Sentinelas",
+    "type": "object"
+   },
+   "tipo_canonico": {
+    "$ref": "#/$defs/TipoCanonico"
+   },
+   "tipo_fisico": {
+    "maxLength": 32,
+    "minLength": 1,
+    "title": "Tipo Fisico",
+    "type": "string"
+   },
+   "unidade": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Unidade"
+   }
+  },
+  "required": [
+   "nome_fisico",
+   "tipo_fisico",
+   "largura",
+   "nome_canonico",
+   "tipo_canonico",
+   "papel"
+  ],
+  "title": "CampoLeiaute",
+  "type": "object"
+ },
+ "ColunaCanonica": {
+  "$defs": {
+   "PapelColuna": {
+    "enum": [
+     "CHAVE",
+     "LINHAGEM",
+     "ATRIBUTO",
+     "ROTULO",
+     "DIAGNOSTICO",
+     "BRUTO",
+     "MOTIVO"
+    ],
+    "title": "PapelColuna",
+    "type": "string"
+   },
+   "TipoCanonico": {
+    "enum": [
+     "TEXTO",
+     "INTEIRO",
+     "DECIMAL",
+     "DATA",
+     "BOOLEANO"
+    ],
+    "title": "TipoCanonico",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "anulavel": {
+    "default": true,
+    "title": "Anulavel",
+    "type": "boolean"
+   },
+   "descricao": {
+    "default": "",
+    "title": "Descricao",
+    "type": "string"
+   },
+   "nome": {
+    "pattern": "^[a-z][a-z0-9_]*$",
+    "title": "Nome",
+    "type": "string"
+   },
+   "papel": {
+    "$ref": "#/$defs/PapelColuna"
+   },
+   "tipo": {
+    "$ref": "#/$defs/TipoCanonico"
+   }
+  },
+  "required": [
+   "nome",
+   "tipo",
+   "papel"
+  ],
+  "title": "ColunaCanonica",
+  "type": "object"
+ },
+ "DatasetRef": {
+  "$defs": {
+   "Multiplicidade": {
+    "additionalProperties": false,
+    "properties": {
+     "combinacoes_distintas": {
+      "ge": 0,
+      "title": "Combinacoes Distintas",
+      "type": "integer"
+     },
+     "linhas_totais": {
+      "ge": 0,
+      "title": "Linhas Totais",
+      "type": "integer"
+     },
+     "max_repeticoes": {
+      "ge": 0,
+      "title": "Max Repeticoes",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "linhas_totais",
+     "combinacoes_distintas",
+     "max_repeticoes"
+    ],
+    "title": "Multiplicidade",
+    "type": "object"
+   },
+   "OrigemDados": {
+    "enum": [
+     "SINTETICO",
+     "REAL"
+    ],
+    "title": "OrigemDados",
+    "type": "string"
+   },
+   "Reconciliacao": {
+    "additionalProperties": false,
+    "properties": {
+     "canonicas": {
+      "ge": 0,
+      "title": "Canonicas",
+      "type": "integer"
+     },
+     "deletados": {
+      "default": 0,
+      "ge": 0,
+      "title": "Deletados",
+      "type": "integer"
+     },
+     "excluidas_por_motivo": {
+      "additionalProperties": {
+       "ge": 0,
+       "type": "integer"
+      },
+      "title": "Excluidas Por Motivo",
+      "type": "object"
+     },
+     "fisicos": {
+      "ge": 0,
+      "title": "Fisicos",
+      "type": "integer"
+     },
+     "quarentena": {
+      "default": 0,
+      "ge": 0,
+      "title": "Quarentena",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "fisicos",
+     "canonicas"
+    ],
+    "title": "Reconciliacao",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "artifact_ids": {
+    "items": {
+     "pattern": "^art_[0-9a-f]{64}$",
+     "type": "string"
+    },
+    "title": "Artifact Ids",
+    "type": "array"
+   },
+   "caminho": {
+    "title": "Caminho",
+    "type": "string"
+   },
+   "dataset_id": {
+    "pattern": "^ds_[0-9a-f]{64}$",
+    "title": "Dataset Id",
+    "type": "string"
+   },
+   "hash_logico": {
+    "pattern": "^lh1:[0-9a-f]{64}$",
+    "title": "Hash Logico",
+    "type": "string"
+   },
+   "linhas": {
+    "ge": 0,
+    "title": "Linhas",
+    "type": "integer"
+   },
+   "multiplicidade": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/Multiplicidade"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "origem_dados": {
+    "$ref": "#/$defs/OrigemDados"
+   },
+   "produzido_por": {
+    "title": "Produzido Por",
+    "type": "string"
+   },
+   "reconciliacao": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/Reconciliacao"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "schema_id": {
+    "pattern": "^[a-z0-9_]+\\.v[0-9]+$",
+    "title": "Schema Id",
+    "type": "string"
+   }
+  },
+  "required": [
+   "dataset_id",
+   "schema_id",
+   "caminho",
+   "hash_logico",
+   "linhas",
+   "artifact_ids",
+   "origem_dados",
+   "produzido_por"
+  ],
+  "title": "DatasetRef",
+  "type": "object"
+ },
+ "EsquemaCanonico": {
+  "$defs": {
+   "ColunaCanonica": {
+    "additionalProperties": false,
+    "properties": {
+     "anulavel": {
+      "default": true,
+      "title": "Anulavel",
+      "type": "boolean"
+     },
+     "descricao": {
+      "default": "",
+      "title": "Descricao",
+      "type": "string"
+     },
+     "nome": {
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "title": "Nome",
+      "type": "string"
+     },
+     "papel": {
+      "$ref": "#/$defs/PapelColuna"
+     },
+     "tipo": {
+      "$ref": "#/$defs/TipoCanonico"
+     }
+    },
+    "required": [
+     "nome",
+     "tipo",
+     "papel"
+    ],
+    "title": "ColunaCanonica",
+    "type": "object"
+   },
+   "PapelColuna": {
+    "enum": [
+     "CHAVE",
+     "LINHAGEM",
+     "ATRIBUTO",
+     "ROTULO",
+     "DIAGNOSTICO",
+     "BRUTO",
+     "MOTIVO"
+    ],
+    "title": "PapelColuna",
+    "type": "string"
+   },
+   "TipoCanonico": {
+    "enum": [
+     "TEXTO",
+     "INTEIRO",
+     "DECIMAL",
+     "DATA",
+     "BOOLEANO"
+    ],
+    "title": "TipoCanonico",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "chave": {
+    "items": {
+     "pattern": "^[a-z][a-z0-9_]*$",
+     "type": "string"
+    },
+    "title": "Chave",
+    "type": "array"
+   },
+   "colunas": {
+    "items": {
+     "$ref": "#/$defs/ColunaCanonica"
+    },
+    "title": "Colunas",
+    "type": "array"
+   },
+   "descricao": {
+    "title": "Descricao",
+    "type": "string"
+   },
+   "schema_id": {
+    "pattern": "^[a-z0-9_]+\\.v[0-9]+$",
+    "title": "Schema Id",
+    "type": "string"
+   }
+  },
+  "required": [
+   "schema_id",
+   "descricao",
+   "chave",
+   "colunas"
+  ],
+  "title": "EsquemaCanonico",
+  "type": "object"
+ },
+ "LayoutSpec": {
+  "$defs": {
+   "CampoLeiaute": {
+    "additionalProperties": false,
+    "properties": {
+     "decimais": {
+      "default": 0,
+      "ge": 0,
+      "title": "Decimais",
+      "type": "integer"
+     },
+     "inicio": {
+      "anyOf": [
+       {
+        "ge": 0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Inicio"
+     },
+     "largura": {
+      "ge": 0,
+      "title": "Largura",
+      "type": "integer"
+     },
+     "nome_canonico": {
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "title": "Nome Canonico",
+      "type": "string"
+     },
+     "nome_fisico": {
+      "maxLength": 64,
+      "minLength": 1,
+      "title": "Nome Fisico",
+      "type": "string"
+     },
+     "obrigatorio": {
+      "default": false,
+      "title": "Obrigatorio",
+      "type": "boolean"
+     },
+     "papel": {
+      "$ref": "#/$defs/PapelColuna"
+     },
+     "sentinelas": {
+      "additionalProperties": {
+       "$ref": "#/$defs/MotivoAusencia"
+      },
+      "title": "Sentinelas",
+      "type": "object"
+     },
+     "tipo_canonico": {
+      "$ref": "#/$defs/TipoCanonico"
+     },
+     "tipo_fisico": {
+      "maxLength": 32,
+      "minLength": 1,
+      "title": "Tipo Fisico",
+      "type": "string"
+     },
+     "unidade": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Unidade"
+     }
+    },
+    "required": [
+     "nome_fisico",
+     "tipo_fisico",
+     "largura",
+     "nome_canonico",
+     "tipo_canonico",
+     "papel"
+    ],
+    "title": "CampoLeiaute",
+    "type": "object"
+   },
+   "Confirmacao": {
+    "enum": [
+     "CONFIRMADO",
+     "A_CONFIRMAR"
+    ],
+    "title": "Confirmacao",
+    "type": "string"
+   },
+   "DocRef": {
+    "additionalProperties": false,
+    "properties": {
+     "confirmacao": {
+      "$ref": "#/$defs/Confirmacao",
+      "default": "A_CONFIRMAR"
+     },
+     "doc_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Doc Id",
+      "type": "string"
+     },
+     "estado": {
+      "$ref": "#/$defs/EstadoDocumento"
+     },
+     "localizador": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Localizador"
+     },
+     "proveniencia": {
+      "$ref": "#/$defs/Proveniencia"
+     },
+     "sha256": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Sha256"
+     },
+     "titulo": {
+      "title": "Titulo",
+      "type": "string"
+     },
+     "trecho": {
+      "anyOf": [
+       {
+        "maxLength": 400,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Trecho"
+     },
+     "url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Url"
+     }
+    },
+    "required": [
+     "doc_id",
+     "titulo",
+     "estado",
+     "proveniencia"
+    ],
+    "title": "DocRef",
+    "type": "object"
+   },
+   "EstadoDocumento": {
+    "enum": [
+     "PRESERVADO",
+     "PENDENTE"
+    ],
+    "title": "EstadoDocumento",
+    "type": "string"
+   },
+   "FamiliaFonte": {
+    "enum": [
+     "SIA_PA",
+     "CNES_ST",
+     "CNES_PF",
+     "CNES_SR",
+     "CNES_HB",
+     "SIGTAP",
+     "TERRITORIO_DRS",
+     "DOCUMENTO"
+    ],
+    "title": "FamiliaFonte",
+    "type": "string"
+   },
+   "FormatoLeiaute": {
+    "enum": [
+     "DBF",
+     "LARGURA_FIXA"
+    ],
+    "title": "FormatoLeiaute",
+    "type": "string"
+   },
+   "MotivoAusencia": {
+    "enum": [
+     "VAZIO",
+     "DESCONHECIDO",
+     "NAO_APLICAVEL",
+     "SENTINELA",
+     "CODIFICACAO_INVALIDA"
+    ],
+    "title": "MotivoAusencia",
+    "type": "string"
+   },
+   "PapelColuna": {
+    "enum": [
+     "CHAVE",
+     "LINHAGEM",
+     "ATRIBUTO",
+     "ROTULO",
+     "DIAGNOSTICO",
+     "BRUTO",
+     "MOTIVO"
+    ],
+    "title": "PapelColuna",
+    "type": "string"
+   },
+   "Proveniencia": {
+    "enum": [
+     "OFICIAL_DOCUMENTO",
+     "OFICIAL_ARQUIVO",
+     "OFICIAL_VISTO_EM_BUSCA",
+     "SECUNDARIA",
+     "INFERIDA",
+     "INFERIDA_PILOTO"
+    ],
+    "title": "Proveniencia",
+    "type": "string"
+   },
+   "TipoCanonico": {
+    "enum": [
+     "TEXTO",
+     "INTEIRO",
+     "DECIMAL",
+     "DATA",
+     "BOOLEANO"
+    ],
+    "title": "TipoCanonico",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "campos": {
+    "items": {
+     "$ref": "#/$defs/CampoLeiaute"
+    },
+    "title": "Campos",
+    "type": "array"
+   },
+   "codificacao": {
+    "title": "Codificacao",
+    "type": "string"
+   },
+   "confirmacao": {
+    "$ref": "#/$defs/Confirmacao",
+    "default": "A_CONFIRMAR"
+   },
+   "documento": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/DocRef"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "fonte": {
+    "$ref": "#/$defs/FamiliaFonte"
+   },
+   "formato": {
+    "$ref": "#/$defs/FormatoLeiaute"
+   },
+   "layout_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Layout Id",
+    "type": "string"
+   },
+   "proveniencia": {
+    "$ref": "#/$defs/Proveniencia"
+   },
+   "valido_ate": {
+    "anyOf": [
+     {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaArquivo",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Valido Ate"
+   },
+   "valido_de": {
+    "anyOf": [
+     {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaArquivo",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Valido De"
+   },
+   "versao": {
+    "title": "Versao",
+    "type": "string"
+   }
+  },
+  "required": [
+   "layout_id",
+   "fonte",
+   "versao",
+   "codificacao",
+   "formato",
+   "campos",
+   "proveniencia"
+  ],
+  "title": "LayoutSpec",
+  "type": "object"
+ },
+ "Multiplicidade": {
+  "additionalProperties": false,
+  "properties": {
+   "combinacoes_distintas": {
+    "ge": 0,
+    "title": "Combinacoes Distintas",
+    "type": "integer"
+   },
+   "linhas_totais": {
+    "ge": 0,
+    "title": "Linhas Totais",
+    "type": "integer"
+   },
+   "max_repeticoes": {
+    "ge": 0,
+    "title": "Max Repeticoes",
+    "type": "integer"
+   }
+  },
+  "required": [
+   "linhas_totais",
+   "combinacoes_distintas",
+   "max_repeticoes"
+  ],
+  "title": "Multiplicidade",
+  "type": "object"
+ },
+ "ProductionRecord": {
+  "$defs": {
+   "MotivoAusencia": {
+    "enum": [
+     "VAZIO",
+     "DESCONHECIDO",
+     "NAO_APLICAVEL",
+     "SENTINELA",
+     "CODIFICACAO_INVALIDA"
+    ],
+    "title": "MotivoAusencia",
+    "type": "string"
+   },
+   "RowLocator": {
+    "additionalProperties": false,
+    "properties": {
+     "artifact_id": {
+      "pattern": "^art_[0-9a-f]{64}$",
+      "title": "Artifact Id",
+      "type": "string"
+     },
+     "deletado": {
+      "default": false,
+      "title": "Deletado",
+      "type": "boolean"
+     },
+     "indice": {
+      "ge": 0,
+      "title": "Indice",
+      "type": "integer"
+     },
+     "membro": {
+      "anyOf": [
+       {
+        "pattern": "^[^#\\s/]+$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Membro"
+     }
+    },
+    "required": [
+     "artifact_id",
+     "indice"
+    ],
+    "title": "RowLocator",
+    "type": "object"
+   },
+   "ValorNormalizado": {
+    "additionalProperties": false,
+    "properties": {
+     "bruto": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bruto"
+     },
+     "motivo": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/MotivoAusencia"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "valor": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Valor"
+     }
+    },
+    "required": [
+     "bruto",
+     "valor"
+    ],
+    "title": "ValorNormalizado",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "atributos": {
+    "additionalProperties": {
+     "$ref": "#/$defs/ValorNormalizado"
+    },
+    "title": "Atributos",
+    "type": "object"
+   },
+   "cbo": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9A-Z]{6}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Cbo"
+   },
+   "cnes": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9]{7}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Cnes"
+   },
+   "competencia_atendimento": {
+    "anyOf": [
+     {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaAtendimento",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Competencia Atendimento"
+   },
+   "competencia_processamento": {
+    "anyOf": [
+     {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaProcessamento",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Competencia Processamento"
+   },
+   "instrumento": {
+    "$ref": "#/$defs/ValorNormalizado"
+   },
+   "municipio_estabelecimento": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9]{6}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Municipio Estabelecimento"
+   },
+   "origem": {
+    "$ref": "#/$defs/RowLocator"
+   },
+   "procedimento": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9]{10}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Procedimento"
+   },
+   "row_id": {
+    "pattern": "^art_[0-9a-f]{64}(/[^#\\s]+)?#[0-9]+$",
+    "title": "Row Id",
+    "type": "string"
+   }
+  },
+  "required": [
+   "row_id",
+   "origem",
+   "instrumento"
+  ],
+  "title": "ProductionRecord",
+  "type": "object"
+ },
+ "Reconciliacao": {
+  "additionalProperties": false,
+  "properties": {
+   "canonicas": {
+    "ge": 0,
+    "title": "Canonicas",
+    "type": "integer"
+   },
+   "deletados": {
+    "default": 0,
+    "ge": 0,
+    "title": "Deletados",
+    "type": "integer"
+   },
+   "excluidas_por_motivo": {
+    "additionalProperties": {
+     "ge": 0,
+     "type": "integer"
+    },
+    "title": "Excluidas Por Motivo",
+    "type": "object"
+   },
+   "fisicos": {
+    "ge": 0,
+    "title": "Fisicos",
+    "type": "integer"
+   },
+   "quarentena": {
+    "default": 0,
+    "ge": 0,
+    "title": "Quarentena",
+    "type": "integer"
+   }
+  },
+  "required": [
+   "fisicos",
+   "canonicas"
+  ],
+  "title": "Reconciliacao",
+  "type": "object"
+ },
+ "RegistroRotulo": {
+  "$defs": {
+   "CodigoRotulo": {
+    "enum": [
+     "NAO_APROVADO",
+     "APROVADO_TOTAL",
+     "APROVADO_PARCIAL",
+     "DESCONHECIDO"
+    ],
+    "title": "CodigoRotulo",
+    "type": "string"
+   },
+   "Confirmacao": {
+    "enum": [
+     "CONFIRMADO",
+     "A_CONFIRMAR"
+    ],
+    "title": "Confirmacao",
+    "type": "string"
+   },
+   "DocRef": {
+    "additionalProperties": false,
+    "properties": {
+     "confirmacao": {
+      "$ref": "#/$defs/Confirmacao",
+      "default": "A_CONFIRMAR"
+     },
+     "doc_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Doc Id",
+      "type": "string"
+     },
+     "estado": {
+      "$ref": "#/$defs/EstadoDocumento"
+     },
+     "localizador": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Localizador"
+     },
+     "proveniencia": {
+      "$ref": "#/$defs/Proveniencia"
+     },
+     "sha256": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Sha256"
+     },
+     "titulo": {
+      "title": "Titulo",
+      "type": "string"
+     },
+     "trecho": {
+      "anyOf": [
+       {
+        "maxLength": 400,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Trecho"
+     },
+     "url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Url"
+     }
+    },
+    "required": [
+     "doc_id",
+     "titulo",
+     "estado",
+     "proveniencia"
+    ],
+    "title": "DocRef",
+    "type": "object"
+   },
+   "EstadoDocumento": {
+    "enum": [
+     "PRESERVADO",
+     "PENDENTE"
+    ],
+    "title": "EstadoDocumento",
+    "type": "string"
+   },
+   "Proveniencia": {
+    "enum": [
+     "OFICIAL_DOCUMENTO",
+     "OFICIAL_ARQUIVO",
+     "OFICIAL_VISTO_EM_BUSCA",
+     "SECUNDARIA",
+     "INFERIDA",
+     "INFERIDA_PILOTO"
+    ],
+    "title": "Proveniencia",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "codebook": {
+    "$ref": "#/$defs/DocRef"
+   },
+   "contradicoes": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Contradicoes",
+    "type": "array"
+   },
+   "pa_indica_bruto": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "title": "Pa Indica Bruto"
+   },
+   "quantidade_apresentada": {
+    "anyOf": [
+     {
+      "ge": 0,
+      "type": "integer"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Quantidade Apresentada"
+   },
+   "quantidade_aprovada": {
+    "anyOf": [
+     {
+      "ge": 0,
+      "type": "integer"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Quantidade Aprovada"
+   },
+   "rotulo": {
+    "$ref": "#/$defs/CodigoRotulo"
+   },
+   "row_id": {
+    "pattern": "^art_[0-9a-f]{64}(/[^#\\s]+)?#[0-9]+$",
+    "title": "Row Id",
+    "type": "string"
+   },
+   "valor_apresentado": {
+    "anyOf": [
+     {
+      "type": "number"
+     },
+     {
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Valor Apresentado"
+   },
+   "valor_aprovado": {
+    "anyOf": [
+     {
+      "type": "number"
+     },
+     {
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Valor Aprovado"
+   }
+  },
+  "required": [
+   "row_id",
+   "pa_indica_bruto",
+   "rotulo",
+   "codebook"
+  ],
+  "title": "RegistroRotulo",
+  "type": "object"
+ },
+ "RowLocator": {
+  "additionalProperties": false,
+  "properties": {
+   "artifact_id": {
+    "pattern": "^art_[0-9a-f]{64}$",
+    "title": "Artifact Id",
+    "type": "string"
+   },
+   "deletado": {
+    "default": false,
+    "title": "Deletado",
+    "type": "boolean"
+   },
+   "indice": {
+    "ge": 0,
+    "title": "Indice",
+    "type": "integer"
+   },
+   "membro": {
+    "anyOf": [
+     {
+      "pattern": "^[^#\\s/]+$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Membro"
+   }
+  },
+  "required": [
+   "artifact_id",
+   "indice"
+  ],
+  "title": "RowLocator",
+  "type": "object"
+ }
+}

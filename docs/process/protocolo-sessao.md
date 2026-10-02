@@ -72,7 +72,9 @@ sintéticas, stubs, fixtures).
 
 ## Contratos
 - Mudança aditiva (campo opcional com default, tipo novo no `__all__`) só no módulo de contrato que
-  a sessão possui. `sustemporal.contracts` reexporta o `__all__` de cada módulo automaticamente.
+  a sessão possui. Em contrato cuja identidade deriva do conteúdo (`artifact_id`, cadeia do
+  manifesto, `snapshot_id`, `freeze_id`, `config_hash`, `dataset_id`), campo novo tem default
+  `None`: ids já emitidos precisam continuar válidos. `sustemporal.contracts` reexporta o `__all__` de cada módulo automaticamente.
   Regenerar o snapshot com `uv run python -m scripts.snapshot_contratos` (só o arquivo
   `tests/unit/snapshots/contratos_<modulo>.json` do seu módulo deve mudar) e listar a mudança na
   seção "Contratos e esquemas" do PR.

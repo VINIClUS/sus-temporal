@@ -1,0 +1,626 @@
+{
+ "AlvoOperacao": {
+  "additionalProperties": false,
+  "properties": {
+   "colunas": {
+    "items": {
+     "type": "string"
+    },
+    "minItems": 1,
+    "title": "Colunas",
+    "type": "array"
+   },
+   "schema_id": {
+    "pattern": "^[a-z0-9_]+\\.v[0-9]+$",
+    "title": "Schema Id",
+    "type": "string"
+   }
+  },
+  "required": [
+   "schema_id",
+   "colunas"
+  ],
+  "title": "AlvoOperacao",
+  "type": "object"
+ },
+ "Candidato": {
+  "$defs": {
+   "Executabilidade": {
+    "enum": [
+     "HIPOTESE_PASSADA",
+     "POTENCIALMENTE_EXECUTAVEL_SOB_CONDICOES",
+     "FORA_DA_GOVERNANCA",
+     "INDETERMINADO"
+    ],
+    "title": "Executabilidade",
+    "type": "string"
+   },
+   "OperacaoAplicada": {
+    "additionalProperties": false,
+    "properties": {
+     "competencia": {
+      "anyOf": [
+       {
+        "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+        "title": "CompetenciaArquivo",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Competencia"
+     },
+     "op_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Op Id",
+      "type": "string"
+     },
+     "parametros": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Parametros",
+      "type": "object"
+     }
+    },
+    "required": [
+     "op_id"
+    ],
+    "title": "OperacaoAplicada",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "condicoes_pendentes": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Condicoes Pendentes",
+    "type": "array"
+   },
+   "custo": {
+    "title": "Custo",
+    "type": "integer"
+   },
+   "executabilidade": {
+    "$ref": "#/$defs/Executabilidade"
+   },
+   "novas_violacoes": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Novas Violacoes",
+    "type": "array"
+   },
+   "operacoes": {
+    "items": {
+     "$ref": "#/$defs/OperacaoAplicada"
+    },
+    "minItems": 1,
+    "title": "Operacoes",
+    "type": "array"
+   },
+   "regras_revalidadas": {
+    "items": {
+     "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+     "type": "string"
+    },
+    "minItems": 1,
+    "title": "Regras Revalidadas",
+    "type": "array"
+   },
+   "resolve_alvo": {
+    "title": "Resolve Alvo",
+    "type": "boolean"
+   }
+  },
+  "required": [
+   "operacoes",
+   "custo",
+   "resolve_alvo",
+   "executabilidade",
+   "regras_revalidadas"
+  ],
+  "title": "Candidato",
+  "type": "object"
+ },
+ "CounterfactualSearchResult": {
+  "$defs": {
+   "Candidato": {
+    "additionalProperties": false,
+    "properties": {
+     "condicoes_pendentes": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Condicoes Pendentes",
+      "type": "array"
+     },
+     "custo": {
+      "title": "Custo",
+      "type": "integer"
+     },
+     "executabilidade": {
+      "$ref": "#/$defs/Executabilidade"
+     },
+     "novas_violacoes": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Novas Violacoes",
+      "type": "array"
+     },
+     "operacoes": {
+      "items": {
+       "$ref": "#/$defs/OperacaoAplicada"
+      },
+      "minItems": 1,
+      "title": "Operacoes",
+      "type": "array"
+     },
+     "regras_revalidadas": {
+      "items": {
+       "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+       "type": "string"
+      },
+      "minItems": 1,
+      "title": "Regras Revalidadas",
+      "type": "array"
+     },
+     "resolve_alvo": {
+      "title": "Resolve Alvo",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "operacoes",
+     "custo",
+     "resolve_alvo",
+     "executabilidade",
+     "regras_revalidadas"
+    ],
+    "title": "Candidato",
+    "type": "object"
+   },
+   "Executabilidade": {
+    "enum": [
+     "HIPOTESE_PASSADA",
+     "POTENCIALMENTE_EXECUTAVEL_SOB_CONDICOES",
+     "FORA_DA_GOVERNANCA",
+     "INDETERMINADO"
+    ],
+    "title": "Executabilidade",
+    "type": "string"
+   },
+   "Minimalidade": {
+    "enum": [
+     "MINIMO_NO_CATALOGO",
+     "SOLUCAO_SEM_PROVA_DE_MINIMALIDADE",
+     "BUSCA_INCONCLUSIVA"
+    ],
+    "title": "Minimalidade",
+    "type": "string"
+   },
+   "MotivoParada": {
+    "enum": [
+     "ESPACO_ESGOTADO",
+     "ORCAMENTO_ESGOTADO",
+     "SEM_OPERACAO_ADMISSIVEL"
+    ],
+    "title": "MotivoParada",
+    "type": "string"
+   },
+   "OperacaoAplicada": {
+    "additionalProperties": false,
+    "properties": {
+     "competencia": {
+      "anyOf": [
+       {
+        "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+        "title": "CompetenciaArquivo",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Competencia"
+     },
+     "op_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Op Id",
+      "type": "string"
+     },
+     "parametros": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Parametros",
+      "type": "object"
+     }
+    },
+    "required": [
+     "op_id"
+    ],
+    "title": "OperacaoAplicada",
+    "type": "object"
+   },
+   "Orcamento": {
+    "additionalProperties": false,
+    "properties": {
+     "max_candidatos": {
+      "default": 1000,
+      "title": "Max Candidatos",
+      "type": "integer"
+     },
+     "max_operacoes": {
+      "default": 3,
+      "title": "Max Operacoes",
+      "type": "integer"
+     }
+    },
+    "title": "Orcamento",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "aprovacao_garantida": {
+    "const": false,
+    "default": false,
+    "title": "Aprovacao Garantida",
+    "type": "boolean"
+   },
+   "bundle_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Bundle Id",
+    "type": "string"
+   },
+   "candidatos_avaliados": {
+    "ge": 0,
+    "title": "Candidatos Avaliados",
+    "type": "integer"
+   },
+   "custo_max_explorado_completo": {
+    "ge": 0,
+    "title": "Custo Max Explorado Completo",
+    "type": "integer"
+   },
+   "minimalidade": {
+    "$ref": "#/$defs/Minimalidade"
+   },
+   "motivo_parada": {
+    "$ref": "#/$defs/MotivoParada"
+   },
+   "orcamento": {
+    "$ref": "#/$defs/Orcamento"
+   },
+   "regras_alvo": {
+    "items": {
+     "type": "string"
+    },
+    "minItems": 1,
+    "title": "Regras Alvo",
+    "type": "array"
+   },
+   "solucoes": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/Candidato"
+    },
+    "title": "Solucoes",
+    "type": "array"
+   }
+  },
+  "required": [
+   "bundle_id",
+   "regras_alvo",
+   "minimalidade",
+   "orcamento",
+   "candidatos_avaliados",
+   "custo_max_explorado_completo",
+   "motivo_parada"
+  ],
+  "title": "CounterfactualSearchResult",
+  "type": "object"
+ },
+ "OperacaoAplicada": {
+  "additionalProperties": false,
+  "properties": {
+   "competencia": {
+    "anyOf": [
+     {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaArquivo",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Competencia"
+   },
+   "op_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Op Id",
+    "type": "string"
+   },
+   "parametros": {
+    "additionalProperties": {
+     "type": "string"
+    },
+    "title": "Parametros",
+    "type": "object"
+   }
+  },
+  "required": [
+   "op_id"
+  ],
+  "title": "OperacaoAplicada",
+  "type": "object"
+ },
+ "OperationSpec": {
+  "$defs": {
+   "AlvoOperacao": {
+    "additionalProperties": false,
+    "properties": {
+     "colunas": {
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1,
+      "title": "Colunas",
+      "type": "array"
+     },
+     "schema_id": {
+      "pattern": "^[a-z0-9_]+\\.v[0-9]+$",
+      "title": "Schema Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "schema_id",
+     "colunas"
+    ],
+    "title": "AlvoOperacao",
+    "type": "object"
+   },
+   "Autoridade": {
+    "enum": [
+     "ESTABELECIMENTO",
+     "GESTOR_MUNICIPAL",
+     "GESTOR_ESTADUAL",
+     "MINISTERIO_SAUDE",
+     "DESCONHECIDA"
+    ],
+    "title": "Autoridade",
+    "type": "string"
+   },
+   "Confirmacao": {
+    "enum": [
+     "CONFIRMADO",
+     "A_CONFIRMAR"
+    ],
+    "title": "Confirmacao",
+    "type": "string"
+   },
+   "DocRef": {
+    "additionalProperties": false,
+    "properties": {
+     "confirmacao": {
+      "$ref": "#/$defs/Confirmacao",
+      "default": "A_CONFIRMAR"
+     },
+     "doc_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Doc Id",
+      "type": "string"
+     },
+     "estado": {
+      "$ref": "#/$defs/EstadoDocumento"
+     },
+     "localizador": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Localizador"
+     },
+     "proveniencia": {
+      "$ref": "#/$defs/Proveniencia"
+     },
+     "sha256": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Sha256"
+     },
+     "titulo": {
+      "title": "Titulo",
+      "type": "string"
+     },
+     "trecho": {
+      "anyOf": [
+       {
+        "maxLength": 400,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Trecho"
+     },
+     "url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Url"
+     }
+    },
+    "required": [
+     "doc_id",
+     "titulo",
+     "estado",
+     "proveniencia"
+    ],
+    "title": "DocRef",
+    "type": "object"
+   },
+   "EstadoDocumento": {
+    "enum": [
+     "PRESERVADO",
+     "PENDENTE"
+    ],
+    "title": "EstadoDocumento",
+    "type": "string"
+   },
+   "Governanca": {
+    "enum": [
+     "MUNICIPAL_DOCUMENTADA",
+     "FORA_DA_GOVERNANCA_MUNICIPAL",
+     "DESCONHECIDA"
+    ],
+    "title": "Governanca",
+    "type": "string"
+   },
+   "Proveniencia": {
+    "enum": [
+     "OFICIAL_DOCUMENTO",
+     "OFICIAL_ARQUIVO",
+     "OFICIAL_VISTO_EM_BUSCA",
+     "SECUNDARIA",
+     "INFERIDA",
+     "INFERIDA_PILOTO"
+    ],
+    "title": "Proveniencia",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "alcance": {
+    "title": "Alcance",
+    "type": "string"
+   },
+   "altera_vinculo_individual": {
+    "const": false,
+    "default": false,
+    "title": "Altera Vinculo Individual",
+    "type": "boolean"
+   },
+   "alvo": {
+    "$ref": "#/$defs/AlvoOperacao"
+   },
+   "autoridade": {
+    "$ref": "#/$defs/Autoridade"
+   },
+   "competencias_permitidas": {
+    "enum": [
+     "ABERTAS",
+     "QUALQUER_HIPOTETICA"
+    ],
+    "title": "Competencias Permitidas",
+    "type": "string"
+   },
+   "custo": {
+    "title": "Custo",
+    "type": "integer"
+   },
+   "depende_de": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Depende De",
+    "type": "array"
+   },
+   "descricao": {
+    "title": "Descricao",
+    "type": "string"
+   },
+   "governanca": {
+    "$ref": "#/$defs/Governanca"
+   },
+   "op_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Op Id",
+    "type": "string"
+   },
+   "precondicoes": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Precondicoes",
+    "type": "array"
+   },
+   "referencia": {
+    "$ref": "#/$defs/DocRef"
+   },
+   "verdade_factual_exigida": {
+    "title": "Verdade Factual Exigida",
+    "type": "string"
+   }
+  },
+  "required": [
+   "op_id",
+   "descricao",
+   "autoridade",
+   "governanca",
+   "verdade_factual_exigida",
+   "alvo",
+   "competencias_permitidas",
+   "alcance",
+   "custo",
+   "referencia"
+  ],
+  "title": "OperationSpec",
+  "type": "object"
+ },
+ "Orcamento": {
+  "additionalProperties": false,
+  "properties": {
+   "max_candidatos": {
+    "default": 1000,
+    "title": "Max Candidatos",
+    "type": "integer"
+   },
+   "max_operacoes": {
+    "default": 3,
+    "title": "Max Operacoes",
+    "type": "integer"
+   }
+  },
+  "title": "Orcamento",
+  "type": "object"
+ }
+}

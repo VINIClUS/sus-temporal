@@ -1,0 +1,12 @@
+# Piloto G0 (plano §2): seis competências de processamento fixadas por calendário, proposta
+# operacional e não amostra para estimar desempenho. Rede só para aquisição explícita.
+base: runtime.yaml
+modo: EXPLORATORIO
+origem_dados: REAL
+runtime:
+  rede_permitida: true
+piloto:
+  uf: SP
+  competencias_processamento: [201801, 201807, 202001, 202007, 202201, 202207]
+  territorio: catalog/territorio/drs_xi.yaml
+  familias_fontes: [SIA_PA, CNES_ST, CNES_PF, CNES_SR, CNES_HB, SIGTAP, TERRITORIO_DRS, DOCUMENTO]

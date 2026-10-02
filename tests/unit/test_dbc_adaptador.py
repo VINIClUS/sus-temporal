@@ -416,3 +416,20 @@ def test_motivos_de_quarentena_em_chave_valor_sem_espacos(dados: Callable[[bytes
     with pytest.raises(QuarentenaLeitura) as erro:
         ler_dbc(dados(dbf_para_dbc(_dbf())))
     assert _MOTIVO.fullmatch(erro.value.motivo), erro.value.motivo
+
+
+@pytest.mark.parametrize("modo", ["remover", "renomear"])
+def test_fidelidade_com_tabela_sem_campo_do_cabecalho_nao_levanta(modo: str) -> None:
+    dbc = dbf_para_dbc(_dbf())
+    leitura = ler_dbc(dbc).leitura
+    indice = leitura.tabela.column_names.index("PA_QTDAPR")
+    if modo == "remover":
+        tabela = leitura.tabela.remove_column(indice)
+    else:
+        nomes = list(leitura.tabela.column_names)
+        nomes[indice] = "PA_OUTRO"
+        tabela = leitura.tabela.rename_columns(nomes)
+    relatorio = verificar_fidelidade(dbc, dataclasses.replace(leitura, tabela=tabela), "COMPLETA")
+    assert relatorio.verificado
+    assert not relatorio.fiel
+    assert any(d.startswith("colunas_divergentes") for d in relatorio.divergencias)

@@ -1,0 +1,679 @@
+{
+ "OrcamentoContrafactual": {
+  "additionalProperties": false,
+  "properties": {
+   "max_candidatos": {
+    "default": 1000,
+    "title": "Max Candidatos",
+    "type": "integer"
+   },
+   "max_operacoes": {
+    "default": 3,
+    "title": "Max Operacoes",
+    "type": "integer"
+   }
+  },
+  "title": "OrcamentoContrafactual",
+  "type": "object"
+ },
+ "PilotSpec": {
+  "$defs": {
+   "FamiliaFonte": {
+    "enum": [
+     "SIA_PA",
+     "CNES_ST",
+     "CNES_PF",
+     "CNES_SR",
+     "CNES_HB",
+     "SIGTAP",
+     "TERRITORIO_DRS",
+     "DOCUMENTO"
+    ],
+    "title": "FamiliaFonte",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "competencias_processamento": {
+    "items": {
+     "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+     "title": "CompetenciaProcessamento",
+     "type": "string"
+    },
+    "title": "Competencias Processamento",
+    "type": "array"
+   },
+   "familias_fontes": {
+    "items": {
+     "$ref": "#/$defs/FamiliaFonte"
+    },
+    "title": "Familias Fontes",
+    "type": "array"
+   },
+   "territorio": {
+    "title": "Territorio",
+    "type": "string"
+   },
+   "uf": {
+    "default": "SP",
+    "pattern": "^[A-Z]{2}$",
+    "title": "Uf",
+    "type": "string"
+   }
+  },
+  "required": [
+   "competencias_processamento",
+   "territorio",
+   "familias_fontes"
+  ],
+  "title": "PilotSpec",
+  "type": "object"
+ },
+ "RunConfig": {
+  "$defs": {
+   "BootstrapSpec": {
+    "additionalProperties": false,
+    "properties": {
+     "confianca": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+        "type": "string"
+       }
+      ],
+      "default": "0.95",
+      "title": "Confianca"
+     },
+     "correcao": {
+      "$ref": "#/$defs/CorrecaoMultiplicidade",
+      "default": "A_DEFINIR"
+     },
+     "reamostragens": {
+      "default": 2000,
+      "title": "Reamostragens",
+      "type": "integer"
+     },
+     "semente": {
+      "default": 2027,
+      "title": "Semente",
+      "type": "integer"
+     },
+     "sensibilidade": {
+      "const": "BLOCOS_TEMPORAIS",
+      "default": "BLOCOS_TEMPORAIS",
+      "title": "Sensibilidade",
+      "type": "string"
+     },
+     "unidade": {
+      "const": "ESTABELECIMENTO",
+      "default": "ESTABELECIMENTO",
+      "title": "Unidade",
+      "type": "string"
+     }
+    },
+    "title": "BootstrapSpec",
+    "type": "object"
+   },
+   "CohortSpec": {
+    "additionalProperties": false,
+    "properties": {
+     "cohort_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Cohort Id",
+      "type": "string"
+     },
+     "criterio_geografico": {
+      "$ref": "#/$defs/CriterioGeografico",
+      "default": "MUNICIPIO_ESTABELECIMENTO"
+     },
+     "fim": {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaProcessamento",
+      "type": "string"
+     },
+     "inicio": {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaProcessamento",
+      "type": "string"
+     },
+     "instrumentos": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Instrumentos",
+      "type": "array"
+     },
+     "pertenca": {
+      "$ref": "#/$defs/PertencaGeografica",
+      "default": "A_DEFINIR"
+     },
+     "territorio": {
+      "title": "Territorio",
+      "type": "string"
+     },
+     "uf": {
+      "pattern": "^[A-Z]{2}$",
+      "title": "Uf",
+      "type": "string"
+     }
+    },
+    "required": [
+     "cohort_id",
+     "uf",
+     "territorio",
+     "inicio",
+     "fim"
+    ],
+    "title": "CohortSpec",
+    "type": "object"
+   },
+   "CorrecaoMultiplicidade": {
+    "enum": [
+     "HOLM",
+     "BONFERRONI",
+     "SEM_TESTE_FORMAL",
+     "A_DEFINIR"
+    ],
+    "title": "CorrecaoMultiplicidade",
+    "type": "string"
+   },
+   "CriterioGeografico": {
+    "enum": [
+     "MUNICIPIO_ESTABELECIMENTO"
+    ],
+    "title": "CriterioGeografico",
+    "type": "string"
+   },
+   "FamiliaFonte": {
+    "enum": [
+     "SIA_PA",
+     "CNES_ST",
+     "CNES_PF",
+     "CNES_SR",
+     "CNES_HB",
+     "SIGTAP",
+     "TERRITORIO_DRS",
+     "DOCUMENTO"
+    ],
+    "title": "FamiliaFonte",
+    "type": "string"
+   },
+   "IntervaloParticao": {
+    "additionalProperties": false,
+    "properties": {
+     "fim": {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaProcessamento",
+      "type": "string"
+     },
+     "inicio": {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaProcessamento",
+      "type": "string"
+     },
+     "particao": {
+      "$ref": "#/$defs/Particao"
+     }
+    },
+    "required": [
+     "particao",
+     "inicio",
+     "fim"
+    ],
+    "title": "IntervaloParticao",
+    "type": "object"
+   },
+   "MetodoId": {
+    "enum": [
+     "B_ATEND",
+     "B_PROC",
+     "B_ML",
+     "M_TEMP",
+     "CONTROLE_TRIVIAL"
+    ],
+    "title": "MetodoId",
+    "type": "string"
+   },
+   "ModoExecucao": {
+    "enum": [
+     "EXPLORATORIO",
+     "CONFIRMATORIO"
+    ],
+    "title": "ModoExecucao",
+    "type": "string"
+   },
+   "OrcamentoContrafactual": {
+    "additionalProperties": false,
+    "properties": {
+     "max_candidatos": {
+      "default": 1000,
+      "title": "Max Candidatos",
+      "type": "integer"
+     },
+     "max_operacoes": {
+      "default": 3,
+      "title": "Max Operacoes",
+      "type": "integer"
+     }
+    },
+    "title": "OrcamentoContrafactual",
+    "type": "object"
+   },
+   "OrigemDados": {
+    "enum": [
+     "SINTETICO",
+     "REAL"
+    ],
+    "title": "OrigemDados",
+    "type": "string"
+   },
+   "Particao": {
+    "enum": [
+     "DESENVOLVIMENTO",
+     "CALIBRACAO",
+     "TESTE"
+    ],
+    "title": "Particao",
+    "type": "string"
+   },
+   "PertencaGeografica": {
+    "enum": [
+     "FIXA",
+     "HISTORICA",
+     "A_DEFINIR"
+    ],
+    "title": "PertencaGeografica",
+    "type": "string"
+   },
+   "PilotSpec": {
+    "additionalProperties": false,
+    "properties": {
+     "competencias_processamento": {
+      "items": {
+       "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+       "title": "CompetenciaProcessamento",
+       "type": "string"
+      },
+      "title": "Competencias Processamento",
+      "type": "array"
+     },
+     "familias_fontes": {
+      "items": {
+       "$ref": "#/$defs/FamiliaFonte"
+      },
+      "title": "Familias Fontes",
+      "type": "array"
+     },
+     "territorio": {
+      "title": "Territorio",
+      "type": "string"
+     },
+     "uf": {
+      "default": "SP",
+      "pattern": "^[A-Z]{2}$",
+      "title": "Uf",
+      "type": "string"
+     }
+    },
+    "required": [
+     "competencias_processamento",
+     "territorio",
+     "familias_fontes"
+    ],
+    "title": "PilotSpec",
+    "type": "object"
+   },
+   "RuntimeConfig": {
+    "additionalProperties": false,
+    "properties": {
+     "dir_congelamentos": {
+      "default": "experiments/frozen",
+      "title": "Dir Congelamentos",
+      "type": "string"
+     },
+     "dir_decisoes": {
+      "default": "experiments/decisions",
+      "title": "Dir Decisoes",
+      "type": "string"
+     },
+     "duckdb_memoria": {
+      "default": "8GB",
+      "pattern": "^[0-9]+(MB|GB)$",
+      "title": "Duckdb Memoria",
+      "type": "string"
+     },
+     "duckdb_threads": {
+      "default": 4,
+      "title": "Duckdb Threads",
+      "type": "integer"
+     },
+     "raiz_dados": {
+      "default": "data",
+      "title": "Raiz Dados",
+      "type": "string"
+     },
+     "raiz_manifestos": {
+      "default": "manifests",
+      "title": "Raiz Manifestos",
+      "type": "string"
+     },
+     "raiz_saidas": {
+      "default": "outputs",
+      "title": "Raiz Saidas",
+      "type": "string"
+     },
+     "rede_permitida": {
+      "default": false,
+      "title": "Rede Permitida",
+      "type": "boolean"
+     },
+     "verificacao_fidelidade": {
+      "default": "COMPLETA",
+      "enum": [
+       "COMPLETA",
+       "AMOSTRAL",
+       "DESLIGADA"
+      ],
+      "title": "Verificacao Fidelidade",
+      "type": "string"
+     }
+    },
+    "title": "RuntimeConfig",
+    "type": "object"
+   },
+   "SplitSpec": {
+    "additionalProperties": false,
+    "properties": {
+     "base_temporal": {
+      "const": "PROCESSAMENTO",
+      "default": "PROCESSAMENTO",
+      "title": "Base Temporal",
+      "type": "string"
+     },
+     "intervalos": {
+      "items": {
+       "$ref": "#/$defs/IntervaloParticao"
+      },
+      "title": "Intervalos",
+      "type": "array"
+     }
+    },
+    "required": [
+     "intervalos"
+    ],
+    "title": "SplitSpec",
+    "type": "object"
+   },
+   "VigilanciaSpec": {
+    "additionalProperties": false,
+    "properties": {
+     "familias_fontes": {
+      "default": [],
+      "items": {
+       "$ref": "#/$defs/FamiliaFonte"
+      },
+      "title": "Familias Fontes",
+      "type": "array"
+     },
+     "janela_competencias": {
+      "default": 6,
+      "title": "Janela Competencias",
+      "type": "integer"
+     },
+     "uf": {
+      "default": "SP",
+      "pattern": "^[A-Z]{2}$",
+      "title": "Uf",
+      "type": "string"
+     }
+    },
+    "title": "VigilanciaSpec",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "bootstrap": {
+    "$ref": "#/$defs/BootstrapSpec"
+   },
+   "catalogos": {
+    "additionalProperties": {
+     "type": "string"
+    },
+    "title": "Catalogos",
+    "type": "object"
+   },
+   "contrafactual": {
+    "$ref": "#/$defs/OrcamentoContrafactual"
+   },
+   "coorte": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/CohortSpec"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "corte_observacao": {
+    "anyOf": [
+     {
+      "format": "date-time",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Corte Observacao"
+   },
+   "freeze_id": {
+    "anyOf": [
+     {
+      "pattern": "^frz_[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Freeze Id"
+   },
+   "metodos": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/MetodoId"
+    },
+    "title": "Metodos",
+    "type": "array"
+   },
+   "modo": {
+    "$ref": "#/$defs/ModoExecucao",
+    "default": "EXPLORATORIO"
+   },
+   "origem_dados": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/OrigemDados"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "particoes": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/SplitSpec"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "piloto": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/PilotSpec"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "politica_id": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Politica Id"
+   },
+   "runtime": {
+    "$ref": "#/$defs/RuntimeConfig"
+   },
+   "semente": {
+    "default": 2027,
+    "title": "Semente",
+    "type": "integer"
+   },
+   "versao": {
+    "const": "1",
+    "title": "Versao",
+    "type": "string"
+   },
+   "vigilancia": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/VigilanciaSpec"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   }
+  },
+  "required": [
+   "versao"
+  ],
+  "title": "RunConfig",
+  "type": "object"
+ },
+ "RuntimeConfig": {
+  "additionalProperties": false,
+  "properties": {
+   "dir_congelamentos": {
+    "default": "experiments/frozen",
+    "title": "Dir Congelamentos",
+    "type": "string"
+   },
+   "dir_decisoes": {
+    "default": "experiments/decisions",
+    "title": "Dir Decisoes",
+    "type": "string"
+   },
+   "duckdb_memoria": {
+    "default": "8GB",
+    "pattern": "^[0-9]+(MB|GB)$",
+    "title": "Duckdb Memoria",
+    "type": "string"
+   },
+   "duckdb_threads": {
+    "default": 4,
+    "title": "Duckdb Threads",
+    "type": "integer"
+   },
+   "raiz_dados": {
+    "default": "data",
+    "title": "Raiz Dados",
+    "type": "string"
+   },
+   "raiz_manifestos": {
+    "default": "manifests",
+    "title": "Raiz Manifestos",
+    "type": "string"
+   },
+   "raiz_saidas": {
+    "default": "outputs",
+    "title": "Raiz Saidas",
+    "type": "string"
+   },
+   "rede_permitida": {
+    "default": false,
+    "title": "Rede Permitida",
+    "type": "boolean"
+   },
+   "verificacao_fidelidade": {
+    "default": "COMPLETA",
+    "enum": [
+     "COMPLETA",
+     "AMOSTRAL",
+     "DESLIGADA"
+    ],
+    "title": "Verificacao Fidelidade",
+    "type": "string"
+   }
+  },
+  "title": "RuntimeConfig",
+  "type": "object"
+ },
+ "VigilanciaSpec": {
+  "$defs": {
+   "FamiliaFonte": {
+    "enum": [
+     "SIA_PA",
+     "CNES_ST",
+     "CNES_PF",
+     "CNES_SR",
+     "CNES_HB",
+     "SIGTAP",
+     "TERRITORIO_DRS",
+     "DOCUMENTO"
+    ],
+    "title": "FamiliaFonte",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "familias_fontes": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/FamiliaFonte"
+    },
+    "title": "Familias Fontes",
+    "type": "array"
+   },
+   "janela_competencias": {
+    "default": 6,
+    "title": "Janela Competencias",
+    "type": "integer"
+   },
+   "uf": {
+    "default": "SP",
+    "pattern": "^[A-Z]{2}$",
+    "title": "Uf",
+    "type": "string"
+   }
+  },
+  "title": "VigilanciaSpec",
+  "type": "object"
+ }
+}

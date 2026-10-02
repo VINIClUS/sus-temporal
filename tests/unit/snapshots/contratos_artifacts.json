@@ -1,0 +1,1215 @@
+{
+ "ArtifactObservation": {
+  "$defs": {
+   "CanalPublicacao": {
+    "enum": [
+     "ATUAL",
+     "PRELIMINAR",
+     "HISTORICO",
+     "IMPORTACAO_MANUAL",
+     "DESCONHECIDO"
+    ],
+    "title": "CanalPublicacao",
+    "type": "string"
+   },
+   "ChaveArtefato": {
+    "additionalProperties": false,
+    "properties": {
+     "canal": {
+      "$ref": "#/$defs/CanalPublicacao"
+     },
+     "competencia_arquivo": {
+      "anyOf": [
+       {
+        "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+        "title": "CompetenciaArquivo",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Competencia Arquivo"
+     },
+     "fonte": {
+      "$ref": "#/$defs/FamiliaFonte"
+     },
+     "nome_original": {
+      "maxLength": 255,
+      "minLength": 1,
+      "title": "Nome Original",
+      "type": "string"
+     },
+     "parte": {
+      "anyOf": [
+       {
+        "pattern": "^([a-z]|_[0-9]+)$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Parte"
+     },
+     "uf": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Z]{2}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Uf"
+     },
+     "versao_publicacao": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Versao Publicacao"
+     }
+    },
+    "required": [
+     "fonte",
+     "canal",
+     "nome_original"
+    ],
+    "title": "ChaveArtefato",
+    "type": "object"
+   },
+   "FamiliaFonte": {
+    "enum": [
+     "SIA_PA",
+     "CNES_ST",
+     "CNES_PF",
+     "CNES_SR",
+     "CNES_HB",
+     "SIGTAP",
+     "TERRITORIO_DRS",
+     "DOCUMENTO"
+    ],
+    "title": "FamiliaFonte",
+    "type": "string"
+   },
+   "MetadadosRemotos": {
+    "additionalProperties": false,
+    "properties": {
+     "brutos": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Brutos",
+      "type": "object"
+     },
+     "interpretado_como_registro_oficial": {
+      "const": false,
+      "default": false,
+      "title": "Interpretado Como Registro Oficial",
+      "type": "boolean"
+     }
+    },
+    "title": "MetadadosRemotos",
+    "type": "object"
+   },
+   "ResultadoTentativa": {
+    "enum": [
+     "OBTIDO",
+     "NAO_ENCONTRADO",
+     "FALHA_TRANSPORTE",
+     "INTERROMPIDO",
+     "CONTEUDO_INVALIDO",
+     "RECUSADO_OFFLINE"
+    ],
+    "title": "ResultadoTentativa",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "artifact_id": {
+    "anyOf": [
+     {
+      "pattern": "^art_[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Artifact Id"
+   },
+   "bytes_recebidos": {
+    "default": 0,
+    "ge": 0,
+    "title": "Bytes Recebidos",
+    "type": "integer"
+   },
+   "chave": {
+    "$ref": "#/$defs/ChaveArtefato"
+   },
+   "erro": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Erro"
+   },
+   "ferramenta": {
+    "title": "Ferramenta",
+    "type": "string"
+   },
+   "metadados_remotos": {
+    "$ref": "#/$defs/MetadadosRemotos"
+   },
+   "observado_em": {
+    "format": "date-time",
+    "title": "Observado Em",
+    "type": "string"
+   },
+   "observation_id": {
+    "pattern": "^obs_[0-9a-f]{32,64}$",
+    "title": "Observation Id",
+    "type": "string"
+   },
+   "request_sha256": {
+    "pattern": "^[0-9a-f]{64}$",
+    "title": "Request Sha256",
+    "type": "string"
+   },
+   "resultado": {
+    "$ref": "#/$defs/ResultadoTentativa"
+   },
+   "sha256_obtido": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Sha256 Obtido"
+   }
+  },
+  "required": [
+   "observation_id",
+   "chave",
+   "request_sha256",
+   "observado_em",
+   "resultado",
+   "ferramenta"
+  ],
+  "title": "ArtifactObservation",
+  "type": "object"
+ },
+ "ArtifactVersion": {
+  "$defs": {
+   "CanalPublicacao": {
+    "enum": [
+     "ATUAL",
+     "PRELIMINAR",
+     "HISTORICO",
+     "IMPORTACAO_MANUAL",
+     "DESCONHECIDO"
+    ],
+    "title": "CanalPublicacao",
+    "type": "string"
+   },
+   "ChaveArtefato": {
+    "additionalProperties": false,
+    "properties": {
+     "canal": {
+      "$ref": "#/$defs/CanalPublicacao"
+     },
+     "competencia_arquivo": {
+      "anyOf": [
+       {
+        "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+        "title": "CompetenciaArquivo",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Competencia Arquivo"
+     },
+     "fonte": {
+      "$ref": "#/$defs/FamiliaFonte"
+     },
+     "nome_original": {
+      "maxLength": 255,
+      "minLength": 1,
+      "title": "Nome Original",
+      "type": "string"
+     },
+     "parte": {
+      "anyOf": [
+       {
+        "pattern": "^([a-z]|_[0-9]+)$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Parte"
+     },
+     "uf": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Z]{2}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Uf"
+     },
+     "versao_publicacao": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Versao Publicacao"
+     }
+    },
+    "required": [
+     "fonte",
+     "canal",
+     "nome_original"
+    ],
+    "title": "ChaveArtefato",
+    "type": "object"
+   },
+   "EstadoIntegridade": {
+    "enum": [
+     "OK",
+     "QUARENTENA_TRUNCADO",
+     "QUARENTENA_CHECKSUM",
+     "QUARENTENA_CONTEUDO_INESPERADO",
+     "QUARENTENA_LEIAUTE",
+     "QUARENTENA_CAMINHO_INSEGURO",
+     "NAO_VERIFICADO"
+    ],
+    "title": "EstadoIntegridade",
+    "type": "string"
+   },
+   "FamiliaFonte": {
+    "enum": [
+     "SIA_PA",
+     "CNES_ST",
+     "CNES_PF",
+     "CNES_SR",
+     "CNES_HB",
+     "SIGTAP",
+     "TERRITORIO_DRS",
+     "DOCUMENTO"
+    ],
+    "title": "FamiliaFonte",
+    "type": "string"
+   },
+   "FormatoArquivo": {
+    "enum": [
+     "DBC",
+     "DBF",
+     "ZIP",
+     "TXT",
+     "CSV",
+     "PDF",
+     "HTML",
+     "YAML",
+     "OUTRO"
+    ],
+    "title": "FormatoArquivo",
+    "type": "string"
+   },
+   "MembroArquivo": {
+    "additionalProperties": false,
+    "properties": {
+     "nome": {
+      "title": "Nome",
+      "type": "string"
+     },
+     "seguro": {
+      "title": "Seguro",
+      "type": "boolean"
+     },
+     "sha256": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Sha256"
+     },
+     "tamanho_bytes": {
+      "ge": 0,
+      "title": "Tamanho Bytes",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "nome",
+     "tamanho_bytes",
+     "seguro"
+    ],
+    "title": "MembroArquivo",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "artifact_id": {
+    "pattern": "^art_[0-9a-f]{64}$",
+    "title": "Artifact Id",
+    "type": "string"
+   },
+   "caminho_conteudo": {
+    "title": "Caminho Conteudo",
+    "type": "string"
+   },
+   "chave": {
+    "$ref": "#/$defs/ChaveArtefato"
+   },
+   "formato": {
+    "$ref": "#/$defs/FormatoArquivo"
+   },
+   "integridade": {
+    "$ref": "#/$defs/EstadoIntegridade"
+   },
+   "leiaute_id": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Leiaute Id"
+   },
+   "localizador": {
+    "title": "Localizador",
+    "type": "string"
+   },
+   "membros": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/MembroArquivo"
+    },
+    "title": "Membros",
+    "type": "array"
+   },
+   "sha256": {
+    "pattern": "^[0-9a-f]{64}$",
+    "title": "Sha256",
+    "type": "string"
+   },
+   "tamanho_bytes": {
+    "ge": 0,
+    "title": "Tamanho Bytes",
+    "type": "integer"
+   }
+  },
+  "required": [
+   "artifact_id",
+   "chave",
+   "localizador",
+   "sha256",
+   "tamanho_bytes",
+   "formato",
+   "caminho_conteudo",
+   "integridade"
+  ],
+  "title": "ArtifactVersion",
+  "type": "object"
+ },
+ "ChaveArtefato": {
+  "$defs": {
+   "CanalPublicacao": {
+    "enum": [
+     "ATUAL",
+     "PRELIMINAR",
+     "HISTORICO",
+     "IMPORTACAO_MANUAL",
+     "DESCONHECIDO"
+    ],
+    "title": "CanalPublicacao",
+    "type": "string"
+   },
+   "FamiliaFonte": {
+    "enum": [
+     "SIA_PA",
+     "CNES_ST",
+     "CNES_PF",
+     "CNES_SR",
+     "CNES_HB",
+     "SIGTAP",
+     "TERRITORIO_DRS",
+     "DOCUMENTO"
+    ],
+    "title": "FamiliaFonte",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "canal": {
+    "$ref": "#/$defs/CanalPublicacao"
+   },
+   "competencia_arquivo": {
+    "anyOf": [
+     {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaArquivo",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Competencia Arquivo"
+   },
+   "fonte": {
+    "$ref": "#/$defs/FamiliaFonte"
+   },
+   "nome_original": {
+    "maxLength": 255,
+    "minLength": 1,
+    "title": "Nome Original",
+    "type": "string"
+   },
+   "parte": {
+    "anyOf": [
+     {
+      "pattern": "^([a-z]|_[0-9]+)$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Parte"
+   },
+   "uf": {
+    "anyOf": [
+     {
+      "pattern": "^[A-Z]{2}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Uf"
+   },
+   "versao_publicacao": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Versao Publicacao"
+   }
+  },
+  "required": [
+   "fonte",
+   "canal",
+   "nome_original"
+  ],
+  "title": "ChaveArtefato",
+  "type": "object"
+ },
+ "LinhaManifesto": {
+  "$defs": {
+   "ArtifactObservation": {
+    "additionalProperties": false,
+    "properties": {
+     "artifact_id": {
+      "anyOf": [
+       {
+        "pattern": "^art_[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Artifact Id"
+     },
+     "bytes_recebidos": {
+      "default": 0,
+      "ge": 0,
+      "title": "Bytes Recebidos",
+      "type": "integer"
+     },
+     "chave": {
+      "$ref": "#/$defs/ChaveArtefato"
+     },
+     "erro": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Erro"
+     },
+     "ferramenta": {
+      "title": "Ferramenta",
+      "type": "string"
+     },
+     "metadados_remotos": {
+      "$ref": "#/$defs/MetadadosRemotos"
+     },
+     "observado_em": {
+      "format": "date-time",
+      "title": "Observado Em",
+      "type": "string"
+     },
+     "observation_id": {
+      "pattern": "^obs_[0-9a-f]{32,64}$",
+      "title": "Observation Id",
+      "type": "string"
+     },
+     "request_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Request Sha256",
+      "type": "string"
+     },
+     "resultado": {
+      "$ref": "#/$defs/ResultadoTentativa"
+     },
+     "sha256_obtido": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Sha256 Obtido"
+     }
+    },
+    "required": [
+     "observation_id",
+     "chave",
+     "request_sha256",
+     "observado_em",
+     "resultado",
+     "ferramenta"
+    ],
+    "title": "ArtifactObservation",
+    "type": "object"
+   },
+   "ArtifactVersion": {
+    "additionalProperties": false,
+    "properties": {
+     "artifact_id": {
+      "pattern": "^art_[0-9a-f]{64}$",
+      "title": "Artifact Id",
+      "type": "string"
+     },
+     "caminho_conteudo": {
+      "title": "Caminho Conteudo",
+      "type": "string"
+     },
+     "chave": {
+      "$ref": "#/$defs/ChaveArtefato"
+     },
+     "formato": {
+      "$ref": "#/$defs/FormatoArquivo"
+     },
+     "integridade": {
+      "$ref": "#/$defs/EstadoIntegridade"
+     },
+     "leiaute_id": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Leiaute Id"
+     },
+     "localizador": {
+      "title": "Localizador",
+      "type": "string"
+     },
+     "membros": {
+      "default": [],
+      "items": {
+       "$ref": "#/$defs/MembroArquivo"
+      },
+      "title": "Membros",
+      "type": "array"
+     },
+     "sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sha256",
+      "type": "string"
+     },
+     "tamanho_bytes": {
+      "ge": 0,
+      "title": "Tamanho Bytes",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "artifact_id",
+     "chave",
+     "localizador",
+     "sha256",
+     "tamanho_bytes",
+     "formato",
+     "caminho_conteudo",
+     "integridade"
+    ],
+    "title": "ArtifactVersion",
+    "type": "object"
+   },
+   "CanalPublicacao": {
+    "enum": [
+     "ATUAL",
+     "PRELIMINAR",
+     "HISTORICO",
+     "IMPORTACAO_MANUAL",
+     "DESCONHECIDO"
+    ],
+    "title": "CanalPublicacao",
+    "type": "string"
+   },
+   "ChaveArtefato": {
+    "additionalProperties": false,
+    "properties": {
+     "canal": {
+      "$ref": "#/$defs/CanalPublicacao"
+     },
+     "competencia_arquivo": {
+      "anyOf": [
+       {
+        "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+        "title": "CompetenciaArquivo",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Competencia Arquivo"
+     },
+     "fonte": {
+      "$ref": "#/$defs/FamiliaFonte"
+     },
+     "nome_original": {
+      "maxLength": 255,
+      "minLength": 1,
+      "title": "Nome Original",
+      "type": "string"
+     },
+     "parte": {
+      "anyOf": [
+       {
+        "pattern": "^([a-z]|_[0-9]+)$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Parte"
+     },
+     "uf": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Z]{2}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Uf"
+     },
+     "versao_publicacao": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Versao Publicacao"
+     }
+    },
+    "required": [
+     "fonte",
+     "canal",
+     "nome_original"
+    ],
+    "title": "ChaveArtefato",
+    "type": "object"
+   },
+   "EstadoIntegridade": {
+    "enum": [
+     "OK",
+     "QUARENTENA_TRUNCADO",
+     "QUARENTENA_CHECKSUM",
+     "QUARENTENA_CONTEUDO_INESPERADO",
+     "QUARENTENA_LEIAUTE",
+     "QUARENTENA_CAMINHO_INSEGURO",
+     "NAO_VERIFICADO"
+    ],
+    "title": "EstadoIntegridade",
+    "type": "string"
+   },
+   "FamiliaFonte": {
+    "enum": [
+     "SIA_PA",
+     "CNES_ST",
+     "CNES_PF",
+     "CNES_SR",
+     "CNES_HB",
+     "SIGTAP",
+     "TERRITORIO_DRS",
+     "DOCUMENTO"
+    ],
+    "title": "FamiliaFonte",
+    "type": "string"
+   },
+   "FormatoArquivo": {
+    "enum": [
+     "DBC",
+     "DBF",
+     "ZIP",
+     "TXT",
+     "CSV",
+     "PDF",
+     "HTML",
+     "YAML",
+     "OUTRO"
+    ],
+    "title": "FormatoArquivo",
+    "type": "string"
+   },
+   "MembroArquivo": {
+    "additionalProperties": false,
+    "properties": {
+     "nome": {
+      "title": "Nome",
+      "type": "string"
+     },
+     "seguro": {
+      "title": "Seguro",
+      "type": "boolean"
+     },
+     "sha256": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Sha256"
+     },
+     "tamanho_bytes": {
+      "ge": 0,
+      "title": "Tamanho Bytes",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "nome",
+     "tamanho_bytes",
+     "seguro"
+    ],
+    "title": "MembroArquivo",
+    "type": "object"
+   },
+   "MetadadosRemotos": {
+    "additionalProperties": false,
+    "properties": {
+     "brutos": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Brutos",
+      "type": "object"
+     },
+     "interpretado_como_registro_oficial": {
+      "const": false,
+      "default": false,
+      "title": "Interpretado Como Registro Oficial",
+      "type": "boolean"
+     }
+    },
+    "title": "MetadadosRemotos",
+    "type": "object"
+   },
+   "ResultadoTentativa": {
+    "enum": [
+     "OBTIDO",
+     "NAO_ENCONTRADO",
+     "FALHA_TRANSPORTE",
+     "INTERROMPIDO",
+     "CONTEUDO_INVALIDO",
+     "RECUSADO_OFFLINE"
+    ],
+    "title": "ResultadoTentativa",
+    "type": "string"
+   },
+   "TipoLinhaManifesto": {
+    "enum": [
+     "OBSERVACAO",
+     "VERSAO"
+    ],
+    "title": "TipoLinhaManifesto",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "anterior_sha256": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Anterior Sha256"
+   },
+   "observacao": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/ArtifactObservation"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "sequencia": {
+    "ge": 0,
+    "title": "Sequencia",
+    "type": "integer"
+   },
+   "tipo": {
+    "$ref": "#/$defs/TipoLinhaManifesto"
+   },
+   "versao": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/ArtifactVersion"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   }
+  },
+  "required": [
+   "sequencia",
+   "tipo"
+  ],
+  "title": "LinhaManifesto",
+  "type": "object"
+ },
+ "MembroArquivo": {
+  "additionalProperties": false,
+  "properties": {
+   "nome": {
+    "title": "Nome",
+    "type": "string"
+   },
+   "seguro": {
+    "title": "Seguro",
+    "type": "boolean"
+   },
+   "sha256": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Sha256"
+   },
+   "tamanho_bytes": {
+    "ge": 0,
+    "title": "Tamanho Bytes",
+    "type": "integer"
+   }
+  },
+  "required": [
+   "nome",
+   "tamanho_bytes",
+   "seguro"
+  ],
+  "title": "MembroArquivo",
+  "type": "object"
+ },
+ "MetadadosRemotos": {
+  "additionalProperties": false,
+  "properties": {
+   "brutos": {
+    "additionalProperties": {
+     "type": "string"
+    },
+    "title": "Brutos",
+    "type": "object"
+   },
+   "interpretado_como_registro_oficial": {
+    "const": false,
+    "default": false,
+    "title": "Interpretado Como Registro Oficial",
+    "type": "boolean"
+   }
+  },
+  "title": "MetadadosRemotos",
+  "type": "object"
+ },
+ "SourceRequest": {
+  "$defs": {
+   "CanalPublicacao": {
+    "enum": [
+     "ATUAL",
+     "PRELIMINAR",
+     "HISTORICO",
+     "IMPORTACAO_MANUAL",
+     "DESCONHECIDO"
+    ],
+    "title": "CanalPublicacao",
+    "type": "string"
+   },
+   "ChaveArtefato": {
+    "additionalProperties": false,
+    "properties": {
+     "canal": {
+      "$ref": "#/$defs/CanalPublicacao"
+     },
+     "competencia_arquivo": {
+      "anyOf": [
+       {
+        "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+        "title": "CompetenciaArquivo",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Competencia Arquivo"
+     },
+     "fonte": {
+      "$ref": "#/$defs/FamiliaFonte"
+     },
+     "nome_original": {
+      "maxLength": 255,
+      "minLength": 1,
+      "title": "Nome Original",
+      "type": "string"
+     },
+     "parte": {
+      "anyOf": [
+       {
+        "pattern": "^([a-z]|_[0-9]+)$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Parte"
+     },
+     "uf": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Z]{2}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Uf"
+     },
+     "versao_publicacao": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Versao Publicacao"
+     }
+    },
+    "required": [
+     "fonte",
+     "canal",
+     "nome_original"
+    ],
+    "title": "ChaveArtefato",
+    "type": "object"
+   },
+   "FamiliaFonte": {
+    "enum": [
+     "SIA_PA",
+     "CNES_ST",
+     "CNES_PF",
+     "CNES_SR",
+     "CNES_HB",
+     "SIGTAP",
+     "TERRITORIO_DRS",
+     "DOCUMENTO"
+    ],
+    "title": "FamiliaFonte",
+    "type": "string"
+   },
+   "FormatoArquivo": {
+    "enum": [
+     "DBC",
+     "DBF",
+     "ZIP",
+     "TXT",
+     "CSV",
+     "PDF",
+     "HTML",
+     "YAML",
+     "OUTRO"
+    ],
+    "title": "FormatoArquivo",
+    "type": "string"
+   },
+   "MotivoRequisicao": {
+    "enum": [
+     "PRIMARIA",
+     "AUXILIAR_DERIVADA",
+     "VIGILANCIA",
+     "DOCUMENTO"
+    ],
+    "title": "MotivoRequisicao",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "chave": {
+    "$ref": "#/$defs/ChaveArtefato"
+   },
+   "formato_esperado": {
+    "$ref": "#/$defs/FormatoArquivo"
+   },
+   "localizador": {
+    "title": "Localizador",
+    "type": "string"
+   },
+   "motivo": {
+    "$ref": "#/$defs/MotivoRequisicao"
+   },
+   "sha256_esperado": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Sha256 Esperado"
+   },
+   "tamanho_maximo_bytes": {
+    "ge": 0,
+    "title": "Tamanho Maximo Bytes",
+    "type": "integer"
+   }
+  },
+  "required": [
+   "chave",
+   "localizador",
+   "formato_esperado",
+   "tamanho_maximo_bytes",
+   "motivo"
+  ],
+  "title": "SourceRequest",
+  "type": "object"
+ }
+}

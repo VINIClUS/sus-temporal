@@ -1,0 +1,1793 @@
+{
+ "Ambiente": {
+  "additionalProperties": false,
+  "properties": {
+   "pacotes": {
+    "additionalProperties": {
+     "type": "string"
+    },
+    "title": "Pacotes",
+    "type": "object"
+   },
+   "plataforma": {
+    "title": "Plataforma",
+    "type": "string"
+   },
+   "python": {
+    "title": "Python",
+    "type": "string"
+   },
+   "uv_lock_sha256": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Uv Lock Sha256"
+   }
+  },
+  "required": [
+   "python",
+   "plataforma"
+  ],
+  "title": "Ambiente",
+  "type": "object"
+ },
+ "Atributo": {
+  "additionalProperties": false,
+  "properties": {
+   "coluna": {
+    "title": "Coluna",
+    "type": "string"
+   },
+   "nome": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Nome",
+    "type": "string"
+   },
+   "schema_id": {
+    "pattern": "^[a-z0-9_]+\\.v[0-9]+$",
+    "title": "Schema Id",
+    "type": "string"
+   },
+   "transformacao": {
+    "title": "Transformacao",
+    "type": "string"
+   }
+  },
+  "required": [
+   "nome",
+   "schema_id",
+   "coluna",
+   "transformacao"
+  ],
+  "title": "Atributo",
+  "type": "object"
+ },
+ "BootstrapSpec": {
+  "$defs": {
+   "CorrecaoMultiplicidade": {
+    "enum": [
+     "HOLM",
+     "BONFERRONI",
+     "SEM_TESTE_FORMAL",
+     "A_DEFINIR"
+    ],
+    "title": "CorrecaoMultiplicidade",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "confianca": {
+    "anyOf": [
+     {
+      "type": "number"
+     },
+     {
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "type": "string"
+     }
+    ],
+    "default": "0.95",
+    "title": "Confianca"
+   },
+   "correcao": {
+    "$ref": "#/$defs/CorrecaoMultiplicidade",
+    "default": "A_DEFINIR"
+   },
+   "reamostragens": {
+    "default": 2000,
+    "title": "Reamostragens",
+    "type": "integer"
+   },
+   "semente": {
+    "default": 2027,
+    "title": "Semente",
+    "type": "integer"
+   },
+   "sensibilidade": {
+    "const": "BLOCOS_TEMPORAIS",
+    "default": "BLOCOS_TEMPORAIS",
+    "title": "Sensibilidade",
+    "type": "string"
+   },
+   "unidade": {
+    "const": "ESTABELECIMENTO",
+    "default": "ESTABELECIMENTO",
+    "title": "Unidade",
+    "type": "string"
+   }
+  },
+  "title": "BootstrapSpec",
+  "type": "object"
+ },
+ "CodeVersion": {
+  "additionalProperties": false,
+  "properties": {
+   "commit": {
+    "title": "Commit",
+    "type": "string"
+   },
+   "sujo": {
+    "title": "Sujo",
+    "type": "boolean"
+   },
+   "versao_pacote": {
+    "title": "Versao Pacote",
+    "type": "string"
+   }
+  },
+  "required": [
+   "commit",
+   "sujo",
+   "versao_pacote"
+  ],
+  "title": "CodeVersion",
+  "type": "object"
+ },
+ "CohortSpec": {
+  "$defs": {
+   "CriterioGeografico": {
+    "enum": [
+     "MUNICIPIO_ESTABELECIMENTO"
+    ],
+    "title": "CriterioGeografico",
+    "type": "string"
+   },
+   "PertencaGeografica": {
+    "enum": [
+     "FIXA",
+     "HISTORICA",
+     "A_DEFINIR"
+    ],
+    "title": "PertencaGeografica",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "cohort_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Cohort Id",
+    "type": "string"
+   },
+   "criterio_geografico": {
+    "$ref": "#/$defs/CriterioGeografico",
+    "default": "MUNICIPIO_ESTABELECIMENTO"
+   },
+   "fim": {
+    "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+    "title": "CompetenciaProcessamento",
+    "type": "string"
+   },
+   "inicio": {
+    "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+    "title": "CompetenciaProcessamento",
+    "type": "string"
+   },
+   "instrumentos": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Instrumentos",
+    "type": "array"
+   },
+   "pertenca": {
+    "$ref": "#/$defs/PertencaGeografica",
+    "default": "A_DEFINIR"
+   },
+   "territorio": {
+    "title": "Territorio",
+    "type": "string"
+   },
+   "uf": {
+    "pattern": "^[A-Z]{2}$",
+    "title": "Uf",
+    "type": "string"
+   }
+  },
+  "required": [
+   "cohort_id",
+   "uf",
+   "territorio",
+   "inicio",
+   "fim"
+  ],
+  "title": "CohortSpec",
+  "type": "object"
+ },
+ "DecisaoPortao": {
+  "$defs": {
+   "Portao": {
+    "enum": [
+     "G0",
+     "G1",
+     "G2"
+    ],
+    "title": "Portao",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "data": {
+    "format": "date",
+    "title": "Data",
+    "type": "string"
+   },
+   "decisao": {
+    "title": "Decisao",
+    "type": "string"
+   },
+   "evidencias": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Evidencias",
+    "type": "array"
+   },
+   "familias_aprovadas": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "title": "Familias Aprovadas",
+    "type": "array"
+   },
+   "freeze_id": {
+    "anyOf": [
+     {
+      "pattern": "^frz_[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Freeze Id"
+   },
+   "observacoes": {
+    "default": "",
+    "title": "Observacoes",
+    "type": "string"
+   },
+   "portao": {
+    "$ref": "#/$defs/Portao"
+   },
+   "registrado_por_humano": {
+    "const": true,
+    "title": "Registrado Por Humano",
+    "type": "boolean"
+   },
+   "responsaveis": {
+    "items": {
+     "minLength": 1,
+     "type": "string"
+    },
+    "title": "Responsaveis",
+    "type": "array"
+   }
+  },
+  "required": [
+   "portao",
+   "decisao",
+   "data",
+   "responsaveis",
+   "registrado_por_humano"
+  ],
+  "title": "DecisaoPortao",
+  "type": "object"
+ },
+ "FeatureSpec": {
+  "$defs": {
+   "Atributo": {
+    "additionalProperties": false,
+    "properties": {
+     "coluna": {
+      "title": "Coluna",
+      "type": "string"
+     },
+     "nome": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Nome",
+      "type": "string"
+     },
+     "schema_id": {
+      "pattern": "^[a-z0-9_]+\\.v[0-9]+$",
+      "title": "Schema Id",
+      "type": "string"
+     },
+     "transformacao": {
+      "title": "Transformacao",
+      "type": "string"
+     }
+    },
+    "required": [
+     "nome",
+     "schema_id",
+     "coluna",
+     "transformacao"
+    ],
+    "title": "Atributo",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "atributos": {
+    "items": {
+     "$ref": "#/$defs/Atributo"
+    },
+    "title": "Atributos",
+    "type": "array"
+   },
+   "feature_set_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Feature Set Id",
+    "type": "string"
+   }
+  },
+  "required": [
+   "feature_set_id",
+   "atributos"
+  ],
+  "title": "FeatureSpec",
+  "type": "object"
+ },
+ "FreezeManifest": {
+  "$defs": {
+   "Ambiente": {
+    "additionalProperties": false,
+    "properties": {
+     "pacotes": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Pacotes",
+      "type": "object"
+     },
+     "plataforma": {
+      "title": "Plataforma",
+      "type": "string"
+     },
+     "python": {
+      "title": "Python",
+      "type": "string"
+     },
+     "uv_lock_sha256": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Uv Lock Sha256"
+     }
+    },
+    "required": [
+     "python",
+     "plataforma"
+    ],
+    "title": "Ambiente",
+    "type": "object"
+   },
+   "Atributo": {
+    "additionalProperties": false,
+    "properties": {
+     "coluna": {
+      "title": "Coluna",
+      "type": "string"
+     },
+     "nome": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Nome",
+      "type": "string"
+     },
+     "schema_id": {
+      "pattern": "^[a-z0-9_]+\\.v[0-9]+$",
+      "title": "Schema Id",
+      "type": "string"
+     },
+     "transformacao": {
+      "title": "Transformacao",
+      "type": "string"
+     }
+    },
+    "required": [
+     "nome",
+     "schema_id",
+     "coluna",
+     "transformacao"
+    ],
+    "title": "Atributo",
+    "type": "object"
+   },
+   "BootstrapSpec": {
+    "additionalProperties": false,
+    "properties": {
+     "confianca": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+        "type": "string"
+       }
+      ],
+      "default": "0.95",
+      "title": "Confianca"
+     },
+     "correcao": {
+      "$ref": "#/$defs/CorrecaoMultiplicidade",
+      "default": "A_DEFINIR"
+     },
+     "reamostragens": {
+      "default": 2000,
+      "title": "Reamostragens",
+      "type": "integer"
+     },
+     "semente": {
+      "default": 2027,
+      "title": "Semente",
+      "type": "integer"
+     },
+     "sensibilidade": {
+      "const": "BLOCOS_TEMPORAIS",
+      "default": "BLOCOS_TEMPORAIS",
+      "title": "Sensibilidade",
+      "type": "string"
+     },
+     "unidade": {
+      "const": "ESTABELECIMENTO",
+      "default": "ESTABELECIMENTO",
+      "title": "Unidade",
+      "type": "string"
+     }
+    },
+    "title": "BootstrapSpec",
+    "type": "object"
+   },
+   "CodeVersion": {
+    "additionalProperties": false,
+    "properties": {
+     "commit": {
+      "title": "Commit",
+      "type": "string"
+     },
+     "sujo": {
+      "title": "Sujo",
+      "type": "boolean"
+     },
+     "versao_pacote": {
+      "title": "Versao Pacote",
+      "type": "string"
+     }
+    },
+    "required": [
+     "commit",
+     "sujo",
+     "versao_pacote"
+    ],
+    "title": "CodeVersion",
+    "type": "object"
+   },
+   "CorrecaoMultiplicidade": {
+    "enum": [
+     "HOLM",
+     "BONFERRONI",
+     "SEM_TESTE_FORMAL",
+     "A_DEFINIR"
+    ],
+    "title": "CorrecaoMultiplicidade",
+    "type": "string"
+   },
+   "DatasetRef": {
+    "additionalProperties": false,
+    "properties": {
+     "artifact_ids": {
+      "items": {
+       "pattern": "^art_[0-9a-f]{64}$",
+       "type": "string"
+      },
+      "title": "Artifact Ids",
+      "type": "array"
+     },
+     "caminho": {
+      "title": "Caminho",
+      "type": "string"
+     },
+     "dataset_id": {
+      "pattern": "^ds_[0-9a-f]{64}$",
+      "title": "Dataset Id",
+      "type": "string"
+     },
+     "hash_logico": {
+      "pattern": "^lh1:[0-9a-f]{64}$",
+      "title": "Hash Logico",
+      "type": "string"
+     },
+     "linhas": {
+      "ge": 0,
+      "title": "Linhas",
+      "type": "integer"
+     },
+     "multiplicidade": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/Multiplicidade"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "origem_dados": {
+      "$ref": "#/$defs/OrigemDados"
+     },
+     "produzido_por": {
+      "title": "Produzido Por",
+      "type": "string"
+     },
+     "reconciliacao": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/Reconciliacao"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "schema_id": {
+      "pattern": "^[a-z0-9_]+\\.v[0-9]+$",
+      "title": "Schema Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "dataset_id",
+     "schema_id",
+     "caminho",
+     "hash_logico",
+     "linhas",
+     "artifact_ids",
+     "origem_dados",
+     "produzido_por"
+    ],
+    "title": "DatasetRef",
+    "type": "object"
+   },
+   "FeatureSpec": {
+    "additionalProperties": false,
+    "properties": {
+     "atributos": {
+      "items": {
+       "$ref": "#/$defs/Atributo"
+      },
+      "title": "Atributos",
+      "type": "array"
+     },
+     "feature_set_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Feature Set Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "feature_set_id",
+     "atributos"
+    ],
+    "title": "FeatureSpec",
+    "type": "object"
+   },
+   "IntervaloParticao": {
+    "additionalProperties": false,
+    "properties": {
+     "fim": {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaProcessamento",
+      "type": "string"
+     },
+     "inicio": {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaProcessamento",
+      "type": "string"
+     },
+     "particao": {
+      "$ref": "#/$defs/Particao"
+     }
+    },
+    "required": [
+     "particao",
+     "inicio",
+     "fim"
+    ],
+    "title": "IntervaloParticao",
+    "type": "object"
+   },
+   "Multiplicidade": {
+    "additionalProperties": false,
+    "properties": {
+     "combinacoes_distintas": {
+      "ge": 0,
+      "title": "Combinacoes Distintas",
+      "type": "integer"
+     },
+     "linhas_totais": {
+      "ge": 0,
+      "title": "Linhas Totais",
+      "type": "integer"
+     },
+     "max_repeticoes": {
+      "ge": 0,
+      "title": "Max Repeticoes",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "linhas_totais",
+     "combinacoes_distintas",
+     "max_repeticoes"
+    ],
+    "title": "Multiplicidade",
+    "type": "object"
+   },
+   "OrigemDados": {
+    "enum": [
+     "SINTETICO",
+     "REAL"
+    ],
+    "title": "OrigemDados",
+    "type": "string"
+   },
+   "Particao": {
+    "enum": [
+     "DESENVOLVIMENTO",
+     "CALIBRACAO",
+     "TESTE"
+    ],
+    "title": "Particao",
+    "type": "string"
+   },
+   "Reconciliacao": {
+    "additionalProperties": false,
+    "properties": {
+     "canonicas": {
+      "ge": 0,
+      "title": "Canonicas",
+      "type": "integer"
+     },
+     "deletados": {
+      "default": 0,
+      "ge": 0,
+      "title": "Deletados",
+      "type": "integer"
+     },
+     "excluidas_por_motivo": {
+      "additionalProperties": {
+       "ge": 0,
+       "type": "integer"
+      },
+      "title": "Excluidas Por Motivo",
+      "type": "object"
+     },
+     "fisicos": {
+      "ge": 0,
+      "title": "Fisicos",
+      "type": "integer"
+     },
+     "quarentena": {
+      "default": 0,
+      "ge": 0,
+      "title": "Quarentena",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "fisicos",
+     "canonicas"
+    ],
+    "title": "Reconciliacao",
+    "type": "object"
+   },
+   "SplitManifest": {
+    "additionalProperties": false,
+    "properties": {
+     "artefatos_inspecionados": {
+      "default": [],
+      "items": {
+       "pattern": "^art_[0-9a-f]{64}$",
+       "type": "string"
+      },
+      "title": "Artefatos Inspecionados",
+      "type": "array"
+     },
+     "artefatos_teste": {
+      "default": [],
+      "items": {
+       "pattern": "^art_[0-9a-f]{64}$",
+       "type": "string"
+      },
+      "title": "Artefatos Teste",
+      "type": "array"
+     },
+     "dataset_hash": {
+      "title": "Dataset Hash",
+      "type": "string"
+     },
+     "hash_por_particao": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "propertyNames": {
+       "$ref": "#/$defs/Particao"
+      },
+      "title": "Hash Por Particao",
+      "type": "object"
+     },
+     "linhas_por_particao": {
+      "additionalProperties": {
+       "ge": 0,
+       "type": "integer"
+      },
+      "propertyNames": {
+       "$ref": "#/$defs/Particao"
+      },
+      "title": "Linhas Por Particao",
+      "type": "object"
+     },
+     "spec": {
+      "$ref": "#/$defs/SplitSpec"
+     },
+     "split_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Split Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "split_id",
+     "spec",
+     "dataset_hash",
+     "linhas_por_particao",
+     "hash_por_particao"
+    ],
+    "title": "SplitManifest",
+    "type": "object"
+   },
+   "SplitSpec": {
+    "additionalProperties": false,
+    "properties": {
+     "base_temporal": {
+      "const": "PROCESSAMENTO",
+      "default": "PROCESSAMENTO",
+      "title": "Base Temporal",
+      "type": "string"
+     },
+     "intervalos": {
+      "items": {
+       "$ref": "#/$defs/IntervaloParticao"
+      },
+      "title": "Intervalos",
+      "type": "array"
+     }
+    },
+    "required": [
+     "intervalos"
+    ],
+    "title": "SplitSpec",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "ambiente": {
+    "$ref": "#/$defs/Ambiente"
+   },
+   "bootstrap": {
+    "$ref": "#/$defs/BootstrapSpec"
+   },
+   "catalogos_sha256": {
+    "additionalProperties": {
+     "pattern": "^[0-9a-f]{64}$",
+     "type": "string"
+    },
+    "title": "Catalogos Sha256",
+    "type": "object"
+   },
+   "codigo": {
+    "$ref": "#/$defs/CodeVersion"
+   },
+   "comparacoes_primarias": {
+    "items": {
+     "type": "string"
+    },
+    "title": "Comparacoes Primarias",
+    "type": "array"
+   },
+   "config_hash": {
+    "pattern": "^[0-9a-f]{64}$",
+    "title": "Config Hash",
+    "type": "string"
+   },
+   "criado_em": {
+    "format": "date-time",
+    "title": "Criado Em",
+    "type": "string"
+   },
+   "datasets": {
+    "items": {
+     "$ref": "#/$defs/DatasetRef"
+    },
+    "title": "Datasets",
+    "type": "array"
+   },
+   "decisao_g0": {
+    "title": "Decisao G0",
+    "type": "string"
+   },
+   "features": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/FeatureSpec"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "freeze_id": {
+    "title": "Freeze Id",
+    "type": "string"
+   },
+   "margens": {
+    "additionalProperties": {
+     "anyOf": [
+      {
+       "type": "number"
+      },
+      {
+       "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+       "type": "string"
+      }
+     ]
+    },
+    "title": "Margens",
+    "type": "object"
+   },
+   "metricas": {
+    "items": {
+     "type": "string"
+    },
+    "title": "Metricas",
+    "type": "array"
+   },
+   "split": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/SplitManifest"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   }
+  },
+  "required": [
+   "freeze_id",
+   "criado_em",
+   "config_hash",
+   "codigo",
+   "ambiente",
+   "catalogos_sha256",
+   "datasets",
+   "bootstrap",
+   "metricas",
+   "comparacoes_primarias",
+   "decisao_g0"
+  ],
+  "title": "FreezeManifest",
+  "type": "object"
+ },
+ "IntervaloParticao": {
+  "$defs": {
+   "Particao": {
+    "enum": [
+     "DESENVOLVIMENTO",
+     "CALIBRACAO",
+     "TESTE"
+    ],
+    "title": "Particao",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "fim": {
+    "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+    "title": "CompetenciaProcessamento",
+    "type": "string"
+   },
+   "inicio": {
+    "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+    "title": "CompetenciaProcessamento",
+    "type": "string"
+   },
+   "particao": {
+    "$ref": "#/$defs/Particao"
+   }
+  },
+  "required": [
+   "particao",
+   "inicio",
+   "fim"
+  ],
+  "title": "IntervaloParticao",
+  "type": "object"
+ },
+ "MunicipioTerritorio": {
+  "additionalProperties": false,
+  "properties": {
+   "ibge6": {
+    "pattern": "^[0-9]{6}$",
+    "title": "Ibge6",
+    "type": "string"
+   },
+   "ibge7": {
+    "pattern": "^[0-9]{7}$",
+    "title": "Ibge7",
+    "type": "string"
+   },
+   "nome": {
+    "title": "Nome",
+    "type": "string"
+   },
+   "regiao": {
+    "title": "Regiao",
+    "type": "string"
+   }
+  },
+  "required": [
+   "ibge7",
+   "ibge6",
+   "nome",
+   "regiao"
+  ],
+  "title": "MunicipioTerritorio",
+  "type": "object"
+ },
+ "RunResult": {
+  "$defs": {
+   "Ambiente": {
+    "additionalProperties": false,
+    "properties": {
+     "pacotes": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Pacotes",
+      "type": "object"
+     },
+     "plataforma": {
+      "title": "Plataforma",
+      "type": "string"
+     },
+     "python": {
+      "title": "Python",
+      "type": "string"
+     },
+     "uv_lock_sha256": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Uv Lock Sha256"
+     }
+    },
+    "required": [
+     "python",
+     "plataforma"
+    ],
+    "title": "Ambiente",
+    "type": "object"
+   },
+   "CodeVersion": {
+    "additionalProperties": false,
+    "properties": {
+     "commit": {
+      "title": "Commit",
+      "type": "string"
+     },
+     "sujo": {
+      "title": "Sujo",
+      "type": "boolean"
+     },
+     "versao_pacote": {
+      "title": "Versao Pacote",
+      "type": "string"
+     }
+    },
+    "required": [
+     "commit",
+     "sujo",
+     "versao_pacote"
+    ],
+    "title": "CodeVersion",
+    "type": "object"
+   },
+   "DatasetRef": {
+    "additionalProperties": false,
+    "properties": {
+     "artifact_ids": {
+      "items": {
+       "pattern": "^art_[0-9a-f]{64}$",
+       "type": "string"
+      },
+      "title": "Artifact Ids",
+      "type": "array"
+     },
+     "caminho": {
+      "title": "Caminho",
+      "type": "string"
+     },
+     "dataset_id": {
+      "pattern": "^ds_[0-9a-f]{64}$",
+      "title": "Dataset Id",
+      "type": "string"
+     },
+     "hash_logico": {
+      "pattern": "^lh1:[0-9a-f]{64}$",
+      "title": "Hash Logico",
+      "type": "string"
+     },
+     "linhas": {
+      "ge": 0,
+      "title": "Linhas",
+      "type": "integer"
+     },
+     "multiplicidade": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/Multiplicidade"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "origem_dados": {
+      "$ref": "#/$defs/OrigemDados"
+     },
+     "produzido_por": {
+      "title": "Produzido Por",
+      "type": "string"
+     },
+     "reconciliacao": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/Reconciliacao"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "schema_id": {
+      "pattern": "^[a-z0-9_]+\\.v[0-9]+$",
+      "title": "Schema Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "dataset_id",
+     "schema_id",
+     "caminho",
+     "hash_logico",
+     "linhas",
+     "artifact_ids",
+     "origem_dados",
+     "produzido_por"
+    ],
+    "title": "DatasetRef",
+    "type": "object"
+   },
+   "EstadoExecucao": {
+    "enum": [
+     "CONCLUIDA",
+     "PARCIAL",
+     "FALHOU"
+    ],
+    "title": "EstadoExecucao",
+    "type": "string"
+   },
+   "MetodoId": {
+    "enum": [
+     "B_ATEND",
+     "B_PROC",
+     "B_ML",
+     "M_TEMP",
+     "CONTROLE_TRIVIAL"
+    ],
+    "title": "MetodoId",
+    "type": "string"
+   },
+   "ModoExecucao": {
+    "enum": [
+     "EXPLORATORIO",
+     "CONFIRMATORIO"
+    ],
+    "title": "ModoExecucao",
+    "type": "string"
+   },
+   "Multiplicidade": {
+    "additionalProperties": false,
+    "properties": {
+     "combinacoes_distintas": {
+      "ge": 0,
+      "title": "Combinacoes Distintas",
+      "type": "integer"
+     },
+     "linhas_totais": {
+      "ge": 0,
+      "title": "Linhas Totais",
+      "type": "integer"
+     },
+     "max_repeticoes": {
+      "ge": 0,
+      "title": "Max Repeticoes",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "linhas_totais",
+     "combinacoes_distintas",
+     "max_repeticoes"
+    ],
+    "title": "Multiplicidade",
+    "type": "object"
+   },
+   "OrigemDados": {
+    "enum": [
+     "SINTETICO",
+     "REAL"
+    ],
+    "title": "OrigemDados",
+    "type": "string"
+   },
+   "Reconciliacao": {
+    "additionalProperties": false,
+    "properties": {
+     "canonicas": {
+      "ge": 0,
+      "title": "Canonicas",
+      "type": "integer"
+     },
+     "deletados": {
+      "default": 0,
+      "ge": 0,
+      "title": "Deletados",
+      "type": "integer"
+     },
+     "excluidas_por_motivo": {
+      "additionalProperties": {
+       "ge": 0,
+       "type": "integer"
+      },
+      "title": "Excluidas Por Motivo",
+      "type": "object"
+     },
+     "fisicos": {
+      "ge": 0,
+      "title": "Fisicos",
+      "type": "integer"
+     },
+     "quarentena": {
+      "default": 0,
+      "ge": 0,
+      "title": "Quarentena",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "fisicos",
+     "canonicas"
+    ],
+    "title": "Reconciliacao",
+    "type": "object"
+   },
+   "TipoExecucao": {
+    "enum": [
+     "AQUISICAO",
+     "INGESTAO",
+     "PILOTO",
+     "VALIDACAO",
+     "BASELINE_ML",
+     "AVALIACAO",
+     "REPRODUCAO"
+    ],
+    "title": "TipoExecucao",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "ambiente": {
+    "$ref": "#/$defs/Ambiente"
+   },
+   "catalogo_regras_sha256": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Catalogo Regras Sha256"
+   },
+   "codigo": {
+    "$ref": "#/$defs/CodeVersion"
+   },
+   "concluido_em": {
+    "anyOf": [
+     {
+      "format": "date-time",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Concluido Em"
+   },
+   "config_hash": {
+    "pattern": "^[0-9a-f]{64}$",
+    "title": "Config Hash",
+    "type": "string"
+   },
+   "entradas": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/DatasetRef"
+    },
+    "title": "Entradas",
+    "type": "array"
+   },
+   "estado": {
+    "$ref": "#/$defs/EstadoExecucao"
+   },
+   "falhas": {
+    "default": 0,
+    "ge": 0,
+    "title": "Falhas",
+    "type": "integer"
+   },
+   "freeze_id": {
+    "anyOf": [
+     {
+      "pattern": "^frz_[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Freeze Id"
+   },
+   "iniciado_em": {
+    "format": "date-time",
+    "title": "Iniciado Em",
+    "type": "string"
+   },
+   "metodo": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/MetodoId"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "modo": {
+    "$ref": "#/$defs/ModoExecucao"
+   },
+   "origem_dados": {
+    "$ref": "#/$defs/OrigemDados"
+   },
+   "politica_id": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Politica Id"
+   },
+   "run_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Run Id",
+    "type": "string"
+   },
+   "saidas": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/DatasetRef"
+    },
+    "title": "Saidas",
+    "type": "array"
+   },
+   "semente": {
+    "anyOf": [
+     {
+      "type": "integer"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Semente"
+   },
+   "snapshot_set_id": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Snapshot Set Id"
+   },
+   "tipo": {
+    "$ref": "#/$defs/TipoExecucao"
+   }
+  },
+  "required": [
+   "run_id",
+   "tipo",
+   "modo",
+   "config_hash",
+   "codigo",
+   "ambiente",
+   "estado",
+   "iniciado_em",
+   "origem_dados"
+  ],
+  "title": "RunResult",
+  "type": "object"
+ },
+ "SplitManifest": {
+  "$defs": {
+   "IntervaloParticao": {
+    "additionalProperties": false,
+    "properties": {
+     "fim": {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaProcessamento",
+      "type": "string"
+     },
+     "inicio": {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaProcessamento",
+      "type": "string"
+     },
+     "particao": {
+      "$ref": "#/$defs/Particao"
+     }
+    },
+    "required": [
+     "particao",
+     "inicio",
+     "fim"
+    ],
+    "title": "IntervaloParticao",
+    "type": "object"
+   },
+   "Particao": {
+    "enum": [
+     "DESENVOLVIMENTO",
+     "CALIBRACAO",
+     "TESTE"
+    ],
+    "title": "Particao",
+    "type": "string"
+   },
+   "SplitSpec": {
+    "additionalProperties": false,
+    "properties": {
+     "base_temporal": {
+      "const": "PROCESSAMENTO",
+      "default": "PROCESSAMENTO",
+      "title": "Base Temporal",
+      "type": "string"
+     },
+     "intervalos": {
+      "items": {
+       "$ref": "#/$defs/IntervaloParticao"
+      },
+      "title": "Intervalos",
+      "type": "array"
+     }
+    },
+    "required": [
+     "intervalos"
+    ],
+    "title": "SplitSpec",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "artefatos_inspecionados": {
+    "default": [],
+    "items": {
+     "pattern": "^art_[0-9a-f]{64}$",
+     "type": "string"
+    },
+    "title": "Artefatos Inspecionados",
+    "type": "array"
+   },
+   "artefatos_teste": {
+    "default": [],
+    "items": {
+     "pattern": "^art_[0-9a-f]{64}$",
+     "type": "string"
+    },
+    "title": "Artefatos Teste",
+    "type": "array"
+   },
+   "dataset_hash": {
+    "title": "Dataset Hash",
+    "type": "string"
+   },
+   "hash_por_particao": {
+    "additionalProperties": {
+     "type": "string"
+    },
+    "propertyNames": {
+     "$ref": "#/$defs/Particao"
+    },
+    "title": "Hash Por Particao",
+    "type": "object"
+   },
+   "linhas_por_particao": {
+    "additionalProperties": {
+     "ge": 0,
+     "type": "integer"
+    },
+    "propertyNames": {
+     "$ref": "#/$defs/Particao"
+    },
+    "title": "Linhas Por Particao",
+    "type": "object"
+   },
+   "spec": {
+    "$ref": "#/$defs/SplitSpec"
+   },
+   "split_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Split Id",
+    "type": "string"
+   }
+  },
+  "required": [
+   "split_id",
+   "spec",
+   "dataset_hash",
+   "linhas_por_particao",
+   "hash_por_particao"
+  ],
+  "title": "SplitManifest",
+  "type": "object"
+ },
+ "SplitSpec": {
+  "$defs": {
+   "IntervaloParticao": {
+    "additionalProperties": false,
+    "properties": {
+     "fim": {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaProcessamento",
+      "type": "string"
+     },
+     "inicio": {
+      "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+      "title": "CompetenciaProcessamento",
+      "type": "string"
+     },
+     "particao": {
+      "$ref": "#/$defs/Particao"
+     }
+    },
+    "required": [
+     "particao",
+     "inicio",
+     "fim"
+    ],
+    "title": "IntervaloParticao",
+    "type": "object"
+   },
+   "Particao": {
+    "enum": [
+     "DESENVOLVIMENTO",
+     "CALIBRACAO",
+     "TESTE"
+    ],
+    "title": "Particao",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "base_temporal": {
+    "const": "PROCESSAMENTO",
+    "default": "PROCESSAMENTO",
+    "title": "Base Temporal",
+    "type": "string"
+   },
+   "intervalos": {
+    "items": {
+     "$ref": "#/$defs/IntervaloParticao"
+    },
+    "title": "Intervalos",
+    "type": "array"
+   }
+  },
+  "required": [
+   "intervalos"
+  ],
+  "title": "SplitSpec",
+  "type": "object"
+ },
+ "Territorio": {
+  "$defs": {
+   "Confirmacao": {
+    "enum": [
+     "CONFIRMADO",
+     "A_CONFIRMAR"
+    ],
+    "title": "Confirmacao",
+    "type": "string"
+   },
+   "DocRef": {
+    "additionalProperties": false,
+    "properties": {
+     "confirmacao": {
+      "$ref": "#/$defs/Confirmacao",
+      "default": "A_CONFIRMAR"
+     },
+     "doc_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Doc Id",
+      "type": "string"
+     },
+     "estado": {
+      "$ref": "#/$defs/EstadoDocumento"
+     },
+     "localizador": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Localizador"
+     },
+     "proveniencia": {
+      "$ref": "#/$defs/Proveniencia"
+     },
+     "sha256": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Sha256"
+     },
+     "titulo": {
+      "title": "Titulo",
+      "type": "string"
+     },
+     "trecho": {
+      "anyOf": [
+       {
+        "maxLength": 400,
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Trecho"
+     },
+     "url": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Url"
+     }
+    },
+    "required": [
+     "doc_id",
+     "titulo",
+     "estado",
+     "proveniencia"
+    ],
+    "title": "DocRef",
+    "type": "object"
+   },
+   "EstadoDocumento": {
+    "enum": [
+     "PRESERVADO",
+     "PENDENTE"
+    ],
+    "title": "EstadoDocumento",
+    "type": "string"
+   },
+   "MunicipioTerritorio": {
+    "additionalProperties": false,
+    "properties": {
+     "ibge6": {
+      "pattern": "^[0-9]{6}$",
+      "title": "Ibge6",
+      "type": "string"
+     },
+     "ibge7": {
+      "pattern": "^[0-9]{7}$",
+      "title": "Ibge7",
+      "type": "string"
+     },
+     "nome": {
+      "title": "Nome",
+      "type": "string"
+     },
+     "regiao": {
+      "title": "Regiao",
+      "type": "string"
+     }
+    },
+    "required": [
+     "ibge7",
+     "ibge6",
+     "nome",
+     "regiao"
+    ],
+    "title": "MunicipioTerritorio",
+    "type": "object"
+   },
+   "Proveniencia": {
+    "enum": [
+     "OFICIAL_DOCUMENTO",
+     "OFICIAL_ARQUIVO",
+     "OFICIAL_VISTO_EM_BUSCA",
+     "SECUNDARIA",
+     "INFERIDA",
+     "INFERIDA_PILOTO"
+    ],
+    "title": "Proveniencia",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "confirmacao": {
+    "$ref": "#/$defs/Confirmacao"
+   },
+   "descricao": {
+    "title": "Descricao",
+    "type": "string"
+   },
+   "fontes": {
+    "items": {
+     "$ref": "#/$defs/DocRef"
+    },
+    "minItems": 1,
+    "title": "Fontes",
+    "type": "array"
+   },
+   "municipios": {
+    "items": {
+     "$ref": "#/$defs/MunicipioTerritorio"
+    },
+    "title": "Municipios",
+    "type": "array"
+   },
+   "proveniencia": {
+    "$ref": "#/$defs/Proveniencia"
+   },
+   "territorio_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Territorio Id",
+    "type": "string"
+   },
+   "uf": {
+    "pattern": "^[A-Z]{2}$",
+    "title": "Uf",
+    "type": "string"
+   }
+  },
+  "required": [
+   "territorio_id",
+   "descricao",
+   "uf",
+   "municipios",
+   "proveniencia",
+   "confirmacao",
+   "fontes"
+  ],
+  "title": "Territorio",
+  "type": "object"
+ }
+}

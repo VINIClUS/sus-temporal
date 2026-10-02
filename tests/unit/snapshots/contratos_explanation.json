@@ -1,0 +1,835 @@
+{
+ "Afirmacao": {
+  "additionalProperties": false,
+  "properties": {
+   "referencias": {
+    "items": {
+     "type": "string"
+    },
+    "minItems": 1,
+    "title": "Referencias",
+    "type": "array"
+   },
+   "template_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Template Id",
+    "type": "string"
+   },
+   "texto": {
+    "minLength": 1,
+    "title": "Texto",
+    "type": "string"
+   }
+  },
+  "required": [
+   "texto",
+   "template_id",
+   "referencias"
+  ],
+  "title": "Afirmacao",
+  "type": "object"
+ },
+ "Evidence": {
+  "$defs": {
+   "EstadoCobertura": {
+    "enum": [
+     "DISPONIVEL",
+     "INSUFICIENTE",
+     "AUSENTE"
+    ],
+    "title": "EstadoCobertura",
+    "type": "string"
+   },
+   "EstadoIntegridade": {
+    "enum": [
+     "OK",
+     "QUARENTENA_TRUNCADO",
+     "QUARENTENA_CHECKSUM",
+     "QUARENTENA_CONTEUDO_INESPERADO",
+     "QUARENTENA_LEIAUTE",
+     "QUARENTENA_CAMINHO_INSEGURO",
+     "NAO_VERIFICADO"
+    ],
+    "title": "EstadoIntegridade",
+    "type": "string"
+   },
+   "TipoEvidencia": {
+    "enum": [
+     "VINCULO_ENCONTRADO",
+     "AUSENCIA_NA_FONTE",
+     "FONTE_INCOMPLETA",
+     "APLICABILIDADE",
+     "SELECAO_TEMPORAL"
+    ],
+    "title": "TipoEvidencia",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "artifact_ids": {
+    "items": {
+     "pattern": "^art_[0-9a-f]{64}$",
+     "type": "string"
+    },
+    "title": "Artifact Ids",
+    "type": "array"
+   },
+   "chaves_amostra": {
+    "default": [],
+    "items": {
+     "type": "string"
+    },
+    "maxItems": 20,
+    "title": "Chaves Amostra",
+    "type": "array"
+   },
+   "cobertura": {
+    "$ref": "#/$defs/EstadoCobertura"
+   },
+   "dataset_id": {
+    "pattern": "^ds_[0-9a-f]{64}$",
+    "title": "Dataset Id",
+    "type": "string"
+   },
+   "evidence_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Evidence Id",
+    "type": "string"
+   },
+   "hash_logico": {
+    "pattern": "^lh1:[0-9a-f]{64}$",
+    "title": "Hash Logico",
+    "type": "string"
+   },
+   "integridade": {
+    "$ref": "#/$defs/EstadoIntegridade"
+   },
+   "n_resultados": {
+    "ge": 0,
+    "title": "N Resultados",
+    "type": "integer"
+   },
+   "parametros": {
+    "additionalProperties": {
+     "type": "string"
+    },
+    "title": "Parametros",
+    "type": "object"
+   },
+   "query_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Query Id",
+    "type": "string"
+   },
+   "sql_sha256": {
+    "pattern": "^[0-9a-f]{64}$",
+    "title": "Sql Sha256",
+    "type": "string"
+   },
+   "tipo": {
+    "$ref": "#/$defs/TipoEvidencia"
+   }
+  },
+  "required": [
+   "evidence_id",
+   "tipo",
+   "query_id",
+   "sql_sha256",
+   "dataset_id",
+   "hash_logico",
+   "artifact_ids",
+   "cobertura",
+   "integridade",
+   "n_resultados"
+  ],
+  "title": "Evidence",
+  "type": "object"
+ },
+ "ExplanationBundle": {
+  "$defs": {
+   "Afirmacao": {
+    "additionalProperties": false,
+    "properties": {
+     "referencias": {
+      "items": {
+       "type": "string"
+      },
+      "minItems": 1,
+      "title": "Referencias",
+      "type": "array"
+     },
+     "template_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Template Id",
+      "type": "string"
+     },
+     "texto": {
+      "minLength": 1,
+      "title": "Texto",
+      "type": "string"
+     }
+    },
+    "required": [
+     "texto",
+     "template_id",
+     "referencias"
+    ],
+    "title": "Afirmacao",
+    "type": "object"
+   },
+   "Aplicabilidade": {
+    "enum": [
+     "APLICAVEL",
+     "NAO_APLICAVEL_DEMONSTRADA",
+     "DESCONHECIDA"
+    ],
+    "title": "Aplicabilidade",
+    "type": "string"
+   },
+   "BaseTemporal": {
+    "enum": [
+     "ATENDIMENTO",
+     "PROCESSAMENTO"
+    ],
+    "title": "BaseTemporal",
+    "type": "string"
+   },
+   "EstadoAvaliacao": {
+    "enum": [
+     "CONFORME",
+     "VIOLACAO",
+     "INCONCLUSIVO",
+     "NAO_APLICAVEL"
+    ],
+    "title": "EstadoAvaliacao",
+    "type": "string"
+   },
+   "EstadoCobertura": {
+    "enum": [
+     "DISPONIVEL",
+     "INSUFICIENTE",
+     "AUSENTE"
+    ],
+    "title": "EstadoCobertura",
+    "type": "string"
+   },
+   "EstadoIntegridade": {
+    "enum": [
+     "OK",
+     "QUARENTENA_TRUNCADO",
+     "QUARENTENA_CHECKSUM",
+     "QUARENTENA_CONTEUDO_INESPERADO",
+     "QUARENTENA_LEIAUTE",
+     "QUARENTENA_CAMINHO_INSEGURO",
+     "NAO_VERIFICADO"
+    ],
+    "title": "EstadoIntegridade",
+    "type": "string"
+   },
+   "EstadoSelecao": {
+    "enum": [
+     "SELECIONADA",
+     "AUSENTE",
+     "AMBIGUA",
+     "INCOMPLETA",
+     "EM_QUARENTENA",
+     "FORA_DO_CORTE",
+     "NAO_RESOLVIDA"
+    ],
+    "title": "EstadoSelecao",
+    "type": "string"
+   },
+   "Evidence": {
+    "additionalProperties": false,
+    "properties": {
+     "artifact_ids": {
+      "items": {
+       "pattern": "^art_[0-9a-f]{64}$",
+       "type": "string"
+      },
+      "title": "Artifact Ids",
+      "type": "array"
+     },
+     "chaves_amostra": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "maxItems": 20,
+      "title": "Chaves Amostra",
+      "type": "array"
+     },
+     "cobertura": {
+      "$ref": "#/$defs/EstadoCobertura"
+     },
+     "dataset_id": {
+      "pattern": "^ds_[0-9a-f]{64}$",
+      "title": "Dataset Id",
+      "type": "string"
+     },
+     "evidence_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Evidence Id",
+      "type": "string"
+     },
+     "hash_logico": {
+      "pattern": "^lh1:[0-9a-f]{64}$",
+      "title": "Hash Logico",
+      "type": "string"
+     },
+     "integridade": {
+      "$ref": "#/$defs/EstadoIntegridade"
+     },
+     "n_resultados": {
+      "ge": 0,
+      "title": "N Resultados",
+      "type": "integer"
+     },
+     "parametros": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "title": "Parametros",
+      "type": "object"
+     },
+     "query_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Query Id",
+      "type": "string"
+     },
+     "sql_sha256": {
+      "pattern": "^[0-9a-f]{64}$",
+      "title": "Sql Sha256",
+      "type": "string"
+     },
+     "tipo": {
+      "$ref": "#/$defs/TipoEvidencia"
+     }
+    },
+    "required": [
+     "evidence_id",
+     "tipo",
+     "query_id",
+     "sql_sha256",
+     "dataset_id",
+     "hash_logico",
+     "artifact_ids",
+     "cobertura",
+     "integridade",
+     "n_resultados"
+    ],
+    "title": "Evidence",
+    "type": "object"
+   },
+   "FamiliaFonte": {
+    "enum": [
+     "SIA_PA",
+     "CNES_ST",
+     "CNES_PF",
+     "CNES_SR",
+     "CNES_HB",
+     "SIGTAP",
+     "TERRITORIO_DRS",
+     "DOCUMENTO"
+    ],
+    "title": "FamiliaFonte",
+    "type": "string"
+   },
+   "Limitacao": {
+    "enum": [
+     "AUSENCIA_NAO_PROVA_INEXISTENCIA",
+     "RETRATO_MENSAL_NAO_DATA_EXATA",
+     "RESULTADO_NAO_E_CAUSA_OFICIAL",
+     "RETROSPECTIVO",
+     "DADOS_SINTETICOS"
+    ],
+    "title": "Limitacao",
+    "type": "string"
+   },
+   "MetodoId": {
+    "enum": [
+     "B_ATEND",
+     "B_PROC",
+     "B_ML",
+     "M_TEMP",
+     "CONTROLE_TRIVIAL"
+    ],
+    "title": "MetodoId",
+    "type": "string"
+   },
+   "MotivoAusencia": {
+    "enum": [
+     "VAZIO",
+     "DESCONHECIDO",
+     "NAO_APLICAVEL",
+     "SENTINELA",
+     "CODIFICACAO_INVALIDA"
+    ],
+    "title": "MotivoAusencia",
+    "type": "string"
+   },
+   "MotivoInconclusao": {
+    "enum": [
+     "ARQUIVO_AUSENTE",
+     "ARQUIVO_EM_QUARENTENA",
+     "CAMPO_INSUFICIENTE",
+     "VIGENCIA_NAO_RESOLVIDA",
+     "VERSAO_AMBIGUA",
+     "COBERTURA_INSUFICIENTE",
+     "LEIAUTE_INCOMPATIVEL",
+     "FORA_DO_CORTE",
+     "APLICABILIDADE_DESCONHECIDA",
+     "POLITICA_NAO_RESOLVIDA"
+    ],
+    "title": "MotivoInconclusao",
+    "type": "string"
+   },
+   "ProductionRecord": {
+    "additionalProperties": false,
+    "properties": {
+     "atributos": {
+      "additionalProperties": {
+       "$ref": "#/$defs/ValorNormalizado"
+      },
+      "title": "Atributos",
+      "type": "object"
+     },
+     "cbo": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9A-Z]{6}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Cbo"
+     },
+     "cnes": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9]{7}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Cnes"
+     },
+     "competencia_atendimento": {
+      "anyOf": [
+       {
+        "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+        "title": "CompetenciaAtendimento",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Competencia Atendimento"
+     },
+     "competencia_processamento": {
+      "anyOf": [
+       {
+        "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+        "title": "CompetenciaProcessamento",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Competencia Processamento"
+     },
+     "instrumento": {
+      "$ref": "#/$defs/ValorNormalizado"
+     },
+     "municipio_estabelecimento": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9]{6}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Municipio Estabelecimento"
+     },
+     "origem": {
+      "$ref": "#/$defs/RowLocator"
+     },
+     "procedimento": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9]{10}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Procedimento"
+     },
+     "row_id": {
+      "pattern": "^art_[0-9a-f]{64}(/[^#\\s]+)?#[0-9]+$",
+      "title": "Row Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "row_id",
+     "origem",
+     "instrumento"
+    ],
+    "title": "ProductionRecord",
+    "type": "object"
+   },
+   "RowLocator": {
+    "additionalProperties": false,
+    "properties": {
+     "artifact_id": {
+      "pattern": "^art_[0-9a-f]{64}$",
+      "title": "Artifact Id",
+      "type": "string"
+     },
+     "deletado": {
+      "default": false,
+      "title": "Deletado",
+      "type": "boolean"
+     },
+     "indice": {
+      "ge": 0,
+      "title": "Indice",
+      "type": "integer"
+     },
+     "membro": {
+      "anyOf": [
+       {
+        "pattern": "^[^#\\s/]+$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Membro"
+     }
+    },
+    "required": [
+     "artifact_id",
+     "indice"
+    ],
+    "title": "RowLocator",
+    "type": "object"
+   },
+   "RuleEvaluation": {
+    "additionalProperties": false,
+    "properties": {
+     "aplicabilidade": {
+      "$ref": "#/$defs/Aplicabilidade"
+     },
+     "estado": {
+      "$ref": "#/$defs/EstadoAvaliacao"
+     },
+     "evidence_ids": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+     },
+     "incompatibilidade_demonstrada": {
+      "anyOf": [
+       {
+        "type": "boolean"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Incompatibilidade Demonstrada"
+     },
+     "insumos_completos": {
+      "title": "Insumos Completos",
+      "type": "boolean"
+     },
+     "metodo": {
+      "$ref": "#/$defs/MetodoId"
+     },
+     "motivos": {
+      "default": [],
+      "items": {
+       "$ref": "#/$defs/MotivoInconclusao"
+      },
+      "title": "Motivos",
+      "type": "array"
+     },
+     "politica_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Politica Id",
+      "type": "string"
+     },
+     "row_id": {
+      "pattern": "^art_[0-9a-f]{64}(/[^#\\s]+)?#[0-9]+$",
+      "title": "Row Id",
+      "type": "string"
+     },
+     "rule_id": {
+      "pattern": "^[A-Z][A-Z0-9_]{2,63}$",
+      "title": "Rule Id",
+      "type": "string"
+     },
+     "run_id": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Run Id",
+      "type": "string"
+     },
+     "selecoes": {
+      "default": [],
+      "items": {
+       "$ref": "#/$defs/SelecaoVersao"
+      },
+      "title": "Selecoes",
+      "type": "array"
+     },
+     "versao": {
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "title": "Versao",
+      "type": "string"
+     }
+    },
+    "required": [
+     "run_id",
+     "row_id",
+     "rule_id",
+     "versao",
+     "politica_id",
+     "metodo",
+     "estado",
+     "aplicabilidade",
+     "insumos_completos",
+     "incompatibilidade_demonstrada"
+    ],
+    "title": "RuleEvaluation",
+    "type": "object"
+   },
+   "SelecaoVersao": {
+    "additionalProperties": false,
+    "properties": {
+     "artifact_ids": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Artifact Ids",
+      "type": "array"
+     },
+     "base": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/BaseTemporal"
+       },
+       {
+        "type": "null"
+       }
+      ]
+     },
+     "competencia_requerida": {
+      "anyOf": [
+       {
+        "pattern": "^([0-9]{4})(0[1-9]|1[0-2])$",
+        "title": "CompetenciaArquivo",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Competencia Requerida"
+     },
+     "estado": {
+      "$ref": "#/$defs/EstadoSelecao"
+     },
+     "fonte": {
+      "$ref": "#/$defs/FamiliaFonte"
+     },
+     "motivo": {
+      "title": "Motivo",
+      "type": "string"
+     },
+     "observation_ids": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Observation Ids",
+      "type": "array"
+     }
+    },
+    "required": [
+     "fonte",
+     "base",
+     "competencia_requerida",
+     "estado",
+     "motivo"
+    ],
+    "title": "SelecaoVersao",
+    "type": "object"
+   },
+   "TipoEvidencia": {
+    "enum": [
+     "VINCULO_ENCONTRADO",
+     "AUSENCIA_NA_FONTE",
+     "FONTE_INCOMPLETA",
+     "APLICABILIDADE",
+     "SELECAO_TEMPORAL"
+    ],
+    "title": "TipoEvidencia",
+    "type": "string"
+   },
+   "ValorNormalizado": {
+    "additionalProperties": false,
+    "properties": {
+     "bruto": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Bruto"
+     },
+     "motivo": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/MotivoAusencia"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "valor": {
+      "anyOf": [
+       {
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "title": "Valor"
+     }
+    },
+    "required": [
+     "bruto",
+     "valor"
+    ],
+    "title": "ValorNormalizado",
+    "type": "object"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "afirmacoes": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/Afirmacao"
+    },
+    "title": "Afirmacoes",
+    "type": "array"
+   },
+   "avaliacoes": {
+    "items": {
+     "$ref": "#/$defs/RuleEvaluation"
+    },
+    "title": "Avaliacoes",
+    "type": "array"
+   },
+   "bundle_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Bundle Id",
+    "type": "string"
+   },
+   "causa_oficial_atribuida": {
+    "const": false,
+    "default": false,
+    "title": "Causa Oficial Atribuida",
+    "type": "boolean"
+   },
+   "evidencias": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/Evidence"
+    },
+    "title": "Evidencias",
+    "type": "array"
+   },
+   "limitacoes": {
+    "items": {
+     "$ref": "#/$defs/Limitacao"
+    },
+    "title": "Limitacoes",
+    "type": "array"
+   },
+   "prov_json_sha256": {
+    "pattern": "^[0-9a-f]{64}$",
+    "title": "Prov Json Sha256",
+    "type": "string"
+   },
+   "prov_n": {
+    "title": "Prov N",
+    "type": "string"
+   },
+   "registro": {
+    "$ref": "#/$defs/ProductionRecord"
+   },
+   "row_id": {
+    "pattern": "^art_[0-9a-f]{64}(/[^#\\s]+)?#[0-9]+$",
+    "title": "Row Id",
+    "type": "string"
+   },
+   "run_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Run Id",
+    "type": "string"
+   },
+   "selecoes": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/SelecaoVersao"
+    },
+    "title": "Selecoes",
+    "type": "array"
+   }
+  },
+  "required": [
+   "bundle_id",
+   "run_id",
+   "row_id",
+   "registro",
+   "avaliacoes",
+   "prov_n",
+   "prov_json_sha256",
+   "limitacoes"
+  ],
+  "title": "ExplanationBundle",
+  "type": "object"
+ }
+}

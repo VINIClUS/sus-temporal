@@ -1,0 +1,123 @@
+"""Configuração de execução validada antes de qualquer processamento de dados."""
+
+from __future__ import annotations
+
+from typing import Annotated, Literal
+
+from pydantic import Field, StringConstraints, model_validator
+
+from sustemporal.contracts.base import (
+    Booleano,
+    ContratoBase,
+    FamiliaFonte,
+    InstanteUTC,
+    Inteiro,
+    OrigemDados,
+    SiglaUF,
+    hash_canonico,
+)
+from sustemporal.contracts.experiment import (
+    BootstrapSpec,
+    CohortSpec,
+    FreezeId,
+    ModoExecucao,
+    SplitSpec,
+    contem_a_definir,
+)
+from sustemporal.contracts.temporal import CompetenciaProcessamento, MetodoId
+
+__all__ = [
+    "OrcamentoContrafactual",
+    "PilotSpec",
+    "RunConfig",
+    "RuntimeConfig",
+    "VerificacaoFidelidade",
+    "VigilanciaSpec",
+]
+
+VerificacaoFidelidade = Literal["COMPLETA", "AMOSTRAL", "DESLIGADA"]
+
+
+class RuntimeConfig(ContratoBase):
+    duckdb_memoria: Annotated[str, StringConstraints(pattern=r"^[0-9]+(MB|GB)$")] = "8GB"
+    duckdb_threads: Inteiro = 4
+    raiz_dados: str = "data"
+    raiz_manifestos: str = "manifests"
+    raiz_saidas: str = "outputs"
+    dir_decisoes: str = "experiments/decisions"
+    dir_congelamentos: str = "experiments/frozen"
+    rede_permitida: Booleano = False
+    verificacao_fidelidade: VerificacaoFidelidade = "COMPLETA"
+
+    @model_validator(mode="after")
+    def _threads(self) -> RuntimeConfig:
+        if self.duckdb_threads < 1:
+            raise ValueError("duckdb_threads_deve_ser_positivo")
+        return self
+
+
+class PilotSpec(ContratoBase):
+    uf: SiglaUF = "SP"
+    competencias_processamento: tuple[CompetenciaProcessamento, ...]
+    territorio: str
+    familias_fontes: tuple[FamiliaFonte, ...]
+
+    @model_validator(mode="after")
+    def _competencias(self) -> PilotSpec:
+        if not self.competencias_processamento:
+            raise ValueError("piloto_sem_competencias")
+        if len(set(self.competencias_processamento)) != len(self.competencias_processamento):
+            raise ValueError("piloto_competencia_repetida")
+        return self
+
+
+class VigilanciaSpec(ContratoBase):
+    janela_competencias: Inteiro = 6
+    familias_fontes: tuple[FamiliaFonte, ...] = ()
+    uf: SiglaUF = "SP"
+
+    @model_validator(mode="after")
+    def _janela(self) -> VigilanciaSpec:
+        if self.janela_competencias < 1:
+            raise ValueError("vigilancia_janela_deve_ser_positiva")
+        return self
+
+
+class OrcamentoContrafactual(ContratoBase):
+    max_operacoes: Inteiro = 3
+    max_candidatos: Inteiro = 1000
+
+
+class RunConfig(ContratoBase):
+    versao: Literal["1"]
+    modo: ModoExecucao = ModoExecucao.EXPLORATORIO
+    origem_dados: OrigemDados | None = None
+    runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
+    piloto: PilotSpec | None = None
+    vigilancia: VigilanciaSpec | None = None
+    coorte: CohortSpec | None = None
+    particoes: SplitSpec | None = None
+    bootstrap: BootstrapSpec = Field(default_factory=BootstrapSpec)
+    metodos: tuple[MetodoId, ...] = ()
+    politica_id: str | None = None
+    semente: Inteiro = 2027
+    contrafactual: OrcamentoContrafactual = Field(default_factory=OrcamentoContrafactual)
+    corte_observacao: InstanteUTC | None = None
+    freeze_id: FreezeId | None = None
+    catalogos: dict[str, str] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _confirmatorio(self) -> RunConfig:
+        if self.modo is not ModoExecucao.CONFIRMATORIO:
+            return self
+        if self.freeze_id is None:
+            raise ValueError("confirmatorio_exige_freeze_id")
+        if self.origem_dados is not OrigemDados.REAL:
+            raise ValueError("confirmatorio_exige_dados_reais")
+        if contem_a_definir(self.model_dump(mode="json")):
+            raise ValueError("confirmatorio_com_valor_a_definir")
+        return self
+
+    @property
+    def config_hash(self) -> str:
+        return hash_canonico(self.model_dump(mode="json"))

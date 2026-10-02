@@ -1,0 +1,197 @@
+{
+ "ContratoBase": {
+  "additionalProperties": false,
+  "properties": {},
+  "title": "ContratoBase",
+  "type": "object"
+ },
+ "DocRef": {
+  "$defs": {
+   "Confirmacao": {
+    "enum": [
+     "CONFIRMADO",
+     "A_CONFIRMAR"
+    ],
+    "title": "Confirmacao",
+    "type": "string"
+   },
+   "EstadoDocumento": {
+    "enum": [
+     "PRESERVADO",
+     "PENDENTE"
+    ],
+    "title": "EstadoDocumento",
+    "type": "string"
+   },
+   "Proveniencia": {
+    "enum": [
+     "OFICIAL_DOCUMENTO",
+     "OFICIAL_ARQUIVO",
+     "OFICIAL_VISTO_EM_BUSCA",
+     "SECUNDARIA",
+     "INFERIDA",
+     "INFERIDA_PILOTO"
+    ],
+    "title": "Proveniencia",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "confirmacao": {
+    "$ref": "#/$defs/Confirmacao",
+    "default": "A_CONFIRMAR"
+   },
+   "doc_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Doc Id",
+    "type": "string"
+   },
+   "estado": {
+    "$ref": "#/$defs/EstadoDocumento"
+   },
+   "localizador": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Localizador"
+   },
+   "proveniencia": {
+    "$ref": "#/$defs/Proveniencia"
+   },
+   "sha256": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Sha256"
+   },
+   "titulo": {
+    "title": "Titulo",
+    "type": "string"
+   },
+   "trecho": {
+    "anyOf": [
+     {
+      "maxLength": 400,
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Trecho"
+   },
+   "url": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Url"
+   }
+  },
+  "required": [
+   "doc_id",
+   "titulo",
+   "estado",
+   "proveniencia"
+  ],
+  "title": "DocRef",
+  "type": "object"
+ },
+ "FileRef": {
+  "additionalProperties": false,
+  "properties": {
+   "caminho": {
+    "title": "Caminho",
+    "type": "string"
+   },
+   "sha256": {
+    "pattern": "^[0-9a-f]{64}$",
+    "title": "Sha256",
+    "type": "string"
+   }
+  },
+  "required": [
+   "caminho",
+   "sha256"
+  ],
+  "title": "FileRef",
+  "type": "object"
+ },
+ "ValorNormalizado": {
+  "$defs": {
+   "MotivoAusencia": {
+    "enum": [
+     "VAZIO",
+     "DESCONHECIDO",
+     "NAO_APLICAVEL",
+     "SENTINELA",
+     "CODIFICACAO_INVALIDA"
+    ],
+    "title": "MotivoAusencia",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "properties": {
+   "bruto": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "title": "Bruto"
+   },
+   "motivo": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/MotivoAusencia"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "valor": {
+    "anyOf": [
+     {
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "title": "Valor"
+   }
+  },
+  "required": [
+   "bruto",
+   "valor"
+  ],
+  "title": "ValorNormalizado",
+  "type": "object"
+ }
+}

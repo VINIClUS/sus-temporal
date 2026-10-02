@@ -80,7 +80,17 @@ def parece_html(inicio: bytes) -> bool:
     return texto.startswith(_INICIO_HTML) or b"<html" in texto[:1024]
 
 
-def _cabecalho_dbf(inicio: bytes, tamanho: int) -> tuple[int, int, int] | Veredito:
+def _byte_do_terminador(amostra: _Amostra, cabecalho: int) -> int:
+    if cabecalho <= len(amostra.inicio):
+        return amostra.inicio[cabecalho - 1]
+    with amostra.caminho.open("rb") as arquivo:
+        arquivo.seek(cabecalho - 1)
+        return arquivo.read(1)[0]
+
+
+def _cabecalho_dbf(amostra: _Amostra) -> tuple[int, int, int] | Veredito:
+    """Cabeçalho dBASE (no DBF ou nos primeiros bytes do DBC), terminador conferido no arquivo."""
+    inicio, tamanho = amostra.inicio, amostra.tamanho
     if len(inicio) < 12:
         return _truncado("cabecalho_dbf_incompleto")
     if inicio[0] not in _VERSOES_DBF:
@@ -90,14 +100,14 @@ def _cabecalho_dbf(inicio: bytes, tamanho: int) -> tuple[int, int, int] | Veredi
         return _inesperado(f"cabecalho_dbf_invalido cabecalho={cabecalho} registro={registro}")
     if tamanho < cabecalho:
         return _truncado(f"cabecalho_dbf_truncado cabecalho={cabecalho} tamanho={tamanho}")
-    if cabecalho <= len(inicio) and inicio[cabecalho - 1] != _TERMINADOR_DBF:
+    if _byte_do_terminador(amostra, cabecalho) != _TERMINADOR_DBF:
         return _inesperado("cabecalho_dbf_sem_terminador")
     return registros, cabecalho, registro
 
 
 def _validar_dbf(amostra: _Amostra) -> Veredito:
     tamanho = amostra.tamanho
-    cabecalho = _cabecalho_dbf(amostra.inicio, tamanho)
+    cabecalho = _cabecalho_dbf(amostra)
     if isinstance(cabecalho, Veredito):
         return cabecalho
     registros, tam_cabecalho, tam_registro = cabecalho
@@ -141,7 +151,7 @@ def _descomprimir_dbc(caminho: Path, cabecalho: tuple[int, int, int]) -> Veredit
 def _validar_dbc(amostra: _Amostra) -> Veredito:
     """Cabeçalho DBF + 4 bytes + fluxo DCL (ADR 0002), descomprimido inteiro e conferido."""
     tamanho = amostra.tamanho
-    cabecalho = _cabecalho_dbf(amostra.inicio, tamanho)
+    cabecalho = _cabecalho_dbf(amostra)
     if isinstance(cabecalho, Veredito):
         return cabecalho
     fluxo = cabecalho[1] + 4

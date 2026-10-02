@@ -7,7 +7,7 @@ import re
 from typing import TYPE_CHECKING, Annotated, Literal
 from urllib.parse import quote, urlsplit
 
-from pydantic import StringConstraints, ValidationError, model_validator
+from pydantic import Field, StringConstraints, ValidationError, model_validator
 
 from sustemporal.contracts.artifacts import (
     ChaveArtefato,
@@ -42,6 +42,7 @@ __all__ = [
     "FonteCatalogo",
     "carregar_catalogo",
     "competencias_auxiliares",
+    "partes_ausentes",
     "requisicao_listagem",
     "requisicoes_da_listagem",
     "requisicoes_documentos",
@@ -61,6 +62,10 @@ class FonteCatalogo(ContratoBase):
     formato: FormatoArquivo
     canal: CanalPublicacao
     multipartes: Booleano = False
+    partes_esperadas: dict[
+        Annotated[str, StringConstraints(pattern=r"^[0-9]{4}(0[1-9]|1[0-2])$")],
+        tuple[Annotated[str, StringConstraints(pattern=r"^([a-z]|_[0-9]+)$")], ...],
+    ] = Field(default_factory=dict)
     tamanho_maximo_bytes: InteiroNaoNegativo
     proveniencia: Proveniencia
     confirmacao: Confirmacao
@@ -217,6 +222,38 @@ def requisicoes_da_listagem(
             _requisicao_do_nome(item, a, uf_chave, competencia, motivo) for a in achados
         ]
     return requisicoes
+
+
+def partes_ausentes(
+    item: FonteCatalogo, competencia: CompetenciaArquivo, requisicoes: Iterable[SourceRequest]
+) -> tuple[str, ...]:
+    """Partes declaradas no catálogo e não listadas; sem declaração, completude indeterminada.
+
+    Sem `partes_esperadas` para a competência, só registra as partes listadas: o conjunto
+    esperado nunca é inventado, e a seleção (T06) decide se a competência é INCOMPLETA.
+    """
+    listadas = sorted(
+        r.chave.parte or "" for r in requisicoes if r.chave.competencia_arquivo == competencia
+    )
+    esperadas = item.partes_esperadas.get(competencia.valor)
+    if esperadas is None:
+        if item.multipartes:
+            logger.info(
+                "partes_listadas fonte=%s competencia=%s partes=%s completude=INDETERMINADA",
+                item.fonte,
+                competencia,
+                ",".join(listadas),
+            )
+        return ()
+    ausentes = tuple(sorted(set(esperadas) - set(listadas)))
+    if ausentes:
+        logger.warning(
+            "partes_ausentes fonte=%s competencia=%s ausentes=%s",
+            item.fonte,
+            competencia,
+            ",".join(ausentes),
+        )
+    return ausentes
 
 
 def competencias_auxiliares(

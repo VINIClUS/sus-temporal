@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import pytest
@@ -66,27 +65,28 @@ def _ambiente(tmp_path: Path, partes_esperadas: str | None) -> Path:
     return config
 
 
+def _linhas_de_log(capsys: pytest.CaptureFixture[str], evento: str) -> list[str]:
+    return [linha for linha in capsys.readouterr().err.splitlines() if evento in linha]
+
+
 def test_parte_declarada_e_nao_listada_torna_a_competencia_incompleta(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     config = _ambiente(tmp_path, "[a, b]")
-    with caplog.at_level(logging.INFO):
-        assert cli.main(["acquire", "--config", str(config)]) == ExitCode.FALHA_OPERACIONAL
-    avisos = [r for r in caplog.records if "partes_ausentes" in r.getMessage()]
-    assert [r.levelname for r in avisos] == ["WARNING"]
-    assert "ausentes=b" in avisos[0].getMessage()
+    assert cli.main(["acquire", "--config", str(config)]) == ExitCode.FALHA_OPERACIONAL
+    (aviso,) = _linhas_de_log(capsys, "partes_ausentes")
+    assert " WARNING " in aviso
+    assert "ausentes=b" in aviso
 
 
 def test_sem_declaracao_registra_partes_listadas_e_completude_indeterminada(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     config = _ambiente(tmp_path, None)
-    with caplog.at_level(logging.INFO):
-        assert cli.main(["acquire", "--config", str(config)]) == ExitCode.OK
-    mensagens = [r.getMessage() for r in caplog.records if "partes_listadas" in r.getMessage()]
-    assert mensagens
-    assert "partes=a" in mensagens[0]
-    assert "completude=INDETERMINADA" in mensagens[0]
+    assert cli.main(["acquire", "--config", str(config)]) == ExitCode.OK
+    (registro,) = _linhas_de_log(capsys, "partes_listadas")
+    assert "partes=a" in registro
+    assert "completude=INDETERMINADA" in registro
 
 
 def _dbf_com_cabecalho_grande(terminador: bytes) -> bytes:

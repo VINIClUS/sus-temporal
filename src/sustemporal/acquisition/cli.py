@@ -13,6 +13,7 @@ from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.acquisition.sources import (
     carregar_catalogo,
     competencias_auxiliares,
+    partes_ausentes,
     requisicao_listagem,
     requisicoes_da_listagem,
     requisicoes_documentos,
@@ -111,8 +112,10 @@ def _por_listagem(
         catalogo, fonte, contexto.uf, pedidas, nomes, motivo=contexto.motivo
     )
     encontradas = {r.chave.competencia_arquivo for r in requisicoes}
+    item = catalogo.fonte(fonte)
     for competencia in pedidas:
-        if competencia not in encontradas:
+        sem_parte = partes_ausentes(item, competencia, requisicoes)
+        if competencia not in encontradas or sem_parte:
             contexto.ausentes.append((fonte, competencia))
     return requisicoes
 

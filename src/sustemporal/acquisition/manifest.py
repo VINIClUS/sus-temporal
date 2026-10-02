@@ -86,16 +86,37 @@ def _conferir_referencias(linha: LinhaManifesto, versoes: set[str], observacoes:
         observacoes.add(observacao.observation_id)
 
 
+def _conferir_transacao(anterior: LinhaManifesto | None, linha: LinhaManifesto | None) -> None:
+    """Toda VERSAO é seguida pela OBSERVACAO que a obteve (mesma transação)."""
+    if anterior is None or anterior.versao is None:
+        return
+    observacao = None if linha is None else linha.observacao
+    if observacao is None or observacao.artifact_id != anterior.versao.artifact_id:
+        raise ManifestoCorrompido(f"manifesto_transacao_incompleta sequencia={anterior.sequencia}")
+
+
 def _verificar(textos: list[str]) -> EstadoManifesto:
     linhas: list[LinhaManifesto] = []
     versoes: set[str] = set()
     observacoes: set[str] = set()
     for numero, texto in enumerate(textos, start=1):
         linha = _ler_linha(numero, texto)
-        _conferir_encadeamento(linhas[-1] if linhas else None, linha)
+        anterior = linhas[-1] if linhas else None
+        _conferir_encadeamento(anterior, linha)
+        _conferir_transacao(anterior, linha)
         _conferir_referencias(linha, versoes, observacoes)
         linhas.append(linha)
+    _conferir_transacao(linhas[-1] if linhas else None, None)
     return EstadoManifesto(tuple(linhas))
+
+
+def _termina_em_versao(textos: list[str]) -> bool:
+    if not textos:
+        return False
+    try:
+        return LinhaManifesto.model_validate_json(textos[-1]).tipo is TipoLinhaManifesto.VERSAO
+    except ValidationError:
+        return False
 
 
 class Manifesto:
@@ -160,12 +181,13 @@ class Manifesto:
     def _separar_fragmento(self) -> None:
         """Separa a transação interrompida: linhas após a âncora mais o fragmento final.
 
-        Só age quando há fragmento; as linhas até a âncora precisam passar na verificação.
+        Age quando há fragmento ou quando o arquivo termina numa VERSAO sem sua OBSERVACAO;
+        as linhas até a âncora precisam passar na verificação.
         """
         completas, fragmento = self._partes()
-        if not fragmento:
-            return
         textos = completas.splitlines()
+        if not fragmento and not _termina_em_versao(textos):
+            return
         sequencia = self._sequencia_ancorada(len(textos))
         confirmadas = textos[:sequencia]
         self._conferir_ancora(_verificar(confirmadas))

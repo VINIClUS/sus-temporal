@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from sustemporal.acquisition.manifest import Manifesto
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from datetime import datetime
@@ -14,7 +16,7 @@ if TYPE_CHECKING:
     from sustemporal.contracts.base import FamiliaFonte
     from sustemporal.contracts.temporal import CompetenciaArquivo
 
-__all__ = ["ORIGEM_INTERVALO", "IntervaloObservado", "RegistroTemporal"]
+__all__ = ["ORIGEM_INTERVALO", "IntervaloObservado", "RegistroTemporal", "registro_de"]
 
 ORIGEM_INTERVALO = "OBSERVACAO_DA_PESQUISA"
 
@@ -35,6 +37,8 @@ class IntervaloObservado:
 
 @dataclass(frozen=True)
 class RegistroTemporal:
+    """Histórico append-only como lido do manifesto; nada é resumido a first/last seen."""
+
     observacoes: tuple[ArtifactObservation, ...]
     versoes: Mapping[str, ArtifactVersion]
     partes_esperadas: Mapping[tuple[FamiliaFonte, str], frozenset[str]] = field(
@@ -48,12 +52,27 @@ class RegistroTemporal:
         *,
         partes_esperadas: Mapping[tuple[FamiliaFonte, str], frozenset[str]] | None = None,
     ) -> RegistroTemporal:
-        raise NotImplementedError
+        """Lê o manifesto conferido (cadeia e âncora).
+
+        Raises:
+            ManifestoCorrompido: o manifesto não passa na verificação.
+        """
+        estado = Manifesto(caminho).ler()
+        return cls(estado.observacoes, dict(estado.versoes), dict(partes_esperadas or {}))
 
     def observacoes_de(
         self, fonte: FamiliaFonte, uf: str | None, competencia: CompetenciaArquivo
     ) -> tuple[ArtifactObservation, ...]:
-        raise NotImplementedError
+        """Observações de arquivos publicados (não listagens) da competência exata, por instante."""
+        escolhidas = [
+            o
+            for o in self.observacoes
+            if o.chave.tipo_conteudo is None
+            and o.chave.fonte is fonte
+            and o.chave.competencia_arquivo == competencia
+            and (o.chave.uf is None or uf is None or o.chave.uf == uf)
+        ]
+        return tuple(sorted(escolhidas, key=lambda o: (o.observado_em, o.observation_id)))
 
     def intervalos(
         self,
@@ -63,10 +82,29 @@ class RegistroTemporal:
         *,
         parte: str | None = None,
     ) -> list[IntervaloObservado]:
-        raise NotImplementedError
+        """Intervalos de seleção derivados da coleta: A, B, A dá três intervalos."""
+        intervalos: list[IntervaloObservado] = []
+        for obs in self.observacoes_de(fonte, uf, competencia):
+            if obs.artifact_id is None or obs.chave.parte != parte:
+                continue
+            ultimo = intervalos[-1] if intervalos else None
+            if ultimo is not None and ultimo.artifact_id == obs.artifact_id:
+                intervalos[-1] = IntervaloObservado(
+                    obs.artifact_id,
+                    ultimo.primeira_observacao,
+                    obs.observado_em,
+                    (*ultimo.observation_ids, obs.observation_id),
+                )
+            else:
+                intervalos.append(
+                    IntervaloObservado(
+                        obs.artifact_id, obs.observado_em, obs.observado_em, (obs.observation_id,)
+                    )
+                )
+        return intervalos
 
 
 def registro_de(
     observacoes: Iterable[ArtifactObservation], versoes: Iterable[ArtifactVersion]
 ) -> RegistroTemporal:
-    raise NotImplementedError
+    return RegistroTemporal(tuple(observacoes), {v.artifact_id: v for v in versoes})

@@ -26,6 +26,8 @@ from sustemporal.contracts.base import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
+
     from pydantic import GetCoreSchemaHandler, GetJsonSchemaHandler
     from pydantic.json_schema import JsonSchemaValue
 
@@ -273,6 +275,26 @@ class SelecaoVersao(ContratoBase):
             )
         self._artefatos_do_estado()
         return self
+
+    def confere(self, artefatos: Iterable[Any]) -> None:
+        """Fonte e competência do conteúdo selecionado batem com a requerida (nunca o mês vizinho).
+
+        `artefatos` são versões (`ArtifactVersion`) que incluem todas as selecionadas.
+
+        Raises:
+            ValueError: versão selecionada ausente, de outra fonte ou de outra competência.
+        """
+        por_id = {artefato.artifact_id: artefato for artefato in artefatos}
+        for artifact_id in self.artifact_ids:
+            artefato = por_id.get(artifact_id)
+            if artefato is None:
+                raise ValueError(f"selecao_artefato_desconhecido artifact_id={artifact_id}")
+            chave = artefato.chave
+            if chave.fonte != self.fonte or chave.competencia_arquivo != self.competencia_requerida:
+                raise ValueError(
+                    f"selecao_competencia_divergente artifact_id={artifact_id} "
+                    f"requerida={self.competencia_requerida} obtida={chave.competencia_arquivo}"
+                )
 
     def _artefatos_do_estado(self) -> None:
         quantidade = len(self.artifact_ids)

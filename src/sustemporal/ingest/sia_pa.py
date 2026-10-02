@@ -73,7 +73,7 @@ PADROES: dict[str, str] = {
 CAMPOS_DESCARTADOS = frozenset(
     {"pa_cnpjcpf", "pa_cnpjmnt", "pa_cnpj_cc", "pa_autoriz", "pa_cnsmed", "pa_fntorc"}
 )
-_INTEIRO = r"^-?[0-9]+$"
+_INTEIRO = r"^[0-9]+$"
 _SEM_LINHAGEM = frozenset({"row_id", "indice_registro"})
 
 

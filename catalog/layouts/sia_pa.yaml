@@ -11,7 +11,7 @@
 # descartado por minimização ou por falta de semântica; o descarte é registrado no log da ingestão.
 # Sentinelas (SECUNDARIA, S1; A_CONFIRMAR): valor bruto aparado -> motivo de ausência.
 # PA_IDADE: unidade ANOS segundo transcrições do IT (SECUNDARIA; A_CONFIRMAR); 999 tratado como
-# sentinela de idade não informada (INFERIDA; comum no BPA-C agregado; A_CONFIRMAR).
+# sentinela de idade não informada (INFERIDA; A_CONFIRMAR).
 layout_id: sia_pa.it_2019_07
 fonte: SIA_PA
 versao: "1"

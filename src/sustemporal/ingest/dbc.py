@@ -214,6 +214,11 @@ def _conferir_fim_dcl_arquivo(caminho: Path, pasta: Path, limite: int) -> None:
         saida.unlink(missing_ok=True)
     if resultado.desfecho is DesfechoDescompressao.OK:
         raise _inesperado(f"bytes_apos_fim_dcl tamanho={caminho.stat().st_size}")
+    if resultado.desfecho is not DesfechoDescompressao.TRUNCADO:
+        raise _inesperado(
+            f"fim_dcl_inconclusivo desfecho={resultado.desfecho.value} "
+            f"erro={compactar(resultado.mensagem)}"
+        )
 
 
 def ler_dbc_arquivo(

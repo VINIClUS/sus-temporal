@@ -52,6 +52,7 @@ _TAM_POS_CABECALHO = 4
 _MAX_CABECALHO = 0xFFFF
 _BIBLIOTECAS_LEITURA = ("datasus-dbc", "numpy", "pyarrow", "sus-temporal")
 _MAX_DIVERGENCIAS = 20
+_Descritor = tuple[str, str, int, int, int]
 
 
 @dataclass(frozen=True)
@@ -328,13 +329,25 @@ def _coletar(registros: Iterable[Any], ranks: set[int]) -> tuple[int, dict[int, 
 
 def _referencia(
     dbf: bytes, ranks_a: set[int], ranks_d: set[int]
-) -> tuple[list[tuple[str, str, int, int]], tuple[int, dict[int, Any]], tuple[int, dict[int, Any]]]:
+) -> tuple[list[_Descritor], tuple[int, dict[int, Any]], tuple[int, dict[int, Any]]]:
     with tempfile.TemporaryDirectory() as pasta:
         caminho = Path(pasta) / "referencia.dbf"
         caminho.write_bytes(dbf)
         ref = DBF(str(caminho), raw=True, load=False, ignore_missing_memofile=True)
-        descritores = [(f.name, f.type, f.length, f.decimal_count) for f in ref.fields]
+        inicios = np.cumsum([1] + [f.length for f in ref.fields])
+        descritores = [
+            (f.name, f.type, f.length, f.decimal_count, int(inicio))
+            for f, inicio in zip(ref.fields, inicios, strict=False)
+        ]
         return descritores, _coletar(ref.records, ranks_a), _coletar(ref.deleted, ranks_d)
+
+
+def _bytes_latin1(registro: dict[str, str]) -> dict[str, bytes] | None:
+    """Bytes originais do registro; None se algum valor não cabe em latin-1 (leitura inválida)."""
+    try:
+        return {nome: valor.encode("latin-1") for nome, valor in registro.items()}
+    except UnicodeEncodeError:
+        return None
 
 
 class _FalhaReferencia(Exception):
@@ -366,7 +379,9 @@ def _comparar_registros(dbf: bytes, leitura: LeituraDbf, posicoes: NDArray[np.in
         )
     except Exception as erro:
         raise _FalhaReferencia(f"dbfread_falhou erro={type(erro).__name__}") from erro
-    descritores = [(c.nome, c.tipo, c.largura, c.decimais) for c in leitura.cabecalho.campos]
+    descritores = [
+        (c.nome, c.tipo, c.largura, c.decimais, c.inicio) for c in leitura.cabecalho.campos
+    ]
     if descritores_ref != descritores:
         divergencias.append("campos_divergentes")
     lidas = (int((~proprios_flags).sum()), int(proprios_flags.sum()), leitura.n_deletados)
@@ -376,7 +391,7 @@ def _comparar_registros(dbf: bytes, leitura: LeituraDbf, posicoes: NDArray[np.in
     proprios = tabela.take(posicoes).select(nomes).to_pylist()
     for posicao, proprio in zip(posicoes.tolist(), proprios, strict=True):
         esperado = (deletados if flags[posicao] else ativos).get(int(rank[posicao]))
-        obtido = {nome: valor.encode("latin-1") for nome, valor in proprio.items()}
+        obtido = _bytes_latin1(proprio)
         if esperado is None or dict(esperado) != obtido:
             divergencias.append(f"registro_divergente indice={posicao}")
     return divergencias

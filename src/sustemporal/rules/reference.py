@@ -231,7 +231,10 @@ def _versoes(selecao: Mapping[str, object]) -> frozenset[str]:
 
 
 def _escopo(
-    indices: _Indices, requisito: RequisitoFonte, versoes: frozenset[str]
+    indices: _Indices,
+    requisito: RequisitoFonte,
+    versoes: frozenset[str],
+    integridade: Mapping[str, str],
 ) -> tuple[MotivoInconclusao | None, tuple[Mapping[str, object], ...]]:
     """Passo 8 para uma fonte com seleção SELECIONADA."""
     conjunto = indices.auxiliares.get(requisito.schema_id)
@@ -241,6 +244,8 @@ def _escopo(
         return _M.LEIAUTE_INCOMPATIVEL, ()
     if not versoes <= conjunto.artifact_ids:
         return _M.ARQUIVO_AUSENTE, ()
+    if any(integridade.get(v, "").startswith("QUARENTENA_") for v in versoes):
+        return _M.ARQUIVO_EM_QUARENTENA, ()
     linhas = tuple(linha for linha in conjunto.linhas if linha.get("artifact_id") in versoes)
     if not linhas:
         return _M.COBERTURA_INSUFICIENTE, ()
@@ -280,7 +285,7 @@ def _insumos(
             insumos.motivos.add(motivo_selecao)
             continue
         versoes = _versoes(selecao)
-        motivo, linhas = _escopo(indices, requisito, versoes)
+        motivo, linhas = _escopo(indices, requisito, versoes, cenario.integridade)
         if motivo is not None:
             insumos.motivos.add(motivo)
             continue

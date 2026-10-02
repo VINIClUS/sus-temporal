@@ -1,3 +1,4 @@
+import re
 import struct
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ from sustemporal.contracts import EstadoIntegridade, LayoutSpec
 from sustemporal.ingest.dbf import (
     COLUNA_DELETADO,
     COLUNA_INDICE,
+    ArquivoAusente,
     QuarentenaLeitura,
     conferir_leiaute,
     ler_cabecalho,
@@ -234,3 +236,58 @@ def test_campo_com_nome_de_coluna_interna_vai_para_quarentena_de_leiaute() -> No
     dados = bytearray(escrever_dbf([CampoDbf("X", "C", 1)], [("a",)]))
     dados[32:43] = COLUNA_DELETADO.encode("ascii").ljust(11, b"\x00")
     assert _estado(bytes(dados)) is EstadoIntegridade.QUARENTENA_LEIAUTE
+
+
+def test_largura_zero_vai_para_quarentena_de_leiaute() -> None:
+    dados = bytearray(escrever_dbf([CampoDbf("A", "C", 2), CampoDbf("B", "N", 3)], [("x", "1")]))
+    dados[32 + 32 + 16] = 0
+    struct.pack_into("<H", dados, 10, 1 + 2)
+    with pytest.raises(QuarentenaLeitura) as erro:
+        ler_dbf(bytes(dados))
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_LEIAUTE
+    assert erro.value.motivo.startswith("descritor_invalido")
+
+
+def test_nomes_que_so_diferem_na_caixa_vao_para_quarentena_de_leiaute() -> None:
+    dados = bytearray(escrever_dbf([CampoDbf("AB", "C", 1), CampoDbf("CD", "C", 1)], [("x", "y")]))
+    dados[64:66] = b"ab"
+    assert _estado(bytes(dados)) is EstadoIntegridade.QUARENTENA_LEIAUTE
+
+
+def test_tamanho_de_cabecalho_impossivel_e_conteudo_inesperado() -> None:
+    dados = bytearray(_dbf())
+    struct.pack_into("<H", dados, 8, 20)
+    assert _estado(bytes(dados)) is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+
+
+def test_arquivo_vazio_e_conteudo_inesperado() -> None:
+    assert _estado(b"") is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+
+
+def test_dbf_ausente_nunca_vira_conjunto_vazio(tmp_path: Path) -> None:
+    with pytest.raises(ArquivoAusente) as erro:
+        ler_dbf_arquivo(tmp_path / "nao_existe.dbf")
+    assert erro.value.motivo.startswith("arquivo_ausente")
+
+
+_MOTIVO = re.compile(r"^[a-z_]+( [a-z_]+=[^\s]+)*$")
+
+
+def test_motivos_de_quarentena_do_dbf_sem_espacos_nos_valores() -> None:
+    repetidos = escrever_dbf([CampoDbf("A", "C", 1), CampoDbf("A", "C", 1)], [("x", "y")])
+    with pytest.raises(QuarentenaLeitura) as erro:
+        ler_dbf(repetidos)
+    assert _MOTIVO.fullmatch(erro.value.motivo), erro.value.motivo
+
+
+@pytest.mark.parametrize(("inicio", "aceito"), [(None, True), (8, True), (7, False), (9, False)])
+def test_leiaute_confere_inicio_quando_informado(inicio: int | None, aceito: bool) -> None:
+    leiaute = _leiaute(CAMPOS)
+    campos = list(leiaute.campos)
+    campos[1] = campos[1].model_copy(update={"inicio": inicio})
+    leiaute = leiaute.model_copy(update={"campos": tuple(campos)})
+    if aceito:
+        conferir_leiaute(ler_cabecalho(_dbf()), leiaute)
+        return
+    with pytest.raises(QuarentenaLeitura):
+        conferir_leiaute(ler_cabecalho(_dbf()), leiaute)

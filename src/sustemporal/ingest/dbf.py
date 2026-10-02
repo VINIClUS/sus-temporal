@@ -253,3 +253,11 @@ def conferir_leiaute(cabecalho: CabecalhoDbf, layout: LayoutSpec) -> None:
         f"descritores_divergentes layout={layout.layout_id} posicao={divergente} "
         f"lidos={len(lidos)} esperados={len(esperados)}"
     )
+
+
+class ArquivoAusente(FalhaOperacionalErro):
+    """Arquivo esperado não encontrado: verificação inconclusiva, nunca conjunto vazio."""
+
+    def __init__(self, motivo: str) -> None:
+        super().__init__(f"ausente motivo={motivo}")
+        self.motivo = motivo

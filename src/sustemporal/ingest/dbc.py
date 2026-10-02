@@ -283,3 +283,13 @@ def verificar_fidelidade(
     return RelatorioFidelidade(
         modo, True, int(posicoes.size), tuple(divergencias[:_MAX_DIVERGENCIAS]), bibliotecas
     )
+
+
+def ler_dbc_arquivo(
+    caminho: Path,
+    *,
+    dir_temporario: Path | None = None,
+    tamanho_bloco: int = TAMANHO_BLOCO_PADRAO,
+) -> LeituraDbc:
+    """Descomprime de arquivo para arquivo temporário e lê por memmap; remove o temporário."""
+    raise NotImplementedError

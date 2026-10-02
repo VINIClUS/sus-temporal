@@ -1,7 +1,9 @@
 import dataclasses
+import re
 import struct
 from collections.abc import Callable
 from importlib import metadata
+from pathlib import Path
 from typing import Any
 
 import dbfread
@@ -13,8 +15,19 @@ from hypothesis import strategies as st
 
 from sustemporal.contracts import EstadoIntegridade, VerificacaoFidelidade
 from sustemporal.ingest import dbc as dbc_mod
-from sustemporal.ingest.dbc import descomprimir_dbc, ler_dbc, verificar_fidelidade
-from sustemporal.ingest.dbf import COLUNA_DELETADO, COLUNA_INDICE, QuarentenaLeitura, ler_dbf
+from sustemporal.ingest.dbc import (
+    descomprimir_dbc,
+    ler_dbc,
+    ler_dbc_arquivo,
+    verificar_fidelidade,
+)
+from sustemporal.ingest.dbf import (
+    COLUNA_DELETADO,
+    COLUNA_INDICE,
+    ArquivoAusente,
+    QuarentenaLeitura,
+    ler_dbf,
+)
 from tests.fixtures.dbc_encoder import dbf_para_dbc
 from tests.fixtures.dbf_writer import CampoDbf, escrever_dbf
 
@@ -120,7 +133,12 @@ def _adulterar(tabela: pa.Table, coluna: str, linha: int, valor: object) -> pa.T
 
 @pytest.mark.parametrize(
     ("coluna", "linha", "valor"),
-    [("PA_CODUNI", 2, "0012346"), (COLUNA_DELETADO, 1, True), ("PA_QTDAPR", 3, "    2")],
+    [
+        ("PA_CODUNI", 2, "0012346"),
+        (COLUNA_DELETADO, 1, True),
+        ("PA_QTDAPR", 3, "    2"),
+        ("PA_CODUNI", 0, "9999999"),
+    ],
 )
 def test_fidelidade_detecta_leitura_divergente(coluna: str, linha: int, valor: object) -> None:
     dbc = dbf_para_dbc(_dbf(deletados={0}))
@@ -142,7 +160,7 @@ def test_fidelidade_detecta_linha_omitida() -> None:
 
 
 @st.composite
-def _entrada(draw: st.DrawFn) -> tuple[list[CampoDbf], bytes]:
+def _entrada(draw: st.DrawFn) -> tuple[list[CampoDbf], bytes, bytes, set[int]]:
     campos = [
         CampoDbf(f"C{i}", draw(st.sampled_from("CN")), draw(st.integers(1, 9)))
         for i in range(draw(st.integers(1, 4)))
@@ -153,19 +171,22 @@ def _entrada(draw: st.DrawFn) -> tuple[list[CampoDbf], bytes]:
     ]
     deletados = draw(st.sets(st.integers(0, len(registros) - 1))) if registros else set()
     dbf = escrever_dbf(campos, registros, deletados=deletados, com_eof=draw(st.booleans()))
-    return campos, dbf_para_dbc(dbf, draw(st.sampled_from([4, 5, 6])))
+    return campos, dbf, dbf_para_dbc(dbf, draw(st.sampled_from([4, 5, 6]))), deletados
 
 
 @given(entrada=_entrada())
 def test_propriedade_diferencial_contra_dbfread(
-    entrada: tuple[list[CampoDbf], bytes], tmp_path_factory: pytest.TempPathFactory
+    entrada: tuple[list[CampoDbf], bytes, bytes, set[int]],
+    tmp_path_factory: pytest.TempPathFactory,
 ) -> None:
-    campos, dbc = entrada
+    campos, dbf_original, dbc, deletados = entrada
     leitura = ler_dbc(dbc).leitura
     caminho = tmp_path_factory.mktemp("dbf") / "ref.dbf"
-    caminho.write_bytes(descomprimir_dbc(dbc)[0])
+    caminho.write_bytes(dbf_original)
     referencia = dbfread.DBF(str(caminho), raw=True, load=True)
     flags = leitura.tabela.column(COLUNA_DELETADO).to_pylist()
+    assert flags == [i in deletados for i in range(len(flags))]
+    assert len(flags) == len(referencia.records) + len(referencia.deleted)
     for nome in (c.nome for c in campos):
         valores = [v.encode("latin-1") for v in leitura.tabela.column(nome).to_pylist()]
         assert [v for v, d in zip(valores, flags, strict=True) if not d] == [
@@ -289,3 +310,109 @@ def test_fidelidade_detecta_flags_de_delecao_trocados_entre_registros_identicos(
     relatorio = verificar_fidelidade(dbc, dataclasses.replace(leitura, tabela=tabela), "COMPLETA")
     assert not relatorio.fiel
     assert any(d.startswith("flags_delecao_divergentes") for d in relatorio.divergencias)
+
+
+@pytest.mark.parametrize(
+    "alterar",
+    [{"versao": 0x83}, {"tem_eof": False}],
+)
+def test_fidelidade_compara_versao_e_eof_com_os_bytes_independentes(
+    alterar: dict[str, Any],
+) -> None:
+    dbc = dbf_para_dbc(_dbf())
+    leitura = ler_dbc(dbc).leitura
+    if "versao" in alterar:
+        cabecalho = dataclasses.replace(leitura.cabecalho, versao=alterar["versao"])
+        leitura = dataclasses.replace(leitura, cabecalho=cabecalho)
+    else:
+        leitura = dataclasses.replace(leitura, tem_eof=alterar["tem_eof"])
+    relatorio = verificar_fidelidade(dbc, leitura, "COMPLETA")
+    assert not relatorio.fiel
+    assert any(d.startswith("cabecalho_divergente") for d in relatorio.divergencias)
+
+
+def _sufixos() -> list[Callable[[bytes], bytes]]:
+    return [lambda d: d + b"\x00", lambda d: d + b"\x00" * 1000, lambda d: d + d]
+
+
+@pytest.mark.parametrize("sufixo", _sufixos())
+def test_bytes_apos_o_fim_dcl_vao_para_quarentena(sufixo: Callable[[bytes], bytes]) -> None:
+    dbc = sufixo(dbf_para_dbc(_dbf()))
+    with pytest.raises(QuarentenaLeitura) as erro:
+        ler_dbc(dbc)
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+    assert erro.value.motivo.startswith("bytes_apos_fim_dcl")
+
+
+@pytest.mark.parametrize("sufixo", _sufixos())
+def test_fidelidade_detecta_bytes_apos_o_fim_dcl(sufixo: Callable[[bytes], bytes]) -> None:
+    dbc = dbf_para_dbc(_dbf())
+    leitura = ler_dbc(dbc).leitura
+    relatorio = verificar_fidelidade(sufixo(dbc), leitura, "COMPLETA")
+    assert not relatorio.fiel
+    assert any(d.startswith("bytes_apos_fim_dcl") for d in relatorio.divergencias)
+
+
+def test_ler_dbc_arquivo_equivale_a_ler_em_memoria(tmp_path: Path) -> None:
+    dbc = dbf_para_dbc(_dbf(deletados={2}, byte_driver=0x58))
+    caminho = tmp_path / "PASP1801.dbc"
+    caminho.write_bytes(dbc)
+    temporario = tmp_path / "tmp"
+    temporario.mkdir()
+    por_arquivo = ler_dbc_arquivo(caminho, dir_temporario=temporario, tamanho_bloco=2)
+    em_memoria = ler_dbc(dbc)
+    assert por_arquivo.leitura.tabela.equals(em_memoria.leitura.tabela)
+    assert por_arquivo.leitura.cabecalho == em_memoria.leitura.cabecalho
+    assert por_arquivo.metadados == em_memoria.metadados
+    assert list(temporario.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    ("alterar", "estado"),
+    [
+        (lambda d: d[:-3], EstadoIntegridade.QUARENTENA_TRUNCADO),
+        (lambda d: d[:50], EstadoIntegridade.QUARENTENA_TRUNCADO),
+        (lambda d: d + b"\x00", EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO),
+        (lambda d: b"<html>" + d, EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO),
+    ],
+)
+def test_ler_dbc_arquivo_vai_para_quarentena(
+    alterar: Callable[[bytes], bytes], estado: EstadoIntegridade, tmp_path: Path
+) -> None:
+    caminho = tmp_path / "x.dbc"
+    caminho.write_bytes(alterar(dbf_para_dbc(_dbf())))
+    temporario = tmp_path / "tmp"
+    temporario.mkdir()
+    with pytest.raises(QuarentenaLeitura) as erro:
+        ler_dbc_arquivo(caminho, dir_temporario=temporario)
+    assert erro.value.estado is estado
+    assert list(temporario.iterdir()) == []
+
+
+def test_dbc_ausente_nunca_vira_conjunto_vazio(tmp_path: Path) -> None:
+    with pytest.raises(ArquivoAusente) as erro:
+        ler_dbc_arquivo(tmp_path / "nao_existe.dbc")
+    assert erro.value.motivo.startswith("arquivo_ausente")
+
+
+def test_metadados_registram_versoes_de_numpy_e_pyarrow() -> None:
+    nomes = {nome for nome, _ in ler_dbc(dbf_para_dbc(_dbf())).metadados.bibliotecas}
+    assert {"datasus-dbc", "numpy", "pyarrow", "sus-temporal"} <= nomes
+
+
+_MOTIVO = re.compile(r"^[a-z_]+( [a-z_]+=[^\s]+)*$")
+
+
+@pytest.mark.parametrize(
+    "dados",
+    [
+        lambda d: d[:-1],
+        lambda d: d[:50],
+        lambda d: b"<html>" + d,
+        lambda d: d + b"\x00",
+    ],
+)
+def test_motivos_de_quarentena_em_chave_valor_sem_espacos(dados: Callable[[bytes], bytes]) -> None:
+    with pytest.raises(QuarentenaLeitura) as erro:
+        ler_dbc(dados(dbf_para_dbc(_dbf())))
+    assert _MOTIVO.fullmatch(erro.value.motivo), erro.value.motivo

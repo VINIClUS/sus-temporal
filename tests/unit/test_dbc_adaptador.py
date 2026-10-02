@@ -14,7 +14,7 @@ from hypothesis import strategies as st
 from sustemporal.contracts import EstadoIntegridade, VerificacaoFidelidade
 from sustemporal.ingest import dbc as dbc_mod
 from sustemporal.ingest.dbc import descomprimir_dbc, ler_dbc, verificar_fidelidade
-from sustemporal.ingest.dbf import COLUNA_DELETADO, QuarentenaLeitura, ler_dbf
+from sustemporal.ingest.dbf import COLUNA_DELETADO, COLUNA_INDICE, QuarentenaLeitura, ler_dbf
 from tests.fixtures.dbc_encoder import dbf_para_dbc
 from tests.fixtures.dbf_writer import CampoDbf, escrever_dbf
 
@@ -226,3 +226,26 @@ def test_fidelidade_recusa_leitura_de_outro_arquivo_com_mesmos_registros() -> No
     relatorio = verificar_fidelidade(dbc, outra, "COMPLETA")
     assert not relatorio.fiel
     assert any(d.startswith("cabecalho_divergente") for d in relatorio.divergencias)
+
+
+@pytest.mark.parametrize("indices", [[0, 0, 2, 3], [1, 2, 3, 4], [0, 2, 1, 3]])
+def test_fidelidade_detecta_indice_fisico_corrompido(indices: list[int]) -> None:
+    dbc = dbf_para_dbc(_dbf())
+    leitura = ler_dbc(dbc).leitura
+    tabela = leitura.tabela.set_column(0, COLUNA_INDICE, pa.array(indices, pa.int64()))
+    relatorio = verificar_fidelidade(dbc, dataclasses.replace(leitura, tabela=tabela), "COMPLETA")
+    assert not relatorio.fiel
+    assert any(d.startswith("indices_fisicos_divergentes") for d in relatorio.divergencias)
+
+
+@pytest.mark.parametrize("alterar", [lambda b: b[:0], lambda b: b[:40], lambda b: b[:-7]])
+def test_fidelidade_com_saida_independente_malformada_nao_levanta(
+    alterar: Callable[[bytes], bytes], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dbc = dbf_para_dbc(_dbf(com_eof=False))
+    leitura = ler_dbc(dbc).leitura
+    monkeypatch.setattr(dbc_mod, "DBCDecompress", lambda: _DescompressorAdulterado(alterar))
+    relatorio = verificar_fidelidade(dbc, leitura, "COMPLETA")
+    assert relatorio.verificado
+    assert not relatorio.fiel
+    assert relatorio.registros_comparados == 0

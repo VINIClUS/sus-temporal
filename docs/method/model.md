@@ -111,7 +111,8 @@ em todos os passos (campo insuficiente, vigência, chave de cobertura). `I(r)` v
     conjunto auxiliar. Então incompatibilidade verdadeira, evidência
     `AUSENCIA_NA_FONTE` (zero resultados, cobertura e integridade registradas). Senão
     `COBERTURA_INSUFICIENTE`, incompatibilidade nula. Chave de cobertura sem linha, `Q(r)` nulo ou
-    matriz não fornecida contam como cobertura insuficiente; integridade não informada conta como
+    matriz não fornecida contam como cobertura insuficiente (matriz com coluna de tipo físico diferente
+    do esquema canônico, como competência numérica, não é utilizável e conta como não fornecida); integridade não informada conta como
     não `OK`.
 
 `insumos_completos` é verdadeiro exatamente quando `M` não contém motivo diferente de

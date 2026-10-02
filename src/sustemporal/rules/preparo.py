@@ -275,17 +275,23 @@ def derivar_selecoes(
 
 
 def carregar_cobertura(con: duckdb.DuckDBPyConnection, dataset: DatasetRef | None) -> None:
-    """Cria `cobertura` (vazia sem matriz: ausência nunca sustenta violação).
+    """Cria `cobertura`; vazia sem matriz utilizável (ausência nunca sustenta violação).
+
+    Matriz com coluna de tipo físico diferente do esquema canônico não é utilizável.
 
     Raises:
         ValueError: coluna ausente ou chave repetida.
     """
     tipos = _tipos("cobertura.v1")
-    if dataset is None:
+    fisicos = _tipos_do_parquet(con, dataset.caminho) if dataset else {}
+    incompativeis = _incompativeis(_COLUNAS_COBERTURA, fisicos, tipos)
+    if dataset is None or incompativeis:
+        if incompativeis:
+            logger.warning("cobertura_nao_utilizavel colunas=%s", incompativeis)
         colunas = ", ".join(f"{identificador_seguro(c, tipos)} VARCHAR" for c in _COLUNAS_COBERTURA)
         con.execute(f"CREATE OR REPLACE TEMP TABLE cobertura ({colunas})")
         return
-    presentes = _colunas_do_parquet(con, dataset.caminho)
+    presentes = set(fisicos)
     faltantes = sorted(set(_COLUNAS_COBERTURA) - presentes)
     if faltantes:
         raise ValueError(f"cobertura_sem_coluna colunas={faltantes}")

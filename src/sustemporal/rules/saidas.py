@@ -287,7 +287,8 @@ _SQL_SAIDAS = {
         "ev_hash_logico AS hash_logico, ev_artifact_ids AS artifact_ids, "
         "ev_cobertura AS cobertura, ev_integridade AS integridade, "
         "ev_n_resultados AS n_resultados, ev_chaves_amostra AS chaves_amostra "
-        "FROM avaliacoes_brutas WHERE ev_id IS NOT NULL ORDER BY evidence_id"
+        "FROM avaliacoes_brutas WHERE ev_id IS NOT NULL "
+        "AND ev_id NOT IN (SELECT evidence_id FROM evidencias_invalidas) ORDER BY evidence_id"
     ),
     "selecao_versoes": (
         "SELECT $run_id AS run_id, row_id, rule_id, sel_fonte AS fonte, sel_base AS base, "
@@ -370,6 +371,7 @@ def gravar_saidas(
     afetado por falha não recebe agregado.
     """
     agregados: list[tuple[str, ...]] = []
+    evidencias_invalidas: set[str] = set()
     if avaliadas:
         evidencias_invalidas = _validar_evidencias(con, contexto)
         invalidas, agregados = _validar_avaliacoes(con, contexto, evidencias_invalidas)
@@ -380,6 +382,12 @@ def gravar_saidas(
     else:
         colunas = ", ".join(f"{nome} {tipo}" for nome, tipo in COLUNAS_BRUTAS)
         con.execute(f"CREATE TEMP TABLE IF NOT EXISTS avaliacoes_brutas ({colunas})")
+    _criar_tabela(
+        con,
+        "evidencias_invalidas",
+        {"evidence_id": _TEXTO},
+        [(evidencia,) for evidencia in sorted(evidencias_invalidas)],
+    )
     _materializar(con, contexto)
     _criar_tabela(
         con, "saida_agregados_registro", dict.fromkeys(COLUNAS_AGREGADOS, _TEXTO), agregados

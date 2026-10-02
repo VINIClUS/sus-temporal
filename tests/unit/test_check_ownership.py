@@ -23,7 +23,10 @@ _EXTRACAO_DA_BASE = (
     'git show "origin/${GITHUB_BASE_REF}:scripts/check_ownership.py" '
     '> "$RUNNER_TEMP/check_ownership.py"'
 )
-_EXECUCAO_ISOLADA = 'uv run python "$RUNNER_TEMP/check_ownership.py"'
+_EXECUCAO_ISOLADA = (
+    'uv run --no-project --no-config --with "pyyaml=={versao}" '
+    'python "$RUNNER_TEMP/check_ownership.py"'
+)
 
 
 @pytest.fixture
@@ -222,14 +225,21 @@ def test_checador_so_importa_biblioteca_padrao_e_yaml() -> None:
     assert all(no.level == 0 for no in importados if isinstance(no, ast.ImportFrom))
 
 
-def test_ci_de_pr_roda_o_checador_da_base_antes_do_ci_sh() -> None:
+def _versao_travada(pacote: str) -> str:
+    trava = (RAIZ / "uv.lock").read_text(encoding="utf-8")
+    trecho = trava.split(f'name = "{pacote}"\n', 1)[1]
+    return trecho.split('version = "', 1)[1].split('"', 1)[0]
+
+
+def test_ci_de_pr_roda_o_checador_da_base_antes_de_instalar_o_projeto() -> None:
     passos = yaml.safe_load(FLUXO_CI.read_text(encoding="utf-8"))["jobs"]["ci"]["steps"]
     comandos = [str(passo.get("run", "")) for passo in passos]
+    isolada = _EXECUCAO_ISOLADA.format(versao=_versao_travada("pyyaml"))
     indices = [
         indice
         for indice, comando in enumerate(comandos)
-        if _EXTRACAO_DA_BASE in comando and _EXECUCAO_ISOLADA in comando
+        if _EXTRACAO_DA_BASE in comando and isolada in comando
     ]
     assert len(indices) == 1
     assert passos[indices[0]].get("if") == "github.event_name == 'pull_request'"
-    assert indices[0] < comandos.index("bash scripts/ci.sh")
+    assert indices[0] < comandos.index("uv sync --locked") < comandos.index("bash scripts/ci.sh")

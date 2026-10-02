@@ -330,6 +330,51 @@ def test_gh_de_leitura_continua_permitido(comando: str) -> None:
 @pytest.mark.parametrize(
     "comando",
     [
+        'p=/repos/o/r/pulls/1/merge; gh api "$p" -X PUT',
+        "gh $x merge 12",
+        'gh api repos/o/r/pulls/1 -X "$METODO"',
+    ],
+)
+def test_gh_com_expansao_no_comando_falha_fechado(comando: str) -> None:
+    resultado = _executar(comando)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "python3 -c \"import subprocess; subprocess.run(['git','pu'+'sh','o','HEAD:'+'main'])\"",
+        "uv run python -c \"import os; os.system('git pu' + 'sh origin x')\"",
+        "node -e \"require('child_process').execSync('git status')\"",
+        'perl -e \'system("git", "status")\'',
+        "echo 'print(1)' | python3",
+        "python3 - <<'EOF'\nimport subprocess\nsubprocess.run(['git', 'status'])\nEOF",
+    ],
+)
+def test_codigo_em_interpretador_que_dispara_processo_e_recusado(comando: str) -> None:
+    resultado = _executar(comando)
+    assert resultado.returncode == 2
+    assert "push_bloqueado" in resultado.stderr
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
+        "python3 scripts/gerar.py",
+        "uv run python -m pytest -q",
+        "uv run python - <<'EOF'\nfrom pathlib import Path\nprint(Path('.').resolve())\nEOF",
+        "node --version",
+        "python3 --version",
+    ],
+)
+def test_interpretador_sem_disparo_de_processo_continua_permitido(comando: str) -> None:
+    assert _executar(comando).returncode == 0
+
+
+@pytest.mark.parametrize(
+    "comando",
+    [
         "gh pr view 12",
         "gh pr create --draft --title x --body y",
         "gh pr checks 12",

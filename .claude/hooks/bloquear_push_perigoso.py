@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import subprocess
@@ -26,6 +27,8 @@ _CURTAS_PERIGOSAS = re.compile(r"^-[a-zA-Z]*[fd][a-zA-Z]*$")
 _ALVOS_PROIBIDOS = {"main", "heads/main", "refs/heads/main"}
 _OPCOES_PUSH_COM_VALOR = {"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
 _ORIGENS_IMPLICITAS = {"HEAD", "@"}
+_COMANDOS_DE_DIRETORIO = {"cd", "pushd"}
+_INDETERMINADO = "\x00indeterminado"
 
 
 def _tokens(comando: str) -> list[str]:
@@ -48,7 +51,19 @@ def _segmentos(tokens: list[str]) -> list[list[str]]:
     return segmentos
 
 
-def _subcomando_git(tokens: list[str], inicio: int) -> tuple[int, dict[str, str]]:
+def _novo_diretorio(atual: str | None, destino: str | None) -> str:
+    if destino is None or atual == _INDETERMINADO:
+        return _INDETERMINADO
+    if any(caractere in destino for caractere in "$~`"):
+        return _INDETERMINADO
+    if atual is None or os.path.isabs(destino):
+        return destino
+    return os.path.join(atual, destino)
+
+
+def _subcomando_git(
+    tokens: list[str], inicio: int, diretorio: str | None
+) -> tuple[int, dict[str, str], str | None]:
     aliases: dict[str, str] = {}
     indice = inicio
     while indice < len(tokens):
@@ -58,12 +73,14 @@ def _subcomando_git(tokens: list[str], inicio: int) -> tuple[int, dict[str, str]
             nome, _, expansao = valor.partition("=")
             if opcao == "-c" and nome.lower().startswith("alias."):
                 aliases[nome[len("alias.") :].lower()] = expansao
+            if opcao == "-C":
+                diretorio = _novo_diretorio(diretorio, valor)
             indice += 2
         elif opcao.startswith("-"):
             indice += 1
         else:
-            return indice, aliases
-    return indice, aliases
+            return indice, aliases, diretorio
+    return indice, aliases, diretorio
 
 
 def _argumento_perigoso(token: str) -> bool:
@@ -74,25 +91,25 @@ def _argumento_perigoso(token: str) -> bool:
     return token.rsplit(":", 1)[-1] in _ALVOS_PROIBIDOS
 
 
-def _alias_perigoso(expansao: str, resto: list[str]) -> bool:
+def _alias_perigoso(expansao: str, resto: list[str], diretorio: str | None) -> bool:
     argumentos = " ".join(shlex.quote(token) for token in resto)
     if expansao.startswith("!"):
-        return comando_perigoso(f"{expansao[1:]} {argumentos}")
-    return comando_perigoso(f"git {expansao} {argumentos}")
+        return comando_perigoso(f"{expansao[1:]} {argumentos}", diretorio)
+    return comando_perigoso(f"git {expansao} {argumentos}", diretorio)
 
 
-def _push_perigoso(tokens: list[str], posicao_git: int) -> bool:
-    indice, aliases = _subcomando_git(tokens, posicao_git + 1)
+def _push_perigoso(tokens: list[str], posicao_git: int, diretorio: str | None) -> bool:
+    indice, aliases, diretorio = _subcomando_git(tokens, posicao_git + 1, diretorio)
     if indice >= len(tokens):
         return False
     subcomando, resto = tokens[indice], tokens[indice + 1 :]
     if subcomando.lower() in aliases:
-        return _alias_perigoso(aliases[subcomando.lower()], resto)
+        return _alias_perigoso(aliases[subcomando.lower()], resto, diretorio)
     if subcomando != "push":
         return False
     if any(_argumento_perigoso(token) for token in resto):
         return True
-    return _destino_implicito_perigoso(_posicionais_push(resto))
+    return _destino_implicito_perigoso(_posicionais_push(resto), diretorio)
 
 
 def _posicionais_push(argumentos: list[str]) -> list[str]:
@@ -109,24 +126,27 @@ def _posicionais_push(argumentos: list[str]) -> list[str]:
     return posicionais
 
 
-def _git(*argumentos: str) -> str:
+def _git(diretorio: str | None, *argumentos: str) -> str:
+    prefixo = ["git"] if diretorio is None else ["git", "-C", diretorio]
     try:
         resultado = subprocess.run(
-            ["git", *argumentos], capture_output=True, text=True, timeout=10, check=False
+            [*prefixo, *argumentos], capture_output=True, text=True, timeout=10, check=False
         )
     except (OSError, subprocess.SubprocessError):
         return ""
     return resultado.stdout.strip() if resultado.returncode == 0 else ""
 
 
-def _destino_implicito_perigoso(posicionais: list[str]) -> bool:
+def _destino_implicito_perigoso(posicionais: list[str], diretorio: str | None) -> bool:
     refspecs = posicionais[1:]
     implicitos = [r for r in refspecs if r.lstrip("+") in _ORIGENS_IMPLICITAS]
     if refspecs and not implicitos:
         return False
-    if _git("rev-parse", "--abbrev-ref", "HEAD") == "main":
+    if diretorio == _INDETERMINADO:
         return True
-    upstream = _git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+    if _git(diretorio, "rev-parse", "--abbrev-ref", "HEAD") == "main":
+        return True
+    upstream = _git(diretorio, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
     return not refspecs and upstream.endswith("/main")
 
 
@@ -154,25 +174,30 @@ def _agrupa_opcao_c(argumento: str) -> bool:
     return argumento.startswith("-") and not argumento.startswith("--") and "c" in argumento[1:]
 
 
-def _interpretado_perigoso(tokens: list[str], posicao: int) -> bool:
+def _interpretado_perigoso(tokens: list[str], posicao: int, diretorio: str | None) -> bool:
     comando = _comando_do_interpretador(tokens[posicao + 1 :])
-    return comando is not None and comando_perigoso(comando)
+    return comando is not None and comando_perigoso(comando, diretorio)
 
 
-def _segmento_perigoso(tokens: list[str]) -> bool:
+def _segmento_perigoso(tokens: list[str], diretorio: str | None) -> bool:
     for posicao, token in enumerate(tokens):
         nome = token.rsplit("/", 1)[-1]
-        if nome == "git" and _push_perigoso(tokens, posicao):
+        if nome == "git" and _push_perigoso(tokens, posicao, diretorio):
             return True
-        if nome in _INTERPRETADORES and _interpretado_perigoso(tokens, posicao):
+        if nome in _INTERPRETADORES and _interpretado_perigoso(tokens, posicao, diretorio):
             return True
-        if nome == "eval" and comando_perigoso(" ".join(tokens[posicao + 1 :])):
+        if nome == "eval" and comando_perigoso(" ".join(tokens[posicao + 1 :]), diretorio):
             return True
     return False
 
 
-def comando_perigoso(comando: str) -> bool:
-    return any(_segmento_perigoso(segmento) for segmento in _segmentos(_tokens(comando)))
+def comando_perigoso(comando: str, diretorio: str | None = None) -> bool:
+    for segmento in _segmentos(_tokens(comando)):
+        if segmento and segmento[0] in _COMANDOS_DE_DIRETORIO:
+            diretorio = _novo_diretorio(diretorio, segmento[1] if len(segmento) > 1 else None)
+        elif _segmento_perigoso(segmento, diretorio):
+            return True
+    return False
 
 
 def main() -> int:

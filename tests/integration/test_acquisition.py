@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from datetime import UTC, datetime
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from tests.fixtures.aquisicao_dados import (
@@ -38,6 +38,9 @@ from sustemporal.contracts.artifacts import (
 from sustemporal.contracts.base import CanalPublicacao, FamiliaFonte
 from sustemporal.errors import RedeProibida
 from sustemporal.hashing import sha256_arquivo
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _LIMITE = 10_000_000
 
@@ -316,9 +319,7 @@ def test_manifesto_encadeia_e_detecta_reescrita(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("operacao", ["remover", "trocar", "truncar"])
-def test_manifesto_detecta_remocao_reordenacao_e_truncamento(
-    tmp_path: Path, operacao: str
-) -> None:
+def test_manifesto_detecta_remocao_reordenacao_e_truncamento(tmp_path: Path, operacao: str) -> None:
     caminho = _manifesto_com_tres_linhas(tmp_path)
     linhas = caminho.read_text(encoding="utf-8").splitlines()
     if operacao == "remover":

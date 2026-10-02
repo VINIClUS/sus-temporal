@@ -139,10 +139,12 @@ def artefato_pa(
     competencia: str = "201801",
     parte: str = "a",
     integridade: EstadoIntegridade = EstadoIntegridade.OK,
+    formato: FormatoArquivo = FormatoArquivo.DBC,
 ) -> ArtifactVersion:
     sha256 = hashlib.sha256(dbc).hexdigest()
-    nome = f"PASP{competencia[2:]}{parte}.dbc"
-    caminho = caminho_conteudo(pasta, sha256, "dbc")
+    extensao = formato.value.lower()
+    nome = f"PASP{competencia[2:]}{parte}.{extensao}"
+    caminho = caminho_conteudo(pasta, sha256, extensao)
     caminho.parent.mkdir(parents=True, exist_ok=True)
     caminho.write_bytes(dbc)
     chave = ChaveArtefato(
@@ -159,7 +161,7 @@ def artefato_pa(
         localizador=f"sintetico://{nome}",
         sha256=sha256,
         tamanho_bytes=len(dbc),
-        formato=FormatoArquivo.DBC,
+        formato=formato,
         caminho_conteudo=str(caminho),
         leiaute_id="sia_pa.it_2019_07",
         integridade=integridade,

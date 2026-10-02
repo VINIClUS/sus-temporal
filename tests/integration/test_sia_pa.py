@@ -646,3 +646,90 @@ def test_perfil_nao_reconcilia_com_deletados_divergentes(tmp_path: Path) -> None
     errada = Reconciliacao(fisicos=3, deletados=2, canonicas=3)
     perfil = perfil_pa(ref.model_copy(update={"reconciliacao": errada}), _saida(tmp_path, "perfil"))
     assert not perfil.reconciliado
+
+
+def test_artefato_da_aquisicao_com_caminho_relativo_e_lido_fora_do_armazenamento(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sustemporal.acquisition.fetch import fetch_source
+    from sustemporal.acquisition.manifest import Manifesto
+    from sustemporal.contracts import (
+        CanalPublicacao,
+        ChaveArtefato,
+        FamiliaFonte,
+        FormatoArquivo,
+        MotivoRequisicao,
+        SourceRequest,
+    )
+
+    origem = _saida(tmp_path, "origem") / "PASP1801a.dbc"
+    origem.write_bytes(dbc_pa([registro_pa(), registro_pa(PA_INDICA="0")]))
+    chave = ChaveArtefato(
+        fonte=FamiliaFonte.SIA_PA,
+        uf="SP",
+        competencia_arquivo="201801",
+        parte="a",
+        canal=CanalPublicacao.ATUAL,
+        nome_original=origem.name,
+    )
+    requisicao = SourceRequest(
+        chave=chave,
+        localizador=origem.as_uri(),
+        formato_esperado=FormatoArquivo.DBC,
+        tamanho_maximo_bytes=10_000_000,
+        motivo=MotivoRequisicao.PRIMARIA,
+    )
+    store = _saida(tmp_path, "store")
+    observacao = fetch_source(requisicao, store)
+    assert observacao.artifact_id is not None
+    versao = Manifesto(store / "manifesto.jsonl").ler().versoes[observacao.artifact_id]
+    assert not Path(versao.caminho_conteudo).is_absolute()
+    monkeypatch.chdir(_saida(tmp_path, "outro_diretorio"))
+    runtime = RuntimeConfig.model_validate({"raiz_dados": str(store)})
+    ref = normalize_pa(versao, leiaute_pa(), _saida(tmp_path), runtime=runtime)
+    assert ref.linhas == 2
+
+
+def test_ramo_dbf_parseia_a_copia_conferida_pelo_sha256(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    from sustemporal.contracts import FormatoArquivo
+    from sustemporal.ingest import sia_pa
+    from sustemporal.ingest.dbc import descomprimir_dbc
+
+    lidos: list[tuple[Path, str]] = []
+    original = sia_pa.ler_dbf_arquivo
+
+    def espiao(caminho: Path, **kwargs: Any) -> Any:
+        lidos.append((caminho, hashlib.sha256(caminho.read_bytes()).hexdigest()))
+        return original(caminho, **kwargs)
+
+    monkeypatch.setattr(sia_pa, "ler_dbf_arquivo", espiao)
+    dbf = descomprimir_dbc(dbc_pa([registro_pa()]))[0]
+    artefato = artefato_pa(_saida(tmp_path, "artefatos"), dbf, formato=FormatoArquivo.DBF)
+    ref = normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert ref.linhas == 1
+    ((caminho, sha256),) = lidos
+    assert sha256 == artefato.sha256
+    assert caminho != Path(artefato.caminho_conteudo)
+
+
+def test_label_pa_recusa_codebook_de_outro_campo(tmp_path: Path) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()])
+    outro = tmp_path / "outro_campo.yaml"
+    outro.write_text(
+        CAMINHO_CODEBOOK.read_text(encoding="utf-8").replace("campo: PA_INDICA", "campo: PA_SEXO"),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="codebook_campo"):
+        label_pa(ref, outro, _saida(tmp_path, "rotulos"))
+
+
+def test_perfil_recusa_codigo_maiusculo_no_codebook(tmp_path: Path) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()])
+    codebook = tmp_path / "maiusculo.yaml"
+    codebook.write_text('codigos:\n  "A": APROVADO_TOTAL\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="codebook_codigo_invalido"):
+        perfil_pa(ref, _saida(tmp_path, "perfil"), codebook=codebook)

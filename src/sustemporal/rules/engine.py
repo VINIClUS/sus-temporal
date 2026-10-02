@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     from sustemporal.contracts.temporal import PoliticaTemporal
     from sustemporal.rules.preparo import Auxiliar
 
-__all__ = ["InsumosAvaliacao", "calcular_run_id", "evaluate_rules"]
+__all__ = ["InsumosAvaliacao", "calcular_run_id", "evaluate_rules", "montar_consulta"]
 
 logger = logging.getLogger(__name__)
 
@@ -129,6 +129,11 @@ def _parametros(
         "ds_auxiliar": auxiliar.dataset.dataset_id if auxiliar.dataset else None,
         "hash_auxiliar": auxiliar.dataset.hash_logico if auxiliar.dataset else None,
     }
+
+
+def montar_consulta(regra: RuleSpec) -> str:
+    """SQL executado para a regra (modelo comum com marcadores resolvidos)."""
+    raise NotImplementedError
 
 
 def _avaliar_regra(

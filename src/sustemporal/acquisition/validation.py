@@ -26,6 +26,7 @@ _BOM = b"\xef\xbb\xbf"
 # Versões dBASE aceitas: III sem (0x03) e com memo (0x83); outras ficam A_CONFIRMAR.
 _VERSOES_DBF = {0x03, 0x83}
 _TERMINADOR_DBF = 0x0D
+_FIM_DBF = b"\x1a"
 _CABECALHO_DBF_MINIMO = 33
 _CAUDA_PDF = 1024
 _ASSINATURAS_ZIP = (b"PK\x03\x04", b"PK\x05\x06")
@@ -114,6 +115,12 @@ def _tamanho_dbf_confere(dbf: Path, cabecalho: tuple[int, int, int]) -> Veredito
         return _truncado(f"dbc_descomprimido_curto esperado={esperado} tamanho={tamanho}")
     if tamanho > esperado + 1:
         return _inesperado(f"dbc_descomprimido_longo esperado={esperado} tamanho={tamanho}")
+    if tamanho == esperado + 1:
+        with dbf.open("rb") as arquivo:
+            arquivo.seek(esperado)
+            final = arquivo.read(1)
+        if final != _FIM_DBF:
+            return _inesperado(f"dbc_descomprimido_byte_final byte={final.hex()}")
     return _OK
 
 

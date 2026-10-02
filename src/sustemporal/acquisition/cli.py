@@ -113,7 +113,6 @@ def _por_listagem(
     encontradas = {r.chave.competencia_arquivo for r in requisicoes}
     for competencia in pedidas:
         if competencia not in encontradas:
-            logger.warning("competencia_ausente fonte=%s competencia=%s", fonte, competencia)
             contexto.ausentes.append((fonte, competencia))
     return requisicoes
 

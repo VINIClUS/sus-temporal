@@ -112,6 +112,19 @@
     "title": "ChaveArtefato",
     "type": "object"
    },
+   "EstadoIntegridade": {
+    "enum": [
+     "OK",
+     "QUARENTENA_TRUNCADO",
+     "QUARENTENA_CHECKSUM",
+     "QUARENTENA_CONTEUDO_INESPERADO",
+     "QUARENTENA_LEIAUTE",
+     "QUARENTENA_CAMINHO_INSEGURO",
+     "NAO_VERIFICADO"
+    ],
+    "title": "EstadoIntegridade",
+    "type": "string"
+   },
    "FamiliaFonte": {
     "enum": [
      "SIA_PA",
@@ -124,6 +137,21 @@
      "DOCUMENTO"
     ],
     "title": "FamiliaFonte",
+    "type": "string"
+   },
+   "FormatoArquivo": {
+    "enum": [
+     "DBC",
+     "DBF",
+     "ZIP",
+     "TXT",
+     "CSV",
+     "PDF",
+     "HTML",
+     "YAML",
+     "OUTRO"
+    ],
+    "title": "FormatoArquivo",
     "type": "string"
    },
    "MetadadosRemotos": {
@@ -207,6 +235,28 @@
    "ferramenta": {
     "title": "Ferramenta",
     "type": "string"
+   },
+   "formato": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/FormatoArquivo"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
+   },
+   "integridade": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/EstadoIntegridade"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
    },
    "localizador": {
     "anyOf": [
@@ -713,6 +763,28 @@
      "ferramenta": {
       "title": "Ferramenta",
       "type": "string"
+     },
+     "formato": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/FormatoArquivo"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "integridade": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/EstadoIntegridade"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
      },
      "localizador": {
       "anyOf": [

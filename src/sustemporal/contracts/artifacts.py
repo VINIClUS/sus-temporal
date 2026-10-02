@@ -167,6 +167,8 @@ class ArtifactObservation(ContratoBase):
     ferramenta: str
     erro: str | None = None
     localizador: str | None = None
+    integridade: EstadoIntegridade | None = None
+    formato: FormatoArquivo | None = None
 
     @model_validator(mode="after")
     def _coerencia(self) -> ArtifactObservation:

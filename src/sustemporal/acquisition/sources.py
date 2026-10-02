@@ -210,7 +210,7 @@ def requisicoes_da_listagem(
         expressao = item.expressao(uf, competencia)
         achados = [a for nome in listados if (a := expressao.fullmatch(nome))]
         if not achados:
-            logger.info(
+            logger.warning(
                 "competencia_sem_arquivo_na_listagem fonte=%s competencia=%s", fonte, competencia
             )
         requisicoes += [

@@ -213,7 +213,13 @@ def _guardar_validado(
         else ResultadoTentativa.OBTIDO
     )
     return tentativa.registrar(
-        resultado, versao, artifact_id=versao.artifact_id, erro=veredito.motivo, **campos
+        resultado,
+        versao,
+        artifact_id=versao.artifact_id,
+        erro=veredito.motivo,
+        integridade=veredito.integridade,
+        formato=request.formato_esperado,
+        **campos,
     )
 
 

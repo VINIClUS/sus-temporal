@@ -77,7 +77,9 @@ sintéticas, stubs, fixtures).
   recusam push forçado ou não fast-forward, remoção de ref e push para `main`. O hook do Bash
   recusa também `git push --no-verify`, troca de `core.hooksPath` por `-c`/`--config-env`,
   `git send-pack`, `gh pr merge` e `gh api` com `DELETE` ou caminho com `/merge`, `/merges` ou
-  `/git/refs`.
+  `/git/refs`. Push implícito e alias persistido são resolvidos no repositório do comando (`cd`,
+  `-C`, `--git-dir`, `--work-tree`, `GIT_DIR`, `GIT_WORK_TREE`); com repositório indeterminado
+  (`$VAR`, `~`, `cd -`), push implícito e subcomando que não é builtin do git são recusados.
 - MCP do GitHub: o hook PreToolUse `.claude/hooks/bloquear_mcp_github.py` (matcher
   `mcp__github__.*`) recusa `merge_pull_request`, `enable_pr_auto_merge` e `delete_file`, e
   qualquer ferramenta cujo `tool_input` tenha `branch`, `ref` ou `head` igual a `main` ou

@@ -110,11 +110,26 @@ def _resolver(comando: str) -> tuple[ModuleType | None, Manipulador | None]:
     return modulo, funcao if callable(funcao) else None
 
 
-def _exigir_portoes(comando: str, config: RunConfig) -> None:
-    if comando == "freeze":
+def _exigir_portoes(args: argparse.Namespace, config: RunConfig) -> None:
+    if args.comando == "freeze":
         exigir_portao(DIR_DECISOES, Portao.G0)
-    if comando == "evaluate" and config.modo is ModoExecucao.CONFIRMATORIO:
-        exigir_confirmatorio_valido(config, config.origem_dados or OrigemDados.SINTETICO)
+    if args.comando == "evaluate":
+        _exigir_portao_da_avaliacao(args, config)
+
+
+def _exigir_portao_da_avaliacao(args: argparse.Namespace, config: RunConfig) -> None:
+    confirmatoria = config.modo is ModoExecucao.CONFIRMATORIO
+    if args.exploratory:
+        if confirmatoria:
+            raise PortaoRecusado("evaluate_exploratory_com_config_confirmatoria")
+        return
+    if not confirmatoria:
+        raise PortaoRecusado("evaluate_sem_exploratory_exige_config_confirmatoria")
+    if args.freeze != config.freeze_id:
+        raise PortaoRecusado(
+            f"evaluate_freeze_diverge_da_config freeze={args.freeze} config={config.freeze_id}"
+        )
+    exigir_confirmatorio_valido(config, config.origem_dados or OrigemDados.SINTETICO)
 
 
 def _executar(funcao: Manipulador, args: argparse.Namespace, config: RunConfig) -> int:
@@ -144,7 +159,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.error("config_invalida comando=%s erro=%s", args.comando, erro)
         return ExitCode.CONFIG_INVALIDA
     try:
-        _exigir_portoes(args.comando, config)
+        _exigir_portoes(args, config)
     except PortaoRecusado as erro:
         logger.error("portao_recusado comando=%s erro=%s", args.comando, erro)
         return ExitCode.PORTAO_RECUSADO

@@ -29,6 +29,7 @@ _OPCOES_PUSH_COM_VALOR = {"-o", "--push-option", "--repo", "--receive-pack", "--
 _ORIGENS_IMPLICITAS = {"HEAD", "@"}
 _COMANDOS_DE_DIRETORIO = {"cd", "pushd"}
 _INDETERMINADO = "\x00indeterminado"
+_ALIAS_DESCONHECIDO = "\x00alias_desconhecido"
 
 
 def _tokens(comando: str) -> list[str]:
@@ -61,6 +62,17 @@ def _novo_diretorio(atual: str | None, destino: str | None) -> str:
     return os.path.join(atual, destino)
 
 
+def _registrar_alias(aliases: dict[str, str], opcao: str, valor: str) -> None:
+    nome, _, expansao = valor.partition("=")
+    if not nome.lower().startswith("alias."):
+        return
+    alias = nome[len("alias.") :].lower()
+    if opcao == "-c":
+        aliases[alias] = expansao
+    elif opcao == "--config-env":
+        aliases[alias] = _ALIAS_DESCONHECIDO
+
+
 def _subcomando_git(
     tokens: list[str], inicio: int, diretorio: str | None
 ) -> tuple[int, dict[str, str], str | None]:
@@ -68,11 +80,12 @@ def _subcomando_git(
     indice = inicio
     while indice < len(tokens):
         opcao = tokens[indice]
-        if opcao in _OPCOES_GIT_COM_VALOR:
+        if opcao.startswith("--config-env="):
+            _registrar_alias(aliases, "--config-env", opcao.partition("=")[2])
+            indice += 1
+        elif opcao in _OPCOES_GIT_COM_VALOR:
             valor = tokens[indice + 1] if indice + 1 < len(tokens) else ""
-            nome, _, expansao = valor.partition("=")
-            if opcao == "-c" and nome.lower().startswith("alias."):
-                aliases[nome[len("alias.") :].lower()] = expansao
+            _registrar_alias(aliases, opcao, valor)
             if opcao == "-C":
                 diretorio = _novo_diretorio(diretorio, valor)
             indice += 2
@@ -92,6 +105,8 @@ def _argumento_perigoso(token: str) -> bool:
 
 
 def _alias_perigoso(expansao: str, resto: list[str], diretorio: str | None) -> bool:
+    if expansao == _ALIAS_DESCONHECIDO:
+        return True
     argumentos = " ".join(shlex.quote(token) for token in resto)
     if expansao.startswith("!"):
         return comando_perigoso(f"{expansao[1:]} {argumentos}", diretorio)

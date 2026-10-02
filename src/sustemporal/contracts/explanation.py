@@ -117,6 +117,9 @@ class ExplanationBundle(ContratoBase):
             raise ValueError(f"explicacao_mistura_registros bundle={self.bundle_id}")
         if any(avaliacao.run_id != self.run_id for avaliacao in self.avaliacoes):
             raise ValueError(f"explicacao_mistura_execucoes bundle={self.bundle_id}")
+        identificadores = [evidencia.evidence_id for evidencia in self.evidencias]
+        if len(set(identificadores)) != len(identificadores):
+            raise ValueError(f"evidencia_repetida bundle={self.bundle_id}")
         self._referencias_resolvem()
         self._violacoes_sustentadas()
         self._evidencias_nas_selecoes()

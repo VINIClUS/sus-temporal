@@ -764,11 +764,13 @@
       "type": "array"
      },
      "dataset_hash": {
+      "pattern": "^lh1:[0-9a-f]{64}$",
       "title": "Dataset Hash",
       "type": "string"
      },
      "hash_por_particao": {
       "additionalProperties": {
+       "pattern": "^lh1:[0-9a-f]{64}$",
        "type": "string"
       },
       "propertyNames": {
@@ -1501,11 +1503,13 @@
     "type": "array"
    },
    "dataset_hash": {
+    "pattern": "^lh1:[0-9a-f]{64}$",
     "title": "Dataset Hash",
     "type": "string"
    },
    "hash_por_particao": {
     "additionalProperties": {
+     "pattern": "^lh1:[0-9a-f]{64}$",
      "type": "string"
     },
     "propertyNames": {

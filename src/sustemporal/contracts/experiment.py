@@ -18,6 +18,7 @@ from sustemporal.contracts.base import (
     Data,
     DecimalExato,
     DocRef,
+    HashLogico,
     Identificador,
     InstanteUTC,
     Inteiro,
@@ -179,9 +180,9 @@ class SplitSpec(ContratoBase):
 class SplitManifest(ContratoBase):
     split_id: Identificador
     spec: SplitSpec
-    dataset_hash: str
+    dataset_hash: HashLogico
     linhas_por_particao: dict[Particao, InteiroNaoNegativo]
-    hash_por_particao: dict[Particao, str]
+    hash_por_particao: dict[Particao, HashLogico]
     artefatos_inspecionados: tuple[ArtifactId, ...] = ()
     artefatos_teste: tuple[ArtifactId, ...] = ()
 

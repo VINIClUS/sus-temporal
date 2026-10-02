@@ -266,10 +266,10 @@ def test_particao_de_teste_nao_precede_desenvolvimento() -> None:
 
 
 def test_manifesto_rejeita_artefato_de_teste_ja_inspecionado() -> None:
-    campos = {"split_id": "split_1", "spec": _split(), "dataset_hash": _SHA}
+    campos = {"split_id": "split_1", "spec": _split(), "dataset_hash": f"lh1:{_SHA}"}
     contagens = {
         "linhas_por_particao": dict.fromkeys(Particao, 1),
-        "hash_por_particao": dict.fromkeys(Particao, _SHA),
+        "hash_por_particao": dict.fromkeys(Particao, f"lh1:{_SHA}"),
     }
     disjunto = SplitManifest(**campos, **contagens, artefatos_teste=(_ART_A,))
     assert disjunto.artefatos_teste == (_ART_A,)

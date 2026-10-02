@@ -6,8 +6,10 @@ Cada campo normalizado guarda o valor, o texto bruto (latin-1, sem aparar) e o m
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
+import tempfile
 from contextlib import closing
 from dataclasses import dataclass
 from importlib import metadata
@@ -30,7 +32,7 @@ from sustemporal.contracts import (
 )
 from sustemporal.duck import conectar, identificador_seguro
 from sustemporal.hashing import hash_logico_relacao, sha256_arquivo
-from sustemporal.ingest.dbc import ler_dbc, ler_dbc_arquivo, verificar_fidelidade
+from sustemporal.ingest.dbc import ler_dbc_arquivo, verificar_fidelidade
 from sustemporal.ingest.dbf import (
     COLUNA_DELETADO,
     COLUNA_INDICE,
@@ -146,17 +148,25 @@ def _exigir_integro(artifact: ArtifactVersion, layout: LayoutSpec) -> Path:
 
 
 def _ler(artifact: ArtifactVersion, caminho: Path, runtime: RuntimeConfig) -> LeituraDbf:
+    """Lê os bytes uma vez; a mesma cópia vai à descompressão limitada e à fidelidade."""
     if artifact.formato is FormatoArquivo.DBF:
         return ler_dbf_arquivo(caminho)
     if artifact.formato is not FormatoArquivo.DBC:
         raise QuarentenaLeitura(
             EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO, f"formato={artifact.formato}"
         )
+    dados = caminho.read_bytes()
+    if hashlib.sha256(dados).hexdigest() != artifact.sha256:
+        raise QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_CHECKSUM, f"sha256_divergente id={artifact.artifact_id}"
+        )
+    with tempfile.TemporaryDirectory() as nome_pasta:
+        copia = Path(nome_pasta) / "artefato.dbc"
+        copia.write_bytes(dados)
+        leitura = ler_dbc_arquivo(copia, dir_temporario=Path(nome_pasta)).leitura
     modo = runtime.verificacao_fidelidade
     if modo == "DESLIGADA":
-        return ler_dbc_arquivo(caminho).leitura
-    dados = caminho.read_bytes()
-    leitura = ler_dbc(dados).leitura
+        return leitura
     relatorio = verificar_fidelidade(dados, leitura, modo)
     if not relatorio.fiel:
         raise QuarentenaLeitura(

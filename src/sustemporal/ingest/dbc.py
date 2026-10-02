@@ -185,7 +185,7 @@ def ler_dbc(dados: bytes, *, tamanho_bloco: int = TAMANHO_BLOCO_PADRAO) -> Leitu
 def _limite_declarado(prefixo: bytes) -> int:
     """Teto de bytes do DBF descomprimido: H + n × R + 1 (0x1A opcional), do cabeçalho."""
     n_registros, tam_cabecalho, tam_registro = struct.unpack_from("<IHH", prefixo, 4)
-    return tam_cabecalho + n_registros * tam_registro + 1
+    return int(tam_cabecalho) + int(n_registros) * int(tam_registro) + 1
 
 
 def _descomprimir_arquivo(origem: Path, destino: Path, limite: int) -> None:

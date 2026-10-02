@@ -1,0 +1,13 @@
+# Coorte (plano §7): DRS XI de 2018 a 2025 por competência de processamento. Pertença fixa ou
+# histórica decidida no piloto, antes de construir a coorte.
+base: runtime.yaml
+coorte:
+  cohort_id: drs_xi_2018_2025
+  uf: SP
+  territorio: catalog/territorio/drs_xi.yaml
+  criterio_geografico: MUNICIPIO_ESTABELECIMENTO
+  pertenca: A_DEFINIR
+  inicio: 201801
+  fim: 202512
+metodos: [M_TEMP, B_ATEND, B_PROC]
+politica_id: M_TEMP_PADRAO

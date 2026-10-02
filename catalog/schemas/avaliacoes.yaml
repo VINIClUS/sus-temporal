@@ -1,0 +1,70 @@
+schema_id: avaliacoes.v1
+descricao: >-
+  Avaliações V(r, g, S, p) por execução, registro e regra, espelho de RuleEvaluation; as seleções
+  ficam em selecao_versoes.v1 e as evidências em evidencias.v1. O estado é coerente com
+  decidir_estado; falha de programa vai para falhas.v1, nunca para um estado. Cada execução avalia
+  um único método e uma única política.
+chave: [run_id, row_id, rule_id]
+colunas:
+  - nome: run_id
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Execução (RunResult.run_id).
+  - nome: row_id
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Registro avaliado.
+  - nome: rule_id
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Regra (RuleSpec.rule_id).
+  - nome: versao
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Versão semântica da regra.
+  - nome: politica_id
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Política temporal aplicada.
+  - nome: metodo
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: MetodoId.
+  - nome: estado
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: >-
+      EstadoAvaliacao: CONFORME, VIOLACAO, INCONCLUSIVO ou NAO_APLICAVEL.
+  - nome: aplicabilidade
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Aplicabilidade.
+  - nome: insumos_completos
+    tipo: BOOLEANO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Todos os insumos necessários presentes.
+  - nome: incompatibilidade_demonstrada
+    tipo: BOOLEANO
+    papel: DIAGNOSTICO
+    descricao: Incompatibilidade demonstrada; nula quando não determinada.
+  - nome: motivos
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: >-
+      MotivoInconclusao, ordenados, sem repetição e unidos por ';'; texto vazio quando não há.
+  - nome: evidence_ids
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: >-
+      Evidências citadas, ordenados, sem repetição e unidos por ';'; texto vazio quando não há.

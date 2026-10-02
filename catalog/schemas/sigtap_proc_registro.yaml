@@ -1,0 +1,36 @@
+schema_id: sigtap_proc_registro.v1
+descricao: >-
+  Relação procedimento–instrumento de registro do SIGTAP (rl_procedimento_registro): uma linha por
+  competência, procedimento, instrumento e versão de conteúdo de cada zip
+  TabelaUnificada_{AAAAMM}_v{geração}.zip (O10, O11), arquivo de largura fixa em ISO-8859-1 lido com
+  o *_layout.txt do próprio zip. A relação é um conjunto; duplicatas exatas do arquivo entram na
+  reconciliação. Leiaute 2026-02 CO_PROCEDIMENTO 1–10, CO_REGISTRO 11–12, DT_COMPETENCIA 13–18 (S16,
+  SECUNDARIA). Códigos de tb_registro 2026-02: 01 BPA consolidado, 02 BPA individualizado, 03 a 05
+  AIH, 06 APAC principal, 07 APAC secundário, 08 RAAS atenção domiciliar, 09 RAAS psicossocial, 10
+  e-SUS APS (S16, SECUNDARIA). Correspondência com PA_DOCORIG (C 01, I 02, P 06, S 07, A 08, B 09)
+  INFERIDA dos rótulos; A_CONFIRMAR.
+chave: [dt_competencia, co_procedimento, co_registro, artifact_id]
+colunas:
+  - nome: dt_competencia
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: >-
+      DT_COMPETENCIA: competência AAAAMM da tabela.
+  - nome: co_procedimento
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: >-
+      CO_PROCEDIMENTO: procedimento, 10 dígitos com zeros à esquerda.
+  - nome: co_registro
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: >-
+      CO_REGISTRO: instrumento de registro, 2 dígitos com zeros à esquerda.
+  - nome: artifact_id
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: Versão de conteúdo do zip da Tabela Unificada.

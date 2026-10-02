@@ -1,0 +1,59 @@
+schema_id: selecao_versoes.v1
+descricao: >-
+  Seleção de versões por execução, registro, regra e fonte, espelho de SelecaoVersao: qual versão de
+  conteúdo de cada fonte a política temporal escolheu ou por que não escolheu; nunca o mês vizinho
+  por padrão. Cada execução avalia um único método e uma única política.
+chave: [run_id, row_id, rule_id, fonte]
+colunas:
+  - nome: run_id
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Execução (RunResult.run_id).
+  - nome: row_id
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Registro avaliado.
+  - nome: rule_id
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Regra (RuleSpec.rule_id).
+  - nome: fonte
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: FamiliaFonte da dependência.
+  - nome: base
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: BaseTemporal aplicada (ATENDIMENTO ou PROCESSAMENTO); nula quando não resolvida.
+  - nome: competencia_requerida
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: CompetenciaArquivo requerida, AAAAMM; nula quando não resolvida.
+  - nome: estado
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: EstadoSelecao.
+  - nome: artifact_ids
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: >-
+      Versões selecionadas ou candidatas, ordenados, sem repetição e unidos por ';'; texto vazio
+      quando não há.
+  - nome: observation_ids
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: >-
+      Observações de coleta usadas, ordenados, sem repetição e unidos por ';'; texto vazio quando
+      não há.
+  - nome: motivo
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Justificativa reproduzível da seleção ou da abstenção.

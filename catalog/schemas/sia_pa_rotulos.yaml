@@ -1,0 +1,53 @@
+schema_id: sia_pa_rotulos.v1
+descricao: >-
+  Rótulos do SIA-PA: uma linha por row_id de sia_pa.v1, com PA_INDICA bruto, rótulo normalizado por
+  codebook versionado (catalog/labels/) e contradições com quantidades e valores. Codebook de
+  partida 0 NAO_APROVADO, 5 APROVADO_TOTAL e 6 APROVADO_PARCIAL (W1 e S6, SECUNDARIA; cobertura
+  uniforme em 2018 a 2025 A_CONFIRMAR); outros valores DESCONHECIDO. O rótulo nunca é corrigido
+  automaticamente; nenhuma coluna é atributo de predição.
+chave: [row_id]
+colunas:
+  - nome: row_id
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Ocorrência em sia_pa.v1.
+  - nome: pa_indica_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: >-
+      Texto de PA_INDICA como lido; nulo só quando o campo não existe no leiaute do arquivo.
+  - nome: rotulo
+    tipo: TEXTO
+    papel: ROTULO
+    anulavel: false
+    descricao: >-
+      CodigoRotulo: NAO_APROVADO, APROVADO_TOTAL, APROVADO_PARCIAL ou DESCONHECIDO.
+  - nome: codebook_id
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: doc_id do codebook versionado que decodificou o rótulo (origem do código).
+  - nome: quantidade_apresentada
+    tipo: INTEIRO
+    papel: DIAGNOSTICO
+    descricao: Cópia de sia_pa.v1.quantidade_apresentada (PA_QTDPRO) para checar contradições.
+  - nome: quantidade_aprovada
+    tipo: INTEIRO
+    papel: DIAGNOSTICO
+    descricao: Cópia de sia_pa.v1.quantidade_aprovada (PA_QTDAPR).
+  - nome: valor_apresentado
+    tipo: DECIMAL
+    papel: DIAGNOSTICO
+    descricao: Cópia de sia_pa.v1.valor_apresentado (PA_VALPRO).
+  - nome: valor_aprovado
+    tipo: DECIMAL
+    papel: DIAGNOSTICO
+    descricao: Cópia de sia_pa.v1.valor_aprovado (PA_VALAPR).
+  - nome: contradicoes
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: >-
+      Códigos de contradição entre rótulo e quantidades ou valores, ordenados, sem repetição e
+      unidos por ';'; texto vazio quando não há.

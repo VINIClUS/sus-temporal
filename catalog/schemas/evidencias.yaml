@@ -1,0 +1,70 @@
+schema_id: evidencias.v1
+descricao: >-
+  Evidências por consulta, espelho de Evidence: consulta parametrizada, conjunto consultado,
+  cobertura e integridade. Ausência só sustenta violação com cobertura DISPONIVEL, integridade OK e
+  zero resultados; resultado vazio não prova inexistência no mundo real.
+chave: [evidence_id]
+colunas:
+  - nome: evidence_id
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Identificador da evidência.
+  - nome: tipo
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: TipoEvidencia.
+  - nome: query_id
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Identificador da consulta parametrizada.
+  - nome: sql_sha256
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: SHA-256 do texto SQL parametrizado.
+  - nome: parametros
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: >-
+      Parâmetros da consulta em JSON canônico (json_canonico, chaves ordenadas); {} quando vazio.
+  - nome: dataset_id
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: DatasetRef consultado (ds_…).
+  - nome: hash_logico
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: Hash lógico lh1 do conjunto consultado.
+  - nome: artifact_ids
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: >-
+      Versões de conteúdo consultadas, ordenados, sem repetição e unidos por ';'; texto vazio quando
+      não há.
+  - nome: cobertura
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: EstadoCobertura.
+  - nome: integridade
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: EstadoIntegridade.
+  - nome: n_resultados
+    tipo: INTEIRO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Número de linhas devolvidas pela consulta.
+  - nome: chaves_amostra
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Até 20 chaves encontradas, em JSON canônico (lista); [] quando vazio.

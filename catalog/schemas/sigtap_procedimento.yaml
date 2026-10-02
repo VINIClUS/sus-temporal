@@ -1,0 +1,112 @@
+schema_id: sigtap_procedimento.v1
+descricao: >-
+  Procedimentos do SIGTAP (tb_procedimento): uma linha por competência, procedimento e versão de
+  conteúdo de cada zip TabelaUnificada_{AAAAMM}_v{geração}.zip (O10, O11), arquivo de largura fixa
+  em ISO-8859-1 lido com o *_layout.txt do próprio zip; as larguras de VL_SH, VL_SA e VL_SP mudaram
+  (10 nas cópias de 2018-09, 2023-07 e 2023-10; 12 na cópia 2026-02, S16). Leiautes e LEIA_ME (S17)
+  SECUNDARIA; A_CONFIRMAR.
+chave: [dt_competencia, co_procedimento, artifact_id]
+colunas:
+  - nome: dt_competencia
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: >-
+      DT_COMPETENCIA: competência AAAAMM da tabela.
+  - nome: co_procedimento
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: >-
+      CO_PROCEDIMENTO: procedimento, 10 dígitos com zeros à esquerda.
+  - nome: artifact_id
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: Versão de conteúdo do zip da Tabela Unificada.
+  - nome: no_procedimento
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      NO_PROCEDIMENTO: nome do procedimento.
+  - nome: tp_complexidade
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: TP_COMPLEXIDADE; valores 0 a 3 observados em 2026-02 (S16).
+  - nome: tp_sexo
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: TP_SEXO; valores I, N, F e M observados em 2026-02 (S16); significado A_CONFIRMAR.
+  - nome: qt_maxima_execucao
+    tipo: INTEIRO
+    papel: ATRIBUTO
+    descricao: QT_MAXIMA_EXECUCAO; unidade de contagem por instrumento A_CONFIRMAR (plano §5, W7).
+  - nome: qt_dias_permanencia
+    tipo: INTEIRO
+    papel: ATRIBUTO
+    descricao: QT_DIAS_PERMANENCIA.
+  - nome: qt_pontos
+    tipo: INTEIRO
+    papel: ATRIBUTO
+    descricao: QT_PONTOS.
+  - nome: vl_idade_minima
+    tipo: INTEIRO
+    papel: ATRIBUTO
+    descricao: >-
+      VL_IDADE_MINIMA em meses (LEIA_ME, S17, SECUNDARIA); 9999 vira nulo com motivo SENTINELA.
+  - nome: vl_idade_minima_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de VL_IDADE_MINIMA como lido.
+  - nome: vl_idade_minima_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: >-
+      SENTINELA quando o texto é 9999 (segundo o LEIA_ME, não se aplica o fator idade; a
+      interpretação cabe à regra) ou outro MotivoAusencia quando o valor é nulo.
+  - nome: vl_idade_maxima
+    tipo: INTEIRO
+    papel: ATRIBUTO
+    descricao: >-
+      VL_IDADE_MAXIMA em meses (LEIA_ME, S17, SECUNDARIA); 9999 vira nulo com motivo SENTINELA.
+  - nome: vl_idade_maxima_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de VL_IDADE_MAXIMA como lido.
+  - nome: vl_idade_maxima_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: >-
+      SENTINELA quando o texto é 9999 (segundo o LEIA_ME, não se aplica o fator idade; a
+      interpretação cabe à regra) ou outro MotivoAusencia quando o valor é nulo.
+  - nome: vl_sh
+    tipo: DECIMAL
+    papel: ATRIBUTO
+    descricao: >-
+      VL_SH: valor do serviço hospitalar em reais; casas decimais implícitas no arquivo (INFERIDA).
+  - nome: vl_sa
+    tipo: DECIMAL
+    papel: ATRIBUTO
+    descricao: >-
+      VL_SA: valor do serviço ambulatorial em reais; casas decimais implícitas no arquivo
+      (INFERIDA).
+  - nome: vl_sp
+    tipo: DECIMAL
+    papel: ATRIBUTO
+    descricao: >-
+      VL_SP: valor do serviço profissional em reais; casas decimais implícitas no arquivo
+      (INFERIDA).
+  - nome: co_financiamento
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      CO_FINANCIAMENTO: tipo de financiamento.
+  - nome: co_rubrica
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      CO_RUBRICA: rubrica do financiamento.
+  - nome: qt_tempo_permanencia
+    tipo: INTEIRO
+    papel: ATRIBUTO
+    descricao: QT_TEMPO_PERMANENCIA.

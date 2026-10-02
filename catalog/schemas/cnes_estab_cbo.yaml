@@ -1,0 +1,36 @@
+schema_id: cnes_estab_cbo.v1
+descricao: >-
+  CNES PF reduzido a contagens por estabelecimento–CBO: uma linha por competência do arquivo, CNES,
+  CBO e versão de conteúdo. Nenhum identificador ou atributo de profissional (CPF, CNS, nome,
+  registro em conselho, vínculo individual) entra no esquema; a verificação cadastral fica no nível
+  estabelecimento–CBO, sem inferir o vínculo de um profissional específico. Fonte PF{UF}{AAMM}.dbc
+  em /dissemin/publicos/CNES/200508_/Dados/PF/ (O14, SECUNDARIA); leiaute PF de 40 campos observado
+  pelo CnesData (S33, SECUNDARIA); IT CNES 1706 (O7) ainda não lido; A_CONFIRMAR. Linhas com CNES ou
+  CBO inválido ficam fora das contagens e entram na reconciliação.
+chave: [competencia_arquivo, cnes, cbo, artifact_id]
+colunas:
+  - nome: competencia_arquivo
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Competência AAAAMM do arquivo PF (CompetenciaArquivo).
+  - nome: cnes
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Campo CNES, 7 dígitos com zeros à esquerda.
+  - nome: cbo
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Campo CBO, 6 caracteres [0-9A-Z].
+  - nome: artifact_id
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: Versão de conteúdo do arquivo PF.
+  - nome: n_vinculos
+    tipo: INTEIRO
+    papel: ATRIBUTO
+    anulavel: false
+    descricao: Número de linhas do PF com o par (CNES, CBO); conta vínculos, não pessoas.

@@ -1,0 +1,542 @@
+schema_id: sia_pa.v1
+descricao: >-
+  Produção ambulatorial do SIA-PA. Uma linha por registro físico de cada arquivo
+  PA{UF}{AAMM}[parte].dbc, inclusive registros marcados como deletados, sem deduplicação; row_id
+  identifica uma ocorrência no arquivo, não paciente, tentativa nem reapresentação. Ordem dos 60
+  campos do Informe Técnico SIASUS 2019-07 (O1) INFERIDA de transcrições secundárias (S6 a S8);
+  posições 14, 15, 50 a 53 e 58 SECUNDARIA; nomes, tipos e significados A_CONFIRMAR contra O1
+  preservado e arquivos reais. Papéis: ATRIBUTO só para campos informados antes do processamento;
+  PA_INDICA é ROTULO; campos de erro, quantidades e valores aprovados ou calculados no processamento
+  e campos cuja observabilidade prévia é A_CONFIRMAR são DIAGNOSTICO; ROTULO e DIAGNOSTICO nunca são
+  atributos de predição. Cada campo normalizado X tem X_bruto (texto do campo decodificado em
+  latin-1, sem aparar; nulo só quando o campo não existe no leiaute do arquivo) e X_motivo
+  (MotivoAusencia, preenchido se e somente se X é nulo). Campos sem normalização guardam o mesmo
+  texto bruto sob o nome físico em minúsculas. Fora do esquema por minimização: PA_CNPJCPF,
+  PA_CNPJMNT, PA_CNPJ_CC, PA_AUTORIZ e PA_CNSMED (identificadores de pessoa física ou jurídica e de
+  autorização; a verificação cadastral fica no nível estabelecimento–CBO).
+chave: [row_id]
+colunas:
+  - nome: row_id
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: >-
+      Ocorrência no arquivo (RowLocator.row_id): artifact_id, membro opcional e índice físico.
+  - nome: artifact_id
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: Versão de conteúdo (art_…) do arquivo de origem.
+  - nome: membro
+    tipo: TEXTO
+    papel: LINHAGEM
+    descricao: Membro do arquivo compactado, quando houver.
+  - nome: indice_registro
+    tipo: INTEIRO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: Posição física do registro no DBF (RowLocator.indice), contando registros deletados.
+  - nome: deletado
+    tipo: BOOLEANO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: Registro marcado como deletado no DBF; mantido para reconciliação.
+  - nome: cnes
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_CODUNI (posição 1; INFERIDA): código CNES do estabelecimento, 7 dígitos com zeros à
+      esquerda (CodigoCNES).
+  - nome: cnes_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_CODUNI como lido.
+  - nome: cnes_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de cnes nulo (MotivoAusencia).
+  - nome: pa_gestao
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_GESTAO (posição 2; INFERIDA): código da gestão; significado A_CONFIRMAR.
+  - nome: pa_condic
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_CONDIC (posição 3; INFERIDA): condição ou tipo de gestão; significado A_CONFIRMAR.
+  - nome: municipio_estabelecimento
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_UFMUN (posição 4; INFERIDA): município do estabelecimento, código IBGE de 6 dígitos
+      (CodigoMunicipio6); critério geográfico da coorte.
+  - nome: municipio_estabelecimento_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_UFMUN como lido.
+  - nome: municipio_estabelecimento_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de municipio_estabelecimento nulo (MotivoAusencia).
+  - nome: pa_regct
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_REGCT (posição 5; INFERIDA): regra contratual; significado A_CONFIRMAR.
+  - nome: pa_incout
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_INCOUT (posição 6; INFERIDA): incremento (outros); significado A_CONFIRMAR.
+  - nome: pa_incurg
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_INCURG (posição 7; INFERIDA): incremento (urgência); significado A_CONFIRMAR.
+  - nome: tipo_unidade
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_TPUPS (posição 8; INFERIDA): tipo de estabelecimento no CNES, 2 dígitos (decodificador S1,
+      SECUNDARIA).
+  - nome: tipo_unidade_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_TPUPS como lido.
+  - nome: tipo_unidade_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de tipo_unidade nulo (MotivoAusencia).
+  - nome: pa_tippre
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_TIPPRE (posição 9; INFERIDA): tipo de prestador; significado A_CONFIRMAR.
+  - nome: pa_mn_ind
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_MN_IND (posição 10; INFERIDA): estabelecimento mantido ou individual; significado
+      A_CONFIRMAR.
+  - nome: competencia_processamento
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_MVM (posição 14; SECUNDARIA, S6): competência de processamento ou movimento, AAAAMM
+      (CompetenciaProcessamento); separada da competência de atendimento.
+  - nome: competencia_processamento_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_MVM como lido.
+  - nome: competencia_processamento_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de competencia_processamento nulo (MotivoAusencia).
+  - nome: competencia_atendimento
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_CMP (posição 15; SECUNDARIA, S6): competência de realização do procedimento, AAAAMM
+      (CompetenciaAtendimento).
+  - nome: competencia_atendimento_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_CMP como lido.
+  - nome: competencia_atendimento_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de competencia_atendimento nulo (MotivoAusencia).
+  - nome: procedimento
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_PROC_ID (posição 16; INFERIDA): procedimento SIGTAP, 10 dígitos com zeros à esquerda
+      (CodigoProcedimento).
+  - nome: procedimento_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_PROC_ID como lido.
+  - nome: procedimento_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de procedimento nulo (MotivoAusencia).
+  - nome: pa_tpfin
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_TPFIN (posição 17; INFERIDA): tipo de financiamento (decodificador S1, SECUNDARIA);
+      atribuído no processamento a partir do SIGTAP (INFERIDA).
+  - nome: pa_subfin
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_SUBFIN (posição 18; INFERIDA): subtipo de financiamento; significado A_CONFIRMAR.
+  - nome: pa_nivcpl
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_NIVCPL (posição 19; INFERIDA): complexidade do procedimento; significado A_CONFIRMAR.
+  - nome: instrumento
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_DOCORIG (posição 20; INFERIDA): instrumento de registro. C BPA-C, I BPA-I, P APAC
+      principal, S APAC secundário, A RAAS atenção domiciliar, B RAAS psicossocial (S1 e S6,
+      SECUNDARIA).
+  - nome: instrumento_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_DOCORIG como lido.
+  - nome: instrumento_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de instrumento nulo (MotivoAusencia).
+  - nome: cbo
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_CBOCOD (posição 23; INFERIDA): ocupação CBO, 6 caracteres [0-9A-Z] (CodigoCBO).
+  - nome: cbo_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_CBOCOD como lido.
+  - nome: cbo_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de cbo nulo (MotivoAusencia).
+  - nome: pa_motsai
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_MOTSAI (posição 24; INFERIDA): motivo de saída ou permanência (decodificador S1,
+      SECUNDARIA).
+  - nome: pa_obito
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_OBITO (posição 25; INFERIDA): indicador de óbito; significado A_CONFIRMAR.
+  - nome: pa_encerr
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_ENCERR (posição 26; INFERIDA): indicador de encerramento; significado A_CONFIRMAR.
+  - nome: pa_perman
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_PERMAN (posição 27; INFERIDA): indicador de permanência; significado A_CONFIRMAR.
+  - nome: pa_alta
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_ALTA (posição 28; INFERIDA): indicador de alta; significado A_CONFIRMAR.
+  - nome: pa_transf
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_TRANSF (posição 29; INFERIDA): indicador de transferência; significado A_CONFIRMAR.
+  - nome: cid_principal
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_CIDPRI (posição 30; INFERIDA): CID-10 principal.
+  - nome: cid_principal_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_CIDPRI como lido.
+  - nome: cid_principal_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de cid_principal nulo (MotivoAusencia).
+  - nome: cid_secundario
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_CIDSEC (posição 31; INFERIDA): CID-10 secundário.
+  - nome: cid_secundario_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_CIDSEC como lido.
+  - nome: cid_secundario_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de cid_secundario nulo (MotivoAusencia).
+  - nome: cid_causas_associadas
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_CIDCAS (posição 32; INFERIDA): CID-10 de causas associadas.
+  - nome: cid_causas_associadas_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_CIDCAS como lido.
+  - nome: cid_causas_associadas_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de cid_causas_associadas nulo (MotivoAusencia).
+  - nome: carater_atendimento
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_CATEND (posição 33; INFERIDA): caráter de atendimento, 2 dígitos (decodificador S1,
+      SECUNDARIA; 00 e 99 indicam informação não informada ou inexistente).
+  - nome: carater_atendimento_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_CATEND como lido.
+  - nome: carater_atendimento_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de carater_atendimento nulo (MotivoAusencia).
+  - nome: idade
+    tipo: INTEIRO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_IDADE (posição 34; INFERIDA): idade do paciente, convertida só quando a unidade é conhecida
+      (idade_unidade).
+  - nome: idade_unidade
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      Unidade da idade documentada no leiaute (ANOS segundo transcrições do IT, SECUNDARIA;
+      A_CONFIRMAR); nula quando desconhecida.
+  - nome: idade_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_IDADE como lido.
+  - nome: idade_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de idade nula (MotivoAusencia); DESCONHECIDO quando a unidade não é conhecida.
+  - nome: idademin
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      IDADEMIN (posição 35; INFERIDA): idade mínima do procedimento, em anos segundo S9
+      (SECUNDARIA); copiada do SIGTAP no processamento (INFERIDA).
+  - nome: idademax
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      IDADEMAX (posição 36; INFERIDA): idade máxima do procedimento, em anos segundo S9
+      (SECUNDARIA); copiada do SIGTAP no processamento (INFERIDA).
+  - nome: pa_flidade
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_FLIDADE (posição 37; INFERIDA): compatibilidade da idade com a faixa do SIGTAP
+      (decodificador S1, SECUNDARIA); calculada no processamento (INFERIDA).
+  - nome: sexo
+    tipo: TEXTO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_SEXO (posição 38; INFERIDA): sexo informado; M e F, com 0 como não exigido segundo S1
+      (SECUNDARIA).
+  - nome: sexo_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_SEXO como lido.
+  - nome: sexo_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de sexo nulo (MotivoAusencia).
+  - nome: pa_racacor
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_RACACOR (posição 39; INFERIDA): raça/cor; só diagnóstico, nunca atributo.
+  - nome: pa_munpcn
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_MUNPCN (posição 40; INFERIDA): município de residência do paciente (ou do estabelecimento
+      no BPA-C, A_CONFIRMAR); só diagnóstico.
+  - nome: quantidade_apresentada
+    tipo: INTEIRO
+    papel: ATRIBUTO
+    descricao: >-
+      PA_QTDPRO (posição 41; INFERIDA): quantidade produzida, informada antes do processamento
+      (INFERIDA).
+  - nome: quantidade_apresentada_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_QTDPRO como lido.
+  - nome: quantidade_apresentada_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de quantidade_apresentada nulo (MotivoAusencia).
+  - nome: quantidade_aprovada
+    tipo: INTEIRO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_QTDAPR (posição 42; INFERIDA): quantidade aprovada no processamento.
+  - nome: quantidade_aprovada_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_QTDAPR como lido.
+  - nome: quantidade_aprovada_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de quantidade_aprovada nulo (MotivoAusencia).
+  - nome: valor_apresentado
+    tipo: DECIMAL
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_VALPRO (posição 43; INFERIDA): valor produzido, calculado no processamento (INFERIDA); é o
+      valor apresentado da análise P3.
+  - nome: valor_apresentado_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_VALPRO como lido.
+  - nome: valor_apresentado_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de valor_apresentado nulo (MotivoAusencia).
+  - nome: valor_aprovado
+    tipo: DECIMAL
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_VALAPR (posição 44; INFERIDA): valor aprovado no processamento.
+  - nome: valor_aprovado_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_VALAPR como lido.
+  - nome: valor_aprovado_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de valor_aprovado nulo (MotivoAusencia).
+  - nome: pa_ufdif
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_UFDIF (posição 45; INFERIDA): indicador de UF de residência diferente da UF do
+      estabelecimento; derivado no processamento (INFERIDA).
+  - nome: pa_mndif
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_MNDIF (posição 46; INFERIDA): indicador de município de residência diferente do município
+      do estabelecimento; derivado no processamento (INFERIDA).
+  - nome: pa_dif_val
+    tipo: DECIMAL
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_DIF_VAL (posição 47; INFERIDA): diferença de valor; semântica A_CONFIRMAR.
+  - nome: pa_dif_val_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_DIF_VAL como lido.
+  - nome: pa_dif_val_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de pa_dif_val nulo (MotivoAusencia).
+  - nome: nu_vpa_tot
+    tipo: DECIMAL
+    papel: DIAGNOSTICO
+    descricao: >-
+      NU_VPA_TOT (posição 48; INFERIDA): valor total; semântica A_CONFIRMAR.
+  - nome: nu_vpa_tot_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de NU_VPA_TOT como lido.
+  - nome: nu_vpa_tot_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de nu_vpa_tot nulo (MotivoAusencia).
+  - nome: nu_pa_tot
+    tipo: DECIMAL
+    papel: DIAGNOSTICO
+    descricao: >-
+      NU_PA_TOT (posição 49; INFERIDA): valor total; semântica A_CONFIRMAR.
+  - nome: nu_pa_tot_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de NU_PA_TOT como lido.
+  - nome: nu_pa_tot_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de nu_pa_tot nulo (MotivoAusencia).
+  - nome: pa_indica
+    tipo: TEXTO
+    papel: ROTULO
+    descricao: >-
+      PA_INDICA (posição 50; SECUNDARIA, S6): situação da produção (0 não aprovado, 5 aprovado
+      total, 6 aprovado parcial). Rótulo normalizado em sia_pa_rotulos.v1; nunca atributo.
+  - nome: pa_codoco
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_CODOCO (posição 51; SECUNDARIA, S6): código de ocorrência; domínio desconhecido (O8 a
+      consultar).
+  - nome: pa_flqt
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_FLQT (posição 52; SECUNDARIA, S6): indicador de erro de quantidade produzida.
+  - nome: pa_fler
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_FLER (posição 53; SECUNDARIA, S6): indicador de erro de corpo da APAC.
+  - nome: pa_etnia
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_ETNIA (posição 54; INFERIDA): etnia; só diagnóstico, nunca atributo.
+  - nome: pa_vl_cf
+    tipo: DECIMAL
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_VL_CF (posição 55; INFERIDA): valor de complemento federal; semântica A_CONFIRMAR.
+  - nome: pa_vl_cf_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_VL_CF como lido.
+  - nome: pa_vl_cf_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de pa_vl_cf nulo (MotivoAusencia).
+  - nome: pa_vl_cl
+    tipo: DECIMAL
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_VL_CL (posição 56; INFERIDA): valor de complemento local; semântica A_CONFIRMAR.
+  - nome: pa_vl_cl_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_VL_CL como lido.
+  - nome: pa_vl_cl_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de pa_vl_cl nulo (MotivoAusencia).
+  - nome: pa_vl_inc
+    tipo: DECIMAL
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_VL_INC (posição 57; INFERIDA): valor de incremento; semântica A_CONFIRMAR.
+  - nome: pa_vl_inc_bruto
+    tipo: TEXTO
+    papel: BRUTO
+    descricao: Texto de PA_VL_INC como lido.
+  - nome: pa_vl_inc_motivo
+    tipo: TEXTO
+    papel: MOTIVO
+    descricao: Motivo de pa_vl_inc nulo (MotivoAusencia).
+  - nome: pa_srv_c
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_SRV_C (posição 58; SECUNDARIA, S6 e S9; o IT o nomeia PA_SRC_C): serviço e classificação;
+      observabilidade antes do processamento A_CONFIRMAR.
+  - nome: pa_ine
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_INE (posição 59; INFERIDA): identificação nacional de equipe; significado A_CONFIRMAR.
+  - nome: pa_nat_jur
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      PA_NAT_JUR (posição 60; INFERIDA): natureza jurídica do estabelecimento; significado
+      A_CONFIRMAR.

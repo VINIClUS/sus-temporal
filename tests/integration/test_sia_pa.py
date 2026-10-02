@@ -429,3 +429,24 @@ def test_perfil_recusa_codebook_com_codigo_fora_do_padrao(tmp_path: Path) -> Non
     codebook.write_text('codigos:\n  "5 OR 1=1": APROVADO_TOTAL\n', encoding="utf-8")
     with pytest.raises(ValueError, match="codebook_codigo_invalido"):
         perfil_pa(ref, _saida(tmp_path, "perfil"), codebook=codebook)
+
+
+@pytest.mark.parametrize("modo", ["COMPLETA", "DESLIGADA"])
+def test_dbc_que_descomprime_alem_do_declarado_vai_para_quarentena(
+    tmp_path: Path, modo: str
+) -> None:
+    import struct
+
+    from tests.fixtures.dbc_encoder import dbf_para_dbc
+    from tests.fixtures.dbf_writer import escrever_dbf
+
+    campos = campos_pa(60)
+    linhas = [tuple(registro_pa()[c.nome] for c in campos)] * 20
+    dbf = bytearray(escrever_dbf(campos, linhas, com_eof=False))
+    struct.pack_into("<I", dbf, 4, 1)
+    artefato = artefato_pa(_saida(tmp_path, "artefatos"), dbf_para_dbc(bytes(dbf)))
+    runtime = RuntimeConfig.model_validate({"verificacao_fidelidade": modo})
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=runtime)
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+    assert erro.value.motivo.startswith("dbf_excede_tamanho_declarado")

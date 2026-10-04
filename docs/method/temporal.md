@@ -159,7 +159,7 @@ Também confere a coerência de uma tabela fornecida com a política da execuç�
 | Resultado | Quando | Falha (saída 5)? |
 |---|---|---|
 | `INALTERADA` | Mesma versão de conteúdo, ou (SIA-PA) o mesmo multiconjunto de linhas ativas, inclusive em outra ordem | não |
-| `REVISAO_REAL` | SIA-PA: entre as linhas ativas, só entraram linhas ou só saíram | não |
+| `REVISAO_REAL` | SIA-PA: entre as linhas ativas, só entraram linhas ou só saíram; ou as ativas são iguais e só as deletadas mudaram, em conteúdo ou em contagem (`revisao_so_em_deletadas`) | não |
 | `CORRESPONDENCIA_AMBIGUA` | SIA-PA: saíram e entraram linhas ativas; sem identificador longitudinal, nada é pareado e só as contagens ficam | não |
 | `ARQUIVO_NOVO` | Chave sem versão obtida antes: na primeira execução, ou uma parte ou competência que aparece depois do início da vigilância | não |
 | `ARQUIVO_SUMIU` | Chave já acompanhada, do início da janela atual em diante, que não está na listagem obtida. Ela nunca é trocada em silêncio por uma competência mais antiga. Uma janela vazia não aponta nada: fica só como janela incompleta | sim |

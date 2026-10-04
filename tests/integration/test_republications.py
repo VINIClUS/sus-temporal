@@ -113,11 +113,12 @@ def test_linhas_que_entram_sem_sair_nenhuma_sao_revisao_real(tmp_path: Path) -> 
     assert (comparacao.linhas_removidas, comparacao.linhas_adicionadas) == (0, 1)
 
 
-def test_registro_que_passa_a_deletado_e_saida_e_conta_a_parte(tmp_path: Path) -> None:
+def test_deletadas_contadas_por_versao_sem_inferir_transicao(tmp_path: Path) -> None:
     comparacao = _comparar(tmp_path, [_R1, _R2], [_R1, _R2], deletados_depois=(1,))
     assert comparacao.resultado is ResultadoComparacao.REVISAO_REAL
     assert (comparacao.linhas_removidas, comparacao.linhas_adicionadas) == (1, 0)
-    assert comparacao.mudancas_de_delecao == 1
+    assert (comparacao.deletadas_anterior, comparacao.deletadas_nova) == (0, 1)
+    assert "transicao_de_delecao_ambigua" in comparacao.motivo
 
 
 def test_correspondencia_ambigua_nao_pareia_linhas(tmp_path: Path) -> None:
@@ -134,7 +135,11 @@ def test_ausencia_de_revisao_observada_nao_afirma_que_nunca_houve(tmp_path: Path
     relogio = Relogio()
     pedido = [_requisicao(origem.as_uri())]
     observadas = [o for _ in range(3) for o in observe_updates(pedido, store, relogio=relogio)]
-    resumo = resumir_vigilancia(observadas, [])
+    artefato = str(observadas[0].artifact_id)
+    inalterada = ComparacaoVersoes(
+        artefato, artefato, ResultadoComparacao.INALTERADA, 0, 0, "mesma_versao"
+    )
+    resumo = resumir_vigilancia(observadas, [inalterada, inalterada])
     assert resumo.startswith("sem_revisao_observada")
     assert "nunca" not in resumo
     assert f"de={observadas[0].observado_em.isoformat()}" in resumo
@@ -142,17 +147,28 @@ def test_ausencia_de_revisao_observada_nao_afirma_que_nunca_houve(tmp_path: Path
     assert "alcance=somente_observacoes_da_pesquisa" in resumo
 
 
-def _ambiente_watch(tmp_path: Path) -> Path:
+def _ambiente_watch(
+    tmp_path: Path,
+    *,
+    janela: int = 2,
+    competencias: tuple[str, ...] = ("2510", "2511", "2512", "2601", "2607"),
+    cnes: tuple[str, ...] = (),
+) -> Path:
     dados = tmp_path / "origem" / "SIASUS" / "200801_" / "Dados"
     dados.mkdir(parents=True)
-    for aamm in ("2510", "2511", "2512", "2601", "2607"):
+    for aamm in competencias:
         registro = registro_pa(PA_MVM=f"20{aamm}", PA_CMP=f"20{aamm}")
         (dados / f"PASP{aamm}a.dbc").write_bytes(dbc_pa([registro]))
+    pf = tmp_path / "origem" / "CNES" / "200508_" / "Dados" / "PF"
+    pf.mkdir(parents=True)
+    for aamm in cnes:
+        (pf / f"PFSP{aamm}.dbc").write_bytes(dbc_pa([_R1]))
     texto = CATALOGO.read_text(encoding="utf-8").replace(
         "ftp://ftp.datasus.gov.br/dissemin/publicos", (tmp_path / "origem").as_uri()
     )
     catalogo = tmp_path / "sources.yaml"
     catalogo.write_text(texto, encoding="utf-8")
+    familias = "[SIA_PA, CNES_PF]" if cnes or janela > 2 else "[SIA_PA]"
     config = tmp_path / "watch.yaml"
     linhas = [
         'versao: "1"',
@@ -161,8 +177,8 @@ def _ambiente_watch(tmp_path: Path) -> Path:
         f"  raiz_dados: {tmp_path / 'data'}",
         f"  raiz_manifestos: {tmp_path / 'manifests'}",
         "vigilancia:",
-        "  janela_competencias: 2",
-        "  familias_fontes: [SIA_PA]",
+        f"  janela_competencias: {janela}",
+        f"  familias_fontes: {familias}",
         "  uf: SP",
         "catalogos:",
         f"  fontes: {catalogo}",
@@ -171,90 +187,141 @@ def _ambiente_watch(tmp_path: Path) -> Path:
     return config
 
 
-def _relatorio(tmp_path: Path) -> list[dict[str, object]]:
+def _executar(tmp_path: Path) -> tuple[int, list[dict[str, object]]]:
+    """Roda o watch e devolve o código e as linhas do relatório só desta execução."""
+    config = load_config(tmp_path / "watch.yaml")
+    relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
+    codigo = executar_watch(argparse.Namespace(), config, relogio=relogio)
     relatorio = tmp_path / "manifests" / "vigilancia.jsonl"
-    return [json.loads(linha) for linha in relatorio.read_text(encoding="utf-8").splitlines()]
+    todas = [json.loads(x) for x in relatorio.read_text(encoding="utf-8").splitlines()]
+    resumos = [i for i, linha in enumerate(todas) if "resumo" in linha]
+    inicio = resumos[-2] + 1 if len(resumos) > 1 else 0
+    return codigo, todas[inicio:]
 
 
-def _dezembro(tmp_path: Path) -> Path:
-    return tmp_path / "origem" / "SIASUS" / "200801_" / "Dados" / "PASP2512a.dbc"
+def _por_chave(linhas: list[dict[str, object]]) -> dict[tuple[object, object], tuple[str, str]]:
+    return {
+        (d["competencia"], d["parte"]): (str(d["resultado"]), str(d["motivo"]))
+        for d in linhas
+        if "resultado" in d
+    }
+
+
+def _dados(tmp_path: Path) -> Path:
+    return tmp_path / "origem" / "SIASUS" / "200801_" / "Dados"
 
 
 def _alterar_dezembro(tmp_path: Path) -> None:
-    alterado = _dezembro(tmp_path)
     registro = registro_pa(PA_MVM="202512", PA_CMP="202512")
-    alterado.write_bytes(dbc_pa([registro, registro]))
+    (_dados(tmp_path) / "PASP2512a.dbc").write_bytes(dbc_pa([registro, registro]))
 
 
-def test_watch_observa_a_janela_do_recorte_e_registra_revisao(tmp_path: Path) -> None:
-    config = load_config(_ambiente_watch(tmp_path))
-    relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
-    args = argparse.Namespace()
-    assert executar_watch(args, config, relogio=relogio) == ExitCode.OK
+def test_primeira_execucao_registra_cada_chave_como_arquivo_novo(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path)
+    codigo, linhas = _executar(tmp_path)
+    assert codigo == ExitCode.OK
+    assert _por_chave(linhas) == {
+        ("202511", "a"): ("ARQUIVO_NOVO", "sem_versao_anterior"),
+        ("202512", "a"): ("ARQUIVO_NOVO", "sem_versao_anterior"),
+    }
+    assert not str(linhas[-1]["resumo"]).startswith("sem_revisao_observada")
+
+
+def test_watch_no_recorte_registra_inalterada_e_revisao_real(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path)
+    _executar(tmp_path)
     _alterar_dezembro(tmp_path)
-    assert executar_watch(args, config, relogio=relogio) == ExitCode.OK
+    codigo, linhas = _executar(tmp_path)
+    assert codigo == ExitCode.OK
     estado = Manifesto(tmp_path / "manifests" / "aquisicao.jsonl").ler()
     arquivos = [o for o in estado.observacoes if o.chave.tipo_conteudo is None]
     assert sorted({o.chave.competencia_arquivo.valor for o in arquivos}) == ["202511", "202512"]
     assert len(arquivos) == 4
-    resultados = {
-        (d["competencia"], d["resultado"]) for d in _relatorio(tmp_path) if "resultado" in d
-    }
-    assert resultados == {("202511", "INALTERADA"), ("202512", "REVISAO_REAL")}
+    resultados = {chave: r for chave, (r, _m) in _por_chave(linhas).items()}
+    assert resultados == {("202511", "a"): "INALTERADA", ("202512", "a"): "REVISAO_REAL"}
+    assert str(linhas[-1]["resumo"]).startswith("revisao_observada")
 
 
-def test_comparacao_que_falha_fica_inconclusiva_no_relatorio_e_na_saida(tmp_path: Path) -> None:
-    config = load_config(_ambiente_watch(tmp_path))
-    relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
-    args = argparse.Namespace()
-    assert executar_watch(args, config, relogio=relogio) == ExitCode.OK
+def test_sem_mudanca_e_janela_completa_diz_sem_revisao_observada(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path)
+    _executar(tmp_path)
+    codigo, linhas = _executar(tmp_path)
+    assert codigo == ExitCode.OK
+    assert {r for r, _m in _por_chave(linhas).values()} == {"INALTERADA"}
+    assert str(linhas[-1]["resumo"]).startswith("sem_revisao_observada")
+
+
+def test_parte_nova_depois_do_inicio_e_arquivo_novo(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path)
+    _executar(tmp_path)
+    registro = registro_pa(PA_MVM="202512", PA_CMP="202512")
+    (_dados(tmp_path) / "PASP2512b.dbc").write_bytes(dbc_pa([registro]))
+    codigo, linhas = _executar(tmp_path)
+    assert codigo == ExitCode.OK
+    assert _por_chave(linhas).get(("202512", "b"), ("", ""))[0] == "ARQUIVO_NOVO"
+    assert not str(linhas[-1]["resumo"]).startswith("sem_revisao_observada")
+
+
+def test_familia_sem_comparacao_com_bytes_novos(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path, cnes=("2511", "2512"))
+    _executar(tmp_path)
+    pf = tmp_path / "origem" / "CNES" / "200508_" / "Dados" / "PF" / "PFSP2512.dbc"
+    pf.write_bytes(dbc_pa([_R2]))
+    codigo, linhas = _executar(tmp_path)
+    assert codigo == ExitCode.OK
+    cnes = {(d["competencia"], d["resultado"]) for d in linhas if d.get("fonte") == "CNES_PF"}
+    assert cnes == {("202511", "INALTERADA"), ("202512", "BYTES_ALTERADOS_SEM_COMPARACAO")}
+    assert str(linhas[-1]["resumo"]).startswith("revisao_observada")
+
+
+def test_arquivo_que_some_da_listagem_e_arquivo_sumiu(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path)
+    _executar(tmp_path)
+    (_dados(tmp_path) / "PASP2512a.dbc").unlink()
+    codigo, linhas = _executar(tmp_path)
+    assert codigo == ExitCode.FALHA_OPERACIONAL
+    assert _por_chave(linhas)[("202512", "a")] == ("ARQUIVO_SUMIU", "sumiu_da_listagem")
+
+
+def test_comparacao_que_falha_e_inconclusiva(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path)
+    _executar(tmp_path)
     estado = Manifesto(tmp_path / "manifests" / "aquisicao.jsonl").ler()
     for versao in estado.versoes.values():
         competencia = versao.chave.competencia_arquivo
         if competencia is not None and competencia.valor == "202512":
             (tmp_path / "data" / "raw" / versao.caminho_conteudo).unlink()
     _alterar_dezembro(tmp_path)
-    assert executar_watch(args, config, relogio=relogio) == ExitCode.FALHA_OPERACIONAL
-    linhas = _relatorio(tmp_path)
-    resultados = {(d["competencia"], d["resultado"]) for d in linhas if "resultado" in d}
-    assert ("202512", "INCONCLUSIVO") in resultados
+    codigo, linhas = _executar(tmp_path)
+    assert codigo == ExitCode.FALHA_OPERACIONAL
+    resultado, motivo = _por_chave(linhas)[("202512", "a")]
+    assert (resultado, motivo.split()[0]) == ("INCONCLUSIVO", "comparacao_inconclusiva")
     resumo = str(linhas[-1]["resumo"])
-    assert not resumo.startswith("sem_revisao_observada")
-    assert "inconclusivas=1" in resumo
+    assert resumo.startswith("vigilancia_inconclusiva")
+    assert "inconclusivo=1" in resumo
 
 
-def _segunda_execucao(tmp_path: Path) -> tuple[int, list[dict[str, object]]]:
-    config = load_config(tmp_path / "watch.yaml")
-    relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
-    return executar_watch(argparse.Namespace(), config, relogio=relogio), _relatorio(tmp_path)
-
-
-def _inconclusivas(linhas: list[dict[str, object]]) -> dict[object, str]:
-    return {
-        d["competencia"]: str(d["motivo"]) for d in linhas if d.get("resultado") == "INCONCLUSIVO"
-    }
-
-
-def test_observacao_falha_de_arquivo_ja_acompanhado_fica_inconclusiva(tmp_path: Path) -> None:
-    config = load_config(_ambiente_watch(tmp_path))
-    relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
-    assert executar_watch(argparse.Namespace(), config, relogio=relogio) == ExitCode.OK
-    _dezembro(tmp_path).unlink()
-    _dezembro(tmp_path).mkdir()
-    codigo, linhas = _segunda_execucao(tmp_path)
+def test_observacao_falha_de_arquivo_ja_acompanhado_e_inconclusiva(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path)
+    _executar(tmp_path)
+    (_dados(tmp_path) / "PASP2512a.dbc").unlink()
+    (_dados(tmp_path) / "PASP2512a.dbc").mkdir()
+    codigo, linhas = _executar(tmp_path)
     assert codigo == ExitCode.FALHA_OPERACIONAL
-    assert _inconclusivas(linhas)["202512"].startswith("observacao_sem_conteudo")
-    assert "inconclusivas=0" not in str(linhas[-1]["resumo"])
+    resultado, motivo = _por_chave(linhas)[("202512", "a")]
+    assert resultado == "INCONCLUSIVO"
+    assert motivo.startswith("observacao_sem_conteudo")
 
 
-def test_arquivo_que_some_da_listagem_fica_inconclusivo(tmp_path: Path) -> None:
-    config = load_config(_ambiente_watch(tmp_path))
-    relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
-    assert executar_watch(argparse.Namespace(), config, relogio=relogio) == ExitCode.OK
-    _dezembro(tmp_path).unlink()
-    codigo, linhas = _segunda_execucao(tmp_path)
+def test_janela_incompleta_ou_listagem_vazia_e_falha(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path, janela=3, competencias=("2511", "2512"))
+    codigo, linhas = _executar(tmp_path)
     assert codigo == ExitCode.FALHA_OPERACIONAL
-    assert _inconclusivas(linhas)["202512"] == "sumiu_da_listagem"
+    janelas = {d["fonte"]: (d["pedido"], d["obtido"]) for d in linhas if d.get("janela_incompleta")}
+    assert janelas == {"SIA_PA": (3, 2), "CNES_PF": (3, 0)}
+    resumo = str(linhas[-1]["resumo"])
+    assert resumo.startswith("vigilancia_inconclusiva")
+    assert "janelas_incompletas=2" in resumo
 
 
 def test_travessia_da_janela_nao_converte_competencia_em_numero() -> None:

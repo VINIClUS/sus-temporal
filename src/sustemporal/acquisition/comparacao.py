@@ -55,6 +55,8 @@ class ComparacaoVersoes:
     linhas_adicionadas: int
     motivo: str
     mudancas_de_delecao: int = 0
+    deletadas_anterior: int = 0
+    deletadas_nova: int = 0
 
 
 def comparar_versoes(

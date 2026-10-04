@@ -148,8 +148,11 @@ Também confere a coerência de uma tabela fornecida com a política da execuç�
 3. Observa de novo cada arquivo (`observe_updates`), sem pular os já obtidos. Os mesmos bytes
    viram nova observação da mesma versão; bytes novos viram versão nova. O histórico não é
    substituído.
-4. Dá **exatamente um resultado por chave acompanhada** (fonte, UF, competência, parte):
-   as chaves observadas nesta execução e as já acompanhadas que sumiram da listagem.
+4. Dá **exatamente um resultado por chave acompanhada** (fonte, UF, competência, parte,
+   geração): as chaves observadas nesta execução e as já acompanhadas que sumiram da listagem.
+   A geração (`versao_publicacao`, por exemplo o `vAAMMDDHHMM` do SIGTAP) faz parte da chave.
+   Cada geração listada é comparada só com ela mesma, e uma geração nova é ARQUIVO_NOVO, nunca
+   alteração da geração antiga.
 
 | Resultado | Quando | Falha (saída 5)? |
 |---|---|---|
@@ -159,7 +162,7 @@ Também confere a coerência de uma tabela fornecida com a política da execuç�
 | `ARQUIVO_NOVO` | Chave sem versão obtida antes: na primeira execução, ou uma parte ou competência que aparece depois do início da vigilância | não |
 | `ARQUIVO_SUMIU` | Chave já acompanhada, do início da janela atual em diante, que não está na listagem obtida. Ela nunca é trocada em silêncio por uma competência mais antiga. Uma janela vazia não aponta nada: fica só como janela incompleta | sim |
 | `BYTES_ALTERADOS_SEM_COMPARACAO` | Família sem comparação por linhas (CNES, SIGTAP) com `artifact_id` novo | não |
-| `INCONCLUSIVO` | Falha de obtenção (`observacao_sem_conteudo`) ou de normalização (`comparacao_inconclusiva`) | sim |
+| `INCONCLUSIVO` | Falha de obtenção (`observacao_sem_conteudo`), da listagem (`listagem_nao_obtida`), do leiaute ou da normalização (`comparacao_inconclusiva`) | sim |
 
    **Comparação SIA-PA** (`acquisition/comparacao.py`): as duas versões passam pelo
    `normalize_pa`, e só as linhas **ativas** (não deletadas) entram no multiconjunto.

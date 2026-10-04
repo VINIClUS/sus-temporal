@@ -61,7 +61,7 @@ _MESES_PROCURADOS = 120
 RECORTE_INICIO = CompetenciaArquivo("201801")
 RECORTE_FIM = CompetenciaArquivo("202512")
 
-Chave = tuple[object, str | None, str | None, str | None]
+Chave = tuple[object, str | None, str | None, str | None, str | None]
 
 
 def observe_updates(
@@ -138,8 +138,9 @@ def chaves_sumidas(
 
 
 def chave_de_comparacao(chave: ChaveArtefato) -> Chave:
-    competencia = chave.competencia_arquivo
-    return (chave.fonte, chave.uf, None if competencia is None else competencia.valor, chave.parte)
+    """(fonte, UF, competência, parte, geração): cada geração publicada é uma chave própria."""
+    competencia = None if chave.competencia_arquivo is None else chave.competencia_arquivo.valor
+    return (chave.fonte, chave.uf, competencia, chave.parte, chave.versao_publicacao)
 
 
 def versoes_anteriores(manifesto: Path) -> dict[Chave, ArtifactVersion]:
@@ -241,6 +242,7 @@ def linhas_do_relatorio(
             "uf": chave[1],
             "competencia": chave[2],
             "parte": chave[3],
+            "versao_publicacao": chave[4],
             "anterior": c.anterior,
             "nova": c.nova,
             "resultado": str(c.resultado),

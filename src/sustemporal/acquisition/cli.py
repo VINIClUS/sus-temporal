@@ -283,7 +283,7 @@ def _planejar_vigilancia(
 def _comparar_pa(
     config: RunConfig, anterior: ArtifactVersion, nova: ArtifactVersion
 ) -> ComparacaoVersoes:
-    """Comparação SIA-PA por multiconjunto; falha de normalização vira INCONCLUSIVO."""
+    """Comparação SIA-PA por multiconjunto; falha de leiaute ou de normalização é INCONCLUSIVO."""
     store, _ = _caminhos(config)
     try:
         return comparar_versoes(
@@ -294,7 +294,7 @@ def _comparar_pa(
             destino=Path(config.runtime.raiz_dados) / "vigilancia",
             origem_dados=_origem_dados(config),
         )
-    except (FalhaOperacionalErro, ValueError) as erro:
+    except (FalhaOperacionalErro, ValueError, OSError) as erro:
         logger.warning("comparacao_inconclusiva artefato=%s erro=%s", anterior.artifact_id, erro)
         motivo = f"comparacao_inconclusiva erro={erro}"
         resultado = ResultadoComparacao.INCONCLUSIVO

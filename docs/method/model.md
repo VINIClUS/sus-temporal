@@ -205,7 +205,8 @@ vêm antes de gravar qualquer arquivo:
 
 - registro: `RegistroTemporal.de_manifesto` do manifesto de aquisição em `raiz_manifestos`, com as
   partes esperadas do catálogo; manifesto ausente, ilegível ou corrompido → saída 2;
-- `datasets.jsonl`: cada `DatasetRef` conferido como no motor (linhas, hash lógico, tipo físico);
+- `datasets.jsonl`: cada `DatasetRef` conferido como no motor (linhas, hash lógico, tipo físico de
+  todas as colunas do esquema, `DECIMAL` e `DATA` inclusive);
   `origem_dados` igual em todos;
 - produção: união de todos os `sia_pa.v1`, cada linha física preservada (sem deduplicar; uma linha
   repetida em duas partes conta duas vezes), `artifact_ids` = união ordenada, hash por
@@ -214,7 +215,8 @@ vêm antes de gravar qualquer arquivo:
   artefato fora do registro, de UF ou competência do arquivo fora do piloto, ou, com
   `corte_observacao`, sem observação `OBTIDO` até o corte →
   saída 2; `row_id` repetido → falha operacional (saída 5);
-- território: só linhas com `municipio_estabelecimento` no território do piloto (IBGE6) entram; as
+- território: carregado por `ingest.territorio.carregar_territorio` (contrato, UF e dígito
+  verificador) e `municipios_ibge6`; só linhas com `municipio_estabelecimento` nesse conjunto entram; as
   demais são contadas por motivo (`fora_do_territorio`, `municipio_estabelecimento_ausente`) em
   `out/<run_id>/recorte_territorial.json` e nunca são avaliadas. O hash do conjunto de municípios
   entra no `run_id` (`InsumosAvaliacao.identidade_adicional`), então outro território dá outra

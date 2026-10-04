@@ -8,12 +8,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import duckdb
-from pydantic import ValidationError
 
 from sustemporal.contracts.base import hash_canonico
-from sustemporal.contracts.experiment import Territorio
 from sustemporal.duck import conectar
 from sustemporal.errors import ConfigInvalida
+from sustemporal.ingest.territorio import carregar_territorio, municipios_ibge6
 from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
 from sustemporal.rules.ingest import (
     carregar_registro,
@@ -23,7 +22,6 @@ from sustemporal.rules.ingest import (
 )
 from sustemporal.rules.insumos import InsumosAvaliacao, MetodoInvalido, politica_da_execucao
 from sustemporal.rules.lote import avaliar_com_registro
-from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
     from sustemporal.contracts.config import RunConfig
@@ -37,24 +35,16 @@ logger = logging.getLogger(__name__)
 
 
 def municipios_do_piloto(config: RunConfig) -> frozenset[str]:
-    """IBGE6 do território do piloto (contrato `Territorio`, UF igual à do piloto).
+    """IBGE6 do território do piloto (`ingest.territorio`: contrato, UF e dígito verificador).
 
     Raises:
-        ConfigInvalida: sem piloto, território ilegível, inválido ou de outra UF.
+        ConfigInvalida: sem piloto ou território inválido.
     """
     piloto = config.piloto
     if piloto is None:
         raise ConfigInvalida("validate_ingest_sem_piloto")
-    caminho = Path(piloto.territorio)
-    try:
-        territorio = Territorio.model_validate(carregar_yaml(caminho))
-    except (OSError, ValueError, ValidationError) as erro:
-        raise ConfigInvalida(f"territorio_invalido caminho={caminho}") from erro
-    if territorio.uf != piloto.uf:
-        raise ConfigInvalida(
-            f"territorio_de_outra_uf territorio={territorio.uf} piloto={piloto.uf}"
-        )
-    return frozenset(m.ibge6 for m in territorio.municipios)
+    territorio = carregar_territorio(Path(piloto.territorio), uf=piloto.uf)
+    return municipios_ibge6(territorio)
 
 
 def _politica(metodo: MetodoId, config: RunConfig, regras: list[RuleSpec]) -> PoliticaTemporal:

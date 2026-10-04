@@ -77,6 +77,7 @@ _INTEIROS_FISICOS = frozenset(
 )
 _COLUNAS_COBERTURA = ("familia_regra", "instrumento", "competencia", "base_temporal", "estado")
 _TIPO_SQL = {TipoCanonico.INTEIRO: "BIGINT", TipoCanonico.BOOLEANO: "BOOLEAN"}
+_TIPO_CONFERENCIA = {**_TIPO_SQL, TipoCanonico.DECIMAL: "DECIMAL", TipoCanonico.DATA: "DATE"}
 _LISTA_NORMALIZADA = (
     "array_to_string(list_sort(list_distinct(list_filter("
     "string_split(coalesce({c}, ''), ';'), x -> x <> ''))), ';')"
@@ -91,6 +92,8 @@ def _tipos_do_parquet(con: duckdb.DuckDBPyConnection, caminho: str) -> dict[str,
 def _tipo_compativel(esperado: str, fisico: str) -> bool:
     if esperado == "BIGINT":
         return fisico in _INTEIROS_FISICOS
+    if esperado == "DECIMAL":
+        return fisico.startswith("DECIMAL(")
     return fisico == esperado
 
 
@@ -116,13 +119,17 @@ def _conferir_tipos(
 
 
 def conferir_tipos_fisicos(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> set[str]:
-    """Mesmo verificador do motor sobre todas as colunas do esquema; devolve as presentes.
+    """Verificador do motor sobre todas as colunas do esquema (DECIMAL e DATA incluídos).
+
+    Devolve as colunas físicas presentes.
 
     Raises:
         ValueError: coluna do esquema com tipo físico incompatível.
     """
-    tipos = _tipos(dataset.schema_id)
-    presentes, incompativeis = _conferir_tipos(con, dataset.caminho, dataset.schema_id, tipos)
+    esquema = carregar_esquema(dataset.schema_id)
+    tipos = {c.nome: _TIPO_CONFERENCIA.get(c.tipo, "VARCHAR") for c in esquema.colunas}
+    fisicos = _tipos_do_parquet(con, dataset.caminho)
+    presentes, incompativeis = set(fisicos), _incompativeis(tipos, fisicos, tipos)
     if incompativeis:
         raise ValueError(
             f"tipo_fisico_incompativel schema={dataset.schema_id} colunas={incompativeis}"

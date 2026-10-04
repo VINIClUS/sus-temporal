@@ -206,3 +206,12 @@ def test_unir_snapshots_recusa_decisoes_divergentes_na_mesma_chave() -> None:
     ]
     with pytest.raises(ValueError, match="decisoes_divergentes"):
         unir_snapshots(conjuntos)
+
+
+def test_catalogo_de_fontes_padrao_independe_do_diretorio_corrente(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sustemporal.temporal.selector import partes_esperadas_do_catalogo
+
+    monkeypatch.chdir(tmp_path)
+    assert isinstance(partes_esperadas_do_catalogo(_config()), dict)

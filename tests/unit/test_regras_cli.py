@@ -7,6 +7,7 @@ import pytest
 
 from sustemporal import cli
 from sustemporal.contracts.experiment import RunResult
+from sustemporal.contracts.records import DatasetRef
 from sustemporal.errors import ExitCode
 from tests.fixtures.regras_cenario import materializar, snapshot_vazio
 from tests.fixtures.regras_exemplos import cenario_base, registro
@@ -73,3 +74,25 @@ def test_validate_com_entrada_grava_a_entrada_da_validacao(tmp_path: Path) -> No
     )
     assert entrada.politica is not None
     assert entrada.politica.politica_id == resultado.politica_id
+
+
+def test_validate_com_entrada_recusa_producao_com_registro_deletado(tmp_path: Path) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from tests.fixtures.regras_cenario import reemitir
+
+    caminho = _entrada(tmp_path / "in")
+    conteudo = json.loads(caminho.read_text(encoding="utf-8"))
+    dataset = DatasetRef.model_validate(conteudo["dataset"])
+    tabela = pq.read_table(dataset.caminho)
+    deletado = pa.array([True] + [False] * (tabela.num_rows - 1), pa.bool_())
+    pq.write_table(tabela.append_column("deletado", deletado), dataset.caminho)
+    conteudo["dataset"] = reemitir(dataset).model_dump(mode="json")
+    caminho.write_text(json.dumps(conteudo), encoding="utf-8")
+    config = tmp_path / "config.yaml"
+    config.write_text('versao: "1"\n', encoding="utf-8")
+    argumentos = ["validate", "--config", str(config), "--policy", "atendimento"]
+    argumentos += ["--entrada", str(caminho), "--saida", str(tmp_path / "saida")]
+    assert cli.main(argumentos) == ExitCode.CONFIG_INVALIDA
+    assert not (tmp_path / "saida").exists()

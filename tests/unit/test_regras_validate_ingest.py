@@ -11,16 +11,22 @@ import pyarrow.parquet as pq
 import pytest
 
 from sustemporal import cli
+from sustemporal.config import load_config
 from sustemporal.contracts.artifacts import EstadoIntegridade, ResultadoTentativa
 from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.experiment import EstadoExecucao, RunResult
 from sustemporal.errors import ExitCode
+from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.cli import EntradaValidacao
+from sustemporal.rules.conteudo import ConteudoDivergente
 from sustemporal.rules.ingest import (
+    carregar_registro,
     incompletude_da_cobertura,
     integridade_do_registro,
     ler_datasets,
+    preparar_insumos_ingest,
 )
+from sustemporal.rules.validate_ingest import municipios_do_piloto
 from sustemporal.temporal.registry import registro_de
 from tests.fixtures.regras_ingest import MUNICIPIO_FORA, gravar_territorio, montar_ingest
 from tests.fixtures.temporal_registro import observar
@@ -372,3 +378,23 @@ def test_auxiliares_com_linhagem_trocada_sao_recusados(tmp_path: Path) -> None:
     mundo = montar_ingest(tmp_path, auxiliares_trocados=True)
     assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
     assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))
+
+
+def test_registro_deletado_fora_do_territorio_conta_uma_vez(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, deletado_fora=True)
+    assert _validar(mundo, "processamento") == ExitCode.OK
+    _, pasta = _unico(mundo)
+    recorte = json.loads((pasta / "recorte_territorial.json").read_text(encoding="utf-8"))
+    assert recorte["exclusoes"] == {"fora_do_territorio": 1, "registro_deletado": 1}
+
+
+def test_linhagem_trocada_e_conteudo_divergente_antes_de_gravar(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, auxiliares_trocados=True)
+    config = load_config(mundo.config)
+    contexto = (config, carregar_registro(config), municipios_do_piloto(config))
+    destino = tmp_path / "destino"
+    with duckdb.connect() as con, pytest.raises(ConteudoDivergente, match="linhagem_divergente"):
+        preparar_insumos_ingest(
+            con, ler_datasets(mundo.pasta), carregar_regras(), contexto, destino
+        )
+    assert not destino.exists()

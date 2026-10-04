@@ -137,6 +137,10 @@ def _producao(artefato: str, parte: str, opcoes: dict[str, bool]) -> list[dict[s
         )
         if opcoes["deletado_no_territorio"]:
             linhas.append(_linha(artefato, 4, deletado=True))
+        if opcoes["deletado_fora"]:
+            linhas.append(
+                _linha(artefato, 5, deletado=True, municipio_estabelecimento=MUNICIPIO_FORA)
+            )
         if opcoes["municipio_nulo"]:
             linhas.append(_linha(artefato, 3, municipio_estabelecimento=None))
     return linhas
@@ -297,6 +301,7 @@ def montar_ingest(
     sia_pa_incompleto: dict[str, str] | None = None,
     deletado_no_territorio: bool = False,
     auxiliares_trocados: bool = False,
+    deletado_fora: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -314,6 +319,7 @@ def montar_ingest(
         "sem_coluna_municipio": sem_coluna_municipio,
         "fora_com_atendimento_nulo": fora_com_atendimento_nulo,
         "deletado_no_territorio": deletado_no_territorio,
+        "deletado_fora": deletado_fora,
     }
     refs = _datasets(pasta, itens, opcoes)
     if not (sem_cobertura or sem_coluna_municipio):

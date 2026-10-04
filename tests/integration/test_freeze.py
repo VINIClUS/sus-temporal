@@ -42,7 +42,8 @@ from sustemporal.evaluation.metrics import evaluate_runs
 if TYPE_CHECKING:
     from sustemporal.contracts.experiment import FreezeManifest
 
-CATALOGOS = {"esquema_sia_pa": Path("catalog/schemas/sia_pa.yaml")}
+CATALOGO_SIA_PA = Path(__file__).resolve().parents[2] / "catalog" / "schemas" / "sia_pa.yaml"
+CATALOGOS = {"esquema_sia_pa": CATALOGO_SIA_PA}
 CONFIG_PROTOCOLO: dict[str, Any] = {
     "versao": "1",
     "origem_dados": "SINTETICO",
@@ -316,7 +317,7 @@ def _config_cli(tmp_path: Path, **extra: str) -> Path:
         "  correcao: HOLM",
         "  reamostragens: 100",
         "catalogos:",
-        f"  esquema_sia_pa: {Path('catalog/schemas/sia_pa.yaml').resolve()}",
+        f"  esquema_sia_pa: {CATALOGO_SIA_PA}",
         *(f"{chave}: {valor}" for chave, valor in extra.items()),
     ]
     caminho = tmp_path / "config.yaml"

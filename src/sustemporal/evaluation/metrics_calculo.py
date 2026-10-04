@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_EVEN, Decimal
 from enum import StrEnum
@@ -10,7 +11,7 @@ from typing import TYPE_CHECKING
 from sustemporal.contracts.evaluation import ValorMetrica
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
 
 __all__ = [
     "FORA_DE_ESCOPO_DOCUMENTADA",
@@ -18,6 +19,7 @@ __all__ = [
     "LinhaAvaliada",
     "Situacao",
     "calcular_metricas",
+    "indicadores",
     "razao",
 ]
 
@@ -26,6 +28,7 @@ APROVADO_TOTAL = "APROVADO_TOTAL"
 APROVADO_PARCIAL = "APROVADO_PARCIAL"
 FORA_DE_ESCOPO_DOCUMENTADA = "CAUSA_FORA_DE_ESCOPO_DOCUMENTADA"
 _CASAS = Decimal("0.000001")
+_BINARIOS = frozenset({NAO_APROVADO, APROVADO_TOTAL})
 
 
 class Situacao(StrEnum):
@@ -72,32 +75,67 @@ def _do_rotulo(linhas: Sequence[LinhaAvaliada], rotulo: str) -> list[LinhaAvalia
     return [linha for linha in linhas if linha.rotulo == rotulo]
 
 
-def _por_metodo(metodo: str, estrato: str, linhas: Sequence[LinhaAvaliada]) -> list[ValorMetrica]:
+Predicado = Callable[[LinhaAvaliada], bool]
+
+
+def _definicoes(metodo: str) -> dict[str, tuple[Predicado, Predicado]]:
+    """Por métrica, os predicados (numerador, denominador) avaliados linha a linha."""
+
     def alerta(linha: LinhaAvaliada) -> bool:
         return _situacao(linha, metodo) is Situacao.ALERTA
 
-    rejeicoes = _do_rotulo(linhas, NAO_APROVADO)
-    aprovacoes = _do_rotulo(linhas, APROVADO_TOTAL)
-    parciais = _do_rotulo(linhas, APROVADO_PARCIAL)
-    sem_alerta = [linha for linha in rejeicoes if not alerta(linha)]
-    documentadas = _contar(sem_alerta, lambda linha: linha.causa == FORA_DE_ESCOPO_DOCUMENTADA)
-    acertos = _contar(rejeicoes, alerta)
-    falsos = _contar(aprovacoes, alerta)
-    abstencoes = _contar(linhas, lambda linha: _situacao(linha, metodo) is Situacao.ABSTENCAO)
-    valores = {
-        "cobertura_rejeicoes": (acertos, len(rejeicoes)),
-        "cobertura_verificabilidade": (len(linhas) - abstencoes, len(linhas)),
-        "precisao_alertas": (acertos, acertos + falsos),
-        "falsos_alertas_aprovacoes": (falsos, len(aprovacoes)),
-        "abstencao": (abstencoes, len(linhas)),
-        "alerta_aprovacao_parcial": (_contar(parciais, alerta), len(parciais)),
-        "rejeicoes_sem_alerta_fora_de_escopo_documentada": (documentadas, len(sem_alerta)),
+    def rejeicao(linha: LinhaAvaliada) -> bool:
+        return linha.rotulo == NAO_APROVADO
+
+    def aprovacao(linha: LinhaAvaliada) -> bool:
+        return linha.rotulo == APROVADO_TOTAL
+
+    def parcial(linha: LinhaAvaliada) -> bool:
+        return linha.rotulo == APROVADO_PARCIAL
+
+    def sem_alerta(linha: LinhaAvaliada) -> bool:
+        return rejeicao(linha) and not alerta(linha)
+
+    def documentada(linha: LinhaAvaliada) -> bool:
+        return linha.causa == FORA_DE_ESCOPO_DOCUMENTADA
+
+    def abstencao(linha: LinhaAvaliada) -> bool:
+        return _situacao(linha, metodo) is Situacao.ABSTENCAO
+
+    def todas(_: LinhaAvaliada) -> bool:
+        return True
+
+    return {
+        "cobertura_rejeicoes": (alerta, rejeicao),
+        "cobertura_verificabilidade": (lambda linha: not abstencao(linha), todas),
+        "precisao_alertas": (rejeicao, lambda linha: alerta(linha) and linha.rotulo in _BINARIOS),
+        "falsos_alertas_aprovacoes": (alerta, aprovacao),
+        "abstencao": (abstencao, todas),
+        "alerta_aprovacao_parcial": (alerta, parcial),
+        "rejeicoes_sem_alerta_fora_de_escopo_documentada": (documentada, sem_alerta),
         "rejeicoes_sem_alerta_causa_indeterminada": (
-            len(sem_alerta) - documentadas,
-            len(sem_alerta),
+            lambda linha: not documentada(linha),
+            sem_alerta,
         ),
     }
-    return [razao(f"{metodo}.{nome}", estrato, n, d) for nome, (n, d) in valores.items()]
+
+
+def indicadores(
+    linhas: Sequence[LinhaAvaliada], metodo: str, nome: str
+) -> tuple[list[int], list[int]]:
+    """Numerador e denominador de cada linha (0 ou 1), na mesma definição da métrica."""
+    numerador, denominador = _definicoes(metodo)[nome]
+    dens = [int(denominador(linha)) for linha in linhas]
+    nums = [int(d == 1 and numerador(linha)) for d, linha in zip(dens, linhas, strict=True)]
+    return nums, dens
+
+
+def _por_metodo(metodo: str, estrato: str, linhas: Sequence[LinhaAvaliada]) -> list[ValorMetrica]:
+    metricas = []
+    for nome in _definicoes(metodo):
+        nums, dens = indicadores(linhas, metodo, nome)
+        metricas.append(razao(f"{metodo}.{nome}", estrato, sum(nums), sum(dens)))
+    return metricas
 
 
 def _estratos(linhas: Sequence[LinhaAvaliada]) -> dict[str, list[LinhaAvaliada]]:

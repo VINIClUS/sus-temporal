@@ -429,3 +429,66 @@ def test_saida_5_se_e_somente_se_ha_linha_nao_conclusiva(
                 arquivo.unlink()
             pf.rmdir()
         _conferir_execucao(raiz)
+
+
+def _requisicao_sigtap(origem: Path, geracao: str) -> SourceRequest:
+    nome = f"TabelaUnificada_202512_v{geracao}.zip"
+    caminho = origem / nome
+    caminho.write_bytes(dbc_pa([registro_pa(PA_PROC_ID=f"03010{geracao[-5:]}")]))
+    chave = ChaveArtefato(
+        fonte=FamiliaFonte.SIGTAP,
+        competencia_arquivo="202512",
+        canal=CanalPublicacao.ATUAL,
+        nome_original=nome,
+        versao_publicacao=geracao,
+    )
+    return SourceRequest(
+        chave=chave,
+        localizador=caminho.as_uri(),
+        formato_esperado=FormatoArquivo.DBC,
+        tamanho_maximo_bytes=1_000_000,
+        motivo=MotivoRequisicao.VIGILANCIA,
+    )
+
+
+def test_cada_geracao_do_sigtap_e_uma_chave_propria(tmp_path: Path) -> None:
+    from sustemporal.acquisition.watch import (
+        chave_de_comparacao,
+        classificar_chave,
+        versoes_anteriores,
+    )
+
+    store, origem = tmp_path / "store", tmp_path / "origem"
+    origem.mkdir()
+    relogio = Relogio()
+    pedidos = [_requisicao_sigtap(origem, g) for g in ("2512011200", "2512151200")]
+    observe_updates(pedidos, store, relogio=relogio)
+    anteriores = versoes_anteriores(store / "manifesto.jsonl")
+    pedidos.append(_requisicao_sigtap(origem, "2512201200"))
+    observadas = observe_updates(pedidos, store, relogio=relogio)
+    versoes = Manifesto(store / "manifesto.jsonl").ler().versoes
+
+    def proibido(*_a: object) -> ComparacaoVersoes:
+        raise AssertionError("sigtap_nao_e_comparado_por_linhas")
+
+    resultados = [
+        classificar_chave(anteriores.get(chave_de_comparacao(o.chave)), o, versoes, proibido)
+        for o in observadas
+    ]
+    assert [r.resultado for r in resultados] == [
+        ResultadoComparacao.INALTERADA,
+        ResultadoComparacao.INALTERADA,
+        ResultadoComparacao.ARQUIVO_NOVO,
+    ]
+
+
+def test_leiaute_que_nao_carrega_e_comparacao_inconclusiva(tmp_path: Path) -> None:
+    config = _ambiente_watch(tmp_path)
+    with config.open("a", encoding="utf-8") as saida:
+        saida.write(f"  leiaute_sia_pa: {tmp_path / 'nao_existe.yaml'}\n")
+    _executar(tmp_path)
+    _alterar_dezembro(tmp_path)
+    codigo, linhas = _executar(tmp_path)
+    assert codigo == ExitCode.FALHA_OPERACIONAL
+    resultado, motivo = _por_chave(linhas)[("202512", "a")]
+    assert (resultado, motivo.split()[0]) == ("INCONCLUSIVO", "comparacao_inconclusiva")

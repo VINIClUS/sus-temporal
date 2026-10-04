@@ -36,9 +36,10 @@ def carregar_congelamento(diretorio: Path, freeze_id: str) -> FreezeManifest:
     Raises:
         ConfigInvalida: manifesto ausente, inválido ou de outro freeze_id.
     """
-    caminho = diretorio / f"{freeze_id}.json"
-    if not caminho.is_file():
-        raise ConfigInvalida(f"congelamento_ausente freeze={freeze_id} caminho={caminho}")
+    disponiveis = {c.stem: c for c in diretorio.glob("frz_*.json") if c.is_file()}
+    caminho = disponiveis.get(freeze_id)
+    if caminho is None:
+        raise ConfigInvalida(f"congelamento_ausente freeze={freeze_id} diretorio={diretorio}")
     try:
         manifesto = FreezeManifest.model_validate_json(caminho.read_text(encoding="utf-8"))
     except ValidationError as erro:
@@ -83,15 +84,18 @@ def executar_annotation_export(args: argparse.Namespace, config: RunConfig) -> i
             f"annotation_freeze_diverge_da_config freeze={freeze_id} config={config.freeze_id}"
         )
     manifesto = carregar_congelamento(Path(config.runtime.dir_congelamentos), freeze_id)
-    destino = Path(config.runtime.raiz_saidas) / "anotacao" / freeze_id
+    destino = Path(config.runtime.raiz_saidas) / "anotacao" / manifesto.freeze_id
     amostra = prepare_annotation_sample(
         _rotulos(manifesto),
         manifesto.split,
-        config.model_copy(update={"freeze_id": freeze_id}),
+        config.model_copy(update={"freeze_id": manifesto.freeze_id}),
         destino,
         particoes=_particoes(manifesto),
     )
     logger.info(
-        "annotation_export freeze=%s amostra=%s destino=%s", freeze_id, amostra.sample_id, destino
+        "annotation_export freeze=%s amostra=%s destino=%s",
+        manifesto.freeze_id,
+        amostra.sample_id,
+        destino,
     )
     return int(ExitCode.OK)

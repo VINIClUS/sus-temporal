@@ -40,7 +40,7 @@ from sustemporal.ingest.sia_pa import (
     gravar_parquet,
     produtor,
 )
-from sustemporal.yamlio import carregar_yaml
+from sustemporal.yamlio import carregar_texto_yaml
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -108,8 +108,15 @@ class Codebook(ContratoBase):
         return self
 
 
+def _ler_codebook(caminho: Path) -> tuple[Codebook, str]:
+    """Lê os bytes uma vez; o codebook validado e o SHA-256 saem do mesmo conteúdo."""
+    conteudo = caminho.read_bytes()
+    livro = Codebook.model_validate(carregar_texto_yaml(conteudo.decode("utf-8")))
+    return livro, hashlib.sha256(conteudo).hexdigest()
+
+
 def carregar_codebook(caminho: Path) -> Codebook:
-    return Codebook.model_validate(carregar_yaml(caminho))
+    return _ler_codebook(caminho)[0]
 
 
 def _sql_rotulos(codebook: Codebook) -> tuple[str, dict[str, object]]:
@@ -192,17 +199,6 @@ class PerfilPa:
     codebook_sha256: str
 
 
-def _codigos_indica(codebook: Path) -> list[str]:
-    conteudo = carregar_yaml(codebook)
-    if not isinstance(conteudo, dict) or not isinstance(conteudo.get("codigos"), dict):
-        raise ValueError(f"codebook_invalido caminho={codebook}")
-    codigos = sorted(str(codigo) for codigo in conteudo["codigos"])
-    invalidos = [codigo for codigo in codigos if not _CODIGO_INDICA.fullmatch(codigo)]
-    if invalidos or not codigos:
-        raise ValueError(f"codebook_codigo_invalido codigos={compactar(invalidos)}")
-    return codigos
-
-
 def _sql_perfil(codigos: list[str], colunas: set[str]) -> tuple[str, dict[str, object]]:
     parametros: dict[str, object] = {"codigos": codigos}
     indica = "trim(pa_indica, ' ')"
@@ -244,9 +240,8 @@ def perfil_pa(
     demais em `indica_outros`); os totais de cada dimensão e origem devem reconciliar com o
     número de linhas do dataset.
     """
-    caminho_codebook = codebook or CODEBOOK_PA
-    codigos = _codigos_indica(caminho_codebook)
-    codebook_sha256 = hashlib.sha256(caminho_codebook.read_bytes()).hexdigest()
+    livro, codebook_sha256 = _ler_codebook(codebook or CODEBOOK_PA)
+    codigos = sorted(livro.codigos)
     canonico = EsquemaCanonico.de_yaml(ESQUEMA_PA)
     with closing(conectar(runtime or RuntimeConfig())) as con:
         colunas = carregar_conferido(con, dataset, canonico, TABELA)

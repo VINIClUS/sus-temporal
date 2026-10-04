@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from decimal import Decimal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -7,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 import duckdb
 import pyarrow.parquet as pq
 import pytest
+from pydantic import ValidationError
 from tests.fixtures.dbf_writer import CampoDbf
 from tests.fixtures.sia_pa_fixtures import (
     CAMINHO_CODEBOOK,
@@ -77,6 +79,14 @@ def _normalizar(
         origem_dados=OrigemDados.SINTETICO,
     )
     return ref, pq.read_table(ref.caminho).to_pylist()
+
+
+def _codebook_com(tmp_path: Path, nome: str, antigo: str, novo: str) -> Path:
+    texto = CAMINHO_CODEBOOK.read_text(encoding="utf-8")
+    assert antigo in texto
+    caminho = tmp_path / nome
+    caminho.write_text(texto.replace(antigo, novo), encoding="utf-8")
+    return caminho
 
 
 def _rotular(tmp_path: Path, ref: DatasetRef) -> tuple[DatasetRef, list[dict[str, Any]]]:
@@ -449,8 +459,7 @@ def test_label_pa_herda_origem_e_artefatos(tmp_path: Path) -> None:
 
 def test_perfil_recusa_codebook_com_codigo_fora_do_padrao(tmp_path: Path) -> None:
     ref, _ = _normalizar(tmp_path, [registro_pa()])
-    codebook = tmp_path / "codebook.yaml"
-    codebook.write_text('codigos:\n  "5 OR 1=1": APROVADO_TOTAL\n', encoding="utf-8")
+    codebook = _codebook_com(tmp_path, "codebook.yaml", '"5":', '"5 OR 1=1":')
     with pytest.raises(ValueError, match="codebook_codigo_invalido"):
         perfil_pa(ref, _saida(tmp_path, "perfil"), codebook=codebook)
 
@@ -533,8 +542,7 @@ def test_label_pa_recusa_parquet_com_tipo_fisico_trocado(tmp_path: Path) -> None
 
 def test_perfil_identifica_o_codebook_usado(tmp_path: Path) -> None:
     ref, _ = _normalizar(tmp_path, [registro_pa()])
-    outro = tmp_path / "outro.yaml"
-    outro.write_text('codigos:\n  "5": APROVADO_TOTAL\n', encoding="utf-8")
+    outro = _codebook_com(tmp_path, "outro.yaml", '"6":', '"7":')
     padrao = perfil_pa(ref, _saida(tmp_path, "perfil"))
     alternativo = perfil_pa(ref, _saida(tmp_path, "perfil"), codebook=outro)
     assert padrao.caminho != alternativo.caminho
@@ -729,7 +737,60 @@ def test_label_pa_recusa_codebook_de_outro_campo(tmp_path: Path) -> None:
 
 def test_perfil_recusa_codigo_maiusculo_no_codebook(tmp_path: Path) -> None:
     ref, _ = _normalizar(tmp_path, [registro_pa()])
-    codebook = tmp_path / "maiusculo.yaml"
-    codebook.write_text('codigos:\n  "A": APROVADO_TOTAL\n', encoding="utf-8")
+    codebook = _codebook_com(tmp_path, "maiusculo.yaml", '"5":', '"A":')
     with pytest.raises(ValueError, match="codebook_codigo_invalido"):
         perfil_pa(ref, _saida(tmp_path, "perfil"), codebook=codebook)
+
+
+@pytest.mark.parametrize(
+    ("antigo", "novo"),
+    [
+        ("campo: PA_INDICA", "campo: PA_SEXO"),
+        ("proveniencia: SECUNDARIA", "proveniencia: OFICIAL_INVENTADA"),
+        ('"5": APROVADO_TOTAL', '"5": DESCONHECIDO'),
+        ("  NAO_APROVADO_COM_VALOR_APROVADO:", "  OUTRA_CONTRADICAO:"),
+    ],
+)
+def test_perfil_recusa_codebook_como_label_pa(tmp_path: Path, antigo: str, novo: str) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()])
+    codebook = _codebook_com(tmp_path, "invalido.yaml", antigo, novo)
+    with pytest.raises(ValidationError) as recusa_rotulo:
+        label_pa(ref, codebook, _saida(tmp_path, "rotulos"))
+    with pytest.raises(ValidationError) as recusa_perfil:
+        perfil_pa(ref, _saida(tmp_path, "perfil"), codebook=codebook)
+    assert type(recusa_perfil.value) is type(recusa_rotulo.value)
+    assert str(recusa_perfil.value) == str(recusa_rotulo.value)
+
+
+def test_perfil_le_o_codebook_uma_vez_e_registra_o_hash_desses_bytes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()])
+    codebook = _codebook_com(tmp_path, "lido.yaml", '"6":', '"6":')
+    substituto = _codebook_com(tmp_path, "substituto.yaml", '"6":', '"7":')
+    lido = codebook.read_bytes()
+    aberturas: list[Path] = []
+    original = Path.open
+
+    def espiao(self: Path, *args: Any, **kwargs: Any) -> Any:
+        arquivo = original(self, *args, **kwargs)
+        if self == codebook:
+            aberturas.append(self)
+            if len(aberturas) == 1:
+                substituto.replace(codebook)
+        return arquivo
+
+    monkeypatch.setattr(Path, "open", espiao)
+    perfil = perfil_pa(ref, _saida(tmp_path, "perfil"), codebook=codebook)
+    monkeypatch.undo()
+    assert len(aberturas) == 1
+    assert perfil.codebook_sha256 == hashlib.sha256(lido).hexdigest()
+    colunas = pq.read_schema(perfil.caminho).names
+    assert "indica_6" in colunas
+    assert "indica_7" not in colunas
+
+
+def test_normalize_pa_sem_origem_declarada_e_sintetico(tmp_path: Path) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()])
+    ref = normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert ref.origem_dados is OrigemDados.SINTETICO

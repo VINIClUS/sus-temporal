@@ -1,0 +1,21 @@
+# Baseline do plano §7 (B_ATEND): todas as fontes auxiliares pela competência de
+# atendimento, sem deslocamento. Proposta do plano, não regra documental: ALTERNATIVA_EXPLORATORIA.
+politica_id: B_ATEND
+tipo: ALTERNATIVA_EXPLORATORIA
+metodo: B_ATEND
+criterios:
+  - fonte: CNES_ST
+    base: ATENDIMENTO
+    deslocamento_meses: "0"
+  - fonte: CNES_PF
+    base: ATENDIMENTO
+    deslocamento_meses: "0"
+  - fonte: CNES_SR
+    base: ATENDIMENTO
+    deslocamento_meses: "0"
+  - fonte: CNES_HB
+    base: ATENDIMENTO
+    deslocamento_meses: "0"
+  - fonte: SIGTAP
+    base: ATENDIMENTO
+    deslocamento_meses: "0"

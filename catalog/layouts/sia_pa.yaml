@@ -1,0 +1,521 @@
+# Leiaute do SIA-PA (PA{UF}{AAMM}[parte].dbc), um LayoutSpec por linha de campo físico.
+# Proveniência: ordem das posições 14, 15 e 50-53 SECUNDARIA (transcrição do IT SIASUS 2019-07,
+# fontes S6-S8); demais posições INFERIDA (sequência do microdatasus, S1). Tipos dBASE, larguras e
+# decimais são INFERIDA (nenhuma fonte disponível os confirma): o leitor confere nome, ordem, tipo,
+# largura e decimais com rigor (ADR 0002), então arquivos reais vão para QUARENTENA_LEIAUTE até a
+# confirmação contra cabeçalhos reais (docs/pendencias/T03.md).
+# Variação aceita: os campos com obrigatorio "false" (posições 55-60, que levaram o PA de 54 a 60
+# colunas segundo S4, e PA_FNTORC, presente em arquivos de 2026 segundo S9) podem faltar; quando
+# presentes, aparecem na ordem abaixo. Campo físico sem coluna em sia_pa.v1 (PA_CNPJCPF,
+# PA_CNPJMNT, PA_CNPJ_CC, PA_AUTORIZ, PA_CNSMED, PA_FNTORC) é lido para conferir o leiaute e
+# descartado por minimização ou por falta de semântica; o descarte é registrado no log da ingestão.
+# Sentinelas (SECUNDARIA, S1; A_CONFIRMAR): valor bruto aparado -> motivo de ausência.
+# PA_IDADE: unidade ANOS segundo transcrições do IT (SECUNDARIA; A_CONFIRMAR); 999 tratado como
+# sentinela de idade não informada (INFERIDA; A_CONFIRMAR).
+layout_id: sia_pa.it_2019_07
+fonte: SIA_PA
+versao: "1"
+codificacao: latin-1
+formato: DBF
+proveniencia: INFERIDA
+confirmacao: A_CONFIRMAR
+campos:
+  - nome_fisico: PA_CODUNI
+    tipo_fisico: C
+    largura: "7"
+    decimais: "0"
+    nome_canonico: cnes
+    tipo_canonico: TEXTO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+  - nome_fisico: PA_GESTAO
+    tipo_fisico: C
+    largura: "6"
+    decimais: "0"
+    nome_canonico: pa_gestao
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_CONDIC
+    tipo_fisico: C
+    largura: "2"
+    decimais: "0"
+    nome_canonico: pa_condic
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_UFMUN
+    tipo_fisico: C
+    largura: "6"
+    decimais: "0"
+    nome_canonico: municipio_estabelecimento
+    tipo_canonico: TEXTO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+  - nome_fisico: PA_REGCT
+    tipo_fisico: C
+    largura: "4"
+    decimais: "0"
+    nome_canonico: pa_regct
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_INCOUT
+    tipo_fisico: C
+    largura: "4"
+    decimais: "0"
+    nome_canonico: pa_incout
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_INCURG
+    tipo_fisico: C
+    largura: "4"
+    decimais: "0"
+    nome_canonico: pa_incurg
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_TPUPS
+    tipo_fisico: C
+    largura: "2"
+    decimais: "0"
+    nome_canonico: tipo_unidade
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_TIPPRE
+    tipo_fisico: C
+    largura: "2"
+    decimais: "0"
+    nome_canonico: pa_tippre
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_MN_IND
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_mn_ind
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_CNPJCPF
+    tipo_fisico: C
+    largura: "14"
+    decimais: "0"
+    nome_canonico: pa_cnpjcpf
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_CNPJMNT
+    tipo_fisico: C
+    largura: "14"
+    decimais: "0"
+    nome_canonico: pa_cnpjmnt
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_CNPJ_CC
+    tipo_fisico: C
+    largura: "14"
+    decimais: "0"
+    nome_canonico: pa_cnpj_cc
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_MVM
+    tipo_fisico: C
+    largura: "6"
+    decimais: "0"
+    nome_canonico: competencia_processamento
+    tipo_canonico: TEXTO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+  - nome_fisico: PA_CMP
+    tipo_fisico: C
+    largura: "6"
+    decimais: "0"
+    nome_canonico: competencia_atendimento
+    tipo_canonico: TEXTO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+  - nome_fisico: PA_PROC_ID
+    tipo_fisico: C
+    largura: "10"
+    decimais: "0"
+    nome_canonico: procedimento
+    tipo_canonico: TEXTO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+  - nome_fisico: PA_TPFIN
+    tipo_fisico: C
+    largura: "2"
+    decimais: "0"
+    nome_canonico: pa_tpfin
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_SUBFIN
+    tipo_fisico: C
+    largura: "4"
+    decimais: "0"
+    nome_canonico: pa_subfin
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_NIVCPL
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_nivcpl
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_DOCORIG
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: instrumento
+    tipo_canonico: TEXTO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+  - nome_fisico: PA_AUTORIZ
+    tipo_fisico: C
+    largura: "13"
+    decimais: "0"
+    nome_canonico: pa_autoriz
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_CNSMED
+    tipo_fisico: C
+    largura: "15"
+    decimais: "0"
+    nome_canonico: pa_cnsmed
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_CBOCOD
+    tipo_fisico: C
+    largura: "6"
+    decimais: "0"
+    nome_canonico: cbo
+    tipo_canonico: TEXTO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+  - nome_fisico: PA_MOTSAI
+    tipo_fisico: C
+    largura: "2"
+    decimais: "0"
+    nome_canonico: pa_motsai
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_OBITO
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_obito
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_ENCERR
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_encerr
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_PERMAN
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_perman
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_ALTA
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_alta
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_TRANSF
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_transf
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_CIDPRI
+    tipo_fisico: C
+    largura: "4"
+    decimais: "0"
+    nome_canonico: cid_principal
+    tipo_canonico: TEXTO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+  - nome_fisico: PA_CIDSEC
+    tipo_fisico: C
+    largura: "4"
+    decimais: "0"
+    nome_canonico: cid_secundario
+    tipo_canonico: TEXTO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+  - nome_fisico: PA_CIDCAS
+    tipo_fisico: C
+    largura: "4"
+    decimais: "0"
+    nome_canonico: cid_causas_associadas
+    tipo_canonico: TEXTO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+  - nome_fisico: PA_CATEND
+    tipo_fisico: C
+    largura: "2"
+    decimais: "0"
+    nome_canonico: carater_atendimento
+    tipo_canonico: TEXTO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+    sentinelas:
+      "00": VAZIO
+      "99": DESCONHECIDO
+  - nome_fisico: PA_IDADE
+    tipo_fisico: C
+    largura: "3"
+    decimais: "0"
+    nome_canonico: idade
+    tipo_canonico: INTEIRO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+    sentinelas:
+      "999": DESCONHECIDO
+    unidade: ANOS
+  - nome_fisico: IDADEMIN
+    tipo_fisico: C
+    largura: "3"
+    decimais: "0"
+    nome_canonico: idademin
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: IDADEMAX
+    tipo_fisico: C
+    largura: "3"
+    decimais: "0"
+    nome_canonico: idademax
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_FLIDADE
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_flidade
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_SEXO
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: sexo
+    tipo_canonico: TEXTO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+    sentinelas:
+      "0": NAO_APLICAVEL
+  - nome_fisico: PA_RACACOR
+    tipo_fisico: C
+    largura: "2"
+    decimais: "0"
+    nome_canonico: pa_racacor
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+    sentinelas:
+      "00": NAO_APLICAVEL
+      "99": DESCONHECIDO
+  - nome_fisico: PA_MUNPCN
+    tipo_fisico: C
+    largura: "6"
+    decimais: "0"
+    nome_canonico: pa_munpcn
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_QTDPRO
+    tipo_fisico: N
+    largura: "11"
+    decimais: "0"
+    nome_canonico: quantidade_apresentada
+    tipo_canonico: INTEIRO
+    papel: ATRIBUTO
+    obrigatorio: "true"
+  - nome_fisico: PA_QTDAPR
+    tipo_fisico: N
+    largura: "11"
+    decimais: "0"
+    nome_canonico: quantidade_aprovada
+    tipo_canonico: INTEIRO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_VALPRO
+    tipo_fisico: N
+    largura: "20"
+    decimais: "2"
+    nome_canonico: valor_apresentado
+    tipo_canonico: DECIMAL
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_VALAPR
+    tipo_fisico: N
+    largura: "20"
+    decimais: "2"
+    nome_canonico: valor_aprovado
+    tipo_canonico: DECIMAL
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_UFDIF
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_ufdif
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_MNDIF
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_mndif
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_DIF_VAL
+    tipo_fisico: N
+    largura: "20"
+    decimais: "2"
+    nome_canonico: pa_dif_val
+    tipo_canonico: DECIMAL
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: NU_VPA_TOT
+    tipo_fisico: N
+    largura: "20"
+    decimais: "2"
+    nome_canonico: nu_vpa_tot
+    tipo_canonico: DECIMAL
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: NU_PA_TOT
+    tipo_fisico: N
+    largura: "20"
+    decimais: "2"
+    nome_canonico: nu_pa_tot
+    tipo_canonico: DECIMAL
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_INDICA
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_indica
+    tipo_canonico: TEXTO
+    papel: ROTULO
+    obrigatorio: "true"
+  - nome_fisico: PA_CODOCO
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_codoco
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_FLQT
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_flqt
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_FLER
+    tipo_fisico: C
+    largura: "1"
+    decimais: "0"
+    nome_canonico: pa_fler
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_ETNIA
+    tipo_fisico: C
+    largura: "4"
+    decimais: "0"
+    nome_canonico: pa_etnia
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "true"
+  - nome_fisico: PA_VL_CF
+    tipo_fisico: N
+    largura: "20"
+    decimais: "2"
+    nome_canonico: pa_vl_cf
+    tipo_canonico: DECIMAL
+    papel: DIAGNOSTICO
+    obrigatorio: "false"
+  - nome_fisico: PA_VL_CL
+    tipo_fisico: N
+    largura: "20"
+    decimais: "2"
+    nome_canonico: pa_vl_cl
+    tipo_canonico: DECIMAL
+    papel: DIAGNOSTICO
+    obrigatorio: "false"
+  - nome_fisico: PA_VL_INC
+    tipo_fisico: N
+    largura: "20"
+    decimais: "2"
+    nome_canonico: pa_vl_inc
+    tipo_canonico: DECIMAL
+    papel: DIAGNOSTICO
+    obrigatorio: "false"
+  - nome_fisico: PA_SRV_C
+    tipo_fisico: C
+    largura: "6"
+    decimais: "0"
+    nome_canonico: pa_srv_c
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "false"
+  - nome_fisico: PA_INE
+    tipo_fisico: C
+    largura: "10"
+    decimais: "0"
+    nome_canonico: pa_ine
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "false"
+  - nome_fisico: PA_NAT_JUR
+    tipo_fisico: C
+    largura: "4"
+    decimais: "0"
+    nome_canonico: pa_nat_jur
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "false"
+  - nome_fisico: PA_FNTORC
+    tipo_fisico: C
+    largura: "4"
+    decimais: "0"
+    nome_canonico: pa_fntorc
+    tipo_canonico: TEXTO
+    papel: DIAGNOSTICO
+    obrigatorio: "false"

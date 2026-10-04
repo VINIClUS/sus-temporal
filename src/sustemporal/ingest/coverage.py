@@ -11,6 +11,7 @@ Competência ausente nunca é suprida pelo mês vizinho.
 
 from __future__ import annotations
 
+import itertools
 import logging
 from collections import defaultdict
 from contextlib import closing
@@ -200,25 +201,27 @@ def _linhas(
 ) -> list[dict[str, str | None]]:
     sia_pa, auxiliares = entradas
     registros = _registros(con, _carregar(con, sia_pa, "sia_pa.v1"))
+    tabelas: dict[str, list[str]] = {}
     linhas: list[dict[str, str | None]] = []
     for familia in catalogo.familias:
         schema_id, campos = _auxiliar(familia)
-        fonte = _fonte(con, _carregar(con, auxiliares, schema_id), schema_id, campos)
-        for instrumento in familia.instrumentos:
-            for competencia in competencias:
-                for base in _BASES:
-                    chave = (familia.familia, str(instrumento), competencia, base)
-                    estado, motivo = _celula(registros, fonte, chave)
-                    linhas.append(
-                        {
-                            "familia_regra": familia.familia.value,
-                            "instrumento": str(instrumento),
-                            "competencia": competencia,
-                            "base_temporal": base.value,
-                            "estado": estado.value,
-                            "motivo": motivo,
-                        }
-                    )
+        if schema_id not in tabelas:
+            tabelas[schema_id] = _carregar(con, auxiliares, schema_id)
+        fonte = _fonte(con, tabelas[schema_id], schema_id, campos)
+        celulas = itertools.product(familia.instrumentos, competencias, _BASES)
+        for instrumento, competencia, base in celulas:
+            chave = (familia.familia, str(instrumento), competencia, base)
+            estado, motivo = _celula(registros, fonte, chave)
+            linhas.append(
+                {
+                    "familia_regra": familia.familia.value,
+                    "instrumento": str(instrumento),
+                    "competencia": competencia,
+                    "base_temporal": base.value,
+                    "estado": estado.value,
+                    "motivo": motivo,
+                }
+            )
     return linhas
 
 

@@ -8,7 +8,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sustemporal.acquisition.fetch import fetch_source, nomes_listados
+from sustemporal.acquisition.fetch import agora_utc, fetch_source, nomes_listados
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.acquisition.sources import (
     carregar_catalogo,
@@ -31,6 +31,7 @@ from sustemporal.hashing import sha256_arquivo
 if TYPE_CHECKING:
     import argparse
     from collections.abc import Callable, Iterable
+    from datetime import datetime
 
     from sustemporal.acquisition.sources import CatalogoFontes
     from sustemporal.contracts.artifacts import (
@@ -214,5 +215,7 @@ def executar_acquire(args: argparse.Namespace, config: RunConfig) -> int:
     return int(ExitCode.FALHA_OPERACIONAL if incompleta else ExitCode.OK)
 
 
-def executar_watch(args: argparse.Namespace, config: RunConfig) -> int:
-    raise NotImplementedError
+def executar_watch(
+    args: argparse.Namespace, config: RunConfig, *, relogio: Callable[[], datetime] = agora_utc
+) -> int:
+    raise NotImplementedError("executar_watch")

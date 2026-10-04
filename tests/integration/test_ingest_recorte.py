@@ -98,3 +98,20 @@ def test_sem_corte_as_mesmas_versoes_entram(tmp_path: Path) -> None:
     _rodar(tmp_path)
     assert {r["estado"] for r in resultados_ingest(tmp_path)} == {"NORMALIZADO"}
     assert cobertura_ingest(tmp_path)[("VIGENCIA_PROCEDIMENTO", "PROCESSAMENTO")] == "DISPONIVEL"
+
+
+def test_parte_incompleta_rebaixa_tambem_a_competencia_de_processamento_dos_registros(
+    tmp_path: Path,
+) -> None:
+    store = tmp_path / "dados" / "raw"
+    registros = [registro("C", "201801", "201801"), registro("C", "201802", "201802")]
+    versoes = [
+        artefato_pa(store, dbc_pa(registros)),
+        artefato_pa(store, dbc_pa(registros, truncar_bytes=30), parte="b"),
+        artefato_sigtap(store, zip_sigtap(pacote_padrao("201801")), competencia="201801"),
+        artefato_sigtap(store, zip_sigtap(pacote_padrao("201802")), competencia="201802"),
+    ]
+    registrar_versoes(_manifesto(tmp_path), versoes)
+    _rodar(tmp_path, competencias='"201801", "201802"')
+    estados = cobertura_ingest(tmp_path, competencia="201802")
+    assert estados[("VIGENCIA_PROCEDIMENTO", "PROCESSAMENTO")] != "DISPONIVEL"

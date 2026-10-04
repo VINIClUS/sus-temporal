@@ -37,6 +37,7 @@ def config_ingest(
     *,
     familias: str = "SIA_PA, CNES_PF, SIGTAP",
     corte: str | None = None,
+    competencias: str = '"201801"',
 ) -> Path:
     linhas = [
         'versao: "1"',
@@ -51,7 +52,7 @@ def config_ingest(
         '  duckdb_threads: "1"',
         "piloto:",
         "  uf: SP",
-        '  competencias_processamento: ["201801"]',
+        f"  competencias_processamento: [{competencias}]",
         f"  territorio: {DRS_XI}",
         f"  familias_fontes: [{familias}]",
     ]
@@ -70,15 +71,17 @@ def resultados_ingest(pasta: Path) -> list[dict[str, str]]:
     return [json.loads(linha) for linha in texto.splitlines()]
 
 
-def cobertura_ingest(pasta: Path, instrumento: str = "C") -> dict[tuple[str, str], str]:
-    """Estado por (família, base) na competência 201801 para o instrumento pedido."""
+def cobertura_ingest(
+    pasta: Path, instrumento: str = "C", competencia: str = "201801"
+) -> dict[tuple[str, str], str]:
+    """Estado por (família, base) na competência pedida para o instrumento pedido."""
     linhas = (_execucao(pasta) / "datasets.jsonl").read_text(encoding="utf-8").splitlines()
     datasets = [DatasetRef.model_validate(json.loads(linha)) for linha in linhas]
     (cobertura,) = [d for d in datasets if d.schema_id == "cobertura.v1"]
     with closing(duckdb.connect()) as con:
         consulta = con.execute(
             "SELECT familia_regra, base_temporal, estado FROM read_parquet($c) "
-            "WHERE competencia = '201801' AND instrumento = $i",
-            {"c": cobertura.caminho, "i": instrumento},
+            "WHERE competencia = $k AND instrumento = $i",
+            {"c": cobertura.caminho, "i": instrumento, "k": competencia},
         ).fetchall()
     return {(str(f), str(b)): str(e) for f, b, e in consulta}

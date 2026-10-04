@@ -40,7 +40,7 @@ from sustemporal.ingest.sia_pa import carregar_conferido
 from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
 
     import duckdb
 
@@ -237,6 +237,7 @@ def build_coverage(
     familias: Path = CATALOGO_FAMILIAS,
     runtime: RuntimeConfig | None = None,
     origem_dados: OrigemDados = OrigemDados.SINTETICO,
+    sia_pa_incompleto: Mapping[str, str] | None = None,
 ) -> DatasetRef:
     """Matriz completa de cobertura a partir das tabelas efetivamente carregadas.
 

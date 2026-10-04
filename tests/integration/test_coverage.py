@@ -168,3 +168,33 @@ def test_origem_dados_padrao_e_sintetico(tmp_path: Path) -> None:
     dataset = build_coverage([sia_pa], [], COMPETENCIAS, tmp_path / "c", runtime=runtime(tmp_path))
     assert dataset.origem_dados is OrigemDados.SINTETICO
     assert {x["estado"] for x in _matriz(dataset).values()} <= {"AUSENTE", "INSUFICIENTE"}
+
+
+def test_registro_sia_pa_deletado_nao_conta_na_cobertura(tmp_path: Path) -> None:
+    registros = [registro("C", "201801", "201801"), registro("A", "201801", "201712")]
+    sia_pa = conjunto_sia_pa(tmp_path, registros, deletados=[1])
+    dataset = build_coverage(
+        [sia_pa],
+        conjuntos_sigtap(tmp_path),
+        COMPETENCIAS,
+        tmp_path / "c",
+        runtime=runtime(tmp_path),
+    )
+    linha = _matriz(dataset)[("PROCEDIMENTO_CBO", "A", "201801", "ATENDIMENTO")]
+    assert linha["estado"] == "INSUFICIENTE"
+    assert "sem_registros" in linha["motivo"]
+
+
+def test_sia_pa_incompleto_na_competencia_nunca_fica_disponivel(tmp_path: Path) -> None:
+    sia_pa = conjunto_sia_pa(tmp_path, _registros_padrao())
+    dataset = build_coverage(
+        [sia_pa],
+        conjuntos_sigtap(tmp_path),
+        COMPETENCIAS,
+        tmp_path / "c",
+        runtime=runtime(tmp_path),
+        sia_pa_incompleto={"201801": "QUARENTENA_TRUNCADO"},
+    )
+    linhas = [x for chave, x in _matriz(dataset).items() if chave[2] == "201801"]
+    assert "DISPONIVEL" not in {x["estado"] for x in linhas}
+    assert all("sia_pa_incompleto" in x["motivo"] for x in linhas if x["estado"] == "INSUFICIENTE")

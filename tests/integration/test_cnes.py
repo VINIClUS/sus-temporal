@@ -299,3 +299,24 @@ def test_motor_real_aceita_o_conjunto_estabelecimento_cbo(tmp_path: Path) -> Non
         with closing(duckdb.connect()) as con:
             verificar_conteudo(con, dataset)
             assert preparar_auxiliar(con, regra, (dataset,)).leiaute == "OK"
+
+
+def test_linha_deletada_com_competen_divergente_nao_vai_para_quarentena(tmp_path: Path) -> None:
+    registros = [*_padrao(), registro_pf("2001234", "225125", COMPETEN="201712")]
+    dataset = _normalizar(tmp_path, _pf(tmp_path, registros, deletados=[4]), PF)
+    assert dataset.reconciliacao is not None
+    assert dataset.reconciliacao.excluidas_por_motivo["deletado"] == 1
+
+
+@pytest.mark.parametrize("cnes", ["012345 ", " 012345", "012345"])
+def test_cnes_de_seis_digitos_fica_fora_das_contagens(tmp_path: Path, cnes: str) -> None:
+    registros = [*_padrao(), registro_pf(cnes, "225125")]
+    dataset = _normalizar(tmp_path, _pf(tmp_path, registros), PF)
+    assert dataset.reconciliacao is not None
+    assert dataset.reconciliacao.excluidas_por_motivo["cnes_CODIFICACAO_INVALIDA"] == 1
+    assert "012345" not in {x["cnes"] for x in _linhas(dataset)}
+
+
+def test_st_com_cnes_de_seis_digitos_vai_para_quarentena(tmp_path: Path) -> None:
+    erro = _quarentena(tmp_path, _st(tmp_path, [registro_st("012345 ")]), ST)
+    assert "codigo_invalido" in erro.motivo

@@ -43,8 +43,10 @@ def conjunto_sia_pa(
     *,
     competencia: str = "201801",
     parte: str = "a",
+    deletados: Collection[int] = (),
 ) -> DatasetRef:
-    artefato = artefato_pa(pasta, dbc_pa(registros), competencia=competencia, parte=parte)
+    dados = dbc_pa(registros, deletados=deletados)
+    artefato = artefato_pa(pasta, dados, competencia=competencia, parte=parte)
     (pasta / "saida").mkdir(parents=True, exist_ok=True)
     return normalize_pa(
         artefato,

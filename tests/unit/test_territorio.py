@@ -43,3 +43,9 @@ def test_territorio_ilegivel_recusa(tmp_path: Path) -> None:
     caminho = _copia(tmp_path, "uf: SP", "uf: 35")
     with pytest.raises(ConfigInvalida, match="territorio_invalido"):
         carregar_territorio(caminho, uf="SP")
+
+
+def test_municipio_de_outra_uf_recusa_o_territorio(tmp_path: Path) -> None:
+    caminho = _copia(tmp_path, "{ibge7: 3514403, ibge6: 351440,", "{ibge7: 4114401, ibge6: 411440,")
+    with pytest.raises(ConfigInvalida, match="territorio_municipio_de_outra_uf"):
+        carregar_territorio(caminho, uf="SP")

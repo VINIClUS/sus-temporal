@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
+import duckdb
 import pytest
 from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf, registro_st
 from tests.fixtures.piloto_conjuntos import registro
@@ -16,6 +18,7 @@ from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
 from sustemporal import cli
 from sustemporal.contracts import ArtifactVersion, DatasetRef, FamiliaFonte, OrigemDados
 from sustemporal.errors import ExitCode
+from sustemporal.ingest.registry import NORMALIZADORES
 
 DRS_XI = Path(__file__).resolve().parents[2] / "catalog" / "territorio" / "drs_xi.yaml"
 PF = FamiliaFonte.CNES_PF
@@ -26,6 +29,7 @@ def _versoes(store: Path) -> list[ArtifactVersion]:
     pf = [registro_pf("0012345", "225125"), registro_pf("0012345", "2231F9")]
     return [
         artefato_pa(store, dbc_pa(registros)),
+        artefato_pa(store, dbc_pa(registros, truncar_bytes=30), parte="b"),
         artefato_sigtap(store, zip_sigtap(pacote_padrao())),
         artefato_cnes(store, dbc_cnes(PF, pf), PF),
         artefato_cnes(store, dbc_cnes(PF, pf), FamiliaFonte.CNES_SR),
@@ -37,10 +41,16 @@ def _versoes(store: Path) -> list[ArtifactVersion]:
     ]
 
 
-def _config(pasta: Path, *, territorio: Path = DRS_XI, piloto: bool = True) -> Path:
+def _config(
+    pasta: Path,
+    *,
+    territorio: Path = DRS_XI,
+    piloto: bool = True,
+    origem: str | None = "SINTETICO",
+) -> Path:
     linhas = [
         'versao: "1"',
-        "origem_dados: SINTETICO",
+        *([f"origem_dados: {origem}"] if origem else []),
         "runtime:",
         f"  raiz_dados: {pasta / 'dados'}",
         f"  raiz_manifestos: {pasta / 'manifestos'}",
@@ -61,11 +71,15 @@ def _config(pasta: Path, *, territorio: Path = DRS_XI, piloto: bool = True) -> P
     return caminho
 
 
-def _preparar(pasta: Path) -> Path:
+def _preparar(pasta: Path, *, origem: str | None = "SINTETICO") -> Path:
     versoes = _versoes(pasta / "dados" / "raw")
     (pasta / "manifestos").mkdir(parents=True)
     registrar_versoes(pasta / "manifestos" / "aquisicao.jsonl", versoes)
-    return _config(pasta)
+    return _config(pasta, origem=origem)
+
+
+def _execucoes(pasta: Path) -> list[Path]:
+    return sorted(p for p in (pasta / "saidas" / "ingest").iterdir() if p.is_dir())
 
 
 def _jsonl(caminho: Path) -> list[dict[str, Any]]:
@@ -75,7 +89,8 @@ def _jsonl(caminho: Path) -> list[dict[str, Any]]:
 @pytest.fixture
 def executado(tmp_path: Path) -> Path:
     assert cli.main(["ingest", "--config", str(_preparar(tmp_path))]) == ExitCode.OK
-    return tmp_path / "saidas" / "ingest"
+    (execucao,) = _execucoes(tmp_path)
+    return execucao
 
 
 def test_ingest_produz_conjuntos_canonicos_e_cobertura(executado: Path) -> None:
@@ -114,3 +129,42 @@ def test_ingest_com_territorio_invalido_e_config_invalida(tmp_path: Path) -> Non
     assert cli.main(["ingest", "--config", str(_config(tmp_path, territorio=ruim))]) == (
         ExitCode.CONFIG_INVALIDA
     )
+
+
+def test_parte_do_sia_pa_em_quarentena_impede_cobertura_disponivel(executado: Path) -> None:
+    datasets = [DatasetRef.model_validate(x) for x in _jsonl(executado / "datasets.jsonl")]
+    (cobertura,) = [d for d in datasets if d.schema_id == "cobertura.v1"]
+    with closing(duckdb.connect()) as con:
+        estados = con.execute(
+            "SELECT DISTINCT estado FROM read_parquet($c) WHERE competencia = '201801'",
+            {"c": cobertura.caminho},
+        ).fetchall()
+    assert ("DISPONIVEL",) not in estados
+
+
+def test_falha_fora_da_quarentena_e_registrada_e_a_execucao_segue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    falha = "tests.fixtures.piloto_falhas:normalizar_com_erro"
+    monkeypatch.setitem(NORMALIZADORES, FamiliaFonte.SIGTAP, falha)
+    assert cli.main(["ingest", "--config", str(_preparar(tmp_path))]) == ExitCode.OK
+    (execucao,) = _execucoes(tmp_path)
+    resultados = _jsonl(execucao / "resultados.jsonl")
+    assert {x["estado"] for x in resultados if x["fonte"] == "SIGTAP"} == {"FALHA_NORMALIZACAO"}
+    assert ("SIA_PA", "NORMALIZADO") in {(x["fonte"], x["estado"]) for x in resultados}
+
+
+def test_origem_omitida_na_config_vira_sintetico(tmp_path: Path) -> None:
+    assert cli.main(["ingest", "--config", str(_preparar(tmp_path, origem=None))]) == ExitCode.OK
+    (execucao,) = _execucoes(tmp_path)
+    origens = {x["origem_dados"] for x in _jsonl(execucao / "datasets.jsonl")}
+    assert origens == {"SINTETICO"}
+
+
+def test_duas_execucoes_nao_sobrescrevem_a_anterior(tmp_path: Path) -> None:
+    config = str(_preparar(tmp_path))
+    assert cli.main(["ingest", "--config", config]) == ExitCode.OK
+    assert cli.main(["ingest", "--config", config]) == ExitCode.OK
+    primeira, segunda = _execucoes(tmp_path)
+    assert (primeira / "datasets.jsonl").is_file()
+    assert (segunda / "datasets.jsonl").is_file()

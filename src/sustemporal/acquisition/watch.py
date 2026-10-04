@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -17,6 +18,7 @@ from sustemporal.acquisition.fetch import agora_utc, fetch_source
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts import LayoutSpec
 from sustemporal.contracts.artifacts import ResultadoTentativa
+from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.temporal import CompetenciaArquivo
 from sustemporal.yamlio import carregar_yaml
 
@@ -35,13 +37,17 @@ __all__ = [
     "NOME_RELATORIO",
     "RECORTE_FIM",
     "RECORTE_INICIO",
+    "JanelaIncompleta",
     "carregar_leiaute_pa",
     "chave_de_comparacao",
     "chaves_sumidas",
+    "classificar_chave",
     "competencias_da_janela",
+    "eh_falha",
     "gravar_relatorio",
     "observe_updates",
     "resumir_vigilancia",
+    "sumida",
     "versoes_anteriores",
 ]
 
@@ -117,9 +123,12 @@ def chaves_sumidas(
     """Chaves já acompanhadas da fonte que não estão nas requisições da listagem atual.
 
     Só contam as competências do início da janela atual em diante: as mais antigas saíram da
-    janela porque chegaram competências novas, não porque sumiram.
+    janela porque chegaram competências novas, não porque sumiram. Janela vazia não aponta
+    nada: conjunto vazio nunca vira ausência (fica como janela incompleta).
     """
-    inicio = janela[0].valor if janela else RECORTE_INICIO.valor
+    if not janela:
+        return []
+    inicio = janela[0].valor
     return sorted(
         (c for c in anteriores if c[0] is fonte and c not in atuais and (c[2] or "") >= inicio),
         key=lambda c: (c[2] or "", c[3] or ""),
@@ -147,24 +156,104 @@ def carregar_leiaute_pa(config: RunConfig) -> LayoutSpec:
     return LayoutSpec.model_validate(carregar_yaml(caminho))
 
 
+_FALHAS = (ResultadoComparacao.INCONCLUSIVO, ResultadoComparacao.ARQUIVO_SUMIU)
+_REVISOES = (
+    ResultadoComparacao.REVISAO_REAL,
+    ResultadoComparacao.CORRESPONDENCIA_AMBIGUA,
+    ResultadoComparacao.BYTES_ALTERADOS_SEM_COMPARACAO,
+)
+
+
+@dataclass(frozen=True)
+class JanelaIncompleta:
+    """Família com menos competências listadas no recorte do que a janela pede."""
+
+    fonte: str
+    pedido: int
+    obtido: int
+    competencias: tuple[str, ...]
+    motivo: str
+
+
+def _resultado(
+    anterior: ArtifactVersion | None, nova: str | None, resultado: ResultadoComparacao, motivo: str
+) -> ComparacaoVersoes:
+    origem = None if anterior is None else anterior.artifact_id
+    return ComparacaoVersoes(origem, nova, resultado, 0, 0, motivo)
+
+
+def classificar_chave(
+    anterior: ArtifactVersion | None,
+    obs: ArtifactObservation,
+    versoes: Mapping[str, ArtifactVersion],
+    comparar: Callable[[ArtifactVersion, ArtifactVersion], ComparacaoVersoes],
+) -> ComparacaoVersoes:
+    """Exatamente um resultado para a chave observada nesta execução.
+
+    Falha de obtenção é INCONCLUSIVO; sem versão anterior, ARQUIVO_NOVO; mesmo conteúdo,
+    INALTERADA; família sem comparação por linhas, BYTES_ALTERADOS_SEM_COMPARACAO; senão,
+    `comparar` (SIA-PA por multiconjunto).
+    """
+    if obs.resultado is not ResultadoTentativa.OBTIDO:
+        motivo = f"observacao_sem_conteudo resultado={obs.resultado}"
+        return _resultado(anterior, None, ResultadoComparacao.INCONCLUSIVO, motivo)
+    nova = versoes.get(obs.artifact_id or "")
+    if nova is None:
+        motivo = "versao_nova_sem_registro"
+        return _resultado(anterior, obs.artifact_id, ResultadoComparacao.INCONCLUSIVO, motivo)
+    if anterior is None:
+        motivo = "sem_versao_anterior"
+        return _resultado(None, nova.artifact_id, ResultadoComparacao.ARQUIVO_NOVO, motivo)
+    if anterior.artifact_id == nova.artifact_id:
+        return _resultado(
+            anterior, nova.artifact_id, ResultadoComparacao.INALTERADA, "mesma_versao"
+        )
+    if nova.chave.fonte is not FamiliaFonte.SIA_PA:
+        resultado = ResultadoComparacao.BYTES_ALTERADOS_SEM_COMPARACAO
+        return _resultado(
+            anterior, nova.artifact_id, resultado, "familia_sem_comparacao_por_linhas"
+        )
+    return comparar(anterior, nova)
+
+
+def sumida(anterior: ArtifactVersion) -> ComparacaoVersoes:
+    return _resultado(anterior, None, ResultadoComparacao.ARQUIVO_SUMIU, "sumiu_da_listagem")
+
+
+def eh_falha(comparacao: ComparacaoVersoes) -> bool:
+    return comparacao.resultado in _FALHAS
+
+
+def _prefixo(comparacoes: Sequence[ComparacaoVersoes], janelas_incompletas: int) -> str:
+    resultados = {c.resultado for c in comparacoes}
+    if janelas_incompletas or resultados & set(_FALHAS):
+        return "vigilancia_inconclusiva"
+    if resultados & set(_REVISOES):
+        return "revisao_observada"
+    if ResultadoComparacao.ARQUIVO_NOVO in resultados:
+        return "arquivos_novos_observados"
+    return "sem_revisao_observada" if resultados else "sem_chave_acompanhada"
+
+
 def resumir_vigilancia(
-    observacoes: Sequence[ArtifactObservation], comparacoes: Sequence[ComparacaoVersoes]
+    observacoes: Sequence[ArtifactObservation],
+    comparacoes: Sequence[ComparacaoVersoes],
+    *,
+    janelas_incompletas: int = 0,
 ) -> str:
-    """Resumo que só fala do que a pesquisa observou, sem afirmar nada fora das observações."""
+    """Resumo que só fala do que a pesquisa observou, com a contagem por resultado.
+
+    `sem_revisao_observada` só com janelas completas e todas as chaves INALTERADA; nunca afirma
+    nada fora das observações.
+    """
     resultados = [c.resultado for c in comparacoes]
-    inconclusivas = resultados.count(ResultadoComparacao.INCONCLUSIVO)
-    revisoes = len(resultados) - inconclusivas - resultados.count(ResultadoComparacao.INALTERADA)
+    contagens = " ".join(f"{r.value.lower()}={resultados.count(r)}" for r in ResultadoComparacao)
     instantes = sorted(o.observado_em for o in observacoes)
-    if not instantes:
-        return "sem_observacao alcance=somente_observacoes_da_pesquisa"
-    prefixo = "revisao_observada" if revisoes else "sem_revisao_observada"
-    if not revisoes and inconclusivas:
-        prefixo = "vigilancia_inconclusiva"
+    periodo = f"de={instantes[0].isoformat()} ate={instantes[-1].isoformat()} " if instantes else ""
     return (
-        f"{prefixo} revisoes={revisoes} inconclusivas={inconclusivas} "
-        f"observacoes={len(observacoes)} "
-        f"de={instantes[0].isoformat()} ate={instantes[-1].isoformat()} "
-        "alcance=somente_observacoes_da_pesquisa"
+        f"{_prefixo(comparacoes, janelas_incompletas)} {contagens} "
+        f"janelas_incompletas={janelas_incompletas} observacoes={len(observacoes)} "
+        f"{periodo}alcance=somente_observacoes_da_pesquisa"
     )
 
 
@@ -172,9 +261,14 @@ def gravar_relatorio(
     caminho: Path,
     comparacoes: Iterable[tuple[Chave, ComparacaoVersoes]],
     resumo: str,
+    *,
+    janelas: Iterable[JanelaIncompleta] = (),
 ) -> None:
-    """Acrescenta ao relatório uma linha por comparação e uma linha de resumo."""
-    linhas = [
+    """Acrescenta ao relatório as janelas incompletas, uma linha por chave e o resumo."""
+    linhas: list[dict[str, object]] = [
+        {"janela_incompleta": True, **asdict(janela)} for janela in janelas
+    ]
+    linhas += [
         {
             "fonte": str(chave[0]),
             "uf": chave[1],
@@ -185,7 +279,8 @@ def gravar_relatorio(
             "resultado": str(c.resultado),
             "linhas_removidas": c.linhas_removidas,
             "linhas_adicionadas": c.linhas_adicionadas,
-            "mudancas_de_delecao": c.mudancas_de_delecao,
+            "deletadas_anterior": c.deletadas_anterior,
+            "deletadas_nova": c.deletadas_nova,
             "motivo": c.motivo,
         }
         for chave, c in comparacoes

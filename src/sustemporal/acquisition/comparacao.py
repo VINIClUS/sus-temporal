@@ -3,7 +3,8 @@
 As duas versões são normalizadas para o esquema canônico e comparadas como multiconjuntos de
 linhas ativas (não deletadas), sem as colunas de papel CHAVE e LINHAGEM do esquema `sia_pa.v1`.
 Linhas nunca são casadas por posição: sem identificador longitudinal, a comparação só conta
-linhas que saíram e que entraram, e à parte as que mudaram de estado de deleção.
+linhas que saíram e que entraram. As deletadas de cada versão são contadas à parte, e a
+transição de deleção nunca é inferida por casamento de valores.
 """
 
 from __future__ import annotations
@@ -43,18 +44,20 @@ class ResultadoComparacao(StrEnum):
     INALTERADA = "INALTERADA"
     REVISAO_REAL = "REVISAO_REAL"
     CORRESPONDENCIA_AMBIGUA = "CORRESPONDENCIA_AMBIGUA"
+    ARQUIVO_NOVO = "ARQUIVO_NOVO"
+    ARQUIVO_SUMIU = "ARQUIVO_SUMIU"
+    BYTES_ALTERADOS_SEM_COMPARACAO = "BYTES_ALTERADOS_SEM_COMPARACAO"
     INCONCLUSIVO = "INCONCLUSIVO"
 
 
 @dataclass(frozen=True)
 class ComparacaoVersoes:
-    anterior: str
+    anterior: str | None
     nova: str | None
     resultado: ResultadoComparacao
     linhas_removidas: int
     linhas_adicionadas: int
     motivo: str
-    mudancas_de_delecao: int = 0
     deletadas_anterior: int = 0
     deletadas_nova: int = 0
 
@@ -91,18 +94,22 @@ def comparar_versoes(
         ref = normalize_pa(versao, layout, saida, runtime=runtime, origem_dados=origem_dados)
         caminhos.append(ref.caminho)
     with closing(conectar(runtime)) as con:
-        removidas, adicionadas, delecao = _diferencas(con, caminhos[0], caminhos[1])
+        removidas, adicionadas = _diferencas(con, caminhos[0], caminhos[1])
+        deletadas = (_deletadas(con, caminhos[0]), _deletadas(con, caminhos[1]))
     resultado, motivo = _classificar(removidas, adicionadas)
+    if deletadas[0] != deletadas[1]:
+        motivo += (
+            f" transicao_de_delecao_ambigua deletadas_anterior={deletadas[0]} "
+            f"deletadas_nova={deletadas[1]}"
+        )
     logger.info(
-        "versoes_comparadas anterior=%s nova=%s resultado=%s removidas=%d adicionadas=%d "
-        "mudancas_de_delecao=%d",
+        "versoes_comparadas anterior=%s nova=%s resultado=%s removidas=%d adicionadas=%d",
         *ids,
         resultado,
         removidas,
         adicionadas,
-        delecao,
     )
-    return ComparacaoVersoes(*ids, resultado, removidas, adicionadas, motivo, delecao)
+    return ComparacaoVersoes(*ids, resultado, removidas, adicionadas, motivo, *deletadas)
 
 
 def _exigir_mesma_chave(anterior: ArtifactVersion, nova: ArtifactVersion) -> None:
@@ -127,34 +134,27 @@ def _colunas(con: duckdb.DuckDBPyConnection, caminho: str, fora: frozenset[str])
     return [str(linha[0]) for linha in descricao if str(linha[0]) not in fora]
 
 
-def _diferencas(con: duckdb.DuckDBPyConnection, anterior: str, nova: str) -> tuple[int, int, int]:
-    """Saídas e entradas entre linhas ativas, e mudanças de estado de deleção (EXCEPT ALL).
+def _deletadas(con: duckdb.DuckDBPyConnection, caminho: str) -> int:
+    consulta = f"SELECT count(*) FROM read_parquet($c) WHERE {_DELETADO}"  # noqa: S608
+    return int(con.execute(consulta, {"c": caminho}).fetchall()[0][0])
 
-    Multiplicidade preservada e nulos iguais. Um registro que passa a deletado conta como saída
-    das ativas e também como mudança de deleção; o inverso conta como entrada.
-    """
+
+def _diferencas(con: duckdb.DuckDBPyConnection, anterior: str, nova: str) -> tuple[int, int]:
+    """Saídas e entradas entre as linhas ativas (EXCEPT ALL: multiplicidade, nulos iguais)."""
     fora = colunas_fora_da_comparacao()
     colunas = _colunas(con, anterior, fora)
     if colunas != _colunas(con, nova, fora):
         raise ValueError(f"esquemas_divergentes anterior={anterior} nova={nova}")
     lista = ", ".join(identificador_seguro(c, colunas) for c in colunas)
 
-    def linhas(parametro: str, filtro: str) -> str:
-        return f"SELECT {lista} FROM read_parquet(${parametro}) WHERE {filtro}"  # noqa: S608
+    def ativas(parametro: str) -> str:
+        return f"SELECT {lista} FROM read_parquet(${parametro}) WHERE NOT {_DELETADO}"  # noqa: S608
 
-    def diferenca(de: str, menos: str, filtro: str) -> str:
-        return f"{linhas(de, filtro)} EXCEPT ALL {linhas(menos, filtro)}"
-
-    def contar(sql: str) -> int:
-        consulta = f"SELECT count(*) FROM ({sql})"  # noqa: S608
+    def contar(de: str, menos: str) -> int:
+        consulta = f"SELECT count(*) FROM ({ativas(de)} EXCEPT ALL {ativas(menos)})"  # noqa: S608
         return int(con.execute(consulta, {"a": anterior, "b": nova}).fetchall()[0][0])
 
-    ativas, deletadas = f"NOT {_DELETADO}", _DELETADO
-    saidas, entradas = diferenca("a", "b", ativas), diferenca("b", "a", ativas)
-    intersecao = "SELECT * FROM ({}) INTERSECT ALL SELECT * FROM ({})"
-    delecao = contar(intersecao.format(saidas, diferenca("b", "a", deletadas)))
-    delecao += contar(intersecao.format(entradas, diferenca("a", "b", deletadas)))
-    return contar(saidas), contar(entradas), delecao
+    return contar("a", "b"), contar("b", "a")
 
 
 def _classificar(removidas: int, adicionadas: int) -> tuple[ResultadoComparacao, str]:

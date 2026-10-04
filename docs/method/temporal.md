@@ -140,43 +140,45 @@ Também confere a coerência de uma tabela fornecida com a política da execuç�
      `CompetenciaArquivo.deslocar`, sem converter o código em número.
    - Depois de 2025-12 a janela para de andar e fica nas 6 últimas competências de 2025.
    - Observar além do recorte é decisão humana (T13-6, recorte na `RunConfig`).
-   - Um arquivo já acompanhado (competência ou parte) que some de uma listagem obtida não é
-     trocado em silêncio por uma competência mais antiga. Ele vira INCONCLUSIVO
-     (`sumiu_da_listagem`) e conta como falha. Isso vale para competências do início da janela
-     atual em diante; as mais antigas saíram da janela porque chegaram competências novas.
+   - **Janela incompleta:** com menos competências listadas que `janela_competencias`
+     (inclusive listagem vazia, truncada ou não obtida), o relatório recebe uma linha
+     `janela_incompleta` com o pedido e o obtido. A execução conta isso como falha e sai 5.
 3. Observa de novo cada arquivo (`observe_updates`), sem pular os já obtidos. Os mesmos bytes
    viram nova observação da mesma versão; bytes novos viram versão nova. O histórico não é
    substituído.
-4. Compara cada arquivo SIA-PA com a versão obtida antes para a mesma chave (fonte, UF,
-   competência, parte), em `acquisition/comparacao.py`. As duas versões passam pelo
-   `normalize_pa` e são comparadas como multiconjuntos de linhas **ativas**, isto é, não
-   deletadas.
+4. Dá **exatamente um resultado por chave acompanhada** (fonte, UF, competência, parte):
+   as chaves observadas nesta execução e as já acompanhadas que sumiram da listagem.
+
+| Resultado | Quando | Falha (saída 5)? |
+|---|---|---|
+| `INALTERADA` | Mesma versão de conteúdo, ou (SIA-PA) o mesmo multiconjunto de linhas ativas, inclusive em outra ordem | não |
+| `REVISAO_REAL` | SIA-PA: entre as linhas ativas, só entraram linhas ou só saíram | não |
+| `CORRESPONDENCIA_AMBIGUA` | SIA-PA: saíram e entraram linhas ativas; sem identificador longitudinal, nada é pareado e só as contagens ficam | não |
+| `ARQUIVO_NOVO` | Chave sem versão obtida antes: na primeira execução, ou uma parte ou competência que aparece depois do início da vigilância | não |
+| `ARQUIVO_SUMIU` | Chave já acompanhada, do início da janela atual em diante, que não está na listagem obtida. Ela nunca é trocada em silêncio por uma competência mais antiga. Uma janela vazia não aponta nada: fica só como janela incompleta | sim |
+| `BYTES_ALTERADOS_SEM_COMPARACAO` | Família sem comparação por linhas (CNES, SIGTAP) com `artifact_id` novo | não |
+| `INCONCLUSIVO` | Falha de obtenção (`observacao_sem_conteudo`) ou de normalização (`comparacao_inconclusiva`) | sim |
+
+   **Comparação SIA-PA** (`acquisition/comparacao.py`): as duas versões passam pelo
+   `normalize_pa`, e só as linhas **ativas** (não deletadas) entram no multiconjunto.
    - Ficam de fora as colunas de papel CHAVE e LINHAGEM do esquema `sia_pa.v1` (`row_id`,
      `artifact_id`, `membro`, `indice_registro`, `deletado`). A lista é derivada do esquema.
    - Linhas nunca são casadas por posição.
-   - Registros que mudaram de estado de deleção são contados à parte (`mudancas_de_delecao`). Um
-     registro que passa a deletado conta como saída das ativas, e portanto como REVISAO_REAL; um
-     que deixa de ser deletado conta como entrada.
-   - **INALTERADA:** mesmos bytes, ou as mesmas linhas com as mesmas multiplicidades (inclusive
-     em outra ordem).
-   - **REVISAO_REAL:** só entraram linhas, ou só saíram.
-   - **CORRESPONDENCIA_AMBIGUA:** saíram e entraram linhas. O conteúdo mudou, mas sem
-     identificador longitudinal não se sabe que linha antiga virou qual nova. Só as contagens
-     são registradas, sem pareamento.
-   - **INCONCLUSIVO:** a comparação não normaliza (quarentena, arquivo guardado ausente, leiaute
-     incompatível), ou a nova observação de um arquivo já acompanhado falhou
-     (`observacao_sem_conteudo`, por exemplo NAO_ENCONTRADO ou INTERROMPIDO), ou o arquivo
-     sumiu da listagem. Fica no relatório com o motivo e faz a execução sair com falha
-     operacional (5). Nunca é tratada como ausência de revisão.
-5. Acrescenta a `<raiz_manifestos>/vigilancia.jsonl` uma linha por comparação e um resumo. O
-   resumo só fala das observações da pesquisa (`sem_revisao_observada … de=… ate=…
-   alcance=somente_observacoes_da_pesquisa`). Com comparação inconclusiva e nenhuma revisão, o
-   resumo é `vigilancia_inconclusiva`. **Ausência de revisão observada não afirma que
-   nunca houve revisão:** uma republicação entre duas observações, ou antes da primeira, pode
-   ter escapado.
+   - As deletadas de cada versão são contadas à parte (`deletadas_anterior`, `deletadas_nova`).
+     A transição de deleção nunca é inferida por casamento de valores: quando as contagens
+     diferem, o motivo registra `transicao_de_delecao_ambigua`. Um registro que passa a
+     deletado aparece como saída das ativas.
+5. Acrescenta a `<raiz_manifestos>/vigilancia.jsonl` as linhas de janela incompleta, uma linha
+   por chave e um resumo com a contagem por resultado. O resumo só fala das observações da
+   pesquisa (`… de=… ate=… alcance=somente_observacoes_da_pesquisa`), e o prefixo depende do
+   que houve:
+   - `vigilancia_inconclusiva`: alguma janela incompleta, INCONCLUSIVO ou ARQUIVO_SUMIU;
+   - `revisao_observada`: REVISAO_REAL, CORRESPONDENCIA_AMBIGUA ou BYTES_ALTERADOS_SEM_COMPARACAO;
+   - `arquivos_novos_observados`: só ARQUIVO_NOVO além de INALTERADA;
+   - `sem_revisao_observada`: só com janelas completas e todas as chaves INALTERADA.
 
-Famílias sem normalizador (CNES, SIGTAP) são observadas, e versões novas aparecem no manifesto,
-mas não são comparadas linha a linha.
+   **Ausência de revisão observada não afirma que nunca houve revisão:** uma republicação entre
+   duas observações, ou antes da primeira, pode ter escapado.
 
 **Vigilância não é coorte.** A vigilância segue o plano (T13: "A partir do piloto, acompanhar
 semanalmente uma janela móvel de seis competências recentes durante doze meses"), dentro do

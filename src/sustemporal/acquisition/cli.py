@@ -25,13 +25,17 @@ from sustemporal.acquisition.sources import (
 )
 from sustemporal.acquisition.watch import (
     NOME_RELATORIO,
+    JanelaIncompleta,
     carregar_leiaute_pa,
     chave_de_comparacao,
     chaves_sumidas,
+    classificar_chave,
     competencias_da_janela,
+    eh_falha,
     gravar_relatorio,
     observe_updates,
     resumir_vigilancia,
+    sumida,
     versoes_anteriores,
 )
 from sustemporal.contracts.artifacts import MotivoRequisicao, ResultadoTentativa
@@ -241,53 +245,43 @@ def _vigilancia(config: RunConfig) -> VigilanciaSpec:
 
 def _planejar_vigilancia(
     config: RunConfig, obter: Obter, referencia: datetime, anteriores: Iterable[Chave]
-) -> tuple[list[SourceRequest], int, list[Chave]]:
-    """Requisições da janela por família, listagens não obtidas e chaves que sumiram."""
+) -> tuple[list[SourceRequest], list[Chave], list[JanelaIncompleta]]:
+    """Requisições da janela por família, chaves que sumiram e janelas incompletas."""
     vigilancia = _vigilancia(config)
     catalogo = _catalogo(config)
     store, _ = _caminhos(config)
+    pedido = vigilancia.janela_competencias
     acompanhadas = [c for c in anteriores if c[1] in (vigilancia.uf, None)]
     requisicoes: list[SourceRequest] = []
     sumidas: list[Chave] = []
-    falhas = 0
+    incompletas: list[JanelaIncompleta] = []
     for fonte in vigilancia.familias_fontes:
         listagem = obter(requisicao_listagem(catalogo, fonte, motivo=MotivoRequisicao.VIGILANCIA))
         if listagem.resultado is not ResultadoTentativa.OBTIDO:
-            logger.error("listagem_nao_obtida fonte=%s resultado=%s", fonte, listagem.resultado)
-            falhas += 1
+            motivo = f"listagem_nao_obtida resultado={listagem.resultado}"
+            incompletas.append(JanelaIncompleta(str(fonte), pedido, 0, (), motivo))
             continue
         nomes = nomes_listados(store, listagem)
         janela = competencias_da_janela(
-            catalogo.fonte(fonte), vigilancia.uf, nomes, vigilancia.janela_competencias, referencia
+            catalogo.fonte(fonte), vigilancia.uf, nomes, pedido, referencia
         )
+        if len(janela) < pedido:
+            obtidas = tuple(c.valor for c in janela)
+            motivo = "janela_incompleta"
+            incompletas.append(JanelaIncompleta(str(fonte), pedido, len(janela), obtidas, motivo))
         da_fonte = requisicoes_da_listagem(
             catalogo, fonte, vigilancia.uf, janela, nomes, motivo=MotivoRequisicao.VIGILANCIA
         )
         atuais = {chave_de_comparacao(r.chave) for r in da_fonte}
         sumidas += chaves_sumidas(acompanhadas, atuais, fonte, janela)
         requisicoes += da_fonte
-    return requisicoes, falhas, sumidas
+    return requisicoes, sumidas, incompletas
 
 
-def _inconclusiva(anterior: str, nova: str | None, motivo: str) -> ComparacaoVersoes:
-    return ComparacaoVersoes(anterior, nova, ResultadoComparacao.INCONCLUSIVO, 0, 0, motivo)
-
-
-def _comparar_uma(
-    config: RunConfig,
-    anterior: ArtifactVersion,
-    obs: ArtifactObservation,
-    versoes: dict[str, ArtifactVersion],
-) -> ComparacaoVersoes | None:
-    """INCONCLUSIVO se a observação falhou ou a comparação não normaliza; None sem comparação."""
-    if obs.resultado is not ResultadoTentativa.OBTIDO:
-        motivo = f"observacao_sem_conteudo resultado={obs.resultado}"
-        return _inconclusiva(anterior.artifact_id, None, motivo)
-    nova = versoes.get(obs.artifact_id or "")
-    if nova is None:
-        return _inconclusiva(anterior.artifact_id, obs.artifact_id, "versao_nova_sem_registro")
-    if obs.chave.fonte is not FamiliaFonte.SIA_PA:
-        return None
+def _comparar_pa(
+    config: RunConfig, anterior: ArtifactVersion, nova: ArtifactVersion
+) -> ComparacaoVersoes:
+    """Comparação SIA-PA por multiconjunto; falha de normalização vira INCONCLUSIVO."""
     store, _ = _caminhos(config)
     try:
         return comparar_versoes(
@@ -300,33 +294,30 @@ def _comparar_uma(
         )
     except (FalhaOperacionalErro, ValueError) as erro:
         logger.warning("comparacao_inconclusiva artefato=%s erro=%s", anterior.artifact_id, erro)
-        return _inconclusiva(
-            anterior.artifact_id, nova.artifact_id, f"comparacao_inconclusiva erro={erro}"
-        )
+        motivo = f"comparacao_inconclusiva erro={erro}"
+        resultado = ResultadoComparacao.INCONCLUSIVO
+        return ComparacaoVersoes(anterior.artifact_id, nova.artifact_id, resultado, 0, 0, motivo)
 
 
-def _comparar_com_anteriores(
+def _classificar_todas(
     config: RunConfig,
     anteriores: dict[Chave, ArtifactVersion],
     observadas: list[ArtifactObservation],
     sumidas: list[Chave],
 ) -> list[tuple[Chave, ComparacaoVersoes]]:
-    """Compara cada arquivo já acompanhado com a versão obtida antes para a mesma chave."""
+    """Uma linha por chave acompanhada: as observadas nesta execução e as que sumiram."""
     _, manifesto = _caminhos(config)
     versoes = Manifesto(manifesto).ler().versoes
-    comparacoes: list[tuple[Chave, ComparacaoVersoes]] = []
-    for obs in observadas:
-        chave = chave_de_comparacao(obs.chave)
-        anterior = anteriores.get(chave)
-        comparacao = None if anterior is None else _comparar_uma(config, anterior, obs, versoes)
-        if comparacao is not None:
-            comparacoes.append((chave, comparacao))
+    comparar = partial(_comparar_pa, config)
+    linhas = [
+        (chave, classificar_chave(anteriores.get(chave), obs, versoes, comparar))
+        for obs in observadas
+        for chave in [chave_de_comparacao(obs.chave)]
+    ]
     for chave in sumidas:
         logger.warning("arquivo_sumiu_da_listagem chave=%s", chave)
-        comparacoes.append(
-            (chave, _inconclusiva(anteriores[chave].artifact_id, None, "sumiu_da_listagem"))
-        )
-    return comparacoes
+        linhas.append((chave, sumida(anteriores[chave])))
+    return linhas
 
 
 def _origem_dados(config: RunConfig) -> OrigemDados:
@@ -362,14 +353,18 @@ def executar_watch(
         listagens.append(buscar(requisicao))
         return listagens[-1]
 
-    requisicoes, falhas, sumidas = _planejar_vigilancia(config, obter, relogio(), anteriores)
+    requisicoes, sumidas, incompletas = _planejar_vigilancia(config, obter, relogio(), anteriores)
     observadas = observe_updates(
         requisicoes, store, rede_permitida=rede, relogio=relogio, manifesto=manifesto
     )
-    comparacoes = _comparar_com_anteriores(config, anteriores, observadas, sumidas)
-    resumo = resumir_vigilancia(observadas, [c for _, c in comparacoes])
-    gravar_relatorio(Path(config.runtime.raiz_manifestos) / NOME_RELATORIO, comparacoes, resumo)
+    comparacoes = _classificar_todas(config, anteriores, observadas, sumidas)
+    resumo = resumir_vigilancia(
+        observadas, [c for _, c in comparacoes], janelas_incompletas=len(incompletas)
+    )
+    relatorio = Path(config.runtime.raiz_manifestos) / NOME_RELATORIO
+    gravar_relatorio(relatorio, comparacoes, resumo, janelas=incompletas)
+    falhas = len(incompletas)
     falhas += sum(o.resultado is not ResultadoTentativa.OBTIDO for o in observadas)
-    falhas += sum(c.resultado is ResultadoComparacao.INCONCLUSIVO for _, c in comparacoes)
+    falhas += sum(eh_falha(c) for _, c in comparacoes)
     logger.info("watch_concluido requisicoes=%d falhas=%d %s", len(requisicoes), falhas, resumo)
     return int(ExitCode.FALHA_OPERACIONAL if falhas else ExitCode.OK)

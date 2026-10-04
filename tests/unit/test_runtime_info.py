@@ -105,3 +105,49 @@ def test_subdiretorio_ve_as_diferencas_do_repositorio_inteiro(tmp_path: Path) ->
     assert primeira.diff_sha256 is not None
     assert primeira.diff_sha256 != segunda.diff_sha256
     assert versao_codigo(sub) == versao_codigo(raiz)
+
+
+def test_nao_rastreado_conta_mesmo_com_status_configurado_para_esconder(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    _git_local(raiz, "config", "status.showUntrackedFiles", "no")
+    (raiz / "novo.py").write_text("A = 1\n", encoding="utf-8")
+    versao = versao_codigo(raiz)
+    assert versao.sujo is True
+    assert versao.diff_sha256 is not None
+
+
+def test_link_nao_rastreado_entra_pelo_alvo_do_link_e_nao_pelo_conteudo(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    externo_a = tmp_path / "a.txt"
+    externo_b = tmp_path / "b.txt"
+    externo_a.write_text("igual\n", encoding="utf-8")
+    externo_b.write_text("igual\n", encoding="utf-8")
+    link = raiz / "link.txt"
+    link.symlink_to(externo_a)
+    primeira = versao_codigo(raiz)
+    link.unlink()
+    link.symlink_to(externo_b)
+    segunda = versao_codigo(raiz)
+    link.unlink()
+    link.write_text("igual\n", encoding="utf-8")
+    terceira = versao_codigo(raiz)
+    assert len({primeira.diff_sha256, segunda.diff_sha256, terceira.diff_sha256}) == 3
+
+
+def test_hash_nao_depende_da_configuracao_de_renomeacao(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    _git_local(raiz, "mv", "modulo.py", "renomeado.py")
+    _git_local(raiz, "config", "diff.renames", "true")
+    com_renomeacao = versao_codigo(raiz)
+    _git_local(raiz, "config", "diff.renames", "false")
+    sem_renomeacao = versao_codigo(raiz)
+    assert com_renomeacao.diff_sha256 is not None
+    assert com_renomeacao == sem_renomeacao
+
+
+def test_arquivo_rastreado_removido_entra_no_hash(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    (raiz / "modulo.py").unlink()
+    versao = versao_codigo(raiz)
+    assert versao.sujo is True
+    assert versao.diff_sha256 is not None

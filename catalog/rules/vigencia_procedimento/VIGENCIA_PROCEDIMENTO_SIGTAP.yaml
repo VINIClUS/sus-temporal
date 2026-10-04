@@ -1,0 +1,37 @@
+# Candidata do primeiro incremento (plano §5); escolher as famílias observáveis é decisão do G0.
+rule_id: VIGENCIA_PROCEDIMENTO_SIGTAP
+familia: VIGENCIA_PROCEDIMENTO
+versao: 0.1.0
+estado: CANDIDATA_PRE_G0
+descricao: >-
+  O procedimento do registro SIA-PA consta em tb_procedimento da versão do SIGTAP selecionada
+  pela política temporal. Versão ausente, ambígua ou em quarentena leva a inconclusão, nunca ao
+  mês vizinho.
+instrumentos: [C, I, P, S, A, B]
+condicao_aplicabilidade: instrumento_na_lista_da_regra
+unidade_avaliacao: OCORRENCIA
+campos_necessarios: [instrumento, procedimento]
+requisitos_fonte:
+  - fonte: SIA_PA
+    schema_id: sia_pa.v1
+    campos: [procedimento, competencia_atendimento, competencia_processamento]
+  - fonte: SIGTAP
+    schema_id: sigtap_procedimento.v1
+    campos: [dt_competencia, co_procedimento]
+politica_id: documentada_pendente
+criterios_temporais: []
+referencia:
+  doc_id: O12
+  titulo: SIGTAP, membros do zip da Tabela Unificada
+  localizador: >-
+    tb_procedimento.txt e tb_procedimento_layout.txt em TabelaUnificada_{AAAAMM}_v{geração}.zip;
+    leiaute lido na cópia 2026-02 (S16)
+  estado: PENDENTE
+  proveniencia: SECUNDARIA
+  confirmacao: A_CONFIRMAR
+pressupostos:
+  - >-
+    Critério temporal documental por fonte NAO_RESOLVIDO; B_ATEND e B_PROC são alternativas
+    exploratórias.
+  - Presença em tb_procedimento da versão selecionada tomada como vigência; A_CONFIRMAR.
+  - Leiaute de tb_procedimento SECUNDARIA (S16); A_CONFIRMAR.

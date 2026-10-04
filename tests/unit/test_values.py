@@ -26,6 +26,7 @@ from sustemporal.evaluation.values import (
     summarize_values,
 )
 from sustemporal.hashing import hash_logico_linhas
+from sustemporal.rules.catalog import carregar_regras
 from tests.fixtures.anotacao_valores import CenarioValores, Linha, montar_valores
 
 if TYPE_CHECKING:
@@ -137,7 +138,9 @@ def test_rotulo_contraditorio_reportado_a_parte_sem_sair_do_denominador(
 def test_catalogo_de_regras_divergente_do_run_e_recusado(tmp_path: Path) -> None:
     cenario = montar_valores(tmp_path / "dados", [Linha("r1", REJ, D("5.00"), D("0.00"))])
     run = cenario.run.model_copy(update={"catalogo_regras_sha256": "f" * 64})
-    with pytest.raises(ValueError, match="catalogo_de_regras_divergente"):
+    with pytest.raises(
+        FalhaOperacionalErro, match=f"catalogo_regras_divergente run=.* esperado={'f' * 64} lido="
+    ):
         _executar(replace(cenario, run=run), tmp_path)
 
 
@@ -148,11 +151,37 @@ def test_execucao_sem_catalogo_de_regras_e_recusada(tmp_path: Path) -> None:
         _executar(replace(cenario, run=run), tmp_path)
 
 
+def test_catalogo_alterado_depois_da_execucao_e_recusado_e_o_mesmo_passa(
+    tmp_path: Path,
+) -> None:
+    cenario = montar_valores(
+        tmp_path / "dados", [Linha("r1", REJ, D("5.00"), D("0.00"), ("ESTAB_CBO_CNES",))]
+    )
+    regras = carregar_regras()
+    ref = summarize_values(
+        cenario.run,
+        cenario.labels,
+        tmp_path / "ok",
+        regras=regras,
+        governanca_por_familia=MUNICIPAL,
+    )
+    assert ref.linhas > 0
+    alteradas = [r.model_copy(update={"descricao": r.descricao + " (alterada)"}) for r in regras]
+    with pytest.raises(FalhaOperacionalErro, match="catalogo_regras_divergente"):
+        summarize_values(
+            cenario.run,
+            cenario.labels,
+            tmp_path / "alterado",
+            regras=alteradas,
+            governanca_por_familia=MUNICIPAL,
+        )
+
+
 def test_versao_de_regra_divergente_e_recusada(tmp_path: Path) -> None:
     cenario = montar_valores(
         tmp_path / "dados", [Linha("r1", REJ, D("5.00"), D("0.00"))], versao_regras="0.2.0"
     )
-    with pytest.raises(ValueError, match="versao_de_regra_divergente"):
+    with pytest.raises(FalhaOperacionalErro, match=r"catalogo_regras_divergente .*versao"):
         _executar(cenario, tmp_path)
 
 

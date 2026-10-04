@@ -177,8 +177,19 @@ def test_m_temp_documentada_coincidente_com_a_regra_seleciona_por_fonte(tmp_path
 
 
 def test_reexecucao_reproduz_run_id_e_saidas(tmp_path: Path) -> None:
-    primeira = _executar(tmp_path / "a", "B_PROC")
-    segunda = _executar(tmp_path / "a", "B_PROC")
+    cenario = mundo_lote(tmp_path / "entrada")
+
+    def executar() -> RunResult:
+        return avaliar_com_registro(
+            cenario.dataset,
+            carregar_regras(),
+            config_lote("B_PROC"),
+            cenario.registro,
+            tmp_path / "saida",
+            insumos=cenario.insumos,
+        )
+
+    primeira, segunda = executar(), executar()
     assert primeira.run_id == segunda.run_id
     assert [s.hash_logico for s in primeira.saidas] == [s.hash_logico for s in segunda.saidas]
     assert primeira.snapshot_set_id == segunda.snapshot_set_id

@@ -216,11 +216,14 @@ vêm antes de gravar qualquer arquivo:
   `corte_observacao`, sem observação `OBTIDO` até o corte →
   saída 2; `row_id` repetido → falha operacional (saída 5);
 - território: carregado por `ingest.territorio.carregar_territorio` (contrato, UF e dígito
-  verificador) e `municipios_ibge6`; só linhas com `municipio_estabelecimento` nesse conjunto entram; as
-  demais são contadas por motivo (`fora_do_territorio`, `municipio_estabelecimento_ausente`) em
-  `out/<run_id>/recorte_territorial.json` e nunca são avaliadas. O hash do conjunto de municípios
-  entra no `run_id` (`InsumosAvaliacao.identidade_adicional`), então outro território dá outra
-  execução mesmo quando a produção filtrada é igual;
+  verificador) e `municipios_ibge6`. Produção sem a coluna `municipio_estabelecimento` → saída 2
+  (`territorio_sem_coluna`). Só linhas com município no território entram; as demais nunca são
+  avaliadas e são contadas por motivo em `out/<run_id>/recorte_territorial.json`:
+  `fora_do_territorio` (município de fora) e `territorio_indeterminado` (município nulo). Recorte
+  que deixa a população vazia → saída 2 (`populacao_vazia_apos_recorte`), nunca execução
+  `CONCLUIDA` vazia. O hash do conjunto de municípios entra no `run_id`
+  (`InsumosAvaliacao.identidade_adicional`), então outro território dá outra execução mesmo
+  quando a produção filtrada é igual;
 - auxiliares: por esquema exigido pelas regras, uma relação derivada com as linhas de todos os
   artefatos daquele esquema, cada linha com o seu `artifact_id`; nada é deduplicado entre artefatos,
   porque a seleção decide quais versões valem e a avaliação junta por `artifact_id`;
@@ -229,6 +232,12 @@ vêm antes de gravar qualquer arquivo:
   integridade observada `QUARENTENA_*` prevalece; tentativa com o artefato que não terminou em
   `OBTIDO` (falha de coleta com bytes) deixa a versão `NAO_VERIFICADO`, nunca `OK`. Com
   `corte_observacao`, só contam as observações até o corte e só entram versões observadas até ele.
+
+Toda execução do `validate` (`--entrada` ou `--ingest`) grava `out/<run_id>/entrada_validacao.json`
+(`rules/entrada.py::EntradaValidacao`): conjunto SIA-PA, `SnapshotSet`, auxiliares, seleção,
+cobertura, integridade e a política resolvida, com os mesmos `DatasetRef` de `RunResult.entradas`.
+O motor grava esses anexos atomicamente (`evaluate_rules(..., anexos=)`) antes de qualquer saída, então
+`run_result.json` nunca existe sem eles. Uma entrada com `politica` reavalia com essa política.
 
 A política é a de `politica_da_execucao` com o método de `--policy`; a avaliação é
 `avaliar_com_registro`, e as saídas ficam em `<raiz_saidas>/runs/<run_id>/` (relações derivadas em

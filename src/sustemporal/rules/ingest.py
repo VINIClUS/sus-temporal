@@ -252,21 +252,31 @@ def _gravar(
 def _recortar_territorio(
     con: duckdb.DuckDBPyConnection, colunas: list[str], municipios: frozenset[str]
 ) -> dict[str, int]:
-    """Mantém só o território; conta as excluídas por motivo (nunca somem em silêncio)."""
-    tem_municipio = "municipio_estabelecimento" in colunas
-    coluna = "municipio_estabelecimento" if tem_municipio else "NULL"
-    contagem = con.execute(
-        f"SELECT count(*) FILTER (WHERE {coluna} IS NULL), "  # noqa: S608
-        f"count(*) FILTER (WHERE {coluna} IS NOT NULL AND NOT list_contains($m, {coluna})) "
-        f"FROM {_UNIAO}",
-        {"m": sorted(municipios)},
-    ).fetchall()[0]
-    con.execute(
-        f"DELETE FROM {_UNIAO} WHERE {coluna} IS NULL OR NOT list_contains($m, {coluna})",  # noqa: S608
-        {"m": sorted(municipios)},
+    """Mantém só o território; conta as excluídas por motivo (nunca somem em silêncio).
+
+    Raises:
+        ConfigInvalida: produção sem `municipio_estabelecimento` ou população vazia após o recorte.
+    """
+    if "municipio_estabelecimento" not in colunas:
+        raise ConfigInvalida("territorio_sem_coluna coluna=municipio_estabelecimento")
+    parametros = {"m": sorted(municipios)}
+    contagem = (
+        "count(*) FILTER (WHERE municipio_estabelecimento IS NULL), "
+        "count(*) FILTER (WHERE NOT list_contains($m, municipio_estabelecimento)), "
+        "count(*) FILTER (WHERE list_contains($m, municipio_estabelecimento))"
     )
-    motivos = {"municipio_estabelecimento_ausente": contagem[0], "fora_do_territorio": contagem[1]}
-    return {motivo: int(n) for motivo, n in motivos.items() if n}
+    consulta = f"SELECT {contagem} FROM {_UNIAO}"  # noqa: S608
+    nulas, fora, dentro = con.execute(consulta, parametros).fetchall()[0]
+    motivos = {"territorio_indeterminado": int(nulas), "fora_do_territorio": int(fora)}
+    exclusoes = {motivo: n for motivo, n in motivos.items() if n}
+    if not dentro:
+        raise ConfigInvalida(f"populacao_vazia_apos_recorte exclusoes={exclusoes}")
+    con.execute(
+        f"DELETE FROM {_UNIAO} WHERE municipio_estabelecimento IS NULL "  # noqa: S608
+        "OR NOT list_contains($m, municipio_estabelecimento)",
+        parametros,
+    )
+    return exclusoes
 
 
 def _exigir_row_id_unico(con: duckdb.DuckDBPyConnection) -> None:

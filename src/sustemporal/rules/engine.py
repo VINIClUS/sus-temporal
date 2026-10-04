@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -33,7 +34,7 @@ from sustemporal.rules.saidas import COLUNAS_BRUTAS, ContextoSaida, gravar_saida
 from sustemporal.runtime_info import ambiente, versao_codigo
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from pathlib import Path
 
     import duckdb
@@ -214,6 +215,19 @@ def _exigir_portoes(
     exigir_politicas_resolvidas([politica], config.modo)
 
 
+_ANEXO = re.compile(r"[a-z][a-z0-9_]*\.json")
+_RESERVADOS = frozenset({"run_result.json"})
+
+
+def _gravar_anexos(destino: Path, anexos: Mapping[str, str]) -> None:
+    for nome, conteudo in sorted(anexos.items()):
+        if not _ANEXO.fullmatch(nome) or nome in _RESERVADOS:
+            raise ValueError(f"anexo_invalido nome={nome}")
+        temporario = destino / f".{nome}.tmp"
+        temporario.write_text(conteudo, encoding="utf-8")
+        temporario.replace(destino / nome)
+
+
 def evaluate_rules(
     dataset: DatasetRef,
     snapshots: SnapshotSet,
@@ -223,8 +237,12 @@ def evaluate_rules(
     *,
     insumos: InsumosAvaliacao | None = None,
     relogio: Callable[[], datetime] = _agora,
+    anexos: Mapping[str, str] | None = None,
 ) -> RunResult:
     """Avalia as regras no conjunto de versões selecionado e grava as saídas em `out/<run_id>`.
+
+    `anexos` (nome de arquivo → texto) são gravados atomicamente em `out/<run_id>/` antes de
+    qualquer saída, então `run_result.json` nunca existe sem eles.
 
     Falha de programa vira `FalhaOperacional` (`falhas.v1`), nunca `INCONCLUSIVO`.
 
@@ -241,6 +259,7 @@ def evaluate_rules(
     run_id = calcular_run_id(dataset, snapshots, regras, config, insumos)
     destino = out / run_id
     destino.mkdir(parents=True, exist_ok=True)
+    _gravar_anexos(destino, anexos or {})
     contexto = ContextoSaida(
         run_id=run_id,
         dataset=dataset,

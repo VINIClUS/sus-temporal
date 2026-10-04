@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -14,6 +15,8 @@ from sustemporal.duck import conectar
 from sustemporal.errors import ConfigInvalida
 from sustemporal.ingest.territorio import carregar_territorio, municipios_ibge6
 from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
+from sustemporal.rules.engine import evaluate_rules
+from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
 from sustemporal.rules.ingest import (
     carregar_registro,
     integridade_do_registro,
@@ -21,11 +24,12 @@ from sustemporal.rules.ingest import (
     preparar_insumos_ingest,
 )
 from sustemporal.rules.insumos import InsumosAvaliacao, MetodoInvalido, politica_da_execucao
-from sustemporal.rules.lote import avaliar_com_registro
+from sustemporal.rules.lote import SelecaoEmLote, selecionar_em_lote
 
 if TYPE_CHECKING:
     from sustemporal.contracts.config import RunConfig
     from sustemporal.contracts.experiment import RunResult
+    from sustemporal.contracts.records import DatasetRef
     from sustemporal.contracts.rules import RuleSpec
     from sustemporal.contracts.temporal import MetodoId, PoliticaTemporal
 
@@ -52,16 +56,28 @@ def _politica(metodo: MetodoId, config: RunConfig, regras: list[RuleSpec]) -> Po
     return politica_da_execucao(InsumosAvaliacao(), do_metodo, regras)
 
 
-def _gravar_recorte(
-    destino: Path, resultado: RunResult, municipios: frozenset[str], exclusoes: dict[str, int]
-) -> None:
-    conteudo = {
-        "run_id": resultado.run_id,
-        "municipios": sorted(municipios),
-        "exclusoes": exclusoes,
+def _anexos(
+    insumos: InsumosAvaliacao,
+    lote: SelecaoEmLote,
+    producao: DatasetRef,
+    recorte: tuple[frozenset[str], dict[str, int]],
+) -> dict[str, str]:
+    """`entrada_validacao.json` (o que basta para reavaliar) e `recorte_territorial.json`."""
+    municipios, exclusoes = recorte
+    entrada = EntradaValidacao(
+        dataset=producao,
+        snapshots=lote.snapshots,
+        auxiliares=insumos.auxiliares,
+        selecoes=lote.selecoes,
+        cobertura=insumos.cobertura,
+        integridade=dict(insumos.integridade),
+        politica=insumos.politica,
+    )
+    conteudo_recorte = {"municipios": sorted(municipios), "exclusoes": exclusoes}
+    return {
+        ARQUIVO_ENTRADA: entrada.model_dump_json(indent=2),
+        "recorte_territorial.json": json.dumps(conteudo_recorte, indent=2, sort_keys=True),
     }
-    caminho = destino / resultado.run_id / "recorte_territorial.json"
-    caminho.write_text(json.dumps(conteudo, indent=2, sort_keys=True), encoding="utf-8")
 
 
 def validar_ingest(pasta: Path, metodo: MetodoId, config: RunConfig, saida: Path) -> RunResult:
@@ -96,10 +112,18 @@ def validar_ingest(pasta: Path, metodo: MetodoId, config: RunConfig, saida: Path
         identidade_adicional={"territorio_municipios": hash_canonico(sorted(municipios))},
     )
     try:
-        resultado = avaliar_com_registro(
-            insumos.producao, regras, config, registro, saida, insumos=avaliacao
+        lote = selecionar_em_lote(
+            insumos.producao, regras, config, registro, saida / "selecoes", insumos=avaliacao
+        )
+        anexos = _anexos(avaliacao, lote, insumos.producao, (municipios, insumos.exclusoes))
+        return evaluate_rules(
+            insumos.producao,
+            lote.snapshots,
+            regras,
+            config,
+            saida,
+            insumos=replace(avaliacao, selecoes=lote.selecoes),
+            anexos=anexos,
         )
     except ValueError as erro:
         raise ConfigInvalida(f"entrada_semanticamente_invalida detalhe={erro}") from erro
-    _gravar_recorte(saida, resultado, municipios, insumos.exclusoes)
-    return resultado

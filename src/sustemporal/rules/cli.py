@@ -6,16 +6,14 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pydantic import Field, ValidationError
+from pydantic import ValidationError
 
-from sustemporal.contracts.artifacts import EstadoIntegridade
-from sustemporal.contracts.base import ContratoBase
 from sustemporal.contracts.experiment import EstadoExecucao
-from sustemporal.contracts.records import DatasetRef
-from sustemporal.contracts.temporal import MetodoId, PoliticaTemporal, SnapshotSet
+from sustemporal.contracts.temporal import MetodoId, PoliticaTemporal
 from sustemporal.errors import ConfigInvalida, ExitCode
 from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
 from sustemporal.rules.engine import evaluate_rules
+from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
 from sustemporal.rules.insumos import InsumosAvaliacao, MetodoInvalido, politica_padrao
 from sustemporal.rules.validate_ingest import validar_ingest
 
@@ -42,18 +40,6 @@ METODO_DA_POLITICA = {
 }
 
 
-class EntradaValidacao(ContratoBase):
-    """Insumos explícitos da validação; nenhum diretório "latest" é resolvido implicitamente."""
-
-    dataset: DatasetRef
-    snapshots: SnapshotSet
-    auxiliares: tuple[DatasetRef, ...] = ()
-    selecoes: DatasetRef | None = None
-    cobertura: DatasetRef | None = None
-    integridade: dict[str, EstadoIntegridade] = Field(default_factory=dict)
-    politica_documentada: PoliticaTemporal | None = None
-
-
 def configurar_parser(parser: argparse.ArgumentParser) -> None:
     origem = parser.add_mutually_exclusive_group(required=True)
     origem.add_argument("--entrada", type=Path)
@@ -64,6 +50,12 @@ def configurar_parser(parser: argparse.ArgumentParser) -> None:
 def _politica(
     metodo: MetodoId, entrada: EntradaValidacao, regras: list[RuleSpec]
 ) -> PoliticaTemporal:
+    if entrada.politica is not None:
+        if entrada.politica.metodo is not metodo:
+            raise ConfigInvalida(
+                f"politica_da_entrada_de_outro_metodo metodo={entrada.politica.metodo}"
+            )
+        return entrada.politica
     documentada = entrada.politica_documentada
     if metodo is MetodoId.M_TEMP and documentada is not None:
         if documentada.metodo is not MetodoId.M_TEMP:
@@ -119,8 +111,15 @@ def executar_validate(args: argparse.Namespace, config: RunConfig) -> int:
     )
     saida = args.saida or Path(config.runtime.raiz_saidas) / "validacao"
     try:
+        gravada = entrada.model_copy(update={"politica": politica})
         resultado = evaluate_rules(
-            entrada.dataset, entrada.snapshots, regras, config, saida, insumos=insumos
+            entrada.dataset,
+            entrada.snapshots,
+            regras,
+            config,
+            saida,
+            insumos=insumos,
+            anexos={ARQUIVO_ENTRADA: gravada.model_dump_json(indent=2)},
         )
     except ValueError as erro:
         raise ConfigInvalida(f"entrada_semanticamente_invalida detalhe={erro}") from erro

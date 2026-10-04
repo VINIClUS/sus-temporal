@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sustemporal.contracts.artifacts import (
     ArtifactObservation,
@@ -30,6 +31,9 @@ from sustemporal.contracts.rules import (
     RuleSpec,
     UnidadeAvaliacao,
 )
+
+if TYPE_CHECKING:
+    from sustemporal.contracts.temporal import CriterioTemporal
 
 T0 = datetime(2026, 1, 1, tzinfo=UTC)
 ARTEFATO_PA = f"art_{'9' * 64}"
@@ -113,7 +117,12 @@ def docref(pendente: bool = True) -> DocRef:
     )
 
 
-def regra(fonte: FamiliaFonte = FamiliaFonte.CNES_PF, rule_id: str = "ESTAB_CBO_CNES") -> RuleSpec:
+def regra(
+    fonte: FamiliaFonte = FamiliaFonte.CNES_PF,
+    rule_id: str = "ESTAB_CBO_CNES",
+    *,
+    criterios_temporais: tuple[CriterioTemporal, ...] = (),
+) -> RuleSpec:
     return RuleSpec(
         rule_id=rule_id,
         familia=FamiliaRegra.ESTABELECIMENTO_CBO,
@@ -129,6 +138,7 @@ def regra(fonte: FamiliaFonte = FamiliaFonte.CNES_PF, rule_id: str = "ESTAB_CBO_
             RequisitoFonte(fonte=fonte, schema_id="cnes_estab_cbo.v1", campos=("cbo",)),
         ),
         politica_id="B_ATEND",
+        criterios_temporais=criterios_temporais,
         referencia=docref(),
     )
 

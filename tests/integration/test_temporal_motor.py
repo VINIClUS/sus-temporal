@@ -9,6 +9,7 @@ import pytest
 from tests.fixtures.temporal_registro import observar, registro_producao, regra
 
 from sustemporal.contracts.base import FamiliaFonte
+from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.records import OrigemDados
 from sustemporal.rules.coerencia import conferir_selecoes, criar_regras_fontes
 from sustemporal.rules.preparo import carregar_selecoes
@@ -27,6 +28,16 @@ _LINHAS = [
     (None, "201801"),
     ("201813", None),
 ]
+
+
+def _config() -> RunConfig:
+    piloto = {
+        "uf": "SP",
+        "competencias_processamento": ["201801"],
+        "territorio": "catalog/territorio/drs_xi.yaml",
+        "familias_fontes": ["SIA_PA", "CNES_PF"],
+    }
+    return RunConfig.model_validate({"versao": "1", "piloto": piloto})
 
 
 def _registro():
@@ -52,7 +63,7 @@ def test_lote_passa_pela_conferencia_do_motor(tmp_path: Path, politica_id: str) 
         "INSERT INTO registros VALUES (?, ?, ?)",
         [(registro_producao(None, None, i).row_id, a, p) for i, (a, p) in enumerate(_LINHAS)],
     )
-    selecionar_lote(con, "registros", regras, politica, _registro(), run_id="r", uf="SP")
+    selecionar_lote(con, "registros", regras, politica, _registro(), run_id="r", config=_config())
     dataset = gravar_selecoes(
         con, tmp_path / "selecao.parquet", run_id="r", origem=OrigemDados.SINTETICO
     )

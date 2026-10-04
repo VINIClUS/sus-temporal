@@ -156,7 +156,7 @@ class _Execucao:
                 continue
             for valor in _competencias_processamento(dataset):
                 if valor not in self.sia_pa_incompleto:
-                    herdadas[valor] = f"herdada competencia_arquivo={origem}"
+                    herdadas[valor] = f"incompleto_via_arquivo competencia_arquivo={origem}"
         self.sia_pa_incompleto.update(herdadas)
 
     def marcar_tentativas_sem_versao(
@@ -202,13 +202,32 @@ class _Execucao:
         else:
             self.datasets.append(dataset)
             resultado = _resultado(versao, layout.layout_id, "NORMALIZADO")
-            self.resultados.append({**resultado, "dataset_id": dataset.dataset_id})
+            resultado["dataset_id"] = dataset.dataset_id
+            self.resultados.append({**resultado, **_diagnostico(versao, dataset)})
             return
         logger.warning("ingest_sem_tabela id=%s estado=%s", versao.artifact_id, estado)
         self.resultados.append(_resultado(versao, layout.layout_id, estado, motivo=motivo))
         competencia = versao.chave.competencia_arquivo
         if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
             self.sia_pa_incompleto[competencia.valor] = estado
+
+
+def _diagnostico(versao: ArtifactVersion, dataset: DatasetRef) -> dict[str, str]:
+    """Linhas do SIA-PA (não deletadas) com PA_MVM diferente da competência do arquivo;
+    o dado fica preservado, só é contado."""
+    competencia = versao.chave.competencia_arquivo
+    if dataset.schema_id != "sia_pa.v1" or competencia is None:
+        return {}
+    colunas = ["competencia_processamento", "deletado"]
+    linhas = pq.read_table(dataset.caminho, columns=colunas).to_pylist()
+    divergentes = sum(
+        1
+        for linha in linhas
+        if not linha["deletado"] and linha["competencia_processamento"] != competencia.valor
+    )
+    if not divergentes:
+        return {}
+    return {"diagnostico": f"competencia_processamento_divergente_do_arquivo n={divergentes}"}
 
 
 def _competencias_processamento(dataset: DatasetRef) -> set[str]:

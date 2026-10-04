@@ -53,11 +53,18 @@ A decisão segue estes passos:
    - só tentativas sem bytes dão **AUSENTE**.
 
    A integridade considerada é a da observação, quando ela registra uma (pendência T02-11), e
-   senão a da versão.
+   senão a da versão. `NAO_VERIFICADO` conta como íntegro: o conteúdo foi obtido e não há
+   verificação que o reprove.
+   - Conteúdo em quarentena ao lado de conteúdo íntegro não impede a seleção do íntegro, mas as
+     observações descartadas ficam no motivo (`descartadas_quarentena=`). A regra de fundo é do
+     G0 (pendência T06-8).
+   - Observação íntegra sem VERSAO no registro é inconsistência do manifesto: fica EM_QUARENTENA
+     com motivo `observacao_integra_sem_versao`.
 4. Combina as partes. Qualquer parte AMBIGUA torna a seleção AMBIGUA, e qualquer parte em
    quarentena a torna EM_QUARENTENA. Nos multipartes:
    - sem partes esperadas declaradas, **INCOMPLETA** com completude INDETERMINADA (pendência
      T02-12);
+   - com partes declaradas, a regra vale mesmo que só o arquivo sem parte tenha sido observado;
    - com partes declaradas e alguma faltante, **INCOMPLETA**;
    - com todas presentes, **SELECIONADA**.
 5. `SelecaoVersao.confere` garante na origem que fonte e competência de cada versão selecionada
@@ -77,9 +84,11 @@ reproduzir a justificativa só a partir do manifesto.
 - **NAO_RESOLVIDA por competência ausente:** se a competência base do registro é nula, a seleção
   também fica `NAO_RESOLVIDA`.
 - **Competência requerida:** é `base(r) + deslocamento`.
-- **Conjunto congelado:** com corte, o `SnapshotSet` sai com `congelado=True` e id derivado do
-  conteúdo. Observações posteriores ao corte não o alteram, porque o mesmo conteúdo dá o mesmo
-  id.
+- **Conjunto congelado:** com corte já passado no relógio injetado, o `SnapshotSet` sai com
+  `congelado=True` e id derivado do conteúdo. Observações posteriores ao corte não o alteram,
+  porque o mesmo conteúdo dá o mesmo id. Corte no futuro, ou ausência de corte, não congela.
+- **Ordem canônica:** seleções e ids do `SnapshotSet` são ordenados, então a ordem das fontes na
+  regra não muda o id.
 
 | Política | Tipo | Critério |
 |---|---|---|

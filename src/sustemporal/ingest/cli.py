@@ -52,6 +52,7 @@ logger = logging.getLogger(__name__)
 LEIAUTE_SIA_PA = Path(__file__).resolve().parents[3] / "catalog" / "layouts" / "sia_pa.yaml"
 # Mesmo endereçamento da aquisição (acquisition/cli.py): conteúdo em <raiz_dados>/raw.
 SUBPASTA_ARMAZENAMENTO = "raw"
+FONTES_NACIONAIS = frozenset({FamiliaFonte.SIGTAP})
 _NORMALIZAVEIS = frozenset(
     {FamiliaFonte.SIA_PA, FamiliaFonte.SIGTAP, FamiliaFonte.CNES_PF, FamiliaFonte.CNES_ST}
 )
@@ -193,8 +194,11 @@ def _incompletude(obtidas: set[str | None], esperadas: frozenset[str] | None) ->
 
 
 def _no_recorte(chave: ChaveArtefato, uf: str | None) -> bool:
-    """Fonte nacional (sem UF) sempre; fonte com UF só da UF da execução (como o seletor)."""
-    return chave.uf is None or chave.uf == uf
+    """Família nacional (SIGTAP) sempre; família regional só com a UF da execução, e nunca sem
+    UF (um artefato regional sem UF não pode passar por nacional)."""
+    if chave.fonte in FONTES_NACIONAIS:
+        return True
+    return chave.uf is not None and chave.uf == uf
 
 
 def _recortar(

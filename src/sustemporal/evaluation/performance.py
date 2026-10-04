@@ -2,7 +2,8 @@
 
 Mede só etapas executáveis. Etapa ainda não montada no harness (contrafactuais do T09) ou sem
 implementação no main (métricas do T11), ou stub que levanta `NotImplementedError`, sai
-`NAO_MEDIDO` com motivo, nunca com número inventado. A escala DRS XI/SP roda na máquina do pesquisador (marcador `perf`, fora do CI).
+`NAO_MEDIDO` com motivo, nunca com número inventado. A escala DRS XI/SP roda na máquina do
+pesquisador (marcador `perf`, fora do CI).
 """
 
 from __future__ import annotations

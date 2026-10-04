@@ -84,7 +84,7 @@ _EXIGIDAS = {
         "valor_aprovado",
     ),
     "agregados_registro.v1": ("run_id", "row_id", "violacoes", "resultado"),
-    "avaliacoes.v1": ("run_id", "politica_id", "metodo"),
+    "avaliacoes.v1": ("run_id", "rule_id", "versao", "politica_id", "metodo"),
 }
 _SQL_REGISTROS = (
     "SELECT a.row_id, a.violacoes, a.resultado, r.rotulo, r.contradicoes, "

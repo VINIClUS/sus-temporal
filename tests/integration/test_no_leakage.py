@@ -319,3 +319,10 @@ def test_rotulos_particionados_com_a_populacao(tmp_path: Path) -> None:
 def test_feature_spec_vazia_e_recusada() -> None:
     with pytest.raises(ValueError, match="feature_spec_vazia"):
         auditar_features(FeatureSpec(feature_set_id="vazia", atributos=()), ESQUEMAS)
+
+
+def test_codigo_nao_admite_transformacao_numerica() -> None:
+    atributo = Atributo(nome="cnes", schema_id="sia_pa.v1", coluna="cnes", transformacao="NUMERICA")
+    features = FeatureSpec(feature_set_id="f", atributos=(atributo,))
+    with pytest.raises(ValueError, match="transformacao_incompativel_com_coluna"):
+        auditar_features(features, ESQUEMAS)

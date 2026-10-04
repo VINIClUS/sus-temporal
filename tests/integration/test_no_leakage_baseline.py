@@ -9,18 +9,20 @@ from typing import Any, cast
 
 import duckdb
 import pytest
+from pydantic import ValidationError
 from tests.fixtures.protocolo_dados import (
     PROC_APROVADO,
     PROC_REJEITADO,
     LinhaPa,
     artefato,
     cenario_baseline,
+    gravar_rotulos,
 )
 
 from sustemporal.contracts.config import RunConfig
-from sustemporal.contracts.experiment import Particao
+from sustemporal.contracts.experiment import Particao, SplitManifest
 from sustemporal.contracts.temporal import MetodoId
-from sustemporal.errors import PortaoRecusado
+from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.baselines import fit_baseline
 from sustemporal.evaluation.features import FEATURES_PADRAO
 
@@ -301,3 +303,40 @@ def test_confirmatorio_recusado_antes_de_abrir_arquivos(tmp_path: Path) -> None:
     with pytest.raises(PortaoRecusado, match="confirmatorio_exige_freeze_verificado"):
         fit_baseline(cenario.split, FEATURES_PADRAO, config, tmp_path / "run", decisoes=decisoes)
     assert not (tmp_path / "run").exists()
+
+
+def _com_rotulos(cenario_split: SplitManifest, rotulos: dict[Particao, Any]) -> SplitManifest:
+    dados = cenario_split.model_dump(mode="json")
+    dados["rotulos_por_particao"] = {p.value: r for p, r in rotulos.items()}
+    return SplitManifest.model_validate(dados)
+
+
+def test_mesmo_ref_de_rotulos_em_todas_as_particoes_e_recusado(tmp_path: Path) -> None:
+    cenario = cenario_baseline(tmp_path)
+    completo = cenario.rotulos.model_dump(mode="json")
+    with pytest.raises(ValidationError, match="split_rotulos_nao_presos_as_particoes"):
+        _com_rotulos(cenario.split, dict.fromkeys(Particao, completo))
+
+
+def test_rotulos_com_linhas_divergentes_da_particao_sao_recusados(tmp_path: Path) -> None:
+    cenario = cenario_baseline(tmp_path)
+    assert cenario.split.rotulos_por_particao is not None
+    rotulos = {p: r.model_dump(mode="json") for p, r in cenario.split.rotulos_por_particao.items()}
+    rotulos[Particao.CALIBRACAO]["linhas"] += 1
+    with pytest.raises(ValidationError, match="split_rotulos_nao_presos_as_particoes"):
+        _com_rotulos(cenario.split, rotulos)
+
+
+def test_rotulos_de_outra_particao_sao_recusados_na_leitura(tmp_path: Path) -> None:
+    cenario = cenario_baseline(tmp_path, competencias=("202001", "202301", "202401"))
+    assert cenario.split.rotulos_por_particao is not None
+    teste = [linha for linha in cenario.linhas if linha.competencia_processamento == "202401"]
+    trocado = gravar_rotulos(
+        {linha.row_id: cenario.rotulo_por_row[linha.row_id] for linha in teste},
+        tmp_path / "trocado" / "rotulos.parquet",
+    )
+    rotulos = {p: r.model_dump(mode="json") for p, r in cenario.split.rotulos_por_particao.items()}
+    rotulos[Particao.DESENVOLVIMENTO] = trocado.model_dump(mode="json")
+    split = _com_rotulos(cenario.split, rotulos)
+    with pytest.raises(FalhaOperacionalErro, match="rotulos_fora_da_particao"):
+        fit_baseline(split, FEATURES_PADRAO, cenario.config, tmp_path / "run")

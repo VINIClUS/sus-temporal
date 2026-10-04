@@ -199,9 +199,9 @@ def executar_metodo(
     )
 
 
-def cenario_ablacao() -> CenarioRegras:
+def cenario_ablacao(*registros: dict[str, str | None]) -> CenarioRegras:
     """Versões alternativas da mesma competência (republicação SINTETICA) sem o par do registro."""
-    base = cenario_base(registro(0))
+    base = cenario_base(*(registros or (registro(0),)))
     auxiliares = dict(base.auxiliares)
     sigtap = {"artifact_id": ART_SIGTAP_ALT, "dt_competencia": COMPETENCIA}
     auxiliares["cnes_estab_cbo.v1"] = (

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from tests.fixtures.explicacao_cenario import (
@@ -16,9 +17,9 @@ from tests.fixtures.explicacao_cenario import (
     cenario_ablacao,
     executar_metodo,
 )
-from tests.fixtures.regras_cenario import materializar, snapshot_vazio
+from tests.fixtures.regras_cenario import materializar, reemitir, snapshot_vazio
 from tests.fixtures.regras_execucao import tabela
-from tests.fixtures.regras_exemplos import ART_CNES, ART_SIA, ART_SIGTAP, COMPETENCIA
+from tests.fixtures.regras_exemplos import ART_CNES, ART_SIA, ART_SIGTAP, COMPETENCIA, registro
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.base import FamiliaFonte
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from sustemporal.contracts.experiment import RunResult
+    from sustemporal.contracts.records import DatasetRef
     from sustemporal.contracts.rules import RuleSpec
     from sustemporal.rules.insumos import InsumosAvaliacao
 
@@ -322,3 +324,58 @@ def test_ablacao_recusa_substituta_de_outra_competencia(
     base, variante = _par_cnes(tmp_path, insumos_base, {ART_CNES: ART_CNES_OUTRA})
     with pytest.raises(AblacaoNaoIsolada, match="ablacao_substituta_de_outra_competencia"):
         comparar_ablacao(base, variante, TipoAblacao.VERSAO_CNES)
+
+
+def _restaurar_linha(trocadas: DatasetRef, original: DatasetRef, row_id: str) -> DatasetRef:
+    """Seleção em que só as outras linhas mantêm a versão de CNES trocada."""
+    antigas = {
+        (linha["row_id"], linha["rule_id"], linha["fonte"]): linha
+        for linha in pq.read_table(original.caminho).to_pylist()
+    }
+    linhas = [
+        antigas[(linha["row_id"], linha["rule_id"], linha["fonte"])]
+        if linha["row_id"] == row_id
+        else linha
+        for linha in pq.read_table(trocadas.caminho).to_pylist()
+    ]
+    pq.write_table(pa.Table.from_pylist(linhas, pq.read_schema(trocadas.caminho)), trocadas.caminho)
+    return reemitir(trocadas)
+
+
+def test_ablacao_de_fonte_rastreia_a_troca_por_linha(tmp_path: Path) -> None:
+    outra_linha = f"{ART_SIA}#1"
+    cenario = cenario_ablacao(registro(0), registro(1))
+    dataset, insumos = materializar(cenario, tmp_path / "entrada")
+    assert insumos.selecoes is not None
+
+    def executar(raiz: Path, selecoes: DatasetRef) -> RunResult:
+        return evaluate_rules(
+            dataset,
+            snapshot_vazio(),
+            carregar_regras(),
+            RunConfig(versao="1"),
+            raiz,
+            insumos=replace(insumos, selecoes=selecoes),
+        )
+
+    base = executar(tmp_path / "base", insumos.selecoes)
+    trocadas = trocar_versao_fonte(
+        insumos.selecoes, FamiliaFonte.CNES_PF, {ART_CNES: ART_CNES_ALT}, tmp_path / "t"
+    )
+    variante = executar(tmp_path / "v", _restaurar_linha(trocadas, insumos.selecoes, outra_linha))
+    relatorio = comparar_ablacao(base, variante, TipoAblacao.VERSAO_CNES)
+    assert {(m.row_id, m.rule_id) for m in relatorio.mudancas} == {(LINHA, "ESTAB_CBO_CNES")}
+    ref = next(r for r in variante.saidas if r.schema_id == "avaliacoes.v1")
+    linhas = pq.read_table(ref.caminho).to_pylist()
+    forjadas = [
+        linha | {"estado": "VIOLACAO"}
+        if (linha["row_id"], linha["rule_id"]) == (outra_linha, "ESTAB_CBO_CNES")
+        else linha
+        for linha in linhas
+    ]
+    pq.write_table(pa.Table.from_pylist(forjadas, pq.read_schema(ref.caminho)), ref.caminho)
+    saidas = tuple(reemitir(r) if r.schema_id == "avaliacoes.v1" else r for r in variante.saidas)
+    with pytest.raises(AblacaoNaoIsolada, match="ablacao_fonte_nao_isolada"):
+        comparar_ablacao(
+            base, variante.model_copy(update={"saidas": saidas}), TipoAblacao.VERSAO_CNES
+        )

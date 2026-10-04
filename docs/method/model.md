@@ -227,7 +227,15 @@ vêm antes de gravar qualquer arquivo:
 - auxiliares: por esquema exigido pelas regras, uma relação derivada com as linhas de todos os
   artefatos daquele esquema, cada linha com o seu `artifact_id`; nada é deduplicado entre artefatos,
   porque a seleção decide quais versões valem e a avaliação junta por `artifact_id`;
-- cobertura: no máximo um `cobertura.v1` (mais de um → saída 2); nenhum → matriz não fornecida;
+- cobertura: no máximo um `cobertura.v1` (mais de um → saída 2); nenhum → matriz não fornecida.
+  Com um, a cobertura avaliada é recalculada por `ingest.coverage.build_coverage` sobre a
+  produção territorial e as relações auxiliares derivadas, nas competências de processamento do
+  piloto, preservando as marcas de incompletude da ingestão (motivos
+  `sia_pa_incompleto competencia=AAAAMM motivo=…`, lidos por `incompletude_da_cobertura`): nunca
+  sai `DISPONIVEL` onde a ingestão marcou arquivo incompleto. Assim um registro de fora do
+  território não torna insuficiente uma célula do território. A cobertura recalculada entra na
+  avaliação e no `run_id`; a da ingestão fica registrada em `recorte_territorial.json`
+  (`cobertura_da_ingestao`);
 - integridade por versão, derivada do registro: a da versão, piorada pelas observações dela —
   integridade observada `QUARENTENA_*` prevalece; tentativa com o artefato que não terminou em
   `OBTIDO` (falha de coleta com bytes) deixa a versão `NAO_VERIFICADO`, nunca `OK`. Com

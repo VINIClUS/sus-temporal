@@ -8,6 +8,7 @@ os artefatos (a seleção do T06 decide quais valem); a integridade por versão 
 from __future__ import annotations
 
 import logging
+import re
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +23,7 @@ from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.duck import identificador_seguro
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
 from sustemporal.hashing import hash_logico_relacao
+from sustemporal.ingest.coverage import build_coverage
 from sustemporal.rules.catalog import carregar_esquema, requisito_auxiliar
 from sustemporal.rules.conteudo import verificar_conteudo
 from sustemporal.rules.preparo import conferir_tipos_fisicos
@@ -51,6 +53,7 @@ logger = logging.getLogger(__name__)
 PRODUCAO = "sia_pa.v1"
 COBERTURA = "cobertura.v1"
 _UNIAO = "uniao_ingest"
+_MARCA_INCOMPLETO = re.compile(r"sia_pa_incompleto competencia=([0-9]{6}) motivo=(.*?)(?:; |$)")
 _NAO_INTEGRAS = {
     estado
     for estado in EstadoIntegridade
@@ -60,12 +63,17 @@ _NAO_INTEGRAS = {
 
 @dataclass(frozen=True)
 class InsumosIngest:
-    """Produção no território, auxiliares por esquema, cobertura e exclusões contadas."""
+    """Produção no território, auxiliares por esquema, cobertura e exclusões contadas.
+
+    `cobertura` é a recalculada sobre a produção territorial (a que é avaliada);
+    `cobertura_da_ingestao` fica registrada como origem.
+    """
 
     producao: DatasetRef
     auxiliares: tuple[DatasetRef, ...]
     cobertura: DatasetRef | None
     exclusoes: dict[str, int]
+    cobertura_da_ingestao: DatasetRef | None = None
 
 
 def ler_datasets(pasta: Path) -> list[DatasetRef]:
@@ -292,7 +300,45 @@ def _exigir_row_id_unico(con: duckdb.DuckDBPyConnection) -> None:
 def incompletude_da_cobertura(
     con: duckdb.DuckDBPyConnection, cobertura: DatasetRef
 ) -> dict[str, str]:
-    raise NotImplementedError
+    """Competência → motivo das marcas `sia_pa_incompleto` da cobertura da ingestão.
+
+    Lê o formato de `ingest.coverage._marcar_incompleto`
+    (`sia_pa_incompleto competencia=AAAAMM motivo=…`, seguido de `; ` e o motivo original).
+    """
+    linhas = con.execute(
+        "SELECT DISTINCT motivo FROM read_parquet($c) "
+        "WHERE starts_with(motivo, 'sia_pa_incompleto ') ORDER BY motivo",
+        {"c": cobertura.caminho},
+    ).fetchall()
+    incompleto: dict[str, str] = {}
+    for (motivo,) in linhas:
+        marca = _MARCA_INCOMPLETO.match(str(motivo))
+        if marca is None:
+            raise ValueError(f"marca_de_incompletude_ilegivel motivo={motivo}")
+        incompleto[marca.group(1)] = marca.group(2)
+    return incompleto
+
+
+def _recalcular_cobertura(
+    con: duckdb.DuckDBPyConnection,
+    cobertura: DatasetRef,
+    derivados: tuple[DatasetRef, list[DatasetRef]],
+    config: RunConfig,
+    destino: Path,
+) -> DatasetRef:
+    """Cobertura sobre a produção territorial, com as marcas de incompletude da ingestão."""
+    producao, auxiliares = derivados
+    piloto = config.piloto
+    competencias = [str(c) for c in piloto.competencias_processamento] if piloto else []
+    return build_coverage(
+        [producao],
+        auxiliares,
+        competencias,
+        destino / "cobertura",
+        runtime=config.runtime,
+        origem_dados=producao.origem_dados,
+        sia_pa_incompleto=incompletude_da_cobertura(con, cobertura),
+    )
 
 
 def preparar_insumos_ingest(
@@ -325,7 +371,12 @@ def preparar_insumos_ingest(
         _gravar(con, _unir(con, refs, presentes), refs, destino)
         for refs, presentes in zip(grupos[1:], fisicas[1:], strict=True)
     ]
+    recalculada = None
+    if cobertura is not None:
+        recalculada = _recalcular_cobertura(
+            con, cobertura, (ref_producao, derivados), config, destino
+        )
     logger.info(
         "insumos_ingest_prontos producao=%s exclusoes=%s", ref_producao.dataset_id, exclusoes
     )
-    return InsumosIngest(ref_producao, tuple(derivados), cobertura, exclusoes)
+    return InsumosIngest(ref_producao, tuple(derivados), recalculada, exclusoes, cobertura)

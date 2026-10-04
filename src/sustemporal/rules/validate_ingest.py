@@ -61,6 +61,8 @@ def _anexos(
     lote: SelecaoEmLote,
     producao: DatasetRef,
     recorte: tuple[frozenset[str], dict[str, int]],
+    *,
+    origem: DatasetRef | None = None,
 ) -> dict[str, str]:
     """`entrada_validacao.json` (o que basta para reavaliar) e `recorte_territorial.json`."""
     municipios, exclusoes = recorte
@@ -73,7 +75,11 @@ def _anexos(
         integridade=dict(insumos.integridade),
         politica=insumos.politica,
     )
-    conteudo_recorte = {"municipios": sorted(municipios), "exclusoes": exclusoes}
+    conteudo_recorte = {
+        "municipios": sorted(municipios),
+        "exclusoes": exclusoes,
+        "cobertura_da_ingestao": origem.dataset_id if origem else None,
+    }
     return {
         ARQUIVO_ENTRADA: entrada.model_dump_json(indent=2),
         "recorte_territorial.json": json.dumps(conteudo_recorte, indent=2, sort_keys=True),
@@ -115,7 +121,13 @@ def validar_ingest(pasta: Path, metodo: MetodoId, config: RunConfig, saida: Path
         lote = selecionar_em_lote(
             insumos.producao, regras, config, registro, saida / "selecoes", insumos=avaliacao
         )
-        anexos = _anexos(avaliacao, lote, insumos.producao, (municipios, insumos.exclusoes))
+        anexos = _anexos(
+            avaliacao,
+            lote,
+            insumos.producao,
+            (municipios, insumos.exclusoes),
+            origem=insumos.cobertura_da_ingestao,
+        )
         return evaluate_rules(
             insumos.producao,
             lote.snapshots,

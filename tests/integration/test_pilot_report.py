@@ -180,7 +180,8 @@ def test_disponibilidade_das_tabelas_vem_da_cobertura(tmp_path: Path) -> None:
     _ingest_e_relatorio(tmp_path)
     linhas = linhas_tabela(relatorio_gravado(tmp_path), "piloto_disponibilidade.v1")
     assert linhas
-    assert {lin["estado"] for lin in linhas} == {"AUSENTE"}
+    assert "DISPONIVEL" not in {lin["estado"] for lin in linhas}
+    assert {lin["competencia"] for lin in linhas} == {"201801"}
     assert {lin["familia_regra"] for lin in linhas} >= {"ESTABELECIMENTO_CBO", "PROCEDIMENTO_CBO"}
 
 
@@ -214,8 +215,15 @@ def test_piloto_sintetico_ponta_a_ponta_pela_cli(tmp_path: Path) -> None:
     assert cli.main(["pilot-report", "--config", str(config)]) == ExitCode.OK
     relatorio = relatorio_gravado(tmp_path)
     assert relatorio.origem_dados is OrigemDados.SINTETICO
-    assert metrica(relatorio, "fracao_registros_incluidos").numerador == 4
-    assert _contagens(relatorio, "competencia_processamento") == {"201801": 3, "201802": 1}
+    exclusoes = {
+        str(lin["motivo"]): int(lin["linhas"])
+        for lin in linhas_tabela(relatorio, "piloto_exclusoes.v1")
+    }
+    assert exclusoes == {"fora_do_intervalo_da_coorte": 1}
+    assert metrica(relatorio, "fracao_registros_incluidos").numerador == 3
+    assert _contagens(relatorio, "competencia_processamento") == {"201801": 3}
+    bases = {lin["base"] for lin in linhas_tabela(relatorio, "piloto_inconclusivos.v1")}
+    assert bases == {"ATENDIMENTO", "PROCESSAMENTO"}
 
 
 def test_modelo_g0_nao_libera_o_portao(tmp_path: Path) -> None:

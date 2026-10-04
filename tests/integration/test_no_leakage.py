@@ -284,3 +284,9 @@ def test_transformacoes_ajustadas_so_no_treino(tmp_path: Path) -> None:
         rotulos=alterado.rotulos,
     )
     assert _parametros(run_alterado.saidas[0].caminho) == parametros
+
+
+def test_inspecionado_sem_fonte_conhecida_e_recusado(tmp_path: Path) -> None:
+    linhas = [LinhaPa(artefato("teste"), 0, competencia_processamento="202401")]
+    with pytest.raises(ValueError, match="split_sem_fonte_para_artefato"):
+        _split(tmp_path, linhas, inspecionados=[artefato("versao_antiga_fora_do_mapa")])

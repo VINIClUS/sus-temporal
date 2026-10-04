@@ -110,9 +110,12 @@ def _pareadas(
     esperados = {caso for caso, row_id in mapa.items() if row_id in set(amostra.casos)}
     if set(a) != esperados or set(b) != esperados:
         raise ValueError(f"avaliacoes_incompletas esperados={len(esperados)} a={len(a)} b={len(b)}")
-    avaliadores = {x.avaliador for x in a.values()} & {x.avaliador for x in b.values()}
-    if avaliadores:
-        raise ValueError(f"avaliador_nos_dois_lados avaliadores={sorted(avaliadores)}")
+    lado_a = {x.avaliador for x in a.values()}
+    lado_b = {x.avaliador for x in b.values()}
+    if len(lado_a) != 1 or len(lado_b) != 1:
+        raise ValueError(f"avaliador_unico_por_lado a={len(lado_a)} b={len(lado_b)}")
+    if lado_a == lado_b:
+        raise ValueError(f"avaliador_nos_dois_lados avaliador={sorted(lado_a)[0]}")
     return [(a[caso], b[caso]) for caso in sorted(esperados)]
 
 
@@ -149,7 +152,7 @@ def concordancia(
     """
     pareadas = _pareadas(amostra, mapa, avaliador_a, avaliador_b)
     globais = [(_resposta(a), _resposta(b)) for a, b in pareadas]
-    familias = sorted({f for a, b in pareadas for f in (*a.familias, *b.familias)})
+    familias = list(FamiliaRegra)
     por_familia: dict[str, tuple[Fraction, Fraction | None]] = {}
     for familia in familias:
         pares = [

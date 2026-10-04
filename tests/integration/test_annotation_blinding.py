@@ -289,7 +289,8 @@ def test_concordancia_global_e_por_familia_preserva_indeterminados(
     # AUSENTE/AUSENTE (FORA vs I com E) x1 -> po = 9/10
     assert bruta_p == Fraction(9, 10)
     assert set(relatorio.por_familia) == {f.value for f in FamiliaRegra}
-    assert relatorio.por_familia[FamiliaRegra.SEXO.value][0] == 1
+    # família não marcada: só o caso 3 (AUSENTE x NAO_DETERMINADO) discorda
+    assert relatorio.por_familia[FamiliaRegra.SEXO.value][0] == Fraction(9, 10)
 
 
 def test_comparacao_bloqueada_antes_do_fechamento(cenario: CenarioAnotacao, tmp_path: Path) -> None:

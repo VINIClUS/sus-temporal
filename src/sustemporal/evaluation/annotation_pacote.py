@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 from sustemporal.contracts import AnnotationSample, ConclusaoCaso, FamiliaRegra
 from sustemporal.duck import identificador_seguro
-from sustemporal.errors import ConfigInvalida
+from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -95,12 +95,22 @@ def casos_do_pacote(
     labels: DatasetRef,
     ordem: Sequence[tuple[str, str]],
 ) -> list[dict[str, object]]:
-    """Linhas do pacote na ordem (caso_id, row_id) dada, só com colunas da allowlist."""
+    """Linhas do pacote na ordem (caso_id, row_id) dada, só com colunas da allowlist.
+
+    Raises:
+        FalhaOperacionalErro: Parquet sem alguma coluna da allowlist (leiaute incompatível).
+    """
     descricao = con.execute(
         "DESCRIBE SELECT * FROM read_parquet($c)", {"c": registros.caminho}
     ).fetchall()
     fisicas = {str(linha[0]) for linha in descricao}
-    colunas = [c for c in COLUNAS_PACOTE if c in fisicas]
+    ausentes = [c for c in COLUNAS_PACOTE if c not in fisicas]
+    if ausentes:
+        raise FalhaOperacionalErro(
+            f"anotacao_leiaute_incompativel dataset={registros.dataset_id} "
+            f"ausentes={','.join(ausentes)}"
+        )
+    colunas = list(COLUNAS_PACOTE)
     projecao = ", ".join(f"p.{identificador_seguro(c, colunas)}" for c in colunas)
     linhas = con.execute(
         f"SELECT p.row_id, {projecao}, r.rotulo FROM read_parquet($registros) p "  # noqa: S608

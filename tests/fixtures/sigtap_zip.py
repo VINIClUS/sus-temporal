@@ -193,12 +193,12 @@ def corromper(dados: bytes, posicao: int, mascara: int = 0xFF) -> bytes:
     return dados[:indice] + bytes([dados[indice] ^ mascara]) + dados[indice + 1 :]
 
 
-def zip_sigtap(membros: Mapping[str, bytes]) -> bytes:
+def zip_sigtap(membros: Mapping[str, bytes], *, compressao: int = zipfile.ZIP_DEFLATED) -> bytes:
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as arquivo:
+    with zipfile.ZipFile(buffer, "w", compression=compressao) as arquivo:
         for nome, dados in membros.items():
             info = zipfile.ZipInfo(nome, date_time=(2018, 1, 1, 0, 0, 0))
-            arquivo.writestr(info, dados, compress_type=zipfile.ZIP_DEFLATED)
+            arquivo.writestr(info, dados, compress_type=compressao)
     return buffer.getvalue()
 
 

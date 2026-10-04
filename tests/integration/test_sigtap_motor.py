@@ -13,7 +13,9 @@ from tests.fixtures.sigtap_zip import (
 )
 
 from sustemporal.contracts import (
+    DatasetRef,
     FamiliaFonte,
+    calcular_dataset_id,
 )
 from sustemporal.ingest.sigtap import TABELAS
 from sustemporal.rules.auxiliares import preparar_auxiliar
@@ -52,6 +54,13 @@ def test_motor_real_aceita_os_conjuntos_sigtap_de_cada_regra(tmp_path: Path) -> 
 
 def test_motor_real_recusa_conjunto_sigtap_com_hash_adulterado(tmp_path: Path) -> None:
     dataset = normalizar(tmp_path, pacote(tmp_path, pacote_padrao()), "tb_registro")
-    adulterado = dataset.model_copy(update={"linhas": dataset.linhas + 1})
+    falso = "lh1:" + "0" * 64
+    adulterado = DatasetRef(
+        **{
+            **dataset.model_dump(),
+            "hash_logico": falso,
+            "dataset_id": calcular_dataset_id(dataset.schema_id, falso, dataset.artifact_ids),
+        }
+    )
     with closing(duckdb.connect()) as con, pytest.raises(ConteudoDivergente):
         verificar_conteudo(con, adulterado)

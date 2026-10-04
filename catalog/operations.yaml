@@ -1,0 +1,98 @@
+# Catálogo fechado de operações cadastrais do CNES para contrafactuais (T09, plano §6).
+# Cada operação é uma alteração HIPOTÉTICA simulada numa sobreposição isolada; nenhuma delas é
+# recomendação, nenhuma implica aprovação e nenhuma altera competência encerrada no CNES.
+# Nenhum documento oficial das operações foi lido: autoridade e governança ficam DESCONHECIDA ou
+# conservadoras, referências PENDENTE/A_CONFIRMAR (docs/pendencias/T09.md). Custos são ordinais
+# provisórios de desenvolvimento, a calibrar com especialista; não medem esforço real.
+# Fora do catálogo, por construção (plano §6): diagnóstico (CID), idade, sexo e demais fatos do
+# atendimento; vínculo de um profissional específico; habilitações tratadas como governança
+# municipal.
+versao: "1"
+operacoes:
+  - op_id: INCLUIR_CBO_NO_ESTABELECIMENTO
+    descricao: >-
+      Acrescenta, na versão do CNES PF reduzido (contagem por estabelecimento–CBO) da competência
+      da seleção, uma unidade à contagem de vínculos do par CNES–CBO do registro. Opera no nível
+      estabelecimento–CBO; não cria, identifica nem infere o vínculo de um profissional.
+    autoridade: DESCONHECIDA
+    governanca: DESCONHECIDA
+    verdade_factual_exigida: >-
+      Na competência considerada, ao menos um profissional com o CBO do registro atuava de fato no
+      estabelecimento com vínculo cadastrável no CNES.
+    alvo:
+      schema_id: cnes_estab_cbo.v1
+      colunas: [competencia_arquivo, cnes, cbo, n_vinculos]
+    competencias_permitidas: QUALQUER_HIPOTETICA
+    alcance: >-
+      Par CNES–CBO do registro na competência da seleção; atinge todos os registros com o mesmo
+      par, competência e seleção.
+    custo: "1"
+    precondicoes: [ESTABELECIMENTO_NO_CNES_ST]
+    depende_de: [CADASTRAR_ESTABELECIMENTO_NO_CNES]
+    referencia:
+      doc_id: O7
+      titulo: Informe Técnico CNES 1706 (IT_CNES_1706.pdf)
+      url: ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/doc/IT_CNES_1706.pdf
+      localizador: >-
+        cadastro de profissionais (grupo PF); conteúdo ainda não lido; quem cadastra e quem
+        valida a inclusão de profissional a localizar
+      estado: PENDENTE
+      proveniencia: SECUNDARIA
+      confirmacao: A_CONFIRMAR
+  - op_id: RECLASSIFICAR_CBO_NO_ESTABELECIMENTO
+    descricao: >-
+      Move uma unidade da contagem de vínculos de outro CBO do mesmo estabelecimento (parâmetro
+      cbo_origem) para o CBO do registro, na versão do CNES PF reduzido da competência da seleção.
+      Reduz a contagem do CBO de origem; registros que dependiam dele são revalidados.
+    autoridade: DESCONHECIDA
+    governanca: DESCONHECIDA
+    verdade_factual_exigida: >-
+      Na competência considerada, um vínculo cadastrado com o CBO de origem correspondia de fato
+      ao CBO do registro (erro de classificação ocupacional no cadastro).
+    alvo:
+      schema_id: cnes_estab_cbo.v1
+      colunas: [competencia_arquivo, cnes, cbo, n_vinculos]
+    competencias_permitidas: QUALQUER_HIPOTETICA
+    alcance: >-
+      Pares CNES–CBO de origem e do registro na competência da seleção; atinge todos os registros
+      com qualquer um dos dois pares.
+    custo: "2"
+    precondicoes: [ESTABELECIMENTO_NO_CNES_ST, CBO_ORIGEM_COM_VINCULO]
+    depende_de: [CADASTRAR_ESTABELECIMENTO_NO_CNES]
+    referencia:
+      doc_id: O7
+      titulo: Informe Técnico CNES 1706 (IT_CNES_1706.pdf)
+      url: ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/doc/IT_CNES_1706.pdf
+      localizador: >-
+        cadastro de profissionais (grupo PF), alteração de CBO; conteúdo ainda não lido
+      estado: PENDENTE
+      proveniencia: SECUNDARIA
+      confirmacao: A_CONFIRMAR
+  - op_id: CADASTRAR_ESTABELECIMENTO_NO_CNES
+    descricao: >-
+      Acrescenta o CNES do registro à versão do CNES ST (estabelecimentos) da competência da
+      seleção, sem atributos (município, tipo de unidade, gestão e natureza jurídica nulos).
+    autoridade: DESCONHECIDA
+    governanca: DESCONHECIDA
+    verdade_factual_exigida: >-
+      Na competência considerada, o estabelecimento existia e estava apto a ser cadastrado no
+      CNES pelo gestor responsável pela sua gestão (municipal ou estadual, a confirmar).
+    alvo:
+      schema_id: cnes_estabelecimento.v1
+      colunas: [competencia_arquivo, cnes]
+    competencias_permitidas: QUALQUER_HIPOTETICA
+    alcance: >-
+      Estabelecimento do registro na competência da seleção; atinge todas as regras que leem o
+      CNES ST.
+    custo: "3"
+    precondicoes: [ESTABELECIMENTO_AUSENTE_NO_CNES_ST]
+    referencia:
+      doc_id: O7
+      titulo: Informe Técnico CNES 1706 (IT_CNES_1706.pdf)
+      url: ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/doc/IT_CNES_1706.pdf
+      localizador: >-
+        cadastro de estabelecimentos (grupo ST); conteúdo ainda não lido; responsabilidade do
+        gestor municipal ou estadual a localizar
+      estado: PENDENTE
+      proveniencia: SECUNDARIA
+      confirmacao: A_CONFIRMAR

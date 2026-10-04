@@ -149,6 +149,7 @@ def test_confirmatorio_com_dados_sinteticos_e_recusado(tmp_path: Path) -> None:
             "modo": "CONFIRMATORIO",
             "origem_dados": "REAL",
             "freeze_id": f"frz_{'0' * 64}",
+            "bootstrap": {"correcao": "HOLM"},
         }
     )
     with pytest.raises(PortaoRecusado):

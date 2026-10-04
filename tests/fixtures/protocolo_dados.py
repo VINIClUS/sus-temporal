@@ -10,6 +10,9 @@ import hashlib
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import pyarrow as pa
+import pyarrow.parquet as pq
+
 from sustemporal.contracts.base import OrigemDados
 from sustemporal.contracts.config import RunConfig, RuntimeConfig
 from sustemporal.contracts.experiment import CohortSpec, SplitManifest, SplitSpec
@@ -26,12 +29,12 @@ MUNICIPIO_DENTRO = "354140"
 MUNICIPIO_DENTRO_7 = "3541406"
 MUNICIPIO_FORA = "355030"
 
-_TIPOS_SQL = {
-    TipoCanonico.TEXTO: "VARCHAR",
-    TipoCanonico.INTEIRO: "BIGINT",
-    TipoCanonico.DECIMAL: "DECIMAL(38, 2)",
-    TipoCanonico.BOOLEANO: "BOOLEAN",
-    TipoCanonico.DATA: "DATE",
+_TIPOS_ARROW = {
+    TipoCanonico.TEXTO: pa.string(),
+    TipoCanonico.INTEIRO: pa.int64(),
+    TipoCanonico.DECIMAL: pa.decimal128(38, 2),
+    TipoCanonico.BOOLEANO: pa.bool_(),
+    TipoCanonico.DATA: pa.date32(),
 }
 
 
@@ -92,18 +95,16 @@ def _gravar(
 ) -> DatasetRef:
     esquema = carregar_esquema(schema_id)
     colunas = [c.nome for c in esquema.colunas]
-    definicao = ", ".join(f"{c.nome} {_TIPOS_SQL[c.tipo]}" for c in esquema.colunas)
-    marcadores = ", ".join("?" for _ in colunas)
+    tabela = pa.table(
+        {
+            c.nome: pa.array([linha.get(c.nome) for linha in linhas], _TIPOS_ARROW[c.tipo])
+            for c in esquema.colunas
+        }
+    )
+    destino.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(tabela, destino)
     con = conectar(RuntimeConfig(duckdb_threads=1))
     try:
-        con.execute(f"CREATE TABLE t ({definicao})")
-        if linhas:
-            con.executemany(
-                f"INSERT INTO t VALUES ({marcadores})",  # noqa: S608
-                [[linha.get(nome) for nome in colunas] for linha in linhas],
-            )
-        destino.parent.mkdir(parents=True, exist_ok=True)
-        con.table("t").write_parquet(str(destino))
         con.execute("CREATE TABLE lida AS SELECT * FROM read_parquet($c)", {"c": str(destino)})
         hash_logico = hash_logico_relacao(con, "lida", colunas)
     finally:

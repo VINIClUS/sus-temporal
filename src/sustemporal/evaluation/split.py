@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -237,6 +236,28 @@ def _split_id(
     return f"spl_{hash_canonico(conteudo)}"
 
 
+def _particionar(
+    dataset: DatasetRef,
+    spec: SplitSpec,
+    cohort: CohortSpec,
+    municipios: list[str],
+    fontes: Mapping[str, str],
+    *,
+    out: Path,
+) -> tuple[dict[str, int], int, dict[Particao, DatasetRef]]:
+    con = conectar(RuntimeConfig(duckdb_threads=1))
+    try:
+        _verificar_entrada(con, dataset)
+        exclusoes = _classificar(con, dataset, spec, cohort, municipios)
+        agrupadas = _exigir_fontes_numa_particao(con, fontes)
+        particoes = {
+            p.particao: _gravar_particao(con, p.particao, dataset, out) for p in spec.intervalos
+        }
+    finally:
+        con.close()
+    return exclusoes, agrupadas, particoes
+
+
 def build_splits(
     dataset: DatasetRef,
     cohort: CohortSpec,
@@ -261,16 +282,9 @@ def build_splits(
     vistos = tuple(sorted(set(inspecionados)))
     municipios = _municipios(cohort)
     out.mkdir(parents=True, exist_ok=True)
-    con = conectar(RuntimeConfig(duckdb_threads=1))
-    try:
-        _verificar_entrada(con, dataset)
-        exclusoes = _classificar(con, dataset, spec, cohort, municipios)
-        agrupadas = _exigir_fontes_numa_particao(con, fonte_por_artefato or {})
-        particoes = {
-            p.particao: _gravar_particao(con, p.particao, dataset, out) for p in spec.intervalos
-        }
-    finally:
-        con.close()
+    exclusoes, agrupadas, particoes = _particionar(
+        dataset, spec, cohort, municipios, fonte_por_artefato or {}, out=out
+    )
     manifesto = SplitManifest(
         split_id=_split_id(
             dataset, cohort, spec, fonte_por_artefato, municipios=municipios, inspecionados=vistos
@@ -283,7 +297,7 @@ def build_splits(
         artefatos_teste=particoes[Particao.TESTE].artifact_ids,
         cohort_id=cohort.cohort_id,
         particoes=particoes,
-        exclusoes=dict(Counter(exclusoes)),
+        exclusoes=exclusoes,
         limites=_limites(cohort, agrupadas if fonte_por_artefato is not None else None),
     )
     (out / f"{manifesto.split_id}.json").write_text(manifesto.model_dump_json(indent=2))

@@ -33,9 +33,15 @@ from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
     import argparse
+    from collections.abc import Sequence
 
-    from sustemporal.acquisition.manifest import EstadoManifesto
-    from sustemporal.contracts import ArtifactVersion, ChaveArtefato, DatasetRef, RuntimeConfig
+    from sustemporal.contracts import (
+        ArtifactObservation,
+        ArtifactVersion,
+        ChaveArtefato,
+        DatasetRef,
+        RuntimeConfig,
+    )
     from sustemporal.contracts.config import PilotSpec, RunConfig
 
 __all__ = ["executar_ingest"]
@@ -110,23 +116,25 @@ class _Execucao:
         for layout in _leiautes(fonte):
             self._uma(funcao, versao, layout)
 
-    def marcar_tentativas_sem_versao(self, manifesto: EstadoManifesto) -> None:
+    def marcar_tentativas_sem_versao(
+        self, versoes: Sequence[ArtifactVersion], observacoes: Sequence[ArtifactObservation]
+    ) -> None:
         """Parte do SIA-PA tentada e nunca obtida torna a competência incompleta."""
-        obtidas = {_chave_logica(v.chave) for v in manifesto.versoes.values()}
-        for observacao in manifesto.observacoes:
+        obtidas = {_chave_logica(v.chave) for v in versoes}
+        for observacao in observacoes:
             chave = observacao.chave
             competencia = chave.competencia_arquivo
             sem_versao = _chave_logica(chave) not in obtidas
             if chave.fonte is FamiliaFonte.SIA_PA and competencia is not None and sem_versao:
                 self.sia_pa_incompleto[competencia.valor] = observacao.resultado.value
 
-    def marcar_partes(self, manifesto: EstadoManifesto, config: RunConfig) -> None:
+    def marcar_partes(self, versoes: Sequence[ArtifactVersion], config: RunConfig) -> None:
         """Completude das partes do SIA-PA com a mesma semântica do seletor (T06): parte
         declarada sem versão, parte não declarada ou partes sem declaração no catálogo tornam a
         competência incompleta (a aquisição não grava observação de parte ausente da listagem)."""
         esperadas_por = partes_esperadas_do_catalogo(config)
         partes: dict[str, set[str | None]] = defaultdict(set)
-        for versao in manifesto.versoes.values():
+        for versao in versoes:
             competencia = versao.chave.competencia_arquivo
             if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
                 partes[competencia.valor].add(versao.chave.parte)
@@ -173,6 +181,11 @@ def _incompletude(obtidas: set[str | None], esperadas: frozenset[str] | None) ->
     return None
 
 
+def _do_piloto(chave: ChaveArtefato, uf: str) -> bool:
+    """Arquivo publicado (não listagem) da UF do piloto ou de fonte nacional (sem UF)."""
+    return chave.tipo_conteudo is None and (chave.uf is None or chave.uf == uf)
+
+
 def _chave_logica(chave: ChaveArtefato) -> tuple[object, ...]:
     return (chave.fonte, chave.uf, chave.competencia_arquivo, chave.parte)
 
@@ -200,11 +213,13 @@ def executar_ingest(args: argparse.Namespace, config: RunConfig) -> int:
     saida = _pasta_execucao(Path(config.runtime.raiz_saidas) / "ingest")
     execucao = _Execucao(config, saida)
     manifesto = Manifesto(Path(config.runtime.raiz_manifestos) / NOME_MANIFESTO_AQUISICAO).ler()
-    for versao in manifesto.versoes.values():
+    versoes = [v for v in manifesto.versoes.values() if _do_piloto(v.chave, piloto.uf)]
+    observacoes = [o for o in manifesto.observacoes if _do_piloto(o.chave, piloto.uf)]
+    for versao in versoes:
         if versao.chave.fonte in {*RESERVADAS, *_NORMALIZAVEIS}:
             execucao.normalizar(versao)
-    execucao.marcar_tentativas_sem_versao(manifesto)
-    execucao.marcar_partes(manifesto, config)
+    execucao.marcar_tentativas_sem_versao(versoes, observacoes)
+    execucao.marcar_partes(versoes, config)
     competencias = [c.valor for c in piloto.competencias_processamento]
     sia_pa = [d for d in execucao.datasets if d.schema_id == "sia_pa.v1"]
     auxiliares = [d for d in execucao.datasets if d.schema_id != "sia_pa.v1"]

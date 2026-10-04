@@ -99,12 +99,14 @@ def _selecoes_distintas(con: duckdb.DuckDBPyConnection) -> list[SelecaoVersao]:
     return selecoes
 
 
-def _conjunto(selecao: SelecaoVersao, corte: datetime | None) -> SnapshotSet:
+def _conjunto(selecao: SelecaoVersao | None, corte: datetime | None) -> SnapshotSet:
+    """Conjunto de uma seleção; `None` dá o conjunto vazio que só carrega o corte."""
+    selecoes = () if selecao is None else (selecao,)
     return SnapshotSet.criar(
-        artifact_ids=tuple(sorted(selecao.artifact_ids)),
-        observation_ids=tuple(sorted(selecao.observation_ids)),
+        artifact_ids=tuple(sorted({a for s in selecoes for a in s.artifact_ids})),
+        observation_ids=tuple(sorted({o for s in selecoes for o in s.observation_ids})),
         dataset_hashes=(),
-        selecoes=(selecao,),
+        selecoes=selecoes,
         corte_observacao=corte,
     )
 
@@ -145,7 +147,8 @@ def selecionar_em_lote(
         selecoes = _selecoes_distintas(con)
     finally:
         con.close()
-    snapshots = unir_snapshots((_conjunto(s, corte) for s in selecoes), relogio=relogio)
+    conjuntos = [_conjunto(None, corte), *(_conjunto(s, corte) for s in selecoes)]
+    snapshots = unir_snapshots(conjuntos, relogio=relogio)
     logger.info("selecao_em_lote_gravada selecao=%s linhas=%d", selecao_id, ref.linhas)
     return SelecaoEmLote(selecoes=ref, snapshots=snapshots)
 

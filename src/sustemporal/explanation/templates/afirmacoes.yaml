@@ -1,0 +1,76 @@
+# Templates fixos das explicações (T08); sem LLM. Cada template declara as referências exigidas:
+# regra (rule_id da avaliação), evidencias (evidências citadas pela avaliação), artefatos
+# (versões selecionadas) ou regras (todas as avaliações do registro). Template cujas referências
+# não resolvem no bundle é erro.
+versao: "1"
+cabecalho: >-
+  Explicação ($origem) da execução $run_id para o registro $row_id; método $metodo, política
+  $politica_id.
+templates:
+  registro.alerta:
+    referencias: [regras]
+    texto: >-
+      Registro $row_id: ao menos uma regra modelada ficou em VIOLACAO ($violacoes) sob a política
+      $politica_id. É um alerta do modelo; não é causa oficial da decisão de processamento.
+  registro.sem_violacao:
+    referencias: [regras]
+    texto: >-
+      Registro $row_id: nenhuma violação verificada nas regras $conformes sob a política
+      $politica_id. Isso não equivale a aprovação no processamento oficial.
+  registro.abstencao:
+    referencias: [regras]
+    texto: >-
+      Registro $row_id: abstenção sob a política $politica_id; regras inconclusivas
+      ($inconclusivas) ou nenhuma regra verificada. Abstenção não equivale a aprovação nem a
+      violação.
+  regra.violacao:
+    referencias: [regra, evidencias]
+    texto: >-
+      Regra $rule_id (versão $versao) em VIOLACAO: a consulta $query_id (SQL sha256 $sql_sha256)
+      com parâmetros $parametros não encontrou correspondência nas versões $artefatos do conjunto
+      $dataset_id (hash $hash_logico; cobertura $cobertura; integridade $integridade; resultados
+      $n_resultados). Resultado vazio na fonte consultada não prova inexistência no mundo real.
+  regra.conforme:
+    referencias: [regra, evidencias]
+    texto: >-
+      Regra $rule_id (versão $versao) CONFORME: a consulta $query_id (SQL sha256 $sql_sha256) com
+      parâmetros $parametros encontrou $n_resultados correspondência(s) nas versões $artefatos do
+      conjunto $dataset_id (hash $hash_logico); chaves $chaves.
+  regra.nao_aplicavel:
+    referencias: [regra, evidencias]
+    texto: >-
+      Regra $rule_id (versão $versao) NAO_APLICAVEL: a verificação $query_id com parâmetros
+      $parametros sobre o próprio registro (conjunto $dataset_id, hash $hash_logico) demonstra que
+      a regra não se aplica.
+  regra.inconclusiva:
+    referencias: [regra]
+    texto: >-
+      Regra $rule_id (versão $versao) INCONCLUSIVO: motivos $motivos; aplicabilidade
+      $aplicabilidade. Nenhuma violação é afirmada: falta de campo, de arquivo ou de cobertura leva
+      a inconclusão, nunca a violação.
+  selecao.escolhida:
+    referencias: [regra, artefatos]
+    texto: >-
+      Regra $rule_id, fonte $fonte: a política $politica_id selecionou as versões $artefatos (base
+      $base, competência $competencia; estado $estado); motivo da seleção: $motivo.
+  selecao.nao_escolhida:
+    referencias: [regra]
+    texto: >-
+      Regra $rule_id, fonte $fonte: nenhuma versão utilizável (estado $estado; base $base;
+      competência $competencia); motivo: $motivo. O mês vizinho nunca substitui a competência
+      requerida.
+limitacoes:
+  RESULTADO_NAO_E_CAUSA_OFICIAL: >-
+    O resultado do modelo não é causa oficial da decisão de processamento; uma regra em VIOLACAO
+    não atribui causa à decisão oficial.
+  AUSENCIA_NAO_PROVA_INEXISTENCIA: >-
+    Resultado vazio numa fonte consultada não prova inexistência no mundo real; só sustenta
+    violação com cobertura DISPONIVEL, integridade OK e zero resultados.
+  RETRATO_MENSAL_NAO_DATA_EXATA: >-
+    As fontes cadastrais são retratos mensais; presença ou ausência num retrato não data o início
+    nem o fim de um fato.
+  RETROSPECTIVO: >-
+    Avaliação retrospectiva sobre versões coletadas; alteração cadastral atual não modifica
+    competência encerrada.
+  DADOS_SINTETICOS: >-
+    Dados SINTETICOS: nenhum resultado empírico.

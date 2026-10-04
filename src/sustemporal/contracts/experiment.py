@@ -185,6 +185,11 @@ class SplitManifest(ContratoBase):
     hash_por_particao: dict[Particao, HashLogico]
     artefatos_inspecionados: tuple[ArtifactId, ...] = ()
     artefatos_teste: tuple[ArtifactId, ...] = ()
+    cohort_id: Identificador | None = None
+    particoes: dict[Particao, DatasetRef] | None = None
+    exclusoes: dict[str, InteiroNaoNegativo] | None = None
+    limites: tuple[str, ...] | None = None
+    rotulos_por_particao: dict[Particao, DatasetRef] | None = None
 
     @model_validator(mode="after")
     def _coerencia(self) -> SplitManifest:
@@ -194,7 +199,45 @@ class SplitManifest(ContratoBase):
             raise ValueError(f"split_manifesto_particoes_divergentes split={self.split_id}")
         if set(self.artefatos_teste) & set(self.artefatos_inspecionados):
             raise ValueError(f"teste_contem_artefato_inspecionado split={self.split_id}")
+        if self.particoes is not None:
+            self._particoes_coerentes(declaradas, self.particoes)
+        if self.rotulos_por_particao is not None:
+            self._rotulos_presos(declaradas, self.rotulos_por_particao)
         return self
+
+    def _rotulos_presos(
+        self, declaradas: set[Particao], rotulos: dict[Particao, DatasetRef]
+    ) -> None:
+        if set(rotulos) != declaradas:
+            raise ValueError(f"split_rotulos_particoes_divergentes split={self.split_id}")
+        refs = list(rotulos.values())
+        distintos = len({r.dataset_id for r in refs}) == len(refs) and len(
+            {r.caminho for r in refs}
+        ) == len(refs)
+        linhas_iguais = self.particoes is not None and all(
+            rotulos[p].linhas == self.particoes[p].linhas for p in declaradas
+        )
+        if not (distintos and linhas_iguais):
+            raise ValueError(f"split_rotulos_nao_presos_as_particoes split={self.split_id}")
+
+    def _particoes_coerentes(
+        self, declaradas: set[Particao], particoes: dict[Particao, DatasetRef]
+    ) -> None:
+        if set(particoes) != declaradas:
+            raise ValueError(f"split_manifesto_particoes_divergentes split={self.split_id}")
+        for particao, dataset in particoes.items():
+            if (dataset.hash_logico, dataset.linhas) != (
+                self.hash_por_particao[particao],
+                self.linhas_por_particao[particao],
+            ):
+                raise ValueError(
+                    f"split_particao_diverge_do_dataset split={self.split_id} particao={particao}"
+                )
+        artefatos = [a for dataset in particoes.values() for a in set(dataset.artifact_ids)]
+        if len(artefatos) != len(set(artefatos)):
+            raise ValueError(f"split_artefato_em_mais_de_uma_particao split={self.split_id}")
+        if set(self.artefatos_teste) != set(particoes[Particao.TESTE].artifact_ids):
+            raise ValueError(f"split_artefatos_teste_divergentes split={self.split_id}")
 
 
 class Atributo(ContratoBase):

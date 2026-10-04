@@ -532,6 +532,19 @@
    "chave": {
     "$ref": "#/$defs/ChaveArtefato"
    },
+   "dbc_bytes_pos_cabecalho": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9a-f]{8}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Dbc Bytes Pos Cabecalho"
+   },
    "formato": {
     "$ref": "#/$defs/FormatoArquivo"
    },
@@ -858,6 +871,19 @@
      },
      "chave": {
       "$ref": "#/$defs/ChaveArtefato"
+     },
+     "dbc_bytes_pos_cabecalho": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9a-f]{8}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Dbc Bytes Pos Cabecalho"
      },
      "formato": {
       "$ref": "#/$defs/FormatoArquivo"

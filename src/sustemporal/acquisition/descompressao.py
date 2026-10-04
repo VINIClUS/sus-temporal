@@ -47,15 +47,32 @@ def _classificar(retorno: int, mensagem: str, destino: Path, limite: int) -> Res
     return ResultadoDescompressao(DesfechoDescompressao.INVALIDO, mensagem)
 
 
+def _recusa_de_caminhos(origem: Path, destino: Path) -> str | None:
+    if origem.is_symlink() or not origem.is_file():
+        return f"origem_nao_e_arquivo_regular origem={origem}"
+    if not destino.parent.is_dir():
+        return f"destino_sem_diretorio destino={destino}"
+    return None
+
+
 def descomprimir_limitado(
     origem: Path, destino: Path, limite: int, *, prazo: float = PRAZO_PADRAO
 ) -> ResultadoDescompressao:
-    """Descomprime `origem` em `destino` sem nunca gravar mais que `limite` bytes."""
+    """Descomprime `origem` em `destino` sem nunca gravar mais que `limite` bytes.
+
+    Só aceita origem que seja arquivo regular (não link) e destino em diretório existente; o
+    filho recebe caminhos absolutos e roda em modo isolado (`-I`: sem PYTHONPATH nem `PYTHON*`)
+    e sem gravar bytecode (`-B`), que sob o teto de `RLIMIT_FSIZE` sairia truncado.
+    """
+    recusa = _recusa_de_caminhos(origem, destino)
+    if recusa is not None:
+        return ResultadoDescompressao(DesfechoDescompressao.INVALIDO, recusa)
 
     def _limitar() -> None:
         resource.setrlimit(resource.RLIMIT_FSIZE, (limite, limite))
 
-    comando = [sys.executable, "-m", __name__, str(origem), str(destino)]
+    absolutos = [str(origem.resolve()), str(destino.parent.resolve() / destino.name)]
+    comando = [sys.executable, "-I", "-B", "-m", __name__, *absolutos]
     try:
         processo = subprocess.run(  # noqa: S603
             comando,

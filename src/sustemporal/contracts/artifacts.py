@@ -126,6 +126,9 @@ class ArtifactVersion(ContratoBase):
     leiaute_id: str | None = None
     integridade: EstadoIntegridade
     membros: tuple[MembroArquivo, ...] = ()
+    dbc_bytes_pos_cabecalho: Annotated[str, StringConstraints(pattern=r"^[0-9a-f]{8}$")] | None = (
+        None
+    )
 
     @model_validator(mode="after")
     def _coerencia(self) -> ArtifactVersion:

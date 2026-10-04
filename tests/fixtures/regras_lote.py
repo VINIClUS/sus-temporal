@@ -127,7 +127,11 @@ def _cobertura() -> tuple[dict[str, str | None], ...]:
 
 
 def mundo_lote(
-    raiz: Path, *, cnes_fev_quarentena: bool = False, sigtap_fev_ausente: bool = False
+    raiz: Path,
+    *,
+    cnes_fev_quarentena: bool = False,
+    sigtap_fev_ausente: bool = False,
+    sem_registros: bool = False,
 ) -> MundoLote:
     """SIA-PA canônico, auxiliares e registro temporal coerentes entre si (SINTETICO)."""
     itens = _observacoes(
@@ -137,7 +141,7 @@ def mundo_lote(
     integridade = {v.artifact_id: v.integridade for v in versoes}
     integridade[ART_SIA] = EstadoIntegridade.OK
     cenario = CenarioRegras(
-        registros=_REGISTROS,
+        registros=() if sem_registros else _REGISTROS,
         auxiliares=_auxiliares(versoes),
         selecoes=(),
         cobertura=_cobertura(),

@@ -69,7 +69,12 @@ def ler_populacao(
     labels: DatasetRef,
     causas: Mapping[str, str],
 ) -> list[LinhaAvaliada]:
-    """Linhas da partição com rótulo, estratos e pertença ao domínio comum."""
+    """Linhas da partição com rótulo, estratos e pertença ao domínio comum.
+
+    Raises:
+        FalhaOperacionalErro: rótulos com row_id fora da partição, ausente ou repetido.
+    """
+    _exigir_mesmos_row_ids(con, populacao, labels)
     cursor = con.execute(
         "SELECT p.row_id, r.rotulo, p.cnes, p.competencia_processamento, p.instrumento, "
         "p.procedimento, p.cbo, p.competencia_atendimento FROM read_parquet($p) p "
@@ -92,6 +97,23 @@ def ler_populacao(
             )
         )
     return linhas
+
+
+def _exigir_mesmos_row_ids(
+    con: duckdb.DuckDBPyConnection, populacao: DatasetRef, labels: DatasetRef
+) -> None:
+    contagem = con.execute(
+        "SELECT (SELECT count(*) - count(DISTINCT row_id) FROM read_parquet($r)) + "
+        "(SELECT count(*) FROM ((SELECT row_id FROM read_parquet($r) EXCEPT "
+        "SELECT row_id FROM read_parquet($p)) UNION ALL (SELECT row_id FROM read_parquet($p) "
+        "EXCEPT SELECT row_id FROM read_parquet($r))))",
+        {"p": populacao.caminho, "r": labels.caminho},
+    ).fetchall()[0][0]
+    if int(contagem) > 0:
+        raise FalhaOperacionalErro(
+            f"rotulos_fora_da_particao populacao={populacao.dataset_id} "
+            f"rotulos={labels.dataset_id} divergentes={contagem}"
+        )
 
 
 def _consulta(
@@ -139,6 +161,8 @@ def _da_execucao(
     if not saidas:
         raise ValueError(f"execucao_sem_saida_avaliavel run={run.run_id}")
     situacoes: dict[str, dict[str, Situacao]] = {}
+    if run.metodo is not None:
+        situacoes[run.metodo.value] = {}
     for dataset in saidas:
         verificar_entrada(con, dataset)
         sql, parametros = _consulta(dataset, run, particao)

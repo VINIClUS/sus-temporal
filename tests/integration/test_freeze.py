@@ -36,7 +36,11 @@ from sustemporal.evaluation.freeze import (
     congelar,
     verificar_compatibilidade,
 )
-from sustemporal.evaluation.freeze_registro import ler_registro, registrar_execucao
+from sustemporal.evaluation.freeze_registro import (
+    exigir_rodada_permitida,
+    ler_registro,
+    registrar_execucao,
+)
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 
 if TYPE_CHECKING:
@@ -239,6 +243,9 @@ def test_segunda_rodada_confirmatoria_exige_correcao_declarada(tmp_path: Path) -
     registrar_execucao(registro, _relatorio("rep_1", **campos), relogio=relogio)
     with pytest.raises(PortaoRecusado, match="reabertura_do_teste_sem_correcao_declarada"):
         registrar_execucao(registro, _relatorio("rep_2", **campos), relogio=relogio)
+    with pytest.raises(PortaoRecusado, match="reabertura_do_teste_sem_correcao_declarada"):
+        exigir_rodada_permitida(registro, ModoExecucao.CONFIRMATORIO, freeze)
+    exigir_rodada_permitida(registro, ModoExecucao.EXPLORATORIO, freeze)
     registrar_execucao(
         registro,
         _relatorio("rep_2", **campos),

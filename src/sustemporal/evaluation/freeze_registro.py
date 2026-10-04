@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 
     from sustemporal.contracts import EvaluationReport
 
-__all__ = ["ler_registro", "registrar_execucao"]
+__all__ = ["exigir_rodada_permitida", "ler_registro", "registrar_execucao"]
 
 logger = logging.getLogger(__name__)
 
@@ -72,18 +72,25 @@ def _exigir_correcao_valida(
 
 
 def _exigir_unica_rodada(
-    entradas: list[dict[str, Any]], relatorio: EvaluationReport, corrige: str | None
+    entradas: list[dict[str, Any]], modo: ModoExecucao, freeze_id: str | None
 ) -> None:
-    if relatorio.modo is not ModoExecucao.CONFIRMATORIO or corrige is not None:
+    if modo is not ModoExecucao.CONFIRMATORIO:
         return
     if any(
-        entrada["modo"] == ModoExecucao.CONFIRMATORIO.value
-        and entrada["freeze_id"] == relatorio.freeze_id
+        entrada["modo"] == ModoExecucao.CONFIRMATORIO.value and entrada["freeze_id"] == freeze_id
         for entrada in entradas
     ):
-        raise PortaoRecusado(
-            f"reabertura_do_teste_sem_correcao_declarada freeze={relatorio.freeze_id}"
-        )
+        raise PortaoRecusado(f"reabertura_do_teste_sem_correcao_declarada freeze={freeze_id}")
+
+
+def exigir_rodada_permitida(registro: Path, modo: ModoExecucao, freeze_id: str | None) -> None:
+    """Recusa, antes de avaliar, a segunda rodada confirmatória sem correção declarada.
+
+    Raises:
+        PortaoRecusado: já existe rodada confirmatória para o congelamento.
+        FalhaOperacionalErro: registro adulterado.
+    """
+    _exigir_unica_rodada(ler_registro(registro), modo, freeze_id)
 
 
 def registrar_execucao(
@@ -103,7 +110,8 @@ def registrar_execucao(
     """
     entradas = ler_registro(registro)
     _exigir_correcao_valida(entradas, corrige, declaracao)
-    _exigir_unica_rodada(entradas, relatorio, corrige)
+    if corrige is None:
+        _exigir_unica_rodada(entradas, relatorio.modo, relatorio.freeze_id)
     agora = (relogio or (lambda: datetime.now(UTC)))()
     entrada: dict[str, Any] = {
         "seq": len(entradas),

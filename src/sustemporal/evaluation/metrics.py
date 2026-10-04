@@ -16,9 +16,9 @@ from typing import TYPE_CHECKING
 from sustemporal.contracts.base import hash_canonico
 from sustemporal.contracts.config import RuntimeConfig
 from sustemporal.contracts.evaluation import EvaluationReport, TipoMetrica, ValorMetrica
-from sustemporal.contracts.experiment import BootstrapSpec, ModoExecucao, Particao
+from sustemporal.contracts.experiment import BootstrapSpec, ModoExecucao, Particao, Portao
 from sustemporal.duck import conectar
-from sustemporal.errors import PortaoRecusado
+from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.bootstrap import intervalo_diferenca, intervalo_razao
 from sustemporal.evaluation.metrics_calculo import (
     LinhaAvaliada,
@@ -30,7 +30,7 @@ from sustemporal.evaluation.metrics_leitura import (
     ler_situacoes,
     verificar_entrada,
 )
-from sustemporal.gates import DIR_DECISOES
+from sustemporal.gates import DIR_DECISOES, exigir_portao
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -52,6 +52,7 @@ _COM_INTERVALO = (
 )
 _CASAS = Decimal("0.000001")
 _SEM_CNES = "SEM_CNES"
+_SEM_COMPETENCIA = "SEM_COMPETENCIA"
 NOTAS = (
     (
         "populacao_alvo_estabelecimento: o bootstrap sorteia estabelecimentos (CNES) inteiros, "
@@ -98,20 +99,25 @@ def _particao_dos_rotulos(split: SplitManifest, labels: DatasetRef) -> Particao:
     return candidatas[0]
 
 
-def _modo(runs: Sequence[RunResult], particao: Particao, freeze_id: str | None) -> ModoExecucao:
+def _modo(
+    runs: Sequence[RunResult], particao: Particao, congelamento: ReferenciaCongelamento | None
+) -> ModoExecucao:
     modos = {run.modo for run in runs}
     if len(modos) != 1:
         raise ValueError("avaliacao_com_modos_misturados")
     modo = modos.pop()
     if modo is ModoExecucao.EXPLORATORIO and particao is Particao.TESTE:
         raise PortaoRecusado("avaliacao_exploratoria_no_teste")
-    confirmatoria = modo is ModoExecucao.CONFIRMATORIO
-    if confirmatoria and (particao is not Particao.TESTE or freeze_id is None):
+    if modo is not ModoExecucao.CONFIRMATORIO:
+        return modo
+    if particao is not Particao.TESTE or congelamento is None:
         raise PortaoRecusado(f"avaliacao_confirmatoria_fora_do_teste particao={particao}")
-    if confirmatoria and any(run.freeze_id != freeze_id for run in runs):
+    freeze_id = congelamento.freeze_id
+    if any(run.freeze_id != freeze_id for run in runs):
         raise PortaoRecusado(
             f"avaliacao_confirmatoria_com_execucao_de_outro_freeze freeze={freeze_id}"
         )
+    exigir_portao(congelamento.decisoes, Portao.G2, freeze_id=freeze_id)
     return modo
 
 
@@ -124,7 +130,7 @@ def _origem(runs: Sequence[RunResult], labels: DatasetRef) -> OrigemDados:
 
 def _grupos(linhas: Sequence[LinhaAvaliada], por_competencia: bool) -> list[str]:
     if por_competencia:
-        return [linha.competencia or _SEM_CNES for linha in linhas]
+        return [linha.competencia or _SEM_COMPETENCIA for linha in linhas]
     return [linha.cnes or _SEM_CNES for linha in linhas]
 
 
@@ -172,7 +178,9 @@ def _diferencas(
                     numerador=sum(num_a),
                     denominador=denominador,
                     valor=valor,
-                    ic=intervalo_diferenca(num_a, num_b, dens, grupos, spec) if valor else None,
+                    ic=intervalo_diferenca(num_a, num_b, dens, grupos, spec)
+                    if valor is not None
+                    else None,
                 )
             )
     return saida
@@ -210,6 +218,17 @@ def _metricas(
     return [*_com_intervalos(metricas, linhas, metodos, spec), *_diferencas(linhas, pares, spec)]
 
 
+def _gravar_sem_sobrescrever(caminho: Path, relatorio: EvaluationReport) -> None:
+    texto = relatorio.model_dump_json(indent=2)
+    if caminho.exists():
+        if caminho.read_text(encoding="utf-8") != texto:
+            raise FalhaOperacionalErro(f"relatorio_existente_divergente caminho={caminho}")
+        return
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    with caminho.open("x", encoding="utf-8") as arquivo:
+        arquivo.write(texto)
+
+
 @dataclass(frozen=True)
 class ReferenciaCongelamento:
     """Congelamento avaliado e, no confirmatório, a decisão G2 humana que abriu o teste."""
@@ -241,7 +260,7 @@ def evaluate_runs(
         raise ValueError("avaliacao_sem_execucoes")
     particao = _particao_dos_rotulos(split, labels)
     freeze_id = congelamento.freeze_id if congelamento else None
-    modo = _modo(runs, particao, freeze_id)
+    modo = _modo(runs, particao, congelamento)
     origem = _origem(runs, labels)
     populacao = (split.particoes or {})[particao]
     linhas, metodos = _ler(runs, labels, populacao, particao, causas or {})
@@ -252,6 +271,7 @@ def evaluate_runs(
         "rotulos": labels.hash_logico,
         "split": split.split_id,
         "freeze": freeze_id,
+        "causas": dict(sorted((causas or {}).items())),
         "bootstrap": spec.model_dump(mode="json"),
     }
     relatorio = EvaluationReport(
@@ -265,7 +285,6 @@ def evaluate_runs(
         notas=(*NOTAS, f"particao={particao.value}", f"reamostragens={spec.reamostragens}"),
         criado_em=(relogio or (lambda: datetime.now(UTC)))(),
     )
-    out.mkdir(parents=True, exist_ok=True)
-    (out / f"{relatorio.report_id}.json").write_text(relatorio.model_dump_json(indent=2))
+    _gravar_sem_sobrescrever(out / f"{relatorio.report_id}.json", relatorio)
     logger.info("avaliacao_concluida report=%s particao=%s", relatorio.report_id, particao)
     return relatorio

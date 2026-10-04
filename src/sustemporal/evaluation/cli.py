@@ -33,7 +33,7 @@ from sustemporal.evaluation.freeze import (
     referencia_decisao,
     verificar_compatibilidade,
 )
-from sustemporal.evaluation.freeze_registro import registrar_execucao
+from sustemporal.evaluation.freeze_registro import exigir_rodada_permitida, registrar_execucao
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 from sustemporal.evaluation.split import SUFIXO_ENTRADAS
 from sustemporal.gates import DIR_DECISOES, exigir_portao
@@ -141,6 +141,7 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     entradas = _split_e_entradas(raiz)
     _conferir(manifesto, config, entradas)
     split = entradas[0]
+    exigir_rodada_permitida(diretorio / REGISTRO, config.modo, args.freeze)
     confirmatorio = config.modo is ModoExecucao.CONFIRMATORIO
     particao = Particao.TESTE if confirmatorio else Particao.CALIBRACAO
     congelamento = ReferenciaCongelamento(args.freeze)

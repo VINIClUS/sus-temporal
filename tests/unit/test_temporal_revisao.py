@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import duckdb
 import pytest
-from hypothesis import HealthCheck, given, settings
+from hypothesis import HealthCheck, example, given, settings
 from hypothesis import strategies as st
 
 from sustemporal.contracts.artifacts import EstadoIntegridade, ResultadoTentativa
@@ -49,15 +49,18 @@ def _config(
     return RunConfig.model_validate(campos)
 
 
-def _politica(deslocamento: int = 0, canal: CanalPublicacao | None = None) -> PoliticaTemporal:
+def _politica(
+    deslocamento: int = 0, canal: CanalPublicacao | None = None, *, pendente: bool = False
+) -> PoliticaTemporal:
     criterio = CriterioTemporal(
         fonte=PF, base=BaseTemporal.ATENDIMENTO, deslocamento_meses=deslocamento, canal=canal
     )
     return PoliticaTemporal(
         politica_id="EXP_DESLOCADA",
-        tipo=TipoPolitica.ALTERNATIVA_EXPLORATORIA,
+        tipo=TipoPolitica.DOCUMENTADA if pendente else TipoPolitica.ALTERNATIVA_EXPLORATORIA,
         metodo="M_TEMP",
         criterios=(criterio,),
+        documento=docref(pendente=True) if pendente else None,
     )
 
 
@@ -235,7 +238,8 @@ def _cenario(draw):
                 draw(st.integers(min_value=0, max_value=40)),
                 resultado=resultado,
                 integridade=integridade,
-                uf=draw(st.sampled_from(["SP", "MG"])),
+                parte=draw(st.sampled_from([None, None, "a", "b"])),
+                uf=draw(st.sampled_from(["SP", "SP", "MG"])),
             )
         )
     linhas = draw(
@@ -245,17 +249,84 @@ def _cenario(draw):
             max_size=4,
         )
     )
-    return itens, linhas, draw(st.sampled_from([-1, 0, 1])), draw(st.booleans())
+    deslocamento = draw(st.sampled_from([-1, 0, 1]))
+    return itens, linhas, deslocamento, draw(st.booleans()), draw(_extras())
+
+
+@st.composite
+def _extras(draw):
+    """Política pendente e partes declaradas, para gerar NAO_RESOLVIDA, INCOMPLETA e SELECIONADA."""
+    declaradas = draw(st.sampled_from([None, frozenset({"a"}), frozenset({"a", "b"})]))
+    return draw(st.booleans()), declaradas
+
+
+def _estados_do_cenario(cenario) -> set[EstadoSelecao]:
+    itens, linhas, deslocamento, _com_corte, (pendente, declaradas) = cenario
+    base = _registro(*itens)
+    partes = {} if declaradas is None else {(PF, c): declaradas for c in _COMPS}
+    registro = type(base)(base.observacoes, base.versoes, partes)
+    politica = _politica(deslocamento, pendente=pendente)
+    return {
+        s.estado
+        for a, p in linhas
+        for s in select_snapshots(
+            registro_producao(a, p), regra(), _config(), registro=registro, politica=politica
+        ).selecoes
+    }
+
+
+_JAN = [("201801", "201801")]
+_QUARENTENA = {
+    "resultado": ResultadoTentativa.CONTEUDO_INVALIDO,
+    "integridade": EstadoIntegridade.QUARENTENA_TRUNCADO,
+}
+_EXEMPLOS = {
+    EstadoSelecao.SELECIONADA: ([observar(PF, "201801", "A", 1)], _JAN, 0, True, (False, None)),
+    EstadoSelecao.AMBIGUA: (
+        [observar(PF, "201801", "A", 1), observar(PF, "201801", "B", 2)],
+        _JAN,
+        0,
+        False,
+        (False, None),
+    ),
+    EstadoSelecao.INCOMPLETA: (
+        [observar(PF, "201801", "A", 1, parte="a")],
+        _JAN,
+        0,
+        False,
+        (False, frozenset({"a", "b"})),
+    ),
+    EstadoSelecao.EM_QUARENTENA: (
+        [observar(PF, "201801", "A", 1, **_QUARENTENA)],
+        _JAN,
+        0,
+        False,
+        (False, None),
+    ),
+    EstadoSelecao.NAO_RESOLVIDA: ([observar(PF, "201801", "A", 1)], _JAN, 0, False, (True, None)),
+}
+
+
+@pytest.mark.parametrize("estado", list(_EXEMPLOS))
+def test_exemplos_do_lote_cobrem_cada_estado(estado: EstadoSelecao) -> None:
+    assert _estados_do_cenario(_EXEMPLOS[estado]) == {estado}
 
 
 @settings(suppress_health_check=[HealthCheck.too_slow], max_examples=40)
 @given(_cenario())
+@example(_EXEMPLOS[EstadoSelecao.SELECIONADA])
+@example(_EXEMPLOS[EstadoSelecao.AMBIGUA])
+@example(_EXEMPLOS[EstadoSelecao.INCOMPLETA])
+@example(_EXEMPLOS[EstadoSelecao.EM_QUARENTENA])
+@example(_EXEMPLOS[EstadoSelecao.NAO_RESOLVIDA])
 def test_lote_equivale_ao_registro_com_deslocamento_uf_e_quarentena(cenario) -> None:
-    itens, linhas, deslocamento, com_corte = cenario
-    registro = _registro(*itens)
+    itens, linhas, deslocamento, com_corte, (pendente, declaradas) = cenario
+    base = _registro(*itens)
+    partes = {} if declaradas is None else {(PF, c): declaradas for c in _COMPS}
+    registro = type(base)(base.observacoes, base.versoes, partes)
     corte = "2026-01-20T00:00:00+00:00" if com_corte else None
     config = _config(corte=corte)
-    politica = _politica(deslocamento)
+    politica = _politica(deslocamento, pendente=pendente)
     registros = [registro_producao(a, p, i) for i, (a, p) in enumerate(linhas)]
     con = duckdb.connect()
     con.execute(

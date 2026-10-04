@@ -27,7 +27,7 @@ from sustemporal.temporal.politicas import DIRETORIO_POLITICAS, carregar_politic
 from sustemporal.temporal.registry import RegistroTemporal
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
     from datetime import datetime
 
     from sustemporal.contracts import ProductionRecord, RuleSpec, RunConfig
@@ -290,6 +290,7 @@ def select_snapshots(
     registro: RegistroTemporal | None = None,
     politica: PoliticaTemporal | None = None,
     politicas: Path | None = None,
+    relogio: Callable[[], datetime] | None = None,
 ) -> SnapshotSet:
     """Seleciona as versões exigidas pela regra ou registra a abstenção.
 
@@ -308,6 +309,8 @@ def select_snapshots(
         registro = RegistroTemporal.de_manifesto(
             caminho, partes_esperadas=partes_esperadas_do_catalogo(config)
         )
+    if relogio is not None:
+        raise NotImplementedError("relogio")
     uf = _uf_da_execucao(config)
     corte = config.corte_observacao
     contexto = (registro, uf, corte)
@@ -332,7 +335,9 @@ def _ordem(selecao: SelecaoVersao) -> tuple[str, ...]:
     return (selecao.fonte.value, base, competencia, selecao.estado.value, selecao.motivo)
 
 
-def unir_snapshots(conjuntos: Iterable[SnapshotSet]) -> SnapshotSet:
+def unir_snapshots(
+    conjuntos: Iterable[SnapshotSet], *, relogio: Callable[[], datetime] | None = None
+) -> SnapshotSet:
     """`SnapshotSet` da execução: uma seleção por chave (fonte, base, competência requerida).
 
     Seleções iguais de registros diferentes se fundem; duas decisões diferentes para a mesma
@@ -341,6 +346,8 @@ def unir_snapshots(conjuntos: Iterable[SnapshotSet]) -> SnapshotSet:
     Raises:
         ValueError: conjuntos com cortes diferentes ou decisões divergentes na mesma chave.
     """
+    if relogio is not None:
+        raise NotImplementedError("relogio")
     lista = list(conjuntos)
     cortes = {c.corte_observacao for c in lista}
     if len(cortes) > 1:

@@ -38,8 +38,10 @@ desconhecida ou dependência circular invalida o catálogo.
 | `RECLASSIFICAR_CBO_NO_ESTABELECIMENTO` | `cnes_estab_cbo.v1` | CNES, CBO do registro e `cbo_origem` | −1 no CBO de origem, +1 no CBO do registro | `ESTABELECIMENTO_NO_CNES_ST`, `CBO_ORIGEM_COM_VINCULO` | 2 |
 | `CADASTRAR_ESTABELECIMENTO_NO_CNES` | `cnes_estabelecimento.v1` | CNES do registro | linha do estabelecimento sem atributos | `ESTABELECIMENTO_AUSENTE_NO_CNES_ST` | 3 |
 
-`INCLUIR_CBO_NO_ESTABELECIMENTO` depende de `CADASTRAR_ESTABELECIMENTO_NO_CNES`: numa combinação
-com as duas, o cadastro do estabelecimento vem antes. As operações atuam no nível
+`INCLUIR_CBO_NO_ESTABELECIMENTO` e `RECLASSIFICAR_CBO_NO_ESTABELECIMENTO` dependem de
+`CADASTRAR_ESTABELECIMENTO_NO_CNES`: numa combinação com elas, o cadastro do estabelecimento vem
+antes. A ordem de aplicação é a das dependências declaradas (nível topológico) e, entre
+operações independentes, a ordem das instâncias; cada combinação é simulada numa única ordem. As operações atuam no nível
 estabelecimento–CBO do CNES PF reduzido: nenhuma cria, identifica ou infere o vínculo de um
 profissional específico; a contagem é de vínculos, não de pessoas. As três têm autoridade e
 governança `DESCONHECIDA` até a revisão com especialista; nenhuma habilitação é tratada como
@@ -85,7 +87,9 @@ operacional interrompe a busca (`RevalidacaoFalhou`), nunca vira "sem solução"
 
 Um candidato é solução quando todas as regras-alvo do registro ficam `CONFORME` e nenhum par
 (registro, regra) revalidado passa a `VIOLACAO` sem estar em `VIOLACAO` na linha de base. Ficar
-`INCONCLUSIVO` não resolve. Uma reclassificação que tira o último vínculo de outro CBO, por
+`INCONCLUSIVO` não resolve. Par que era `CONFORME` e fica `INCONCLUSIVO` (ou
+`NAO_APLICAVEL`) não desclassifica o candidato, mas é declarado em `condicoes_pendentes`
+(`inconclusao_nova row=… regra=… estado=…`). Uma reclassificação que tira o último vínculo de outro CBO, por
 exemplo, viola os registros que dependiam dele e é descartada.
 
 ## 5. Busca e minimalidade
@@ -101,7 +105,7 @@ estado da sobreposição depois das operações anteriores) é inadmissível e n
 
 | Parada (`motivo_parada`) | Soluções | `minimalidade` |
 |---|---|---|
-| `MINIMO_ENCONTRADO`: todo o nível do menor custo com solução foi examinado | todas as de menor custo | `MINIMO_NO_CATALOGO` se esse custo ≤ (`max_operacoes` + 1) × menor custo de instância; senão `SOLUCAO_SEM_PROVA_DE_MINIMALIDADE` |
+| `MINIMO_ENCONTRADO`: todo o nível do menor custo com solução foi examinado | todas as de menor custo com até `max_operacoes` operações | `MINIMO_NO_CATALOGO` se há no máximo `max_operacoes` instâncias ou se esse custo < (`max_operacoes` + 1) × menor custo de instância; senão `SOLUCAO_SEM_PROVA_DE_MINIMALIDADE` |
 | `ORCAMENTO_ESGOTADO` | as encontradas | `SOLUCAO_SEM_PROVA_DE_MINIMALIDADE`; sem solução, `BUSCA_INCONCLUSIVA` |
 | `ESPACO_ESGOTADO` (sem solução) | nenhuma | `BUSCA_INCONCLUSIVA` |
 | `SEM_OPERACAO_ADMISSIVEL` (nenhum candidato simulado) | nenhuma | `BUSCA_INCONCLUSIVA` |
@@ -109,10 +113,17 @@ estado da sobreposição depois das operações anteriores) é inadmissível e n
 `custo_max_explorado_completo` é o maior custo cujos candidatos foram todos examinados. Busca
 interrompida pelo orçamento nunca declara mínimo, mesmo quando o custo da solução já seria o menor
 possível. O limite de operações também limita a prova: uma combinação mais longa que
-`max_operacoes` poderia custar menos que a solução encontrada quando esse custo passa de
-(`max_operacoes` + 1) × menor custo; aí o resultado é `SOLUCAO_SEM_PROVA_DE_MINIMALIDADE`.
+`max_operacoes` poderia custar o mesmo ou menos que a solução encontrada quando esse custo
+alcança (`max_operacoes` + 1) × menor custo; aí o resultado é
+`SOLUCAO_SEM_PROVA_DE_MINIMALIDADE`. Com `MINIMO_NO_CATALOGO`, nenhuma combinação do catálogo,
+de qualquer tamanho, é solução de custo menor, e as soluções listadas são todas as de menor
+custo.
 `BUSCA_INCONCLUSIVA` não prova que nenhuma alteração resolveria a violação: só que nenhuma
 combinação do catálogo, dentro dos limites, resolveu.
+
+Candidatos inadmissíveis (precondição falsa) não contam no orçamento, embora a sobreposição
+os aplique para descobri-lo; o estado observado fica em memória e cada avaliação apaga sua
+saída do motor depois de lida.
 
 Os testes comparam a busca com uma enumeração completa de referência escrita sem importar o código
 de produção (`tests/fixtures/contrafactual_oraculo.py`) em mundos sintéticos pequenos (Hypothesis).

@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import combinations
 
-__all__ = ["MundoOraculo", "solucoes_minimas"]
+__all__ = ["MundoOraculo", "n_instancias", "solucoes_minimas"]
 
 _INCLUIR = "INCLUIR_CBO_NO_ESTABELECIMENTO"
 _RECLASSIFICAR = "RECLASSIFICAR_CBO_NO_ESTABELECIMENTO"
@@ -40,6 +40,10 @@ def _instancias(mundo: MundoOraculo) -> list[tuple[str, str]]:
     instancias = [(_INCLUIR, ""), (_CADASTRAR, "")]
     instancias += [(_RECLASSIFICAR, origem) for origem in origens]
     return [i for i in instancias if i[0] in mundo.custos]
+
+
+def n_instancias(mundo: MundoOraculo) -> int:
+    return len(_instancias(mundo))
 
 
 def _aplicar(

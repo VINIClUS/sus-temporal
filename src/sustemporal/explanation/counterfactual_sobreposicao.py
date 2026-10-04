@@ -72,7 +72,17 @@ class Sobreposicao:
         self._raiz = raiz
         self.competencia = competencia
         self._con = conectar(config.runtime, temporario=raiz / "duckdb")
-        entrada = raiz / "entrada"
+        self._alterados: set[str] = set()
+        self._avaliacoes = 0
+        try:
+            self._isolar(artefatos)
+        except BaseException:
+            self._con.close()
+            raise
+
+    def _isolar(self, artefatos: dict[str, tuple[str, ...]]) -> None:
+        contexto = self._contexto
+        entrada = self._raiz / "entrada"
         insumos = contexto.insumos
         self._dataset = _copiar(contexto.dataset, entrada)
         self._insumos = replace(
@@ -85,8 +95,15 @@ class Sobreposicao:
         self._editaveis = self._preparar_editaveis(
             [*self._insumos.auxiliares, *cadastros], artefatos
         )
-        self._alterados: set[str] = set()
-        self._avaliacoes = 0
+        for editavel in self._editaveis.values():
+            projecao = ", ".join(
+                identificador_seguro(c, editavel.colunas) for c in editavel.colunas
+            )
+            self._con.execute(
+                f"CREATE TEMP TABLE {editavel.tabela}_observada AS "  # noqa: S608
+                f"SELECT {projecao} FROM read_parquet($c)",
+                {"c": editavel.original.caminho},
+            )
 
     def fechar(self) -> None:
         self._con.close()
@@ -146,15 +163,11 @@ class Sobreposicao:
         return schema_id in self._editaveis
 
     def reiniciar(self) -> None:
-        """Volta ao estado observado: cada tabela é relida da cópia, com colunas do esquema."""
+        """Volta ao estado observado (tabela carregada uma vez da cópia, colunas do esquema)."""
         for editavel in self._editaveis.values():
-            projecao = ", ".join(
-                identificador_seguro(c, editavel.colunas) for c in editavel.colunas
-            )
             self._con.execute(
                 f"CREATE OR REPLACE TEMP TABLE {editavel.tabela} AS "  # noqa: S608
-                f"SELECT {projecao} FROM read_parquet($c)",
-                {"c": editavel.original.caminho},
+                f"SELECT * FROM {editavel.tabela}_observada"
             )
         self._alterados.clear()
 
@@ -281,4 +294,5 @@ class Sobreposicao:
         linhas = self._con.execute(
             "SELECT row_id, rule_id, estado FROM read_parquet($c)", {"c": caminho}
         ).fetchall()
+        shutil.rmtree(destino)
         return {(str(row), str(rule)): str(estado) for row, rule, estado in linhas}

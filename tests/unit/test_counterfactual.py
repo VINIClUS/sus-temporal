@@ -20,7 +20,7 @@ from sustemporal.contracts.counterfactual import (
     Minimalidade,
     MotivoParada,
 )
-from sustemporal.explanation.counterfactual import search_counterfactuals
+from sustemporal.explanation.counterfactual import pioras, search_counterfactuals
 from sustemporal.explanation.counterfactual_operacoes import carregar_operacoes
 from sustemporal.rules.catalog import carregar_regras
 from tests.fixtures.contrafactual_cenario import (
@@ -30,7 +30,11 @@ from tests.fixtures.contrafactual_cenario import (
     montar,
     operacao,
 )
-from tests.fixtures.contrafactual_oraculo import MundoOraculo, solucoes_minimas
+from tests.fixtures.contrafactual_oraculo import (
+    MundoOraculo,
+    n_instancias,
+    solucoes_minimas,
+)
 
 if TYPE_CHECKING:
     from sustemporal.contracts.counterfactual import CounterfactualSearchResult, OperationSpec
@@ -218,6 +222,7 @@ def test_orcamento_esgotado(tmp_path: Path) -> None:
     assert resultado.candidatos_avaliados == 1
     assert resultado.motivo_parada is MotivoParada.ORCAMENTO_ESGOTADO
     assert resultado.minimalidade is Minimalidade.BUSCA_INCONCLUSIVA
+    assert resultado.custo_max_explorado_completo == 2
 
 
 def test_busca_interrompida_com_solucao_nunca_declara_minimo(tmp_path: Path) -> None:
@@ -227,6 +232,7 @@ def test_busca_interrompida_com_solucao_nunca_declara_minimo(tmp_path: Path) -> 
     assert len(resultado.solucoes) == 1
     assert resultado.motivo_parada is MotivoParada.ORCAMENTO_ESGOTADO
     assert resultado.minimalidade is Minimalidade.SOLUCAO_SEM_PROVA_DE_MINIMALIDADE
+    assert resultado.custo_max_explorado_completo == 0
 
 
 def test_limite_de_operacoes_impede_prova_de_minimo(tmp_path: Path) -> None:
@@ -242,6 +248,12 @@ def test_minimo_lista_todas_as_solucoes_de_menor_custo(tmp_path: Path) -> None:
     resultado = _buscar(mundo, operacoes=catalogo)
     assert len(resultado.solucoes) == 3
     assert resultado.minimalidade is Minimalidade.MINIMO_NO_CATALOGO
+
+
+def test_pioras_declaram_conforme_que_vira_inconclusivo() -> None:
+    base = {("r0", "A"): "CONFORME", ("r1", "A"): "CONFORME", ("r2", "A"): "INCONCLUSIVO"}
+    estados = {("r0", "A"): "INCONCLUSIVO", ("r1", "A"): "CONFORME", ("r2", "A"): "INCONCLUSIVO"}
+    assert pioras(base, estados) == ("inconclusao_nova row=r0 regra=A estado=INCONCLUSIVO",)
 
 
 def _sha256(caminhos: tuple[str, ...]) -> dict[str, str]:
@@ -323,7 +335,7 @@ def _mundos_pequenos(desenhar: st.DrawFn) -> MundoOraculo:
 
 
 @settings(
-    max_examples=12, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture]
+    max_examples=20, deadline=None, suppress_health_check=[HealthCheck.function_scoped_fixture]
 )
 @given(mundo_oraculo=_mundos_pequenos())
 def test_minimalidade_igual_a_enumeracao_completa(
@@ -350,10 +362,10 @@ def test_minimalidade_igual_a_enumeracao_completa(
     }
     assert obtidas == esperadas
     assert {s.custo for s in resultado.solucoes} == {menor}
-    limite = (mundo_oraculo.max_operacoes + 1) * min(mundo_oraculo.custos.values())
-    esperado = (
-        Minimalidade.MINIMO_NO_CATALOGO
-        if menor <= limite
-        else Minimalidade.SOLUCAO_SEM_PROVA_DE_MINIMALIDADE
-    )
-    assert resultado.minimalidade is esperado
+    assert resultado.custo_max_explorado_completo == menor
+    if resultado.minimalidade is Minimalidade.MINIMO_NO_CATALOGO:
+        irrestrito = replace(mundo_oraculo, max_operacoes=n_instancias(mundo_oraculo))
+        assert solucoes_minimas(irrestrito) == (menor, esperadas)
+    else:
+        assert resultado.minimalidade is Minimalidade.SOLUCAO_SEM_PROVA_DE_MINIMALIDADE
+        assert n_instancias(mundo_oraculo) > mundo_oraculo.max_operacoes

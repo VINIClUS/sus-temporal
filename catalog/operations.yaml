@@ -58,6 +58,7 @@ operacoes:
       com qualquer um dos dois pares.
     custo: "2"
     precondicoes: [ESTABELECIMENTO_NO_CNES_ST, CBO_ORIGEM_COM_VINCULO]
+    depende_de: [CADASTRAR_ESTABELECIMENTO_NO_CNES]
     referencia:
       doc_id: O7
       titulo: Informe Técnico CNES 1706 (IT_CNES_1706.pdf)

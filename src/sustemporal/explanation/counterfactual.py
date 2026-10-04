@@ -53,7 +53,7 @@ if TYPE_CHECKING:
     )
     from sustemporal.explanation.counterfactual_contexto import ContextoContrafactual
 
-__all__ = ["search_counterfactuals"]
+__all__ = ["pioras", "search_counterfactuals"]
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ class _Busca:
     nivel: dict[str, int]
     sob: Sobreposicao
     fechada: bool | None
-    base_violacoes: frozenset[tuple[str, str]]
+    base: dict[tuple[str, str], str]
     orcamento: Orcamento
     espaco: list[Instancia] = field(default_factory=list)
     fronteira: list[tuple[int, int, tuple[int, ...]]] = field(default_factory=list)
@@ -172,6 +172,17 @@ def _simular(busca: _Busca, passos: list[Instancia]) -> dict[tuple[str, str], st
     return busca.sob.avaliar(busca.regras)
 
 
+def pioras(
+    base: dict[tuple[str, str], str], estados: dict[tuple[str, str], str]
+) -> tuple[str, ...]:
+    """Pares que eram `CONFORME` e deixam de ser sem virar violação (declarados)."""
+    return tuple(
+        f"inconclusao_nova row={row} regra={regra} estado={estado}"
+        for (row, regra), estado in sorted(estados.items())
+        if base.get((row, regra)) == _CONFORME and estado not in {_CONFORME, _VIOLACAO}
+    )
+
+
 def _candidato(
     busca: _Busca, passos: list[Instancia], custo: int, estados: dict[tuple[str, str], str]
 ) -> Candidato:
@@ -180,7 +191,7 @@ def _candidato(
     novas = sorted(
         f"row={row} regra={regra}"
         for (row, regra), estado in estados.items()
-        if estado == _VIOLACAO and (row, regra) not in busca.base_violacoes
+        if estado == _VIOLACAO and busca.base.get((row, regra)) != _VIOLACAO
     )
     specs = [busca.operacoes[p.op_id] for p in passos]
     competencia = str(busca.sob.competencia)
@@ -195,7 +206,10 @@ def _candidato(
         custo=custo,
         resolve_alvo=resolve,
         novas_violacoes=tuple(novas),
-        condicoes_pendentes=condicoes(specs, executabilidade, competencia),
+        condicoes_pendentes=(
+            *condicoes(specs, executabilidade, competencia),
+            *pioras(busca.base, estados),
+        ),
         executabilidade=executabilidade,
         regras_revalidadas=tuple(r.rule_id for r in busca.regras),
     )
@@ -241,9 +255,10 @@ def _minimalidade(busca: _Busca, motivo: MotivoParada) -> tuple[Minimalidade, in
     menor = min(s.custo for s in busca.solucoes)
     if motivo is MotivoParada.ORCAMENTO_ESGOTADO:
         return Minimalidade.SOLUCAO_SEM_PROVA_DE_MINIMALIDADE, busca.fronteira[0][0] - 1
+    if len(busca.espaco) <= busca.orcamento.max_operacoes:
+        return Minimalidade.MINIMO_NO_CATALOGO, menor
     menor_passo = min(busca.custo(i) for i in range(len(busca.espaco)))
-    limite = (busca.orcamento.max_operacoes + 1) * menor_passo
-    if menor <= limite:
+    if menor < (busca.orcamento.max_operacoes + 1) * menor_passo:
         return Minimalidade.MINIMO_NO_CATALOGO, menor
     return Minimalidade.SOLUCAO_SEM_PROVA_DE_MINIMALIDADE, menor
 
@@ -276,7 +291,7 @@ def _preparar(
         nivel=ordenar_por_dependencia(operacoes),
         sob=sob,
         fechada=fechada,
-        base_violacoes=frozenset(k for k, e in base.items() if e == _VIOLACAO),
+        base=base,
         orcamento=Orcamento(**config.contrafactual.model_dump()),
     )
     registro = bundle.registro

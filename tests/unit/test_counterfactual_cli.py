@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
+import io
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -225,3 +228,57 @@ def test_catalogo_de_operacoes_invalido_e_recusa_de_configuracao(
     assert executar_counterfactual(args, execucao.config, catalogo=catalogo) == 2
     with pytest.raises(CatalogoOperacoesInvalido, match="catalogo_operacoes_invalido"):
         carregar_operacoes(catalogo)
+
+
+def test_catalogo_lido_uma_vez_define_identidade_e_busca(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    execucao = executar_validacao_sintetica(tmp_path / "execucao")
+    catalogo = tmp_path / "operations.yaml"
+    original = CATALOGO_OPERACOES.read_bytes()
+    catalogo.write_bytes(original)
+    alterado = original.replace(b'custo: "1"', b'custo: "2"', 1)
+    abrir = Path.open
+    lidas: list[Path] = []
+
+    def alterar_depois_da_primeira_leitura(caminho: Path, *args: Any, **kwargs: Any) -> Any:
+        arquivo = abrir(caminho, *args, **kwargs)
+        if caminho != catalogo or lidas:
+            return arquivo
+        lidas.append(caminho)
+        with arquivo:
+            dados = arquivo.read()
+        with open(catalogo, "wb") as destino:
+            destino.write(alterado)
+        return io.BytesIO(dados) if isinstance(dados, bytes) else io.StringIO(dados)
+
+    monkeypatch.setattr(Path, "open", alterar_depois_da_primeira_leitura)
+    args = argparse.Namespace(run=execucao.run_id, row=execucao.ausencia)
+    assert executar_counterfactual(args, execucao.config, catalogo=catalogo) == 0
+    monkeypatch.undo()
+    identidade = _saidas(execucao) / "contrafactuais" / execucao.run_id
+    (pasta,) = list(identidade.iterdir())
+    (linha,) = list(pasta.iterdir())
+    gravada = json.loads((linha / "identidade.json").read_text(encoding="utf-8"))
+    assert gravada["catalogo_operacoes_sha256"] == hashlib.sha256(original).hexdigest()
+    assert pasta.name == f"id_{gravada['identidade']}"
+    resultado = CounterfactualSearchResult.model_validate_json(
+        (linha / "contrafactual.json").read_text(encoding="utf-8")
+    )
+    assert resultado.solucoes[0].custo == 1
+
+
+@pytest.mark.parametrize(
+    ("instante", "esperado"),
+    [
+        (datetime(2020, 2, 29, 23, 59, 59, tzinfo=UTC), Executabilidade.INDETERMINADO),
+        (datetime(2020, 3, 1, 0, 0, 0, tzinfo=UTC), Executabilidade.HIPOTESE_PASSADA),
+    ],
+)
+def test_relogio_injetado_decide_a_executabilidade(
+    tmp_path: Path, instante: datetime, esperado: Executabilidade
+) -> None:
+    execucao = executar_validacao_sintetica(tmp_path)
+    args = argparse.Namespace(run=execucao.run_id, row=execucao.ausencia)
+    assert executar_counterfactual(args, execucao.config, relogio=lambda: instante) == 0
+    assert _resultado(execucao, execucao.ausencia).solucoes[0].executabilidade is esperado

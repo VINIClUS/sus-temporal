@@ -223,6 +223,8 @@ def test_inconclusivos_e_campos_insuficientes_contados_com_valor(tmp_path: Path)
     inconclusivo = tabela[(REJ, "INCONCLUSIVO")]
     assert inconclusivo["ocorrencias"] == 1
     assert inconclusivo["diferenca"] == D("7")
+    assert inconclusivo["aditiva"] is False
+    assert tabela[(REJ, "ABSTENCAO_ELEGIVEL")]["diferenca"] == D("7")
     insuficiente = tabela[(REJ, "CAMPOS_INSUFICIENTES")]
     assert insuficiente["ocorrencias"] == 1
     assert insuficiente["valor_apresentado"] == D("3")
@@ -400,3 +402,28 @@ def test_metodo_fora_do_dominio_e_falha_operacional(tmp_path: Path) -> None:
     run = cenario.run.model_copy(update={"saidas": saidas, "metodo": None})
     with pytest.raises(FalhaOperacionalErro, match="valores_metodo_desconhecido valor=M_TEMPO"):
         _executar(replace(cenario, run=run), tmp_path)
+
+
+def test_agregado_incoerente_com_avaliacoes_e_falha_operacional(tmp_path: Path) -> None:
+    linhas = [
+        Linha("r1", REJ, D("5.00"), D("0.00"), ("ESTAB_CBO_CNES",), estado_avaliacao="CONFORME")
+    ]
+    with pytest.raises(FalhaOperacionalErro, match="valores_agregado_incoerente_com_avaliacoes"):
+        _resumir(tmp_path, linhas)
+
+
+def test_inconclusivo_e_recorte_sobreposto_mesmo_sem_valor_ou_negativo(tmp_path: Path) -> None:
+    linhas = [
+        Linha("r1", REJ, D("3.00"), None, resultado="ABSTENCAO"),
+        Linha("r2", REJ, D("2.00"), D("5.00"), resultado="ABSTENCAO"),
+        Linha("r3", REJ, D("4.00"), D("0.00"), resultado="ABSTENCAO"),
+    ]
+    _, tabela = _resumir(tmp_path, linhas)
+    inconclusivo = tabela[(REJ, "INCONCLUSIVO")]
+    assert inconclusivo["ocorrencias"] == 3
+    assert inconclusivo["aditiva"] is False
+    assert inconclusivo["valor_apresentado"] == D("9")
+    assert tabela[(REJ, "CAMPOS_INSUFICIENTES")]["ocorrencias"] == 1
+    assert tabela[(REJ, "DIFERENCA_NEGATIVA")]["ocorrencias"] == 1
+    assert tabela[(REJ, "ABSTENCAO_ELEGIVEL")]["ocorrencias"] == 1
+    assert tabela[(REJ, "DENOMINADOR")]["diferenca"] == D("4")

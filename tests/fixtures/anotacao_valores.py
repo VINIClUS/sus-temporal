@@ -42,6 +42,14 @@ class Linha:
     resultado: str | None = None
     contradicoes: str = ""
     inconclusivas: tuple[str, ...] = field(default_factory=tuple)
+    estado_avaliacao: str | None = None
+
+    def estado(self) -> str:
+        if self.estado_avaliacao is not None:
+            return self.estado_avaliacao
+        if self.violacoes:
+            return "VIOLACAO"
+        return "INCONCLUSIVO" if self.resultado == "ABSTENCAO" else "CONFORME"
 
     def resultado_motor(self) -> str:
         if self.resultado is not None:
@@ -72,8 +80,8 @@ def _agregados(linhas: list[Linha]) -> list[dict[str, object]]:
             "run_id": RUN_ID,
             "row_id": linha.row_id,
             "violacoes": ";".join(sorted(linha.violacoes)),
-            "conformes": "" if linha.violacoes else "ESTAB_CBO_CNES",
-            "inconclusivas": ";".join(sorted(linha.inconclusivas)),
+            "conformes": "" if linha.violacoes or linha.resultado else "ESTAB_CBO_CNES",
+            "inconclusivas": "ESTAB_CBO_CNES" if linha.resultado == "ABSTENCAO" else "",
             "nao_aplicaveis": "",
             "resultado": linha.resultado_motor(),
         }
@@ -89,7 +97,7 @@ def _avaliacao(linha: Linha, regra: str, politica: str, versao: str) -> dict[str
         "versao": versao,
         "politica_id": politica,
         "metodo": MetodoId.M_TEMP.value,
-        "estado": "VIOLACAO" if linha.violacoes else "CONFORME",
+        "estado": linha.estado(),
         "motivos": "",
         "evidence_ids": "",
     }

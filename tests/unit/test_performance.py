@@ -115,6 +115,8 @@ def test_tempo_medido_sem_tracemalloc_e_memoria_em_rodada_propria() -> None:
     assert rastreando == [False, False, False, True]
     assert medicao.repeticoes == 3
     assert len(medicao.tempos_ns) == 3
+    assert medicao.execucoes_totais == 4
+    assert medicao.execucao_memoria == 4
 
 
 def test_tracemalloc_de_quem_chama_e_preservado() -> None:
@@ -126,6 +128,8 @@ def test_tracemalloc_de_quem_chama_e_preservado() -> None:
         tracemalloc.stop()
     assert medicao.pico_python_bytes is None
     assert medicao.motivo == "memoria_nao_medida_tracemalloc_ativo"
+    assert medicao.execucoes_totais == 1
+    assert medicao.execucao_memoria is None
 
 
 def test_cache_frio_vale_so_para_a_primeira_repeticao() -> None:
@@ -143,3 +147,13 @@ def test_armazenamento_conta_so_o_que_a_etapa_gravou(tmp_path: Path) -> None:
     )
     assert medicao.armazenamento_bytes == 100
     assert medicao.armazenamento_total_bytes == 150
+
+
+def test_rodada_de_memoria_fica_registrada_em_etapa_nao_idempotente() -> None:
+    chamadas: list[int] = []
+    medicao = medir(Etapa("conta", lambda: chamadas.append(1)), repeticoes=2)
+    assert len(chamadas) == medicao.execucoes_totais == 3
+    assert medicao.execucao_memoria == 3
+    pendente = medir(etapa_pendente("metricas"))
+    assert pendente.execucoes_totais == 0
+    assert pendente.execucao_memoria is None

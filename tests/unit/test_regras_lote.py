@@ -240,3 +240,17 @@ def test_m_temp_com_criterio_diferente_do_da_regra_nunca_avalia_com_ele(tmp_path
         assert falha["etapa"] == "conferir_selecao"
     else:
         assert set(_estados(resultado).values()) <= {"INCONCLUSIVO", "NAO_APLICAVEL"}
+
+
+def test_corte_da_config_deixa_fevereiro_fora_do_corte(tmp_path: Path) -> None:
+    cenario = mundo_lote(tmp_path / "entrada")
+    config = config_lote("B_PROC", corte_observacao="2026-01-02T12:00:00+00:00")
+    selecao = selecionar_em_lote(
+        cenario.dataset, carregar_regras(), config, cenario.registro, tmp_path / "sel"
+    )
+    estados = {
+        (s["competencia_requerida"], s["estado"])
+        for s in pq.read_table(selecao.selecoes.caminho).to_pylist()
+    }
+    assert estados == {("202301", "SELECIONADA"), ("202302", "FORA_DO_CORTE")}
+    assert selecao.snapshots.corte_observacao == config.corte_observacao

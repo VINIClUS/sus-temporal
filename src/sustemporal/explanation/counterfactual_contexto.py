@@ -8,11 +8,12 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from pathlib import Path
 
-    from sustemporal.contracts import DatasetRef, RuleSpec, SnapshotSet
+    from sustemporal.contracts import DatasetRef, RuleSpec, RunConfig, SnapshotSet
     from sustemporal.rules.insumos import InsumosAvaliacao
 
-__all__ = ["ContextoContrafactual"]
+__all__ = ["ContextoContrafactual", "ContextoIndisponivel", "contexto_da_execucao"]
 
 
 def _agora() -> datetime:
@@ -36,3 +37,12 @@ class ContextoContrafactual:
     cadastros: tuple[DatasetRef, ...] = ()
     competencia_aberta_cnes: str | None = None
     relogio: Callable[[], datetime] = _agora
+
+
+class ContextoIndisponivel(ValueError):
+    """Insumos da execução ausentes, ilegíveis ou divergentes do `run_id`."""
+
+
+def contexto_da_execucao(raiz: Path, run_id: str, config: RunConfig) -> ContextoContrafactual:
+    """Insumos gravados na pasta exata da execução, conferidos pelo `run_id` recalculado."""
+    raise NotImplementedError

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import tracemalloc
 from datetime import UTC, datetime
 from itertools import count
 from typing import TYPE_CHECKING
@@ -51,7 +52,9 @@ def test_mede_tempo_repeticoes_e_armazenamento(tmp_path: Path) -> None:
     assert medicao.armazenamento_bytes == 100
     assert medicao.pico_python_bytes is not None
     assert medicao.pico_python_bytes > 0
-    assert medicao.rss_max_kib is not None
+    assert medicao.rss_max_processo_bytes is not None
+    assert medicao.rss_max_processo_bytes > 0
+    assert medicao.cache_por_repeticao == (Cache.QUENTE,) * 3
 
 
 @pytest.mark.parametrize("nome", sorted(ETAPAS_PENDENTES))
@@ -62,6 +65,7 @@ def test_etapa_pendente_nao_inventa_medicao(nome: str) -> None:
     assert medicao.tempos_ns == ()
     assert medicao.pico_python_bytes is None
     assert medicao.armazenamento_bytes is None
+    assert medicao.cache_por_repeticao == ()
 
 
 def test_stub_nao_implementado_vira_nao_medido() -> None:
@@ -103,3 +107,39 @@ def test_relatorio_registra_ambiente_instante_cache_e_repeticoes(tmp_path: Path)
     assert primeira["cache"] == "NAO_CONTROLADO"
     assert segunda["estado"] == "NAO_MEDIDO"
     assert segunda["motivo"] == ETAPAS_PENDENTES["metricas"]
+
+
+def test_tempo_medido_sem_tracemalloc_e_memoria_em_rodada_propria() -> None:
+    rastreando: list[bool] = []
+    medicao = medir(Etapa("x", lambda: rastreando.append(tracemalloc.is_tracing())), repeticoes=3)
+    assert rastreando == [False, False, False, True]
+    assert medicao.repeticoes == 3
+    assert len(medicao.tempos_ns) == 3
+
+
+def test_tracemalloc_de_quem_chama_e_preservado() -> None:
+    tracemalloc.start()
+    try:
+        medicao = medir(Etapa("x", lambda: None), repeticoes=1)
+        assert tracemalloc.is_tracing()
+    finally:
+        tracemalloc.stop()
+    assert medicao.pico_python_bytes is None
+    assert medicao.motivo == "memoria_nao_medida_tracemalloc_ativo"
+
+
+def test_cache_frio_vale_so_para_a_primeira_repeticao() -> None:
+    medicao = medir(Etapa("x", lambda: None), repeticoes=3, cache=Cache.FRIO)
+    assert medicao.cache_por_repeticao == (Cache.FRIO, Cache.QUENTE, Cache.QUENTE)
+
+
+def test_armazenamento_conta_so_o_que_a_etapa_gravou(tmp_path: Path) -> None:
+    saida = tmp_path / "saida"
+    saida.mkdir()
+    (saida / "antigo.bin").write_bytes(b"y" * 50)
+    medicao = medir(
+        Etapa("x", lambda: (saida / "novo.bin").write_bytes(b"x" * 100), saida=saida),
+        repeticoes=2,
+    )
+    assert medicao.armazenamento_bytes == 100
+    assert medicao.armazenamento_total_bytes == 150

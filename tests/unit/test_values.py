@@ -2,13 +2,22 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
 import pyarrow.parquet as pq
 import pytest
 
-from sustemporal.contracts import DatasetRef, EstadoExecucao, FamiliaRegra, Governanca
+from sustemporal.contracts import (
+    DatasetRef,
+    EstadoExecucao,
+    FamiliaRegra,
+    Governanca,
+    MetodoId,
+    OrigemDados,
+    calcular_dataset_id,
+)
 from sustemporal.errors import FalhaOperacionalErro
 from sustemporal.evaluation.values import (
     CATEGORIAS,
@@ -166,7 +175,8 @@ def test_todas_as_categorias_aparecem_mesmo_vazias(tmp_path: Path) -> None:
     _, tabela = _resumir(tmp_path, [Linha("r1", REJ, D("1.00"), D("0.00"))])
     for estrato in (REJ, PARC):
         for categoria in CATEGORIAS:
-            assert tabela[(estrato, categoria)]["ocorrencias"] == 0 or estrato == REJ
+            esperado = 1 if (estrato, categoria) == (REJ, "SEM_VIOLACAO_VERIFICADA") else 0
+            assert tabela[(estrato, categoria)]["ocorrencias"] == esperado
 
 
 def test_reapresentacoes_nao_vinculaveis_sao_ocorrencias_distintas(tmp_path: Path) -> None:
@@ -176,12 +186,68 @@ def test_reapresentacoes_nao_vinculaveis_sao_ocorrencias_distintas(tmp_path: Pat
     assert tabela[(REJ, "NUMERADOR")]["diferenca"] == D("10")
 
 
-def test_governanca_nao_documentada_fica_fora_do_numerador(tmp_path: Path) -> None:
+def test_sem_mapa_de_governanca_numerador_e_razao_indeterminados(tmp_path: Path) -> None:
     linhas = [Linha("r1", REJ, D("5.00"), D("0.00"), ("ESTAB_CBO_CNES",))]
     _, tabela = _resumir(tmp_path, linhas, governanca=None)
+    assert tabela[(REJ, "NUMERADOR")]["ocorrencias"] is None
+    assert tabela[(REJ, "NUMERADOR")]["diferenca"] is None
+    assert tabela[(REJ, "INCOMPATIBILIDADE_SEM_GOVERNANCA_DOCUMENTADA")]["ocorrencias"] == 1
+    assert tabela[(REJ, "RAZAO")]["razao"] is None
+
+
+def test_governanca_desconhecida_fica_fora_do_numerador(tmp_path: Path) -> None:
+    linhas = [Linha("r1", REJ, D("5.00"), D("0.00"), ("ESTAB_CBO_CNES",))]
+    governanca = {FamiliaRegra.ESTABELECIMENTO_CBO: Governanca.DESCONHECIDA}
+    _, tabela = _resumir(tmp_path, linhas, governanca=governanca)
     assert tabela[(REJ, "NUMERADOR")]["ocorrencias"] == 0
     assert tabela[(REJ, "INCOMPATIBILIDADE_SEM_GOVERNANCA_DOCUMENTADA")]["ocorrencias"] == 1
     assert tabela[(REJ, "RAZAO")]["razao"] == D("0")
+
+
+def test_familia_de_atendimento_nao_recebe_governanca_municipal(tmp_path: Path) -> None:
+    linhas = [Linha("r1", REJ, D("5.00"), D("0.00"))]
+    governanca = {FamiliaRegra.IDADE: Governanca.MUNICIPAL_DOCUMENTADA}
+    with pytest.raises(ValueError, match="familia_de_atendimento_sem_governanca_municipal"):
+        _resumir(tmp_path, linhas, governanca=governanca)
+
+
+def test_agregado_incoerente_e_falha_operacional(tmp_path: Path) -> None:
+    linhas = [Linha("r1", REJ, D("5.00"), D("0.00"), resultado="ALERTA")]
+    with pytest.raises(FalhaOperacionalErro, match="valores_agregado_incoerente"):
+        _resumir(tmp_path, linhas)
+
+
+def test_rotulos_de_outro_dataset_sao_recusados(tmp_path: Path) -> None:
+    cenario = montar_valores(tmp_path / "dados", [Linha("r1", REJ, D("5.00"), D("0.00"))])
+    hash_logico = f"lh1:{'e' * 64}"
+    outro = (f"art_{'9' * 64}",)
+    registros = DatasetRef(
+        dataset_id=calcular_dataset_id("sia_pa.v1", hash_logico, outro),
+        schema_id="sia_pa.v1",
+        caminho=str(tmp_path / "x.parquet"),
+        hash_logico=hash_logico,
+        linhas=1,
+        artifact_ids=outro,
+        origem_dados=OrigemDados.SINTETICO,
+        produzido_por="fixture",
+    )
+    run = cenario.run.model_copy(update={"entradas": (registros,)})
+    with pytest.raises(ValueError, match="rotulos_de_outro_dataset"):
+        _executar(replace(cenario, run=run), tmp_path)
+
+
+def test_metodo_divergente_do_run_e_recusado(tmp_path: Path) -> None:
+    cenario = montar_valores(tmp_path / "dados", [Linha("r1", REJ, D("5.00"), D("0.00"))])
+    run = cenario.run.model_copy(update={"metodo": MetodoId.B_ATEND})
+    with pytest.raises(ValueError, match="selecao_de_versoes_multipla"):
+        _executar(replace(cenario, run=run), tmp_path)
+
+
+def test_somas_grandes_sem_arredondamento(tmp_path: Path) -> None:
+    grande = D("1000000000000000000000000000.01")
+    linhas = [Linha(f"r{i}", REJ, grande, D("0.00"), ("ESTAB_CBO_CNES",)) for i in range(2)]
+    _, tabela = _resumir(tmp_path, linhas)
+    assert tabela[(REJ, "NUMERADOR")]["diferenca"] == D("2000000000000000000000000000.02")
 
 
 def test_selecao_de_versoes_unica(tmp_path: Path) -> None:

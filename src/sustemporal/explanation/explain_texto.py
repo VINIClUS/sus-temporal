@@ -31,6 +31,7 @@ __all__ = [
     "afirmacoes_do_registro",
     "afirmar",
     "carregar_templates",
+    "exigir_referencias_completas",
     "renderizar_texto",
 ]
 
@@ -249,6 +250,11 @@ def afirmacoes_do_registro(
         afirmacoes.append(afirmar(template_id, avaliacao, evidencias=evidencias, contexto=contexto))
         afirmacoes.extend(_afirmar_selecao(avaliacao, s) for s in avaliacao.selecoes)
     return tuple(afirmacoes)
+
+
+def exigir_referencias_completas(bundle: ExplanationBundle) -> None:
+    """Afirmação de regra cita as evidências da avaliação; seleção escolhida, suas versões."""
+    raise NotImplementedError
 
 
 def renderizar_texto(

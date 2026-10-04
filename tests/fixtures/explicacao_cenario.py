@@ -37,6 +37,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ART_CNES_ALT",
+    "ART_CNES_OUTRA",
     "ART_CNES_PROC",
     "ART_SIGTAP_ALT",
     "ART_SIGTAP_PROC",
@@ -46,6 +47,7 @@ __all__ = [
     "LINHA_VIOLACAO",
     "PROCESSAMENTO",
     "cenario_ablacao",
+    "cenario_diferencial",
     "cenario_explicacao",
     "cenario_temporal",
     "executar_cenario",
@@ -62,6 +64,7 @@ ART_SIGTAP_PROC = artefato(11)
 ART_CNES_PROC = artefato(12)
 ART_SIGTAP_ALT = artefato(21)
 ART_CNES_ALT = artefato(22)
+ART_CNES_OUTRA = artefato(23)
 
 
 def cenario_explicacao() -> CenarioRegras:
@@ -93,12 +96,12 @@ def executar_cenario(
     )
 
 
-def _cobertura_temporal() -> tuple[dict[str, str | None], ...]:
+def _cobertura_temporal(processamento: str) -> tuple[dict[str, str | None], ...]:
     return tuple(
         {
             "familia_regra": familia,
             "instrumento": "C",
-            "competencia": PROCESSAMENTO,
+            "competencia": processamento,
             "base_temporal": base,
             "estado": "DISPONIVEL",
             "motivo": None,
@@ -135,16 +138,16 @@ def _auxiliares_temporais() -> dict[str, tuple[dict[str, object], ...]]:
     }
 
 
-def cenario_temporal(metodo: MetodoId) -> CenarioRegras:
+def cenario_temporal(metodo: MetodoId, processamento: str = PROCESSAMENTO) -> CenarioRegras:
     """Atendimento 202001 e processamento 202002: só a política decide a versão consultada."""
-    linhas = (registro(0, competencia_processamento=PROCESSAMENTO),)
+    linhas = (registro(0, competencia_processamento=processamento),)
     artefatos = (ART_SIGTAP, ART_CNES, ART_SIGTAP_PROC, ART_CNES_PROC, ART_SIA)
     return coerente(
         CenarioRegras(
             registros=linhas,
             auxiliares=_auxiliares_temporais(),
             selecoes=(),
-            cobertura=_cobertura_temporal(),
+            cobertura=_cobertura_temporal(processamento),
             integridade=dict.fromkeys(artefatos, EstadoIntegridade.OK),
             politica=politica(metodo),
         )
@@ -162,13 +165,17 @@ def _selecao(fonte: FamiliaFonte, base: BaseTemporal, competencia: str, art: str
     )
 
 
-def snapshot_temporal() -> SnapshotSet:
+def snapshot_temporal(processamento: str = PROCESSAMENTO) -> SnapshotSet:
     """Mesmo conjunto de versões para as duas políticas (correspondência exata por base)."""
+    mesma = processamento == COMPETENCIA
+    sigtap_proc = ART_SIGTAP if mesma else ART_SIGTAP_PROC
+    cnes_proc = ART_CNES if mesma else ART_CNES_PROC
+    proc = BaseTemporal.PROCESSAMENTO
     selecoes = (
         _selecao(FamiliaFonte.SIGTAP, BaseTemporal.ATENDIMENTO, COMPETENCIA, ART_SIGTAP),
         _selecao(FamiliaFonte.CNES_PF, BaseTemporal.ATENDIMENTO, COMPETENCIA, ART_CNES),
-        _selecao(FamiliaFonte.SIGTAP, BaseTemporal.PROCESSAMENTO, PROCESSAMENTO, ART_SIGTAP_PROC),
-        _selecao(FamiliaFonte.CNES_PF, BaseTemporal.PROCESSAMENTO, PROCESSAMENTO, ART_CNES_PROC),
+        _selecao(FamiliaFonte.SIGTAP, proc, processamento, sigtap_proc),
+        _selecao(FamiliaFonte.CNES_PF, proc, processamento, cnes_proc),
     )
     artefatos = tuple(sorted({a for s in selecoes for a in s.artifact_ids}))
     return SnapshotSet.criar(
@@ -176,12 +183,15 @@ def snapshot_temporal() -> SnapshotSet:
     )
 
 
-def executar_metodo(tmp_path: Path, metodo: MetodoId) -> RunResult:
+def executar_metodo(
+    tmp_path: Path, metodo: MetodoId, *, processamento: str = PROCESSAMENTO
+) -> RunResult:
     """B_ATEND ou B_PROC sobre os mesmos parquet, catálogo e snapshot; seleção derivada."""
-    dataset, insumos = materializar(cenario_temporal(metodo), tmp_path / "entrada")
+    cenario = cenario_temporal(metodo, processamento)
+    dataset, insumos = materializar(cenario, tmp_path / "entrada")
     return evaluate_rules(
         dataset,
-        snapshot_temporal(),
+        snapshot_temporal(processamento),
         carregar_regras(),
         RunConfig(versao="1", metodos=(metodo,)),
         tmp_path / "saida",
@@ -204,6 +214,16 @@ def cenario_ablacao() -> CenarioRegras:
             "n_vinculos": 1,
         },
     )
+    auxiliares["cnes_estab_cbo.v1"] = (
+        *auxiliares["cnes_estab_cbo.v1"],
+        {
+            "artifact_id": ART_CNES_OUTRA,
+            "competencia_arquivo": PROCESSAMENTO,
+            "cnes": "1234567",
+            "cbo": "225125",
+            "n_vinculos": 1,
+        },
+    )
     auxiliares["sigtap_proc_ocupacao.v1"] = (
         *auxiliares["sigtap_proc_ocupacao.v1"],
         sigtap | {"co_procedimento": "0301010072", "co_ocupacao": "223505"},
@@ -214,6 +234,62 @@ def cenario_ablacao() -> CenarioRegras:
             *(linha | {"artifact_id": ART_SIGTAP_ALT} for linha in auxiliares[schema_id]),
         )
     integridade = dict(base.integridade) | dict.fromkeys(
-        (ART_SIGTAP_ALT, ART_CNES_ALT), EstadoIntegridade.OK
+        (ART_SIGTAP_ALT, ART_CNES_ALT, ART_CNES_OUTRA), EstadoIntegridade.OK
     )
     return base.com(auxiliares=auxiliares, integridade=integridade)
+
+
+def _cnes(artifact_id: str, cbo: str, n_vinculos: int) -> dict[str, object]:
+    return {
+        "artifact_id": artifact_id,
+        "competencia_arquivo": COMPETENCIA,
+        "cnes": "1234567",
+        "cbo": cbo,
+        "n_vinculos": n_vinculos,
+    }
+
+
+def _auxiliares_diferenciais() -> dict[str, tuple[dict[str, object], ...]]:
+    """Duas versões selecionadas por fonte, `n_vinculos = 0` e linhas com nulos (SINTETICO)."""
+    versoes = (
+        {"artifact_id": a, "dt_competencia": COMPETENCIA} for a in (ART_SIGTAP, ART_SIGTAP_ALT)
+    )
+    sigtap = list(versoes)
+    return {
+        "sigtap_proc_ocupacao.v1": (
+            *(v | {"co_procedimento": "0301010072", "co_ocupacao": "225125"} for v in sigtap),
+            sigtap[1] | {"co_procedimento": "0301010072", "co_ocupacao": "223505"},
+            sigtap[0] | {"co_procedimento": "0202020202", "co_ocupacao": None},
+        ),
+        "cnes_estab_cbo.v1": (
+            _cnes(ART_CNES, "225125", 0),
+            _cnes(ART_CNES, "223505", 2),
+            _cnes(ART_CNES_ALT, "225125", 3),
+            _cnes(ART_CNES_ALT, "223505", 0),
+            _cnes(ART_CNES_ALT, "322205", 0),
+        ),
+        "sigtap_proc_registro.v1": tuple(
+            v | {"co_procedimento": "0301010072", "co_registro": "01"} for v in sigtap
+        ),
+        "sigtap_procedimento.v1": (
+            *(v | {"co_procedimento": "0301010072"} for v in sigtap),
+            sigtap[1] | {"co_procedimento": None},
+        ),
+    }
+
+
+def cenario_diferencial() -> CenarioRegras:
+    """Para comparar o motor com a reexecução das evidências nas quatro famílias."""
+    linhas = (registro(0), registro(1, cbo="223505"), registro(2, cbo="322205"))
+    artefatos = {
+        "CNES_PF": ";".join(sorted((ART_CNES, ART_CNES_ALT))),
+        "SIGTAP": ";".join(sorted((ART_SIGTAP, ART_SIGTAP_ALT))),
+    }
+    base = cenario_base(*linhas)
+    selecoes = tuple(s | {"artifact_ids": artefatos[str(s["fonte"])]} for s in base.selecoes)
+    integridade = dict(base.integridade) | dict.fromkeys(
+        (ART_SIGTAP_ALT, ART_CNES_ALT), EstadoIntegridade.OK
+    )
+    return base.com(
+        auxiliares=_auxiliares_diferenciais(), selecoes=selecoes, integridade=integridade
+    )

@@ -63,6 +63,7 @@ class Explicacao:
     prov_json: str
     texto: str
     reexecucoes: tuple[Reexecucao, ...]
+    elementos: ElementosProv
 
 
 def _regras_da_execucao(
@@ -218,6 +219,7 @@ def montar_explicacao(
         prov_json=prov.json,
         texto=renderizar_texto(bundle, contexto, regras_usadas),
         reexecucoes=reexecucoes,
+        elementos=elementos,
     )
 
 

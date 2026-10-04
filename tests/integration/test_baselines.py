@@ -9,6 +9,7 @@ import pyarrow.parquet as pq
 import pytest
 from tests.fixtures.explicacao_cenario import (
     ART_CNES_ALT,
+    ART_CNES_OUTRA,
     ART_CNES_PROC,
     ART_SIGTAP_ALT,
     PROCESSAMENTO,
@@ -19,8 +20,10 @@ from tests.fixtures.regras_cenario import materializar, snapshot_vazio
 from tests.fixtures.regras_execucao import tabela
 from tests.fixtures.regras_exemplos import ART_CNES, ART_SIA, ART_SIGTAP, COMPETENCIA
 
+from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.config import RunConfig
+from sustemporal.contracts.experiment import EstadoExecucao
 from sustemporal.contracts.rules import EstadoAvaliacao
 from sustemporal.contracts.temporal import BaseTemporal, MetodoId
 from sustemporal.evaluation.ablation import (
@@ -206,3 +209,116 @@ def test_troca_de_versao_nao_mexe_nas_outras_fontes(
         trocar_versao_fonte(
             insumos_base.selecoes, FamiliaFonte.CNES_PF, {ART_SIGTAP: ART_CNES_ALT}, tmp_path / "y"
         )
+
+
+def test_baselines_com_atendimento_igual_ao_processamento_coincidem(tmp_path: Path) -> None:
+    atend = executar_metodo(tmp_path / "a", MetodoId.B_ATEND, processamento=COMPETENCIA)
+    proc = executar_metodo(tmp_path / "p", MetodoId.B_PROC, processamento=COMPETENCIA)
+
+    def sem(run: RunResult, schema_id: str, campos: set[str]) -> list[dict[str, object]]:
+        return [
+            {c: v for c, v in linha.items() if c not in campos} for linha in tabela(run, schema_id)
+        ]
+
+    metadados = {"run_id", "metodo", "politica_id"}
+    assert sem(atend, "avaliacoes.v1", metadados) == sem(proc, "avaliacoes.v1", metadados)
+    assert tabela(atend, "evidencias.v1") == tabela(proc, "evidencias.v1")
+    selecao = {"run_id", "base", "motivo"}
+    assert sem(atend, "selecao_versoes.v1", selecao) == sem(proc, "selecao_versoes.v1", selecao)
+
+
+def _par_cnes(
+    tmp_path: Path, insumos: InsumosAvaliacao, troca: dict[str, str] | None = None
+) -> tuple[RunResult, RunResult]:
+    base = _executar(tmp_path, insumos)
+    assert insumos.selecoes is not None
+    trocadas = trocar_versao_fonte(
+        insumos.selecoes, FamiliaFonte.CNES_PF, troca or {ART_CNES: ART_CNES_ALT}, tmp_path / "t"
+    )
+    return base, _executar(tmp_path / "v", replace(insumos, selecoes=trocadas))
+
+
+def test_ablacao_recusa_execucao_incompleta(tmp_path: Path, insumos_base: InsumosAvaliacao) -> None:
+    base, variante = _par_cnes(tmp_path, insumos_base)
+    for estado in (EstadoExecucao.PARCIAL, EstadoExecucao.FALHOU):
+        incompleta = variante.model_copy(update={"estado": estado, "falhas": 1})
+        with pytest.raises(AblacaoNaoIsolada, match="ablacao_execucao_incompleta"):
+            comparar_ablacao(base, incompleta, TipoAblacao.VERSAO_CNES)
+
+
+@pytest.mark.parametrize("tipo", [TipoAblacao.VERSAO_CNES, TipoAblacao.VERSAO_REGRA])
+def test_ablacao_sem_troca_real_e_recusada(
+    tmp_path: Path, insumos_base: InsumosAvaliacao, tipo: TipoAblacao
+) -> None:
+    base = _executar(tmp_path, insumos_base)
+    with pytest.raises(AblacaoNaoIsolada, match="ablacao_sem_troca"):
+        comparar_ablacao(base, base, tipo)
+
+
+@pytest.mark.parametrize(
+    ("campo", "valor", "mensagem"),
+    [
+        ("snapshot_set_id", "snap_outro", "ablacao_snapshot_diferente"),
+        ("config_hash", "f" * 64, "ablacao_config_diferente"),
+        ("politica_id", "outra_politica", "ablacao_politica_diferente"),
+        ("catalogo_regras_sha256", "e" * 64, "ablacao_catalogo_diferente"),
+    ],
+)
+def test_ablacao_de_fonte_exige_cada_fator_fixo(
+    tmp_path: Path, insumos_base: InsumosAvaliacao, campo: str, valor: str, mensagem: str
+) -> None:
+    base, variante = _par_cnes(tmp_path, insumos_base)
+    comparar_ablacao(base, variante, TipoAblacao.VERSAO_CNES)
+    with pytest.raises(AblacaoNaoIsolada, match=mensagem):
+        comparar_ablacao(base, variante.model_copy(update={campo: valor}), TipoAblacao.VERSAO_CNES)
+
+
+def test_ablacao_exige_mesmo_codigo(tmp_path: Path, insumos_base: InsumosAvaliacao) -> None:
+    base, variante = _par_cnes(tmp_path, insumos_base)
+    codigo = variante.codigo.model_copy(update={"commit": "outro_commit"})
+    with pytest.raises(AblacaoNaoIsolada, match="ablacao_codigo_diferente"):
+        comparar_ablacao(
+            base, variante.model_copy(update={"codigo": codigo}), TipoAblacao.VERSAO_CNES
+        )
+
+
+def test_ablacao_de_fonte_recusa_mudanca_em_regra_de_outra_fonte(
+    tmp_path: Path, insumos_base: InsumosAvaliacao
+) -> None:
+    base = _executar(tmp_path, insumos_base)
+    assert insumos_base.selecoes is not None
+    trocadas = trocar_versao_fonte(
+        insumos_base.selecoes, FamiliaFonte.CNES_PF, {ART_CNES: ART_CNES_ALT}, tmp_path / "t"
+    )
+    integridade = dict(insumos_base.integridade) | {ART_SIGTAP: EstadoIntegridade.NAO_VERIFICADO}
+    variante = _executar(
+        tmp_path / "v", replace(insumos_base, selecoes=trocadas, integridade=integridade)
+    )
+    with pytest.raises(AblacaoNaoIsolada, match="ablacao_fonte_nao_isolada"):
+        comparar_ablacao(base, variante, TipoAblacao.VERSAO_CNES)
+
+
+def test_ablacao_de_regra_recusa_regra_nao_alterada_que_muda(
+    tmp_path: Path, insumos_base: InsumosAvaliacao
+) -> None:
+    regras = carregar_regras()
+    base = _executar(tmp_path, insumos_base, regras)
+    alteradas = [
+        r.model_copy(update={"versao": "0.0.9"})
+        if r.rule_id == "ESTAB_CBO_CNES"
+        else r.model_copy(update={"instrumentos": ("I",)})
+        if r.rule_id == "PROC_CBO_SIGTAP"
+        else r
+        for r in regras
+    ]
+    variante = _executar(tmp_path / "v", insumos_base, alteradas)
+    with pytest.raises(AblacaoNaoIsolada, match="ablacao_regra_nao_isolada"):
+        comparar_ablacao(base, variante, TipoAblacao.VERSAO_REGRA)
+
+
+def test_ablacao_recusa_substituta_de_outra_competencia(
+    tmp_path: Path, insumos_base: InsumosAvaliacao
+) -> None:
+    base, variante = _par_cnes(tmp_path, insumos_base, {ART_CNES: ART_CNES_OUTRA})
+    with pytest.raises(AblacaoNaoIsolada, match="ablacao_substituta_de_outra_competencia"):
+        comparar_ablacao(base, variante, TipoAblacao.VERSAO_CNES)

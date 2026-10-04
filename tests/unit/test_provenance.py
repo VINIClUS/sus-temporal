@@ -7,6 +7,7 @@ import hashlib
 import json
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pyarrow as pa
@@ -15,6 +16,7 @@ import pytest
 from prov.model import ProvDocument
 from pydantic import ValidationError
 
+from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.config import RunConfig, RuntimeConfig
 from sustemporal.contracts.experiment import EstadoExecucao
 from sustemporal.contracts.explanation import (
@@ -34,7 +36,12 @@ from sustemporal.explanation.evidence import (
     sql_reexecucao,
 )
 from sustemporal.explanation.explain import ExplicacaoIndisponivel, explain, montar_explicacao
-from sustemporal.explanation.explain_texto import TemplateInvalido, afirmar, carregar_templates
+from sustemporal.explanation.explain_texto import (
+    TemplateInvalido,
+    afirmar,
+    carregar_templates,
+    exigir_referencias_completas,
+)
 from sustemporal.explanation.prov import ProvIncompleto, exigir_relacoes
 from sustemporal.rules.catalog import carregar_esquema
 from tests.fixtures.explicacao_cenario import (
@@ -42,19 +49,28 @@ from tests.fixtures.explicacao_cenario import (
     LINHA_INCONCLUSIVA,
     LINHA_NAO_APLICAVEL,
     LINHA_VIOLACAO,
+    cenario_diferencial,
     executar_cenario,
 )
 from tests.fixtures.regras_cenario import reemitir
 from tests.fixtures.regras_execucao import regras_so_de_c, saida
+from tests.fixtures.regras_exemplos import ART_SIA
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from sustemporal.contracts.experiment import RunResult
     from sustemporal.contracts.rules import RuleEvaluation
 
 LINHAS = (LINHA_CONFORME, LINHA_VIOLACAO, LINHA_INCONCLUSIVA, LINHA_NAO_APLICAVEL)
+SAIDAS = (
+    "avaliacoes.v1",
+    "evidencias.v1",
+    "selecao_versoes.v1",
+    "agregados_registro.v1",
+    "falhas.v1",
+)
+HASH_FALSO = "lh1:" + "0" * 64
 
 
 @pytest.fixture
@@ -117,6 +133,9 @@ def test_fonte_incompleta_nao_sustenta_violacao(execucao: RunResult) -> None:
     for troca in (
         {"tipo": TipoEvidencia.FONTE_INCOMPLETA},
         {"cobertura": EstadoCobertura.INSUFICIENTE},
+        {"cobertura": EstadoCobertura.AUSENTE},
+        {"integridade": EstadoIntegridade.NAO_VERIFICADO},
+        {"integridade": EstadoIntegridade.QUARENTENA_TRUNCADO},
     ):
         evidencias = tuple(
             e.model_copy(update=troca) if e is ausencia else e for e in violacao.evidencias
@@ -127,14 +146,23 @@ def test_fonte_incompleta_nao_sustenta_violacao(execucao: RunResult) -> None:
             )
 
 
+@pytest.mark.parametrize(
+    ("campo", "valor"),
+    [
+        ("cobertura", "INSUFICIENTE"),
+        ("cobertura", "AUSENTE"),
+        ("integridade", "NAO_VERIFICADO"),
+        ("integridade", "QUARENTENA_TRUNCADO"),
+    ],
+)
 def test_evidencia_de_fonte_incompleta_gravada_como_ausencia_e_recusada(
-    execucao: RunResult,
+    execucao: RunResult, campo: str, valor: str
 ) -> None:
     caminho = saida(execucao, "evidencias.v1")
 
     def incompleta(linha: dict[str, object]) -> dict[str, object]:
         if linha["tipo"] == "AUSENCIA_NA_FONTE":
-            linha["cobertura"] = "INSUFICIENTE"
+            linha[campo] = valor
         return linha
 
     _reescrever(caminho, incompleta)
@@ -300,16 +328,24 @@ def test_nenhuma_afirmacao_de_causa_oficial(execucao: RunResult, linha: str) -> 
     assert "motivo oficial" not in texto
 
 
+_NEGACOES = ("não equivale a aprovação", "abstenção não equivale a aprovação")
+
+
 def test_registro_sem_violacao_nunca_vira_aprovado(execucao: RunResult) -> None:
     conforme = montar_explicacao(execucao, LINHA_CONFORME)
     abstencao = montar_explicacao(execucao, LINHA_INCONCLUSIVA)
     assert {a.template_id for a in conforme.bundle.afirmacoes} >= {"registro.sem_violacao"}
     assert {a.template_id for a in abstencao.bundle.afirmacoes} >= {"registro.abstencao"}
     for explicacao in (conforme, abstencao):
-        texto = explicacao.texto.lower()
-        assert "aprovado" not in texto
-        assert "aprovada" not in texto
-        assert "não equivale a aprovação" in texto
+        assert "não equivale a aprovação" in explicacao.texto.lower()
+
+
+@pytest.mark.parametrize("linha", LINHAS)
+def test_aprovacao_so_aparece_em_frase_negativa_fixa(execucao: RunResult, linha: str) -> None:
+    texto = montar_explicacao(execucao, linha).texto.lower()
+    for negacao in _NEGACOES:
+        texto = texto.replace(negacao, "")
+    assert "aprova" not in texto
 
 
 def test_nao_aplicavel_cita_evidencia_de_aplicabilidade(tmp_path: Path) -> None:
@@ -343,11 +379,20 @@ def test_saida_de_outra_execucao_e_recusada(tmp_path: Path) -> None:
         )
 
 
-def test_saida_com_conteudo_divergente_e_recusada(execucao: RunResult) -> None:
-    _reescrever(saida(execucao, "avaliacoes.v1"), lambda linha: linha)
-    adulterada = _trocar_saida(execucao, "avaliacoes.v1", linhas=0)
+@pytest.mark.parametrize("schema_id", SAIDAS)
+def test_saida_com_conteudo_divergente_e_recusada(execucao: RunResult, schema_id: str) -> None:
+    adulterada = _trocar_saida(execucao, schema_id, hash_logico=HASH_FALSO)
     with pytest.raises(ExplicacaoIndisponivel, match="conteudo_divergente"):
         explain(adulterada, LINHA_CONFORME)
+
+
+def test_entrada_do_registro_com_conteudo_divergente_e_recusada(execucao: RunResult) -> None:
+    entradas = tuple(
+        d.model_copy(update={"hash_logico": HASH_FALSO}) if d.schema_id == "sia_pa.v1" else d
+        for d in execucao.entradas
+    )
+    with pytest.raises(ExplicacaoIndisponivel, match="conteudo_divergente"):
+        explain(execucao.model_copy(update={"entradas": entradas}), LINHA_CONFORME)
 
 
 @pytest.mark.parametrize("linha_da_falha", [LINHA_CONFORME, None])
@@ -447,3 +492,207 @@ def test_cli_com_evidencia_divergente_grava_so_a_falha(tmp_path: Path) -> None:
     falha = FalhaOperacional.model_validate_json((destino / "falha.json").read_text("utf-8"))
     assert falha.ocorrida_em == instante
     assert "evidencia_divergente" in falha.erro
+
+
+SQL_REEXECUCAO_SHA256 = {
+    "estabelecimento_cbo.existencia": (
+        "22a0cc726b4eceb1b6a79091664c3dc52d4c08adf8a05e2e554879022a5a0498"
+    ),
+    "instrumento_registro.existencia": (
+        "7a999a441f426902f1023e38a5c0649407f1db15a5378ac5e7e08fd8b3b2366e"
+    ),
+    "procedimento_cbo.existencia": (
+        "79957273a12e664fb6e72bc076b8da9eaef786fdf4cdbbd0cab49b7654290568"
+    ),
+    "vigencia_procedimento.existencia": (
+        "79c985931da3d3fe48306e0bbda6fed70e0bef9216997a38a6fe22b198da4d0a"
+    ),
+}
+
+
+def test_sql_de_reexecucao_fixado_por_familia() -> None:
+    for query_id, esperado in SQL_REEXECUCAO_SHA256.items():
+        assert hashlib.sha256(sql_reexecucao(query_id).encode()).hexdigest() == esperado
+
+
+def test_reexecucao_concorda_com_o_motor_nas_quatro_familias(tmp_path: Path) -> None:
+    execucao = executar_cenario(tmp_path, cenario_diferencial())
+    conjuntos = {d.dataset_id: d for d in execucao.entradas}
+    familias: set[str] = set()
+    quantidades: set[int] = set()
+    for linha in pq.read_table(saida(execucao, "evidencias.v1")).to_pylist():
+        evidencia = ler_evidencia(linha)
+        reexecucao = reexecutar_evidencia(evidencia, conjuntos)
+        assert reexecucao.reproduzida, reexecucao.divergencias
+        assert reexecucao.n_resultados == evidencia.n_resultados
+        familias.add(evidencia.query_id)
+        quantidades.add(evidencia.n_resultados)
+    assert familias == set(SQL_REEXECUCAO_SHA256)
+    assert {0, 1, 2} <= quantidades
+    for indice in range(3):
+        assert explain(execucao, f"{ART_SIA}#{indice}").evidencias
+
+
+def test_evidencia_com_sql_sha256_adulterado_e_divergente(execucao: RunResult) -> None:
+    caminho = saida(execucao, "evidencias.v1")
+
+    def adulterar(linha: dict[str, object]) -> dict[str, object]:
+        if linha["tipo"] == "AUSENCIA_NA_FONTE":
+            linha["sql_sha256"] = "0" * 64
+        return linha
+
+    _reescrever(caminho, adulterar)
+    ref = reemitir(next(r for r in execucao.saidas if r.schema_id == "evidencias.v1"))
+    adulterada = _trocar_saida(execucao, "evidencias.v1", **ref.model_dump(exclude={"caminho"}))
+    with pytest.raises(EvidenciaDivergente, match="sql_sha256"):
+        explain(adulterada, LINHA_VIOLACAO)
+
+
+def test_prov_exige_arestas_dos_elementos_e_nao_so_as_declaradas(execucao: RunResult) -> None:
+    explicacao = montar_explicacao(execucao, LINHA_VIOLACAO)
+    violacao = _avaliacao(explicacao.bundle, "ESTAB_CBO_CNES")
+    (ausencia,) = violacao.evidence_ids
+    conteudo = json.loads(explicacao.prov_json)
+    conteudo["wasDerivedFrom"] = {
+        chave: aresta
+        for chave, aresta in conteudo["wasDerivedFrom"].items()
+        if aresta["prov:usedEntity"] != f"sus:{ausencia}"
+    }
+    for entidade in conteudo["entity"].values():
+        entidade.pop("sus:derivada_de", None)
+    documento = ProvDocument.deserialize(content=json.dumps(conteudo), format="json")
+    with pytest.raises(ProvIncompleto, match=f"origem=sus:{ausencia}"):
+        exigir_relacoes(documento, explicacao.elementos)
+
+
+def test_prov_liga_evidencia_as_versoes_consultadas(execucao: RunResult) -> None:
+    explicacao = montar_explicacao(execucao, LINHA_VIOLACAO)
+    arestas = json.loads(explicacao.prov_json)["wasDerivedFrom"].values()
+    pares = {(a["prov:generatedEntity"], a["prov:usedEntity"]) for a in arestas}
+    for evidencia in explicacao.bundle.evidencias:
+        for artifact_id in evidencia.artifact_ids:
+            assert (f"sus:{evidencia.evidence_id}", f"sus:{artifact_id}") in pares
+
+
+def test_afirmacao_de_regra_cita_evidencias_e_selecao_cita_versoes(execucao: RunResult) -> None:
+    bundle = explain(execucao, LINHA_VIOLACAO)
+    exigir_referencias_completas(bundle)
+    for template_id in ("regra.violacao", "selecao.escolhida"):
+        afirmacoes = tuple(
+            a.model_copy(update={"referencias": ("ESTAB_CBO_CNES",)})
+            if a.template_id == template_id and "ESTAB_CBO_CNES" in a.referencias
+            else a
+            for a in bundle.afirmacoes
+        )
+        with pytest.raises(TemplateInvalido, match="afirmacao_incompleta"):
+            exigir_referencias_completas(bundle.model_copy(update={"afirmacoes": afirmacoes}))
+
+
+def _reemitir_saida(run: RunResult, schema_id: str) -> RunResult:
+    ref = reemitir(next(r for r in run.saidas if r.schema_id == schema_id))
+    return _trocar_saida(run, schema_id, **ref.model_dump(exclude={"caminho"}))
+
+
+@pytest.mark.parametrize("schema_id", ["selecao_versoes.v1", "agregados_registro.v1", "falhas.v1"])
+def test_saida_com_run_id_alheio_e_recusada(execucao: RunResult, schema_id: str) -> None:
+    caminho = saida(execucao, schema_id)
+    linhas = pq.read_table(caminho).to_pylist()
+    if not linhas:
+        linhas = [
+            {
+                "run_id": "val_alheia",
+                "sequencia": 1,
+                "etapa": "avaliar_regra",
+                "row_id": None,
+                "rule_id": None,
+                "erro": "falha_sintetica",
+                "ocorrida_em": "2026-01-01T00:00:00+00:00",
+            }
+        ]
+    alheias = [linha | {"run_id": "val_alheia"} for linha in linhas]
+    pq.write_table(pa.Table.from_pylist(alheias, pq.read_schema(caminho)), caminho)
+    with pytest.raises(ExplicacaoIndisponivel, match="saida_mistura_execucoes"):
+        explain(_reemitir_saida(execucao, schema_id), LINHA_CONFORME)
+
+
+def test_agregado_divergente_das_avaliacoes_e_recusado(execucao: RunResult) -> None:
+    def divergente(linha: dict[str, object]) -> dict[str, object]:
+        if linha["row_id"] != LINHA_CONFORME:
+            return linha
+        conformes = [r for r in str(linha["conformes"]).split(";") if r != "ESTAB_CBO_CNES"]
+        return linha | {
+            "conformes": ";".join(conformes),
+            "inconclusivas": "ESTAB_CBO_CNES",
+            "resultado": "ABSTENCAO",
+        }
+
+    _reescrever(saida(execucao, "agregados_registro.v1"), divergente)
+    with pytest.raises(ExplicacaoIndisponivel, match="agregado_divergente"):
+        explain(_reemitir_saida(execucao, "agregados_registro.v1"), LINHA_CONFORME)
+
+
+def test_versao_de_regra_divergente_da_avaliacao_e_recusada(execucao: RunResult) -> None:
+    _reescrever(saida(execucao, "avaliacoes.v1"), lambda linha: linha | {"versao": "9.9.9"})
+    with pytest.raises(ExplicacaoIndisponivel, match="versao_de_regra_divergente"):
+        explain(_reemitir_saida(execucao, "avaliacoes.v1"), LINHA_CONFORME)
+
+
+def test_identidade_do_bundle_depende_da_execucao_sem_caminhos(execucao: RunResult) -> None:
+    bundle = explain(execucao, LINHA_CONFORME)
+    outra_config = execucao.model_copy(update={"config_hash": "f" * 64})
+    assert explain(outra_config, LINHA_CONFORME).bundle_id != bundle.bundle_id
+
+
+def _publicar(tmp_path: Path) -> RunResult:
+    execucao = executar_cenario(tmp_path, nome="validacao")
+    (tmp_path / "validacao" / execucao.run_id).symlink_to(
+        tmp_path / "validacao" / "saida" / execucao.run_id
+    )
+    return execucao
+
+
+def test_cli_publica_atomicamente_e_nao_deixa_explicacao_parcial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    execucao = _publicar(tmp_path)
+    original = Path.write_bytes
+
+    def falhar(caminho: Path, dados: bytes) -> int:
+        if caminho.name == "prov.json":
+            raise OSError("disco_cheio_sintetico")
+        return original(caminho, dados)
+
+    monkeypatch.setattr(Path, "write_bytes", falhar)
+    codigo = executar_explain(_args(execucao.run_id, LINHA_VIOLACAO), _config(tmp_path))
+    assert codigo == ExitCode.FALHA_OPERACIONAL
+    destino = diretorio_explicacao(tmp_path, execucao.run_id, LINHA_VIOLACAO)
+    assert not destino.exists()
+    assert list(destino.parent.iterdir()) == []
+
+
+def test_cli_recusa_remove_explicacao_anterior(tmp_path: Path) -> None:
+    execucao = _publicar(tmp_path)
+    args, config = _args(execucao.run_id, LINHA_VIOLACAO), _config(tmp_path)
+    assert executar_explain(args, config) == ExitCode.OK
+    destino = diretorio_explicacao(tmp_path, execucao.run_id, LINHA_VIOLACAO)
+    assert destino.is_dir()
+    _reescrever(saida(execucao, "avaliacoes.v1"), lambda linha: linha | {"motivos": "X"})
+    assert executar_explain(args, config) == ExitCode.CONFIG_INVALIDA
+    assert not destino.exists()
+
+
+def test_cli_recusa_run_relativo_mesmo_com_execucao_alcancavel(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    execucao = _publicar(tmp_path)
+    gravada = tmp_path / "validacao" / "saida" / execucao.run_id / "run_result.json"
+    (tmp_path / "run_result.json").write_bytes(gravada.read_bytes())
+    codigo = executar_explain(_args("..", LINHA_CONFORME), _config(tmp_path))
+    assert codigo == ExitCode.CONFIG_INVALIDA
+    assert "argumento_invalido" in caplog.text
+
+
+def test_cli_diretorio_derivado_do_run_e_da_linha(tmp_path: Path) -> None:
+    destino = diretorio_explicacao(tmp_path, "val_x", LINHA_CONFORME)
+    sufixo = hashlib.sha256(LINHA_CONFORME.encode()).hexdigest()[:32]
+    assert destino == tmp_path / "explicacoes" / "val_x" / f"row_{sufixo}"

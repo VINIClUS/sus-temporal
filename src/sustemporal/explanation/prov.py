@@ -271,7 +271,7 @@ def _derivacoes_ausentes(doc: ProvDocument) -> Iterable[str]:
                 yield f"{registro.identifier} origem={origem}"
 
 
-def exigir_relacoes(documento: ProvDocument) -> None:
+def exigir_relacoes(documento: ProvDocument, elementos: ElementosProv | None = None) -> None:
     """Exige as quatro relações e cada `wasDerivedFrom` declarado em `sus:derivada_de`.
 
     Avaliação deriva do registro, da regra e de cada evidência; evidência, do conjunto consultado.

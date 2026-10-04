@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import logging
+from contextlib import closing
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import duckdb
 from pydantic import ValidationError
 
 from sustemporal.contracts.experiment import EstadoExecucao
 from sustemporal.contracts.temporal import MetodoId, PoliticaTemporal
+from sustemporal.duck import conectar
 from sustemporal.errors import ConfigInvalida, ExitCode
 from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
 from sustemporal.rules.engine import evaluate_rules
 from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
+from sustemporal.rules.ingest import exigir_sem_deletados
 from sustemporal.rules.insumos import InsumosAvaliacao, MetodoInvalido, politica_padrao
 from sustemporal.rules.validate_ingest import validar_ingest
 
@@ -97,6 +101,11 @@ def executar_validate(args: argparse.Namespace, config: RunConfig) -> int:
         saida_runs = args.saida or Path(config.runtime.raiz_saidas) / "runs"
         return _concluir(validar_ingest(args.ingest, metodo, config, saida_runs), metodo)
     entrada = _ler_entrada(args.entrada)
+    with closing(conectar(config.runtime)) as con:
+        try:
+            exigir_sem_deletados(con, entrada.dataset)
+        except duckdb.Error as erro:
+            raise ConfigInvalida(f"entrada_ilegivel detalhe={erro}") from erro
     try:
         regras = carregar_regras()
         politica = _politica(metodo, entrada, regras)

@@ -25,7 +25,7 @@ from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.coverage import build_coverage
 from sustemporal.rules.catalog import carregar_esquema, requisito_auxiliar
-from sustemporal.rules.conteudo import verificar_conteudo
+from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
 from sustemporal.rules.preparo import conferir_tipos_fisicos
 from sustemporal.temporal.registry import RegistroTemporal
 from sustemporal.temporal.selector import partes_esperadas_do_catalogo
@@ -42,6 +42,7 @@ if TYPE_CHECKING:
 __all__ = [
     "InsumosIngest",
     "carregar_registro",
+    "exigir_sem_deletados",
     "incompletude_da_cobertura",
     "integridade_do_registro",
     "ler_datasets",
@@ -216,7 +217,7 @@ def _exigir_linhagem(con: duckdb.DuckDBPyConnection, ref: DatasetRef) -> None:
         {"c": ref.caminho, "a": list(ref.artifact_ids)},
     ).fetchall()[0][0]
     if divergentes:
-        raise ConfigInvalida(
+        raise ConteudoDivergente(
             f"linhagem_divergente schema={ref.schema_id} dataset={ref.dataset_id} "
             f"linhas={divergentes}"
         )
@@ -273,6 +274,27 @@ def _gravar(
         origem_dados=refs[0].origem_dados,
         produzido_por="validate_ingest",
     )
+
+
+def exigir_sem_deletados(con: duckdb.DuckDBPyConnection, producao: DatasetRef) -> None:
+    """Caminho direto (`--entrada`): sem registro de exclusões, recusa produção com deletados.
+
+    Raises:
+        ConfigInvalida: alguma linha com `deletado` verdadeiro.
+    """
+    colunas = {
+        str(c[0])
+        for c in con.execute(
+            "DESCRIBE SELECT * FROM read_parquet($c)", {"c": producao.caminho}
+        ).fetchall()
+    }
+    if "deletado" not in colunas:
+        return
+    linhas = con.execute(
+        "SELECT count(*) FROM read_parquet($c) WHERE deletado IS TRUE", {"c": producao.caminho}
+    ).fetchall()[0][0]
+    if linhas:
+        raise ConfigInvalida(f"producao_com_registros_deletados linhas={linhas}")
 
 
 def _remover_deletados(con: duckdb.DuckDBPyConnection, colunas: list[str]) -> int:

@@ -222,7 +222,11 @@ vêm antes de gravar qualquer arquivo:
   (`territorio_sem_coluna`). Registros com `deletado` verdadeiro (deletados no DBF) saem antes
   (`registro_deletado`). Só linhas com município no território entram; as demais nunca são
   avaliadas e são contadas por motivo em `out/<run_id>/recorte_territorial.json`:
-  `fora_do_territorio` (município de fora) e `territorio_indeterminado` (município nulo). Recorte
+  `fora_do_territorio` (município de fora) e `territorio_indeterminado` (município nulo). Cada
+  linha conta em um único motivo, com precedência `registro_deletado` > `territorio_indeterminado`
+  > `fora_do_territorio`. `registro_deletado` tem o nome do T10; `territorio_indeterminado`
+  corresponde ao `sem_municipio_estabelecimento` do T10 (mesmo critério, nome do desenho do
+  validate). Recorte
   que deixa a população vazia → saída 2 (`populacao_vazia_apos_recorte`), nunca execução
   `CONCLUIDA` vazia. O hash do conjunto de municípios entra no `run_id`
   (`InsumosAvaliacao.identidade_adicional`), então outro território dá outra execução mesmo
@@ -247,7 +251,8 @@ vêm antes de gravar qualquer arquivo:
 Toda execução do `validate` (`--entrada` ou `--ingest`) grava `out/<run_id>/entrada_validacao.json`
 (`rules/entrada.py::EntradaValidacao`): conjunto SIA-PA, `SnapshotSet`, auxiliares, seleção,
 cobertura, integridade e a política resolvida, com os mesmos `DatasetRef` de `RunResult.entradas`.
-O motor grava esses anexos atomicamente (`evaluate_rules(..., anexos=)`) antes de qualquer saída, então
+No caminho direto (`--entrada`) não há onde registrar exclusões: produção com `deletado`
+verdadeiro é recusada (`producao_com_registros_deletados`, saída 2). O motor grava esses anexos atomicamente (`evaluate_rules(..., anexos=)`) antes de qualquer saída, então
 `run_result.json` nunca existe sem eles. Uma entrada com `politica` reavalia com essa política.
 
 A política é a de `politica_da_execucao` com o método de `--policy`; a avaliação é

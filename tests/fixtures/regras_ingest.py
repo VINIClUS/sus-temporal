@@ -94,13 +94,17 @@ def gravar_territorio(destino: Path, extra: str | None = None) -> Path:
     return destino
 
 
-def _itens(*, sigtap_fev_ausente: bool, concorrente: bool) -> dict[str, _Item]:
+def _itens(
+    *, sigtap_fev_ausente: bool, concorrente: bool, concorrente_dia: int = 2
+) -> dict[str, _Item]:
     sem = ResultadoTentativa.NAO_ENCONTRADO
     itens = {
         f"pa_{p}": observar(FamiliaFonte.SIA_PA, FEVEREIRO, f"pa-{p}", 1, parte=p) for p in _PARTES
     }
     if concorrente:
-        itens["pa_a2"] = observar(FamiliaFonte.SIA_PA, FEVEREIRO, "pa-a-outra", 2, parte="a")
+        itens["pa_a2"] = observar(
+            FamiliaFonte.SIA_PA, FEVEREIRO, "pa-a-outra", concorrente_dia, parte="a"
+        )
     itens["cnes_jan"] = observar(FamiliaFonte.CNES_PF, JANEIRO, "cnes-jan", 1)
     itens["cnes_fev"] = observar(FamiliaFonte.CNES_PF, FEVEREIRO, "cnes-fev", 1)
     itens["sigtap_jan"] = observar(FamiliaFonte.SIGTAP, JANEIRO, "sigtap-jan", 1, uf=None)
@@ -142,6 +146,8 @@ def _producao(artefato: str, parte: str, opcoes: dict[str, bool]) -> list[dict[s
         )
         if opcoes["deletado_no_territorio"]:
             linhas.append(_linha(artefato, 4, deletado=True))
+        if opcoes["linha_fora_do_piloto"]:
+            linhas.append(_linha(artefato, 6, competencia_processamento="202303"))
         if opcoes["deletado_fora"]:
             linhas.append(
                 _linha(artefato, 5, deletado=True, municipio_estabelecimento=MUNICIPIO_FORA)
@@ -242,6 +248,16 @@ def _cobertura(
     )
 
 
+def _motivo_malformado(ref: DatasetRef) -> DatasetRef:
+    """Uma célula com marca `sia_pa_incompleto` fora do formato de `_marcar_incompleto`."""
+    tabela = pq.read_table(ref.caminho)
+    motivos = tabela.column("motivo").to_pylist()
+    motivos[0] = "sia_pa_incompleto sem_competencia"
+    posicao = tabela.column_names.index("motivo")
+    pq.write_table(tabela.set_column(posicao, "motivo", pa.array(motivos)), ref.caminho)
+    return reemitir(ref)
+
+
 def _competencia_inteira(ref: DatasetRef) -> DatasetRef:
     """Cobertura com `competencia` física BIGINT e `DatasetRef` coerente com esse conteúdo."""
     tabela = pq.read_table(ref.caminho)
@@ -320,13 +336,21 @@ def montar_ingest(
     auxiliares_trocados: bool = False,
     deletado_fora: bool = False,
     cnes_fev_com_perda: bool = False,
+    concorrente_so_no_registro: int | None = None,
+    linha_fora_do_piloto: bool = False,
+    cobertura_motivo_malformado: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
     pasta = saidas / "ingest" / "execucao_sintetica"
     pasta.mkdir(parents=True)
     manifestos.mkdir()
-    itens = _itens(sigtap_fev_ausente=sigtap_fev_ausente, concorrente=concorrente)
+    no_registro = concorrente_so_no_registro is not None
+    itens = _itens(
+        sigtap_fev_ausente=sigtap_fev_ausente,
+        concorrente=concorrente or no_registro,
+        concorrente_dia=concorrente_so_no_registro or 2,
+    )
     manifesto = manifestos / NOME_MANIFESTO_AQUISICAO
     if not sem_manifesto:
         registro = Manifesto(manifesto)
@@ -338,14 +362,19 @@ def montar_ingest(
         "fora_com_atendimento_nulo": fora_com_atendimento_nulo,
         "deletado_no_territorio": deletado_no_territorio,
         "deletado_fora": deletado_fora,
+        "linha_fora_do_piloto": linha_fora_do_piloto,
     }
-    refs = _datasets(pasta, itens, opcoes)
+    na_pasta = {k: v for k, v in itens.items() if not (no_registro and k == "pa_a2")}
+    refs = _datasets(pasta, na_pasta, opcoes)
     if cnes_fev_com_perda:
         refs = _com_perda(refs, itens["cnes_fev"][1])
     if not (sem_cobertura or sem_coluna_municipio):
         refs.append(_cobertura(pasta, refs, sia_pa_incompleto))
     if producao_repetida:
         refs.append(next(ref for ref in refs if ref.schema_id == "sia_pa.v1"))
+    if cobertura_motivo_malformado:
+        indice = next(i for i, ref in enumerate(refs) if ref.schema_id == "cobertura.v1")
+        refs[indice] = _motivo_malformado(refs[indice])
     if cobertura_com_tipo_invalido:
         indice = next(i for i, ref in enumerate(refs) if ref.schema_id == "cobertura.v1")
         refs[indice] = _competencia_inteira(refs[indice])

@@ -13,7 +13,7 @@ import pytest
 from sustemporal import cli
 from sustemporal.config import load_config
 from sustemporal.contracts.artifacts import EstadoIntegridade, ResultadoTentativa
-from sustemporal.contracts.base import FamiliaFonte
+from sustemporal.contracts.base import FamiliaFonte, hash_canonico
 from sustemporal.contracts.experiment import EstadoExecucao, RunResult
 from sustemporal.errors import ExitCode
 from sustemporal.rules.catalog import carregar_regras
@@ -424,3 +424,43 @@ def test_entrada_gravada_reproduz_o_run_id_pelo_caminho_direto(tmp_path: Path) -
     reexecutado = RunResult.model_validate_json(gravado.read_text(encoding="utf-8"))
     assert reexecutado.run_id == original.run_id
     assert [s.dataset_id for s in reexecutado.saidas] == [s.dataset_id for s in original.saidas]
+
+
+def test_versao_concorrente_so_no_registro_e_recusada(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, concorrente_so_no_registro=1)
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+    assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))
+
+
+def test_versao_concorrente_observada_depois_do_corte_nao_impede(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, concorrente_so_no_registro=2, corte="2026-01-02T12:00:00+00:00")
+    assert _validar(mundo, "processamento") == ExitCode.OK
+
+
+def test_linha_fora_das_competencias_do_piloto_nao_e_avaliada(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, linha_fora_do_piloto=True)
+    assert _validar(mundo, "processamento") == ExitCode.OK
+    resultado, pasta = _unico(mundo)
+    assert not any(k[0].endswith("#6") for k in _estados(resultado))
+    recorte = json.loads((pasta / "recorte_territorial.json").read_text(encoding="utf-8"))
+    assert recorte["exclusoes"] == {
+        "fora_das_competencias_do_piloto": 1,
+        "fora_do_territorio": 1,
+    }
+
+
+def test_identidade_adicional_cobre_o_recorte_inteiro(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path)
+    assert _validar(mundo, "processamento") == ExitCode.OK
+    _, pasta = _unico(mundo)
+    recorte = json.loads((pasta / "recorte_territorial.json").read_text(encoding="utf-8"))
+    entrada = EntradaValidacao.model_validate_json(
+        (pasta / "entrada_validacao.json").read_text(encoding="utf-8")
+    )
+    assert entrada.identidade_adicional == {"recorte_territorial": hash_canonico(recorte)}
+
+
+def test_motivo_de_incompletude_malformado_recusa_sem_gravar(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, cobertura_motivo_malformado=True)
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+    assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))

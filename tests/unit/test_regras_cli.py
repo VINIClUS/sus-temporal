@@ -51,3 +51,25 @@ def test_validate_com_entrada_invalida_retorna_config_invalida(tmp_path: Path) -
     entrada.write_text("{}", encoding="utf-8")
     argumentos = ["validate", "--config", str(config), "--policy", "atendimento"]
     assert cli.main([*argumentos, "--entrada", str(entrada)]) == ExitCode.CONFIG_INVALIDA
+
+
+def test_validate_com_entrada_grava_a_entrada_da_validacao(tmp_path: Path) -> None:
+    from sustemporal.rules.cli import EntradaValidacao
+
+    config = tmp_path / "config.yaml"
+    config.write_text('versao: "1"\n', encoding="utf-8")
+    saida = tmp_path / "saida"
+    argumentos = ["validate", "--config", str(config), "--policy", "atendimento"]
+    argumentos += ["--entrada", str(_entrada(tmp_path / "in")), "--saida", str(saida)]
+    assert cli.main(argumentos) == ExitCode.OK
+    gravado = next(saida.rglob("run_result.json"))
+    resultado = RunResult.model_validate_json(gravado.read_text(encoding="utf-8"))
+    entrada = EntradaValidacao.model_validate_json(
+        (gravado.parent / "entrada_validacao.json").read_text(encoding="utf-8")
+    )
+    refs = [entrada.dataset, *entrada.auxiliares, entrada.selecoes, entrada.cobertura]
+    assert sorted(r.dataset_id for r in refs if r is not None) == sorted(
+        e.dataset_id for e in resultado.entradas
+    )
+    assert entrada.politica is not None
+    assert entrada.politica.politica_id == resultado.politica_id

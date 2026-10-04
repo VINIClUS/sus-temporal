@@ -120,12 +120,14 @@ def _linha(artefato: str, indice: int, **campos: str | None) -> dict[str, object
     return base | campos
 
 
-def _producao(artefato: str, parte: str) -> list[dict[str, object]]:
+def _producao(artefato: str, parte: str, *, municipio_nulo: bool) -> list[dict[str, object]]:
     """Linha 0 igual nas duas partes (mesmo conteúdo físico); a tem uma linha fora do território."""
     linhas = [_linha(artefato, 0)]
     if parte == "a":
         linhas.append(_linha(artefato, 1, competencia_atendimento=FEVEREIRO))
         linhas.append(_linha(artefato, 2, municipio_estabelecimento=MUNICIPIO_FORA))
+        if municipio_nulo:
+            linhas.append(_linha(artefato, 3, municipio_estabelecimento=None))
     return linhas
 
 
@@ -146,18 +148,19 @@ def _auxiliares(artefato: str, fonte: str, competencia: str) -> dict[str, list[d
     }
 
 
-def _datasets(pasta: Path, itens: dict[str, _Item], *, sem_cobertura: bool) -> list[DatasetRef]:
+def _datasets(
+    pasta: Path, itens: dict[str, _Item], *, sem_cobertura: bool, opcoes: dict[str, bool]
+) -> list[DatasetRef]:
     refs = []
     for nome, (_, versao) in sorted(itens.items()):
         if versao is None:
             continue
         artefato, chave = versao.artifact_id, versao.chave
         if chave.fonte is FamiliaFonte.SIA_PA:
-            linhas = _producao(artefato, str(chave.parte))
+            linhas = _producao(artefato, str(chave.parte), municipio_nulo=opcoes["municipio_nulo"])
+            colunas = COLUNAS_REGISTRO if opcoes["sem_coluna_municipio"] else _COLUNAS_PRODUCAO
             destino = pasta / f"{nome}.sia_pa.parquet"
-            refs.append(
-                gravar_dataset(destino, "sia_pa.v1", linhas, (artefato,), colunas=_COLUNAS_PRODUCAO)
-            )
+            refs.append(gravar_dataset(destino, "sia_pa.v1", linhas, (artefato,), colunas=colunas))
             continue
         competencia = str(chave.competencia_arquivo)
         for schema_id, linhas in _auxiliares(artefato, chave.fonte.value, competencia).items():
@@ -191,6 +194,8 @@ def montar_ingest(
     cobertura_com_tipo_invalido: bool = False,
     municipio_extra: str | None = None,
     competencias_piloto: tuple[str, ...] = (JANEIRO, FEVEREIRO),
+    sem_coluna_municipio: bool = False,
+    municipio_nulo: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -203,7 +208,8 @@ def montar_ingest(
         registro = Manifesto(manifesto)
         for observacao, versao in itens.values():
             registro.registrar(observacao, versao)
-    refs = _datasets(pasta, itens, sem_cobertura=sem_cobertura)
+    opcoes = {"municipio_nulo": municipio_nulo, "sem_coluna_municipio": sem_coluna_municipio}
+    refs = _datasets(pasta, itens, sem_cobertura=sem_cobertura, opcoes=opcoes)
     if producao_repetida:
         refs.append(next(ref for ref in refs if ref.schema_id == "sia_pa.v1"))
     if cobertura_com_tipo_invalido:

@@ -14,6 +14,7 @@ from sustemporal.contracts.artifacts import EstadoIntegridade, ResultadoTentativ
 from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.experiment import EstadoExecucao, RunResult
 from sustemporal.errors import ExitCode
+from sustemporal.rules.cli import EntradaValidacao
 from sustemporal.rules.ingest import integridade_do_registro
 from sustemporal.temporal.registry import registro_de
 from tests.fixtures.regras_ingest import MUNICIPIO_FORA, gravar_territorio, montar_ingest
@@ -259,3 +260,44 @@ def test_territorio_com_digito_verificador_invalido_sai_com_config_invalida(
     conteudo["municipios"][0]["ibge7"] = ibge7[:6] + str((int(ibge7[6]) + 1) % 10)
     caminho.write_text(json.dumps(conteudo), encoding="utf-8")
     assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+
+
+def test_producao_sem_coluna_de_municipio_sai_com_config_invalida(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, sem_coluna_municipio=True)
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+    assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))
+
+
+def test_municipio_nulo_e_contado_como_territorio_indeterminado(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, municipio_nulo=True)
+    assert _validar(mundo, "processamento") == ExitCode.OK
+    resultado, pasta = _unico(mundo)
+    assert not any(k[0].endswith("#3") for k in _estados(resultado))
+    recorte = json.loads((pasta / "recorte_territorial.json").read_text(encoding="utf-8"))
+    assert recorte["exclusoes"] == {"fora_do_territorio": 1, "territorio_indeterminado": 1}
+
+
+def test_recorte_que_esvazia_a_populacao_nao_conclui_em_silencio(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path)
+    caminho = tmp_path / "territorio.yaml"
+    conteudo = json.loads(caminho.read_text(encoding="utf-8"))
+    conteudo["municipios"] = conteudo["municipios"][1:]
+    caminho.write_text(json.dumps(conteudo), encoding="utf-8")
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+    assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))
+
+
+def test_entrada_da_validacao_e_gravada_e_confere_com_o_run_result(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path)
+    assert _validar(mundo, "processamento") == ExitCode.OK
+    resultado, pasta = _unico(mundo)
+    entrada = EntradaValidacao.model_validate_json(
+        (pasta / "entrada_validacao.json").read_text(encoding="utf-8")
+    )
+    refs = [entrada.dataset, *entrada.auxiliares, entrada.selecoes, entrada.cobertura]
+    assert sorted(r.dataset_id for r in refs if r is not None) == sorted(
+        e.dataset_id for e in resultado.entradas
+    )
+    assert entrada.snapshots.snapshot_id == resultado.snapshot_set_id
+    assert entrada.politica is not None
+    assert entrada.politica.politica_id == resultado.politica_id

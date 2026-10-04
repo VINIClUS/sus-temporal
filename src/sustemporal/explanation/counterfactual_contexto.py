@@ -74,9 +74,11 @@ def _entrada(raiz: Path, run_id: str) -> EntradaValidacao:
     """`entrada_validacao.json` ao lado do `run_result.json` exato; nunca uma pasta "latest"."""
     caminhos = [raiz / nome / run_id / ARQUIVO_ENTRADA for nome in _DIRETORIOS_DE_EXECUCAO]
     existentes = [c for c in caminhos if c.is_file()]
-    if len(existentes) != 1:
+    if not existentes:
+        raise ContextoIndisponivel(f"contexto_da_execucao_ausente run={run_id}")
+    if len(existentes) > 1:
         raise ContextoIndisponivel(
-            f"contrafactual_sem_contexto run={run_id} entradas_encontradas={len(existentes)}"
+            f"contexto_da_execucao_ambiguo run={run_id} entradas={len(existentes)}"
         )
     try:
         return EntradaValidacao.model_validate_json(existentes[0].read_text(encoding="utf-8"))

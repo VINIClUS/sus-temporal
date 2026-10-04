@@ -105,13 +105,18 @@ vêm da pasta exata de `bundle.run_id` (`contexto_da_execucao`, §3.1); sem eles
    auxiliares e integridade). Divergência é recusa (`contrafactual_contexto_diverge_da_execucao`).
    O CNES ST das precondições é o auxiliar `cnes_estabelecimento.v1` gravado na entrada; a
    competência aberta fica `None` (só fontes históricas; executabilidade nunca potencial);
-4. publica `<raiz_saidas>/contrafactuais/<run_id>/row_<sha256(row_id)[:32]>/contrafactual.json`
-   de forma atômica (diretório temporário renomeado).
+4. publica `contrafactual.json` e `identidade.json` em
+   `<raiz_saidas>/contrafactuais/<run_id>/id_<identidade>/row_<sha256(row_id)[:32]>/`, de forma
+   atômica (diretório temporário renomeado). A identidade deriva do SHA-256 de
+   `catalog/operations.yaml` e da versão do código: outro catálogo ou outro código publica em
+   outro diretório e nunca sobrescreve uma hipótese já publicada.
 
 Saída 0 com resultado publicado; 2 para argumento, execução, linha ou insumos ausentes ou
 divergentes e para linha sem violação (nada a buscar; a recusa remove o resultado anterior);
 5 para falha operacional (evidência divergente, cadastro ilegível, linha de base que não
-reproduz a violação, motor sem concluir), com só `falha.json` publicado. A configuração
+reproduz a violação, motor sem concluir): o resultado anterior é removido antes de gravar
+`falha.json`, então nunca sobra um `contrafactual.json` antigo, mesmo se a falha não puder ser
+gravada. Execução sem `entrada_validacao.json` é recusada com `contexto_da_execucao_ausente`. A configuração
 precisa ser a da execução (mesmo `config_hash` fora de `runtime`): o orçamento
 `contrafactual` faz parte dela.
 

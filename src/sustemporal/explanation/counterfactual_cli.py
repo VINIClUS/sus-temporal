@@ -3,12 +3,15 @@
 O `run_id` resolve a pasta exata da execução (`<raiz_saidas>/runs/<run_id>` ou
 `<raiz_saidas>/validacao/<run_id>`), nunca um diretório "latest". O bundle vem do `explain` real
 e os insumos de `entrada_validacao.json`, conferidos pelo `run_id` recalculado. A saída fica em
-`<raiz_saidas>/contrafactuais/<run_id>/row_<sha256(row_id)[:32]>/contrafactual.json`.
+`<raiz_saidas>/contrafactuais/<run_id>/id_<identidade>/row_<sha256(row_id)[:32]>/`, com
+`contrafactual.json` e `identidade.json` (SHA-256 de `catalog/operations.yaml` e versão do
+código).
 """
 
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import shutil
 from datetime import UTC, datetime
@@ -18,7 +21,7 @@ from typing import TYPE_CHECKING
 import duckdb
 from pydantic import TypeAdapter, ValidationError
 
-from sustemporal.contracts.base import Identificador
+from sustemporal.contracts.base import Identificador, hash_canonico
 from sustemporal.contracts.records import RowId
 from sustemporal.contracts.rules import FalhaOperacional
 from sustemporal.errors import ExitCode
@@ -35,6 +38,7 @@ from sustemporal.explanation.counterfactual_contexto import (
 from sustemporal.explanation.counterfactual_operacoes import (
     CATALOGO_OPERACOES,
     CatalogoOperacoesInvalido,
+    carregar_operacoes,
 )
 from sustemporal.explanation.counterfactual_sobreposicao import (
     InsumoCadastralInvalido,
@@ -42,6 +46,8 @@ from sustemporal.explanation.counterfactual_sobreposicao import (
 )
 from sustemporal.explanation.evidence import EvidenciaDivergente
 from sustemporal.explanation.explain import ExplicacaoIndisponivel, montar_explicacao
+from sustemporal.hashing import sha256_arquivo
+from sustemporal.runtime_info import versao_codigo
 
 if TYPE_CHECKING:
     import argparse
@@ -59,6 +65,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 ARQUIVO_RESULTADO = "contrafactual.json"
+_RAIZ_CODIGO = CATALOGO_OPERACOES.parents[1]
 _ROW_ID: TypeAdapter[str] = TypeAdapter(RowId)
 _IDENTIFICADOR: TypeAdapter[str] = TypeAdapter(Identificador)
 _RECUSAS = (
@@ -82,15 +89,27 @@ def _agora() -> datetime:
     return datetime.now(UTC)
 
 
+def _identidade(catalogo: Path) -> dict[str, object]:
+    conteudo: dict[str, object] = {
+        "catalogo_operacoes_sha256": sha256_arquivo(catalogo),
+        "codigo": versao_codigo(_RAIZ_CODIGO).model_dump(mode="json"),
+    }
+    return conteudo | {"identidade": hash_canonico(conteudo)[:32]}
+
+
 def identidade_contrafactual(catalogo: Path = CATALOGO_OPERACOES) -> str:
-    """Identidade do catálogo de operações e do código que produzem o resultado."""
-    raise NotImplementedError
+    """Identidade do catálogo de operações e do código que produzem o resultado.
+
+    Outro catálogo ou outra versão do código gera outro destino: uma hipótese já publicada
+    nunca é sobrescrita por outra produzida com regras de busca diferentes.
+    """
+    return str(_identidade(catalogo)["identidade"])
 
 
 def diretorio_contrafactual(raiz: Path, run_id: str, row_id: str, identidade: str) -> Path:
     """Diretório derivado do `run_id`, da identidade do catálogo e código, e do `row_id`."""
     sufixo = hashlib.sha256(row_id.encode("utf-8")).hexdigest()[:32]
-    return Path(raiz) / "contrafactuais" / run_id / f"row_{sufixo}"
+    return Path(raiz) / "contrafactuais" / run_id / f"id_{identidade}" / f"row_{sufixo}"
 
 
 def _validar_argumentos(args: argparse.Namespace) -> tuple[str, str]:
@@ -113,13 +132,14 @@ def _remover(destino: Path | None) -> None:
         shutil.rmtree(destino)
 
 
-def _publicar(destino: Path, nome: str, conteudo: bytes) -> None:
+def _publicar(destino: Path, arquivos: dict[str, bytes]) -> None:
     """Grava num diretório temporário irmão e só então o renomeia para `destino`."""
     temporario = destino.parent / f".{destino.name}.parcial"
     _remover(temporario)
     temporario.mkdir(parents=True)
     try:
-        (temporario / nome).write_bytes(conteudo)
+        for nome in sorted(arquivos):
+            (temporario / nome).write_bytes(arquivos[nome])
         _remover(destino)
         temporario.rename(destino)
     except OSError:
@@ -127,18 +147,27 @@ def _publicar(destino: Path, nome: str, conteudo: bytes) -> None:
         raise
 
 
-def _buscar(raiz: Path, run_id: str, row_id: str, config: RunConfig) -> bytes:
+def _buscar(
+    raiz: Path, run_id: str, row_id: str, config: RunConfig, catalogo: Path
+) -> dict[str, bytes]:
     run = localizar_execucao(raiz, run_id)
     bundle = montar_explicacao(run, row_id, runtime=config.runtime).bundle
     contexto = contexto_da_execucao(raiz, run_id, config)
-    resultado = search_counterfactuals(bundle, config, contexto=contexto)
-    return resultado.model_dump_json(indent=2).encode("utf-8")
+    operacoes = carregar_operacoes(catalogo)
+    resultado = search_counterfactuals(bundle, config, contexto=contexto, operacoes=operacoes)
+    identidade = json.dumps(_identidade(catalogo), ensure_ascii=False, indent=2, sort_keys=True)
+    return {
+        ARQUIVO_RESULTADO: resultado.model_dump_json(indent=2).encode("utf-8"),
+        "identidade.json": identidade.encode("utf-8"),
+    }
 
 
 def _registrar_falha(destino: Path, falha: FalhaOperacional, erro: Exception) -> None:
+    """Remove o resultado anterior antes de tentar gravar a falha; nunca sobra resultado."""
     logger.error("counterfactual_falhou tipo=%s erro=%s", type(erro).__name__, erro)
     try:
-        _publicar(destino, "falha.json", falha.model_dump_json(indent=2).encode("utf-8"))
+        _remover(destino)
+        _publicar(destino, {"falha.json": falha.model_dump_json(indent=2).encode("utf-8")})
     except OSError as gravacao:
         logger.error("counterfactual_falha_nao_gravada erro=%s", gravacao)
 
@@ -161,8 +190,8 @@ def executar_counterfactual(
     destino: Path | None = None
     try:
         run_id, row_id = _validar_argumentos(args)
-        destino = diretorio_contrafactual(raiz, run_id, row_id, "stub")
-        _publicar(destino, ARQUIVO_RESULTADO, _buscar(raiz, run_id, row_id, config))
+        destino = diretorio_contrafactual(raiz, run_id, row_id, identidade_contrafactual(catalogo))
+        _publicar(destino, _buscar(raiz, run_id, row_id, config, catalogo))
     except _RECUSAS as erro:
         _remover(destino)
         logger.error("counterfactual_recusado erro=%s", erro)

@@ -176,27 +176,31 @@ def _relatorio(tmp_path: Path) -> list[dict[str, object]]:
     return [json.loads(linha) for linha in relatorio.read_text(encoding="utf-8").splitlines()]
 
 
-def _alterar_julho(tmp_path: Path) -> None:
-    alterado = tmp_path / "origem" / "SIASUS" / "200801_" / "Dados" / "PASP2607a.dbc"
-    registro = registro_pa(PA_MVM="202607", PA_CMP="202607")
+def _dezembro(tmp_path: Path) -> Path:
+    return tmp_path / "origem" / "SIASUS" / "200801_" / "Dados" / "PASP2512a.dbc"
+
+
+def _alterar_dezembro(tmp_path: Path) -> None:
+    alterado = _dezembro(tmp_path)
+    registro = registro_pa(PA_MVM="202512", PA_CMP="202512")
     alterado.write_bytes(dbc_pa([registro, registro]))
 
 
-def test_watch_observa_a_janela_movel_prospectiva_e_registra_revisao(tmp_path: Path) -> None:
+def test_watch_observa_a_janela_do_recorte_e_registra_revisao(tmp_path: Path) -> None:
     config = load_config(_ambiente_watch(tmp_path))
     relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
     args = argparse.Namespace()
     assert executar_watch(args, config, relogio=relogio) == ExitCode.OK
-    _alterar_julho(tmp_path)
+    _alterar_dezembro(tmp_path)
     assert executar_watch(args, config, relogio=relogio) == ExitCode.OK
     estado = Manifesto(tmp_path / "manifests" / "aquisicao.jsonl").ler()
     arquivos = [o for o in estado.observacoes if o.chave.tipo_conteudo is None]
-    assert sorted({o.chave.competencia_arquivo.valor for o in arquivos}) == ["202601", "202607"]
+    assert sorted({o.chave.competencia_arquivo.valor for o in arquivos}) == ["202511", "202512"]
     assert len(arquivos) == 4
     resultados = {
         (d["competencia"], d["resultado"]) for d in _relatorio(tmp_path) if "resultado" in d
     }
-    assert resultados == {("202601", "INALTERADA"), ("202607", "REVISAO_REAL")}
+    assert resultados == {("202511", "INALTERADA"), ("202512", "REVISAO_REAL")}
 
 
 def test_comparacao_que_falha_fica_inconclusiva_no_relatorio_e_na_saida(tmp_path: Path) -> None:
@@ -207,16 +211,58 @@ def test_comparacao_que_falha_fica_inconclusiva_no_relatorio_e_na_saida(tmp_path
     estado = Manifesto(tmp_path / "manifests" / "aquisicao.jsonl").ler()
     for versao in estado.versoes.values():
         competencia = versao.chave.competencia_arquivo
-        if competencia is not None and competencia.valor == "202607":
+        if competencia is not None and competencia.valor == "202512":
             (tmp_path / "data" / "raw" / versao.caminho_conteudo).unlink()
-    _alterar_julho(tmp_path)
+    _alterar_dezembro(tmp_path)
     assert executar_watch(args, config, relogio=relogio) == ExitCode.FALHA_OPERACIONAL
     linhas = _relatorio(tmp_path)
     resultados = {(d["competencia"], d["resultado"]) for d in linhas if "resultado" in d}
-    assert ("202607", "INCONCLUSIVO") in resultados
+    assert ("202512", "INCONCLUSIVO") in resultados
     resumo = str(linhas[-1]["resumo"])
     assert not resumo.startswith("sem_revisao_observada")
     assert "inconclusivas=1" in resumo
+
+
+def _segunda_execucao(tmp_path: Path) -> tuple[int, list[dict[str, object]]]:
+    config = load_config(tmp_path / "watch.yaml")
+    relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
+    return executar_watch(argparse.Namespace(), config, relogio=relogio), _relatorio(tmp_path)
+
+
+def _inconclusivas(linhas: list[dict[str, object]]) -> dict[object, str]:
+    return {
+        d["competencia"]: str(d["motivo"]) for d in linhas if d.get("resultado") == "INCONCLUSIVO"
+    }
+
+
+def test_observacao_falha_de_arquivo_ja_acompanhado_fica_inconclusiva(tmp_path: Path) -> None:
+    config = load_config(_ambiente_watch(tmp_path))
+    relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
+    assert executar_watch(argparse.Namespace(), config, relogio=relogio) == ExitCode.OK
+    _dezembro(tmp_path).unlink()
+    _dezembro(tmp_path).mkdir()
+    codigo, linhas = _segunda_execucao(tmp_path)
+    assert codigo == ExitCode.FALHA_OPERACIONAL
+    assert _inconclusivas(linhas)["202512"].startswith("observacao_sem_conteudo")
+    assert "inconclusivas=0" not in str(linhas[-1]["resumo"])
+
+
+def test_arquivo_que_some_da_listagem_fica_inconclusivo(tmp_path: Path) -> None:
+    config = load_config(_ambiente_watch(tmp_path))
+    relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
+    assert executar_watch(argparse.Namespace(), config, relogio=relogio) == ExitCode.OK
+    _dezembro(tmp_path).unlink()
+    codigo, linhas = _segunda_execucao(tmp_path)
+    assert codigo == ExitCode.FALHA_OPERACIONAL
+    assert _inconclusivas(linhas)["202512"] == "sumiu_da_listagem"
+
+
+def test_travessia_da_janela_nao_converte_competencia_em_numero() -> None:
+    import inspect
+
+    from sustemporal.acquisition import watch
+
+    assert "int(" not in inspect.getsource(watch.competencias_da_janela)
 
 
 def test_config_de_vigilancia_e_valida() -> None:

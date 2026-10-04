@@ -337,6 +337,9 @@ def test_rotulos_de_outra_particao_sao_recusados_na_leitura(tmp_path: Path) -> N
     )
     rotulos = {p: r.model_dump(mode="json") for p, r in cenario.split.rotulos_por_particao.items()}
     rotulos[Particao.DESENVOLVIMENTO] = trocado.model_dump(mode="json")
-    split = _com_rotulos(cenario.split, rotulos)
+    with pytest.raises(ValidationError, match="split_rotulos_nao_presos_as_particoes"):
+        _com_rotulos(cenario.split, rotulos)
+    adulterado = {**cenario.split.rotulos_por_particao, Particao.DESENVOLVIMENTO: trocado}
+    split = cenario.split.model_copy(update={"rotulos_por_particao": adulterado})
     with pytest.raises(FalhaOperacionalErro, match="rotulos_fora_da_particao"):
         fit_baseline(split, FEATURES_PADRAO, cenario.config, tmp_path / "run")

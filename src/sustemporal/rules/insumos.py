@@ -15,6 +15,7 @@ from sustemporal.contracts.temporal import (
     TipoPolitica,
 )
 from sustemporal.gates import DIR_DECISOES
+from sustemporal.temporal.politicas import DIRETORIO_POLITICAS, carregar_politica
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -48,7 +49,7 @@ class InsumosAvaliacao:
     """Conjuntos auxiliares, seleção por registro, cobertura, integridade e política explícitos.
 
     `selecoes` ausente: a seleção é derivada do `SnapshotSet` por correspondência exata.
-    `politica` ausente: derivada do método da configuração (`politica_padrao`).
+    `politica` ausente: `config.politica_id` (em `diretorio_politicas`), senão a padrão do método.
     """
 
     auxiliares: tuple[DatasetRef, ...] = ()
@@ -58,6 +59,7 @@ class InsumosAvaliacao:
     politica: PoliticaTemporal | None = None
     raiz_codigo: Path = field(default_factory=Path)
     diretorio_decisoes: Path = DIR_DECISOES
+    diretorio_politicas: Path = DIRETORIO_POLITICAS
 
 
 def _fontes_auxiliares(regras: list[RuleSpec]) -> list[FamiliaFonte]:
@@ -97,22 +99,41 @@ def politica_padrao(metodo: MetodoId, regras: list[RuleSpec]) -> PoliticaTempora
     )
 
 
-def _metodo_da_config(config: RunConfig) -> MetodoId:
+def _metodo_da_config(config: RunConfig) -> MetodoId | None:
     candidatos = [metodo for metodo in config.metodos if metodo in METODOS_DE_VALIDACAO]
     if len(candidatos) > 1:
         raise MetodoInvalido(f"config_com_varios_metodos metodos={candidatos}")
-    return candidatos[0] if candidatos else MetodoId.M_TEMP
+    return candidatos[0] if candidatos else None
+
+
+def _politica_da_config(
+    insumos: InsumosAvaliacao, config: RunConfig, regras: list[RuleSpec]
+) -> PoliticaTemporal:
+    metodo = _metodo_da_config(config)
+    if config.politica_id is None:
+        return politica_padrao(metodo or MetodoId.M_TEMP, regras)
+    politica = carregar_politica(config.politica_id, insumos.diretorio_politicas)
+    if metodo is not None and politica.metodo is not metodo:
+        raise MetodoInvalido(
+            f"politica_de_outro_metodo politica={politica.politica_id} "
+            f"metodo={politica.metodo} config={metodo}"
+        )
+    return politica
 
 
 def politica_da_execucao(
     insumos: InsumosAvaliacao, config: RunConfig, regras: list[RuleSpec]
 ) -> PoliticaTemporal:
-    """Política única da execução: a explícita ou a padrão do método da configuração.
+    """Política única da execução, resolvida só aqui e repassada à seleção temporal.
+
+    Ordem: `insumos.politica`; `config.politica_id` (`carregar_politica`); a padrão do método da
+    configuração. `RuleSpec.politica_id` nunca escolhe a política.
 
     Raises:
         MetodoInvalido: política de método sem validação por regras ou configuração ambígua.
+        ConfigInvalida: `config.politica_id` inexistente ou inválida.
     """
-    politica = insumos.politica or politica_padrao(_metodo_da_config(config), regras)
+    politica = insumos.politica or _politica_da_config(insumos, config, regras)
     if politica.metodo not in METODOS_DE_VALIDACAO:
         raise MetodoInvalido(f"politica_de_metodo_invalido metodo={politica.metodo}")
     return politica

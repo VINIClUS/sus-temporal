@@ -1,0 +1,251 @@
+# Leiautes do SIGTAP (TabelaUnificada_{AAAAMM}_v{geração}.zip), um LayoutSpec por tabela.
+# O layout_id "sigtap.<tabela>" identifica a tabela; o membro "<tabela>.txt" é lido com as posições
+# do "<tabela>_layout.txt" do PRÓPRIO zip (cabeçalho Coluna,Tamanho,Inicio,Fim,Tipo), porque as
+# larguras mudam entre competências (VL_SH, VL_SA e VL_SP com 10 posições em 2018-09, 2023-07 e
+# 2023-10 e 12 em 2026-02; SECUNDARIA, S16). Este catálogo fixa, por tabela, os nomes e a ordem das
+# colunas, o tipo físico, a largura MÁXIMA aceita e as casas decimais implícitas. Zip cujo leiaute
+# diverge (coluna faltante, extra ou fora de ordem, tipo diferente, largura acima da máxima) vai
+# para QUARENTENA_LEIAUTE, nunca para leitura aproximada.
+# Proveniência: nomes, ordem e posições da cópia 2026-02 (S16) SECUNDARIA; tipos físicos
+# (VARCHAR2, NUMBER, CHAR), larguras máximas e casas decimais implícitas de VL_SH, VL_SA e VL_SP
+# INFERIDA. Tudo A_CONFIRMAR contra os *_layout.txt reais (docs/pendencias/T04.md): zips reais
+# podem ir para quarentena até a confirmação (ADR 0002, leiaute estrito).
+# Sentinelas: VL_IDADE_MINIMA/MAXIMA = 9999 indica que o fator idade não se aplica (LEIA_ME, S17,
+# SECUNDARIA); vira nulo com motivo SENTINELA e bruto preservado.
+leiautes:
+  - layout_id: sigtap.tb_procedimento
+    fonte: SIGTAP
+    versao: "1"
+    codificacao: latin-1
+    formato: LARGURA_FIXA
+    proveniencia: INFERIDA
+    confirmacao: A_CONFIRMAR
+    campos:
+      - nome_fisico: CO_PROCEDIMENTO
+        tipo_fisico: VARCHAR2
+        largura: "10"
+        decimais: "0"
+        nome_canonico: co_procedimento
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+      - nome_fisico: NO_PROCEDIMENTO
+        tipo_fisico: VARCHAR2
+        largura: "250"
+        decimais: "0"
+        nome_canonico: no_procedimento
+        tipo_canonico: TEXTO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: TP_COMPLEXIDADE
+        tipo_fisico: VARCHAR2
+        largura: "1"
+        decimais: "0"
+        nome_canonico: tp_complexidade
+        tipo_canonico: TEXTO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: TP_SEXO
+        tipo_fisico: VARCHAR2
+        largura: "1"
+        decimais: "0"
+        nome_canonico: tp_sexo
+        tipo_canonico: TEXTO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: QT_MAXIMA_EXECUCAO
+        tipo_fisico: NUMBER
+        largura: "4"
+        decimais: "0"
+        nome_canonico: qt_maxima_execucao
+        tipo_canonico: INTEIRO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: QT_DIAS_PERMANENCIA
+        tipo_fisico: NUMBER
+        largura: "4"
+        decimais: "0"
+        nome_canonico: qt_dias_permanencia
+        tipo_canonico: INTEIRO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: QT_PONTOS
+        tipo_fisico: NUMBER
+        largura: "4"
+        decimais: "0"
+        nome_canonico: qt_pontos
+        tipo_canonico: INTEIRO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: VL_IDADE_MINIMA
+        tipo_fisico: NUMBER
+        largura: "4"
+        decimais: "0"
+        nome_canonico: vl_idade_minima
+        tipo_canonico: INTEIRO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+        sentinelas:
+          "9999": SENTINELA
+      - nome_fisico: VL_IDADE_MAXIMA
+        tipo_fisico: NUMBER
+        largura: "4"
+        decimais: "0"
+        nome_canonico: vl_idade_maxima
+        tipo_canonico: INTEIRO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+        sentinelas:
+          "9999": SENTINELA
+      - nome_fisico: VL_SH
+        tipo_fisico: NUMBER
+        largura: "12"
+        decimais: "2"
+        nome_canonico: vl_sh
+        tipo_canonico: DECIMAL
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: VL_SA
+        tipo_fisico: NUMBER
+        largura: "12"
+        decimais: "2"
+        nome_canonico: vl_sa
+        tipo_canonico: DECIMAL
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: VL_SP
+        tipo_fisico: NUMBER
+        largura: "12"
+        decimais: "2"
+        nome_canonico: vl_sp
+        tipo_canonico: DECIMAL
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: CO_FINANCIAMENTO
+        tipo_fisico: VARCHAR2
+        largura: "2"
+        decimais: "0"
+        nome_canonico: co_financiamento
+        tipo_canonico: TEXTO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: CO_RUBRICA
+        tipo_fisico: VARCHAR2
+        largura: "6"
+        decimais: "0"
+        nome_canonico: co_rubrica
+        tipo_canonico: TEXTO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: QT_TEMPO_PERMANENCIA
+        tipo_fisico: NUMBER
+        largura: "4"
+        decimais: "0"
+        nome_canonico: qt_tempo_permanencia
+        tipo_canonico: INTEIRO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: DT_COMPETENCIA
+        tipo_fisico: CHAR
+        largura: "6"
+        decimais: "0"
+        nome_canonico: dt_competencia
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+  - layout_id: sigtap.rl_procedimento_ocupacao
+    fonte: SIGTAP
+    versao: "1"
+    codificacao: latin-1
+    formato: LARGURA_FIXA
+    proveniencia: INFERIDA
+    confirmacao: A_CONFIRMAR
+    campos:
+      - nome_fisico: CO_PROCEDIMENTO
+        tipo_fisico: VARCHAR2
+        largura: "10"
+        decimais: "0"
+        nome_canonico: co_procedimento
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+      - nome_fisico: CO_OCUPACAO
+        tipo_fisico: VARCHAR2
+        largura: "6"
+        decimais: "0"
+        nome_canonico: co_ocupacao
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+      - nome_fisico: DT_COMPETENCIA
+        tipo_fisico: CHAR
+        largura: "6"
+        decimais: "0"
+        nome_canonico: dt_competencia
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+  - layout_id: sigtap.rl_procedimento_registro
+    fonte: SIGTAP
+    versao: "1"
+    codificacao: latin-1
+    formato: LARGURA_FIXA
+    proveniencia: INFERIDA
+    confirmacao: A_CONFIRMAR
+    campos:
+      - nome_fisico: CO_PROCEDIMENTO
+        tipo_fisico: VARCHAR2
+        largura: "10"
+        decimais: "0"
+        nome_canonico: co_procedimento
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+      - nome_fisico: CO_REGISTRO
+        tipo_fisico: VARCHAR2
+        largura: "2"
+        decimais: "0"
+        nome_canonico: co_registro
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+      - nome_fisico: DT_COMPETENCIA
+        tipo_fisico: CHAR
+        largura: "6"
+        decimais: "0"
+        nome_canonico: dt_competencia
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+  - layout_id: sigtap.tb_registro
+    fonte: SIGTAP
+    versao: "1"
+    codificacao: latin-1
+    formato: LARGURA_FIXA
+    proveniencia: INFERIDA
+    confirmacao: A_CONFIRMAR
+    campos:
+      - nome_fisico: CO_REGISTRO
+        tipo_fisico: VARCHAR2
+        largura: "2"
+        decimais: "0"
+        nome_canonico: co_registro
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+      - nome_fisico: NO_REGISTRO
+        tipo_fisico: VARCHAR2
+        largura: "50"
+        decimais: "0"
+        nome_canonico: no_registro
+        tipo_canonico: TEXTO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: DT_COMPETENCIA
+        tipo_fisico: CHAR
+        largura: "6"
+        decimais: "0"
+        nome_canonico: dt_competencia
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"

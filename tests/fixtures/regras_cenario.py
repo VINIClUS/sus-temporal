@@ -36,6 +36,7 @@ __all__ = [
     "CenarioRegras",
     "artefato",
     "coerente",
+    "gravar_dataset",
     "materializar",
     "para_referencia",
     "politica",
@@ -226,6 +227,19 @@ def _dataset(
         origem_dados=OrigemDados.SINTETICO,
         produzido_por="fixture_regras_sintetica",
     )
+
+
+def gravar_dataset(
+    caminho: Path,
+    schema_id: str,
+    linhas: list[dict[str, object]],
+    artefatos: tuple[str, ...],
+    *,
+    colunas: tuple[str, ...] | None = None,
+) -> DatasetRef:
+    """Parquet SINTETICO e `DatasetRef` coerente (colunas padrão do esquema na fixture)."""
+    padrao = {"sia_pa.v1": COLUNAS_REGISTRO, "cobertura.v1": _COBERTURA, **COLUNAS_AUXILIARES}
+    return _dataset(caminho, schema_id, colunas or padrao[schema_id], linhas, artefatos)
 
 
 def _artefatos_auxiliar(cenario: CenarioRegras, schema_id: str) -> tuple[str, ...]:

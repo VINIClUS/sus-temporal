@@ -53,7 +53,9 @@ class EntradaValidacao(ContratoBase):
 
 
 def configurar_parser(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--entrada", type=Path, required=True)
+    origem = parser.add_mutually_exclusive_group(required=True)
+    origem.add_argument("--entrada", type=Path)
+    origem.add_argument("--ingest", type=Path)
     parser.add_argument("--saida", type=Path, default=None)
 
 
@@ -84,6 +86,8 @@ def executar_validate(args: argparse.Namespace, config: RunConfig) -> int:
         ConfigInvalida: entrada, catálogo ou política inválidos.
     """
     metodo = METODO_DA_POLITICA[args.policy]
+    if args.ingest is not None:
+        raise NotImplementedError
     entrada = _ler_entrada(args.entrada)
     try:
         regras = carregar_regras()

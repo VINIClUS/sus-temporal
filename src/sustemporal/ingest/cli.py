@@ -13,13 +13,13 @@ from __future__ import annotations
 import json
 import logging
 import uuid
+from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 
-from sustemporal.acquisition.cli import CATALOGO_PADRAO, NOME_MANIFESTO_AQUISICAO
+from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import Manifesto
-from sustemporal.acquisition.sources import carregar_catalogo
 from sustemporal.contracts import FamiliaFonte, LayoutSpec, OrigemDados
 from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro
 from sustemporal.ingest.cnes import RESERVADAS, FamiliaReservada, carregar_leiautes_cnes
@@ -28,6 +28,7 @@ from sustemporal.ingest.dbf import ArquivoAusente, QuarentenaLeitura
 from sustemporal.ingest.registry import normalizador
 from sustemporal.ingest.sigtap_zip import carregar_leiautes_sigtap
 from sustemporal.ingest.territorio import carregar_territorio
+from sustemporal.temporal.selector import partes_esperadas_do_catalogo
 from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
@@ -119,27 +120,20 @@ class _Execucao:
             if chave.fonte is FamiliaFonte.SIA_PA and competencia is not None and sem_versao:
                 self.sia_pa_incompleto[competencia.valor] = observacao.resultado.value
 
-    def marcar_partes_esperadas(
-        self, manifesto: EstadoManifesto, config: RunConfig, competencias: list[str]
-    ) -> None:
-        """Parte declarada em `partes_esperadas` do catálogo e não obtida torna a competência
-        incompleta (a aquisição não grava observação para parte ausente da listagem)."""
-        catalogo = carregar_catalogo(Path(config.catalogos.get("fontes", str(CATALOGO_PADRAO))))
-        item = next((f for f in catalogo.fontes if f.fonte is FamiliaFonte.SIA_PA), None)
-        if item is None:
-            return
-        for competencia in competencias:
-            esperadas = set(item.partes_esperadas.get(competencia, ()))
-            obtidas = {
-                v.chave.parte
-                for v in manifesto.versoes.values()
-                if v.chave.fonte is FamiliaFonte.SIA_PA
-                and v.chave.competencia_arquivo is not None
-                and v.chave.competencia_arquivo.valor == competencia
-            }
-            faltam = sorted(esperadas - obtidas)
-            if faltam:
-                self.sia_pa_incompleto[competencia] = f"parte_nao_obtida partes={','.join(faltam)}"
+    def marcar_partes(self, manifesto: EstadoManifesto, config: RunConfig) -> None:
+        """Completude das partes do SIA-PA com a mesma semântica do seletor (T06): parte
+        declarada sem versão, parte não declarada ou partes sem declaração no catálogo tornam a
+        competência incompleta (a aquisição não grava observação de parte ausente da listagem)."""
+        esperadas_por = partes_esperadas_do_catalogo(config)
+        partes: dict[str, set[str | None]] = defaultdict(set)
+        for versao in manifesto.versoes.values():
+            competencia = versao.chave.competencia_arquivo
+            if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
+                partes[competencia.valor].add(versao.chave.parte)
+        for valor, obtidas in partes.items():
+            motivo = _incompletude(obtidas, esperadas_por.get((FamiliaFonte.SIA_PA, valor)))
+            if motivo is not None:
+                self.sia_pa_incompleto[valor] = motivo
 
     def _uma(self, funcao: _Normalizar, versao: ArtifactVersion, layout: LayoutSpec) -> None:
         try:
@@ -162,6 +156,21 @@ class _Execucao:
         competencia = versao.chave.competencia_arquivo
         if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
             self.sia_pa_incompleto[competencia.valor] = estado
+
+
+def _incompletude(obtidas: set[str | None], esperadas: frozenset[str] | None) -> str | None:
+    nomeadas = {parte for parte in obtidas if parte is not None}
+    if esperadas is None:
+        if not nomeadas:
+            return None
+        return f"partes_sem_declaracao completude=INDETERMINADA partes={','.join(sorted(nomeadas))}"
+    extras = nomeadas - esperadas
+    if extras:
+        return f"partes_nao_declaradas extras={','.join(sorted(extras))}"
+    faltantes = esperadas - nomeadas
+    if faltantes:
+        return f"partes_ausentes ausentes={','.join(sorted(faltantes))}"
+    return None
 
 
 def _chave_logica(chave: ChaveArtefato) -> tuple[object, ...]:
@@ -195,8 +204,8 @@ def executar_ingest(args: argparse.Namespace, config: RunConfig) -> int:
         if versao.chave.fonte in {*RESERVADAS, *_NORMALIZAVEIS}:
             execucao.normalizar(versao)
     execucao.marcar_tentativas_sem_versao(manifesto)
+    execucao.marcar_partes(manifesto, config)
     competencias = [c.valor for c in piloto.competencias_processamento]
-    execucao.marcar_partes_esperadas(manifesto, config, competencias)
     sia_pa = [d for d in execucao.datasets if d.schema_id == "sia_pa.v1"]
     auxiliares = [d for d in execucao.datasets if d.schema_id != "sia_pa.v1"]
     cobertura = build_coverage(

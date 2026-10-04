@@ -114,8 +114,9 @@ e com ela as seleções (`tests/integration/test_baselines.py`).
 - `VERSAO_CNES` / `VERSAO_SIGTAP`: `trocar_versao_fonte` reescreve só as versões da fonte na
   `selecao_versoes.v1` (base, competência e estado fixos; observações antigas descartadas e motivo
   marcado); catálogo, política, configuração, código, ambiente, snapshot e demais entradas
-  idênticos; seleções das outras fontes iguais em todos os campos; avaliações das regras de
-  outras fontes idênticas (estado, motivos e evidências). Versão substituta de outra competência
+  idênticos; seleções das outras fontes iguais em todos os campos; toda avaliação fora dos
+  pares (linha, regra) cuja versão da fonte-alvo trocou de fato fica idêntica (estado, motivos e
+  evidências). Versão substituta de outra competência
   vira competência divergente no motor e a ablação é recusada, nunca medida como sensibilidade.
 
 As duas execuções precisam estar `CONCLUIDA` e sem falhas, e o fator precisa mudar de fato

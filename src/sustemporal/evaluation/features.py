@@ -77,6 +77,8 @@ def auditar_features(
     Raises:
         ValueError: atributo proibido, de papel desconhecido ou com transformação não prevista.
     """
+    if not features.atributos:
+        raise ValueError(f"feature_spec_vazia feature_set={features.feature_set_id}")
     esquemas = tuple(esquemas)
     for atributo in features.atributos:
         _exigir_permitido(atributo)

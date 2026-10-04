@@ -31,7 +31,7 @@ from sustemporal.contracts.records import (
 )
 from sustemporal.contracts.temporal import MetodoId
 from sustemporal.duck import conectar, identificador_seguro
-from sustemporal.errors import FalhaOperacionalErro
+from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.baselines_modelo import Ajuste, Linha, Predicao, ajustar, prever
 from sustemporal.evaluation.features import OrigemAtributo, auditar_features
 from sustemporal.gates import DIR_DECISOES, exigir_confirmatorio_valido
@@ -278,9 +278,14 @@ def fit_baseline(
     Raises:
         ValueError: sem rótulos, atributo proibido, esquema inesperado ou treino sem as duas
             classes.
-        PortaoRecusado: confirmatório sem dados reais ou sem G2 para o congelamento.
+        PortaoRecusado: confirmatório, recusado antes de abrir arquivos até o T11 conferir o
+            `FreezeManifest` (código, split, atributos, config e entradas).
         FalhaOperacionalErro: entrada ilegível ou diferente do `DatasetRef`.
     """
+    if config.modo is ModoExecucao.CONFIRMATORIO:
+        raise PortaoRecusado(
+            f"confirmatorio_exige_freeze_verificado freeze={config.freeze_id} decisoes={decisoes}"
+        )
     agora = relogio or _agora
     iniciado = agora()
     particoes, rotulos = _particoes_permitidas(split, config.modo)

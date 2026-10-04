@@ -244,6 +244,17 @@ def _vigilancia(config: RunConfig) -> VigilanciaSpec:
     return config.vigilancia
 
 
+def _nomes_ou_motivo(store: Path, listagem: ArtifactObservation) -> tuple[list[str], str | None]:
+    """Nomes da listagem obtida, ou o motivo de inconclusão (não obtida ou guardada ilegível)."""
+    if listagem.resultado is not ResultadoTentativa.OBTIDO:
+        return [], f"listagem_nao_obtida resultado={listagem.resultado}"
+    try:
+        return nomes_listados(store, listagem), None
+    except (OSError, ValueError, FalhaOperacionalErro) as erro:
+        logger.warning("listagem_ilegivel id=%s erro=%s", listagem.observation_id, erro)
+        return [], f"listagem_ilegivel erro={erro}"
+
+
 def _planejar_vigilancia(
     config: RunConfig, obter: Obter, referencia: datetime, anteriores: Iterable[Chave]
 ) -> tuple[list[SourceRequest], list[Chave], list[JanelaIncompleta]]:
@@ -258,12 +269,11 @@ def _planejar_vigilancia(
     incompletas: list[JanelaIncompleta] = []
     for fonte in vigilancia.familias_fontes:
         listagem = obter(requisicao_listagem(catalogo, fonte, motivo=MotivoRequisicao.VIGILANCIA))
-        if listagem.resultado is not ResultadoTentativa.OBTIDO:
-            motivo = f"listagem_nao_obtida resultado={listagem.resultado}"
+        nomes, motivo = _nomes_ou_motivo(store, listagem)
+        if motivo is not None:
             inconclusiva = ResultadoComparacao.INCONCLUSIVO.value
             incompletas.append(JanelaIncompleta(str(fonte), pedido, 0, (), motivo, inconclusiva))
             continue
-        nomes = nomes_listados(store, listagem)
         janela = competencias_da_janela(
             catalogo.fonte(fonte), vigilancia.uf, nomes, pedido, referencia
         )
@@ -361,7 +371,7 @@ def executar_watch(
     )
     comparacoes = _classificar_todas(config, anteriores, observadas, sumidas)
     linhas = linhas_do_relatorio(comparacoes, incompletas)
-    resumo = resumir_linhas(linhas, observadas)
+    resumo = resumir_linhas(linhas, [*listagens, *observadas])
     gravar_relatorio(Path(config.runtime.raiz_manifestos) / NOME_RELATORIO, linhas, resumo)
     falhas = sum(nao_conclusiva(linha) for linha in linhas)
     logger.info("watch_concluido requisicoes=%d falhas=%d %s", len(requisicoes), falhas, resumo)

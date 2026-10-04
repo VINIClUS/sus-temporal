@@ -144,7 +144,9 @@ Também confere a coerência de uma tabela fornecida com a política da execuç�
      (inclusive listagem vazia ou truncada), o relatório recebe uma linha `janela_incompleta`
      com o pedido e o obtido. A execução conta isso como falha e sai 5.
    - **Listagem que falha** (NAO_ENCONTRADO, INTERROMPIDO e outras): o relatório recebe uma
-     linha de família `INCONCLUSIVO`, com motivo `listagem_nao_obtida resultado=<…>`.
+     linha de família `INCONCLUSIVO`, com motivo `listagem_nao_obtida resultado=<…>`. Uma
+     listagem obtida cujo conteúdo guardado está ausente, ilegível ou com hash divergente recebe
+     a mesma linha, com motivo `listagem_ilegivel`.
 3. Observa de novo cada arquivo (`observe_updates`), sem pular os já obtidos. Os mesmos bytes
    viram nova observação da mesma versão; bytes novos viram versão nova. O histórico não é
    substituído.
@@ -175,7 +177,8 @@ Também confere a coerência de uma tabela fornecida com a política da execuç�
      deletado aparece como saída das ativas.
 5. Acrescenta a `<raiz_manifestos>/vigilancia.jsonl` as linhas de família, uma linha por
    tentativa de arquivo (e por chave sumida) e um resumo com a contagem por resultado.
-   - O resumo e o código de saída são calculados só a partir das linhas gravadas.
+   - O resumo e o código de saída são calculados só a partir das linhas gravadas. O resumo
+     conta as observações de listagem e de arquivo (`observacoes=`, `de`/`ate`).
    - A saída 5 ocorre se, e somente se, há linha não conclusiva: janela incompleta,
      INCONCLUSIVO ou ARQUIVO_SUMIU. Um teste de propriedade confere isso.
    - O resumo só fala das observações da pesquisa (`… de=… ate=…

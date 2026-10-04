@@ -23,7 +23,13 @@ from sustemporal.contracts.rules import (
     UnidadeAvaliacao,
     decidir_estado,
 )
-from sustemporal.contracts.temporal import BaseTemporal, EstadoSelecao, MetodoId, SelecaoVersao
+from sustemporal.contracts.temporal import (
+    BaseTemporal,
+    CriterioTemporal,
+    EstadoSelecao,
+    MetodoId,
+    SelecaoVersao,
+)
 
 _A = f"art_{'a' * 64}"
 _B = f"art_{'b' * 64}"
@@ -429,3 +435,17 @@ def test_agregar_rejeita_regra_avaliada_duas_vezes() -> None:
     ]
     with pytest.raises(ValueError, match="avaliacao_repetida"):
         AgregadoRegistro.agregar("run_1", _ROW, avaliacoes)
+
+
+def test_regra_aceita_criterio_temporal_de_fonte_exigida() -> None:
+    criterio = CriterioTemporal(fonte=FamiliaFonte.CNES_PF, base=BaseTemporal.ATENDIMENTO)
+    assert _regra(criterios_temporais=(criterio,)).criterios_temporais == (criterio,)
+
+
+@pytest.mark.parametrize("fontes", [(FamiliaFonte.SIGTAP,), (FamiliaFonte.CNES_PF,) * 2])
+def test_regra_rejeita_criterio_de_fonte_nao_exigida_ou_repetida(
+    fontes: tuple[FamiliaFonte, ...],
+) -> None:
+    criterios = tuple(CriterioTemporal(fonte=f, base=BaseTemporal.ATENDIMENTO) for f in fontes)
+    with pytest.raises(ValidationError, match="criterio_de_fonte_invalido"):
+        _regra(criterios_temporais=criterios)

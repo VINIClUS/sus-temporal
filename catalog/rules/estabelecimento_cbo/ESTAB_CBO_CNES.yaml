@@ -1,0 +1,43 @@
+# Candidata do primeiro incremento (plano §5); escolher as famílias observáveis é decisão do G0.
+rule_id: ESTAB_CBO_CNES
+familia: ESTABELECIMENTO_CBO
+versao: 0.1.0
+estado: CANDIDATA_PRE_G0
+descricao: >-
+  O par CNES–CBO do registro SIA-PA aparece com ao menos um vínculo (n_vinculos > 0) no CNES PF,
+  reduzido a contagens por estabelecimento–CBO, da versão selecionada pela política temporal. A
+  verificação fica no nível estabelecimento–CBO, sem identificar nem inferir o vínculo de um
+  profissional; presença em retrato mensal não data o início de um vínculo. Estabelecimento fora
+  do escopo pesquisado leva a inconclusão.
+instrumentos: [C, I, P, S, A, B]
+condicao_aplicabilidade: instrumento_na_lista_da_regra
+unidade_avaliacao: ESTABELECIMENTO_CBO
+campos_necessarios: [instrumento, cnes, cbo]
+requisitos_fonte:
+  - fonte: SIA_PA
+    schema_id: sia_pa.v1
+    campos: [cnes, cbo, instrumento, competencia_atendimento, competencia_processamento]
+  - fonte: CNES_PF
+    schema_id: cnes_estab_cbo.v1
+    campos: [competencia_arquivo, cnes, cbo, n_vinculos]
+politica_id: documentada_pendente
+criterios_temporais: []
+referencia:
+  doc_id: O7
+  titulo: Informe Técnico CNES 1706 (IT_CNES_1706.pdf)
+  url: ftp://ftp.datasus.gov.br/dissemin/publicos/CNES/200508_/doc/IT_CNES_1706.pdf
+  localizador: >-
+    leiaute do grupo PF (profissionais); existência vista no inventário S10, conteúdo ainda não
+    lido; base normativa da exigência do par estabelecimento–CBO a localizar
+  estado: PENDENTE
+  proveniencia: SECUNDARIA
+  confirmacao: A_CONFIRMAR
+pressupostos:
+  - >-
+    Critério temporal documental por fonte NAO_RESOLVIDO: qual competência do CNES PF vale para o
+    registro depende de documento normativo pendente; B_ATEND e B_PROC são alternativas
+    exploratórias.
+  - >-
+    Em quais instrumentos e procedimentos a exigência do par estabelecimento–CBO vale é
+    A_CONFIRMAR; a lista de instrumentos é provisória.
+  - BPA consolidado avaliado no nível estabelecimento–CBO, nunca no de um profissional.

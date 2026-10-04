@@ -514,3 +514,84 @@ def test_fidelidade_conta_so_registros_realmente_comparados() -> None:
     relatorio = verificar_fidelidade(dbc, dataclasses.replace(leitura, tabela=tabela), "COMPLETA")
     assert not relatorio.fiel
     assert relatorio.registros_comparados == 4
+
+
+def test_fidelidade_com_cabecalho_divergente_nao_compara_registros_nem_levanta() -> None:
+    leitura = ler_dbc(dbf_para_dbc(_dbf())).leitura
+    dbc_truncado = dbf_para_dbc(_dbf(truncar_bytes=4))
+    relatorio = verificar_fidelidade(dbc_truncado, leitura, "COMPLETA")
+    assert relatorio.verificado
+    assert not relatorio.fiel
+    assert relatorio.registros_comparados == 0
+    assert any(d.startswith("cabecalho_divergente") for d in relatorio.divergencias)
+
+
+def test_ler_dbc_arquivo_limita_descompressao_ao_tamanho_declarado(tmp_path: Path) -> None:
+    dbf = bytearray(escrever_dbf(CAMPOS, list(REGISTROS) * 50, com_eof=False))
+    struct.pack_into("<I", dbf, 4, 2)
+    caminho = tmp_path / "bomba.dbc"
+    caminho.write_bytes(dbf_para_dbc(bytes(dbf)))
+    with pytest.raises(QuarentenaLeitura) as erro:
+        ler_dbc_arquivo(caminho, dir_temporario=tmp_path)
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+    assert erro.value.motivo.startswith("dbf_excede_tamanho_declarado")
+
+
+@pytest.mark.parametrize(
+    ("desfecho", "estado"),
+    [
+        ("EXCEDEU_LIMITE", EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO),
+        ("TRUNCADO", EstadoIntegridade.QUARENTENA_TRUNCADO),
+        ("INVALIDO", EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO),
+    ],
+)
+def test_ler_dbc_arquivo_usa_descompressor_limitado(
+    desfecho: str, estado: EstadoIntegridade, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sustemporal.acquisition.descompressao import (
+        DesfechoDescompressao,
+        ResultadoDescompressao,
+    )
+
+    chamadas: list[int] = []
+
+    def falso(origem: Path, destino: Path, limite: int, **_: object) -> ResultadoDescompressao:
+        chamadas.append(limite)
+        return ResultadoDescompressao(DesfechoDescompressao(desfecho), "simulado")
+
+    monkeypatch.setattr(dbc_mod, "descomprimir_limitado", falso, raising=False)
+    dbf = _dbf()
+    caminho = tmp_path / "x.dbc"
+    caminho.write_bytes(dbf_para_dbc(dbf))
+    with pytest.raises(QuarentenaLeitura) as erro:
+        ler_dbc_arquivo(caminho, dir_temporario=tmp_path)
+    assert erro.value.estado is estado
+    h, r = struct.unpack_from("<HH", dbf, 8)
+    assert chamadas == [h + len(REGISTROS) * r + 1]
+
+
+@pytest.mark.parametrize("segundo", ["INVALIDO", "EXCEDEU_LIMITE"])
+def test_fim_dcl_so_e_provado_por_truncamento_na_segunda_descompressao(
+    segundo: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sustemporal.acquisition.descompressao import (
+        DesfechoDescompressao,
+        ResultadoDescompressao,
+        descomprimir_limitado,
+    )
+
+    chamadas: list[Path] = []
+
+    def falso(origem: Path, destino: Path, limite: int, **kwargs: object) -> ResultadoDescompressao:
+        chamadas.append(origem)
+        if len(chamadas) == 1:
+            return descomprimir_limitado(origem, destino, limite)
+        return ResultadoDescompressao(DesfechoDescompressao(segundo), "simulado")
+
+    monkeypatch.setattr(dbc_mod, "descomprimir_limitado", falso)
+    caminho = tmp_path / "x.dbc"
+    caminho.write_bytes(dbf_para_dbc(_dbf()))
+    with pytest.raises(QuarentenaLeitura) as erro:
+        ler_dbc_arquivo(caminho, dir_temporario=tmp_path)
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+    assert erro.value.motivo.startswith("fim_dcl_inconclusivo")

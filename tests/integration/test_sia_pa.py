@@ -1,0 +1,735 @@
+from __future__ import annotations
+
+from decimal import Decimal
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import duckdb
+import pyarrow.parquet as pq
+import pytest
+from tests.fixtures.dbf_writer import CampoDbf
+from tests.fixtures.sia_pa_fixtures import (
+    CAMINHO_CODEBOOK,
+    CAMINHO_ESQUEMA,
+    CAMINHO_ESQUEMA_ROTULOS,
+    artefato_pa,
+    campos_pa,
+    dbc_pa,
+    leiaute_pa,
+    registro_pa,
+)
+
+from sustemporal.contracts import (
+    CodigoRotulo,
+    DatasetRef,
+    EsquemaCanonico,
+    EstadoIntegridade,
+    OrigemDados,
+    PapelColuna,
+    RuntimeConfig,
+)
+from sustemporal.evaluation.labels import label_pa, perfil_pa
+from sustemporal.hashing import hash_logico_relacao
+from sustemporal.ingest.dbf import QuarentenaLeitura
+from sustemporal.ingest.sia_pa import normalize_pa
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from sustemporal.contracts import ArtifactVersion, LayoutSpec
+
+ESQUEMA = EsquemaCanonico.de_yaml(CAMINHO_ESQUEMA)
+ESQUEMA_ROTULOS = EsquemaCanonico.de_yaml(CAMINHO_ESQUEMA_ROTULOS)
+
+
+def _saida(tmp_path: Path, nome: str = "saida") -> Path:
+    pasta = tmp_path / nome
+    pasta.mkdir(exist_ok=True)
+    return pasta
+
+
+def _runtime(tmp_path: Path, **campos: Any) -> RuntimeConfig:
+    return RuntimeConfig.model_validate(
+        {"raiz_dados": str(_saida(tmp_path, "artefatos")), **campos}
+    )
+
+
+def _artefato(
+    tmp_path: Path, registros: Sequence[dict[str, str]], **kwargs: Any
+) -> ArtifactVersion:
+    return artefato_pa(_saida(tmp_path, "artefatos"), dbc_pa(registros, **kwargs))
+
+
+def _normalizar(
+    tmp_path: Path,
+    registros: Sequence[dict[str, str]],
+    *,
+    layout: LayoutSpec | None = None,
+    runtime: RuntimeConfig | None = None,
+    **kwargs: Any,
+) -> tuple[DatasetRef, list[dict[str, Any]]]:
+    artefato = _artefato(tmp_path, registros, **kwargs)
+    ref = normalize_pa(
+        artefato,
+        layout or leiaute_pa(),
+        _saida(tmp_path),
+        runtime=runtime or _runtime(tmp_path),
+        origem_dados=OrigemDados.SINTETICO,
+    )
+    return ref, pq.read_table(ref.caminho).to_pylist()
+
+
+def _rotular(tmp_path: Path, ref: DatasetRef) -> tuple[DatasetRef, list[dict[str, Any]]]:
+    rotulos = label_pa(ref, CAMINHO_CODEBOOK, _saida(tmp_path, "rotulos"))
+    return rotulos, pq.read_table(rotulos.caminho).to_pylist()
+
+
+def test_preserva_zeros_a_esquerda_em_codigos(tmp_path: Path) -> None:
+    registro = registro_pa(
+        PA_CODUNI="0000123", PA_PROC_ID="0101010010", PA_UFMUN="012345", PA_CBOCOD="0000A1"
+    )
+    _, (linha,) = _normalizar(tmp_path, [registro])
+    assert linha["cnes"] == "0000123"
+    assert linha["procedimento"] == "0101010010"
+    assert linha["municipio_estabelecimento"] == "012345"
+    assert linha["cbo"] == "0000A1"
+    assert linha["cnes_bruto"] == "0000123"
+    assert linha["cnes_motivo"] is None
+
+
+def test_competencias_de_processamento_e_atendimento_distintas(tmp_path: Path) -> None:
+    registros = [registro_pa(PA_MVM="201801", PA_CMP="201710"), registro_pa(PA_CMP="")]
+    _, linhas = _normalizar(tmp_path, registros)
+    assert linhas[0]["competencia_processamento"] == "201801"
+    assert linhas[0]["competencia_atendimento"] == "201710"
+    assert linhas[1]["competencia_atendimento"] is None
+    assert linhas[1]["competencia_atendimento_motivo"] == "VAZIO"
+    assert linhas[1]["competencia_atendimento_bruto"] == " " * 6
+
+
+def test_duplicatas_preservam_multiplicidade(tmp_path: Path) -> None:
+    registros = [registro_pa()] * 3 + [registro_pa(PA_CODUNI="0099999")]
+    ref, linhas = _normalizar(tmp_path, registros)
+    assert ref.linhas == 4
+    assert len({linha["row_id"] for linha in linhas}) == 4
+    assert [linha["indice_registro"] for linha in linhas] == [0, 1, 2, 3]
+    assert ref.multiplicidade is not None
+    assert ref.multiplicidade.linhas_totais == 4
+    assert ref.multiplicidade.combinacoes_distintas == 2
+    assert ref.multiplicidade.max_repeticoes == 3
+
+
+def test_registros_agregados_bpa_c_preservados_sem_inventar_paciente(tmp_path: Path) -> None:
+    registro = registro_pa(PA_DOCORIG="C", PA_QTDPRO="37", PA_QTDAPR="37", PA_IDADE="999")
+    ref, (linha,) = _normalizar(tmp_path, [registro])
+    assert ref.linhas == 1
+    assert linha["instrumento"] == "C"
+    assert linha["quantidade_apresentada"] == 37
+    assert linha["quantidade_aprovada"] == 37
+    assert linha["idade"] is None
+    assert linha["idade_motivo"] == "DESCONHECIDO"
+    assert linha["idade_bruto"] == "999"
+
+
+def test_rotulos_0_5_6(tmp_path: Path) -> None:
+    registros = [registro_pa(PA_INDICA=c) for c in ("0", "5", "6")]
+    ref, _ = _normalizar(tmp_path, registros)
+    _, rotulos = _rotular(tmp_path, ref)
+    assert [r["rotulo"] for r in rotulos] == [
+        CodigoRotulo.NAO_APROVADO,
+        CodigoRotulo.APROVADO_TOTAL,
+        CodigoRotulo.APROVADO_PARCIAL,
+    ]
+    assert [r["pa_indica_bruto"] for r in rotulos] == ["0", "5", "6"]
+    assert {r["codebook_id"] for r in rotulos} == {"sia_pa_indica.v1"}
+
+
+def test_codigo_desconhecido_vira_desconhecido_com_bruto_preservado(tmp_path: Path) -> None:
+    registros = [registro_pa(PA_INDICA="9"), registro_pa(PA_INDICA="")]
+    ref, _ = _normalizar(tmp_path, registros)
+    _, rotulos = _rotular(tmp_path, ref)
+    assert [r["rotulo"] for r in rotulos] == [CodigoRotulo.DESCONHECIDO] * 2
+    assert [r["pa_indica_bruto"] for r in rotulos] == ["9", " "]
+
+
+@pytest.mark.parametrize(
+    ("campos", "esperadas"),
+    [
+        (
+            {"PA_INDICA": "0", "PA_QTDPRO": "3", "PA_QTDAPR": "2", "PA_VALAPR": "5.00"},
+            "NAO_APROVADO_COM_QUANTIDADE_APROVADA;NAO_APROVADO_COM_VALOR_APROVADO",
+        ),
+        (
+            {"PA_INDICA": "5", "PA_QTDPRO": "3", "PA_QTDAPR": "1", "PA_VALAPR": "4.00"},
+            "APROVADO_TOTAL_COM_QUANTIDADE_DIVERGENTE;APROVADO_TOTAL_COM_VALOR_DIVERGENTE",
+        ),
+        ({"PA_INDICA": "6"}, "APROVADO_PARCIAL_SEM_REDUCAO"),
+        (
+            {"PA_INDICA": "6", "PA_QTDAPR": "0", "PA_VALAPR": "0.00"},
+            "APROVADO_SEM_QUANTIDADE_APROVADA",
+        ),
+        (
+            {"PA_INDICA": "0", "PA_QTDPRO": "1", "PA_QTDAPR": "2", "PA_VALAPR": "11.00"},
+            (
+                "NAO_APROVADO_COM_QUANTIDADE_APROVADA;NAO_APROVADO_COM_VALOR_APROVADO;"
+                "QUANTIDADE_APROVADA_MAIOR_QUE_APRESENTADA;VALOR_APROVADO_MAIOR_QUE_APRESENTADO"
+            ),
+        ),
+        ({"PA_INDICA": "5"}, ""),
+        ({"PA_INDICA": "6", "PA_QTDPRO": "3", "PA_QTDAPR": "3", "PA_VALAPR": "4.00"}, ""),
+        ({"PA_INDICA": "6", "PA_QTDPRO": "3", "PA_QTDAPR": "2", "PA_VALAPR": "10.00"}, ""),
+        ({"PA_INDICA": "0", "PA_QTDAPR": "", "PA_VALAPR": ""}, ""),
+    ],
+)
+def test_valores_contraditorios_contados_sem_correcao(
+    tmp_path: Path, campos: dict[str, str], esperadas: str
+) -> None:
+    ref, (linha,) = _normalizar(tmp_path, [registro_pa(**campos)])
+    _, (rotulo,) = _rotular(tmp_path, ref)
+    assert rotulo["contradicoes"] == esperadas
+    esperado = {"0": "NAO_APROVADO", "5": "APROVADO_TOTAL", "6": "APROVADO_PARCIAL"}
+    assert rotulo["rotulo"] == esperado[campos["PA_INDICA"]]
+    assert rotulo["pa_indica_bruto"] == campos["PA_INDICA"]
+    assert rotulo["quantidade_aprovada"] == linha["quantidade_aprovada"]
+    assert rotulo["valor_aprovado"] == linha["valor_aprovado"]
+
+
+def test_nao_aprovados_e_deletados_nao_sao_filtrados(tmp_path: Path) -> None:
+    registros = [registro_pa(PA_INDICA="0"), registro_pa(PA_INDICA="0"), registro_pa()]
+    ref, linhas = _normalizar(tmp_path, registros, deletados={1})
+    assert ref.linhas == 3
+    assert [linha["pa_indica"] for linha in linhas] == ["0", "0", "5"]
+    assert [linha["deletado"] for linha in linhas] == [False, True, False]
+    rotulos_ref, rotulos = _rotular(tmp_path, ref)
+    assert rotulos_ref.linhas == 3
+    assert [r["rotulo"] for r in rotulos].count(CodigoRotulo.NAO_APROVADO) == 2
+
+
+def test_reconciliacao_bruto_canonico_sem_perda(tmp_path: Path) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()] * 4, deletados={0, 3})
+    assert ref.reconciliacao is not None
+    assert ref.reconciliacao.fisicos == 4
+    assert ref.reconciliacao.canonicas == 4
+    assert ref.reconciliacao.deletados == 2
+    assert ref.reconciliacao.quarentena == 0
+    assert ref.reconciliacao.excluidas_por_motivo == {}
+
+
+def test_rotulo_fica_separado_dos_atributos_de_predicao(tmp_path: Path) -> None:
+    atributos = set(ESQUEMA.colunas_com_papel(PapelColuna.ATRIBUTO))
+    assert "pa_indica" not in atributos
+    assert not {"quantidade_aprovada", "valor_aprovado", "valor_apresentado"} & atributos
+    assert ESQUEMA_ROTULOS.colunas_com_papel(PapelColuna.ATRIBUTO) == ()
+    ref, (linha,) = _normalizar(tmp_path, [registro_pa()])
+    _, (rotulo,) = _rotular(tmp_path, ref)
+    assert set(rotulo) == {c.nome for c in ESQUEMA_ROTULOS.colunas}
+    assert rotulo["row_id"] == linha["row_id"]
+
+
+def test_dbc_truncado_vai_para_quarentena_sem_dataset(tmp_path: Path) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()] * 3, truncar_bytes=10)
+    saida = _saida(tmp_path)
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(
+            artefato,
+            leiaute_pa(),
+            saida,
+            runtime=_runtime(tmp_path),
+            origem_dados=OrigemDados.SINTETICO,
+        )
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_TRUNCADO
+    assert list(saida.iterdir()) == []
+
+
+def test_artefato_ja_em_quarentena_nao_e_lido(tmp_path: Path) -> None:
+    artefato = artefato_pa(
+        _saida(tmp_path, "artefatos"),
+        dbc_pa([registro_pa()]),
+        integridade=EstadoIntegridade.QUARENTENA_CHECKSUM,
+    )
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CHECKSUM
+
+
+@pytest.mark.parametrize("n_colunas", [54, 60, 61])
+def test_aceita_leiaute_com_54_60_ou_61_colunas(tmp_path: Path, n_colunas: int) -> None:
+    ref, (linha,) = _normalizar(tmp_path, [registro_pa()], n_colunas=n_colunas)
+    assert ref.linhas == 1
+    if n_colunas == 54:
+        assert linha["pa_vl_cf"] is None
+        assert linha["pa_vl_cf_bruto"] is None
+        assert linha["pa_vl_cf_motivo"] == "DESCONHECIDO"
+        assert linha["pa_srv_c"] is None
+    else:
+        assert linha["pa_vl_cf"] == Decimal("0.00")
+        assert linha["pa_vl_cf_motivo"] is None
+
+
+def _campos_com(alteracao: str) -> list[CampoDbf]:
+    campos = campos_pa(60)
+    if alteracao == "extra":
+        return [*campos, CampoDbf("PA_NOVO", "C", 1)]
+    if alteracao == "ordem":
+        campos[13], campos[14] = campos[14], campos[13]
+        return campos
+    if alteracao == "faltando":
+        return [c for c in campos if c.nome != "PA_CMP"]
+    if alteracao == "largura":
+        return [
+            CampoDbf(c.nome, c.tipo, 8 if c.nome == "PA_CODUNI" else c.largura, c.decimais)
+            for c in campos
+        ]
+    return campos[::-1]
+
+
+@pytest.mark.parametrize("alteracao", ["extra", "ordem", "faltando", "largura", "invertido"])
+def test_leiaute_incompativel_vai_para_quarentena(tmp_path: Path, alteracao: str) -> None:
+    registro = {**registro_pa(), "PA_NOVO": "x"}
+    artefato = _artefato(tmp_path, [registro], campos=_campos_com(alteracao))
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_LEIAUTE
+
+
+@pytest.mark.parametrize(
+    ("campo_fisico", "bruto", "coluna", "motivo"),
+    [
+        ("PA_SEXO", "0", "sexo", "NAO_APLICAVEL"),
+        ("PA_CATEND", "99", "carater_atendimento", "DESCONHECIDO"),
+        ("PA_CATEND", "00", "carater_atendimento", "VAZIO"),
+        ("PA_CODUNI", "", "cnes", "VAZIO"),
+        ("PA_CODUNI", "12A4567", "cnes", "CODIFICACAO_INVALIDA"),
+        ("PA_DOCORIG", "X", "instrumento", "CODIFICACAO_INVALIDA"),
+        ("PA_MVM", "201813", "competencia_processamento", "CODIFICACAO_INVALIDA"),
+        ("PA_QTDPRO", "1.5", "quantidade_apresentada", "CODIFICACAO_INVALIDA"),
+        ("PA_QTDPRO", "-1", "quantidade_apresentada", "CODIFICACAO_INVALIDA"),
+        ("PA_QTDAPR", "-3", "quantidade_aprovada", "CODIFICACAO_INVALIDA"),
+        ("PA_VALPRO", "12.345", "valor_apresentado", "CODIFICACAO_INVALIDA"),
+        ("PA_TPUPS", "", "tipo_unidade", "VAZIO"),
+    ],
+)
+def test_ausencia_guarda_bruto_e_motivo(
+    tmp_path: Path, campo_fisico: str, bruto: str, coluna: str, motivo: str
+) -> None:
+    _, (linha,) = _normalizar(tmp_path, [registro_pa(**{campo_fisico: bruto})])
+    assert linha[coluna] is None
+    assert linha[f"{coluna}_motivo"] == motivo
+    assert linha[f"{coluna}_bruto"].strip() == bruto
+
+
+def test_campo_presente_tem_motivo_nulo_e_bruto_sem_aparar(tmp_path: Path) -> None:
+    _, (linha,) = _normalizar(tmp_path, [registro_pa(PA_QTDPRO="7", PA_SEXO="M")])
+    assert linha["quantidade_apresentada"] == 7
+    assert linha["quantidade_apresentada_bruto"] == "7".rjust(11)
+    assert linha["quantidade_apresentada_motivo"] is None
+    assert linha["sexo"] == "M"
+    assert linha["sexo_motivo"] is None
+
+
+def test_idade_so_convertida_com_unidade_conhecida(tmp_path: Path) -> None:
+    _, (com_unidade,) = _normalizar(tmp_path, [registro_pa(PA_IDADE="034")])
+    assert com_unidade["idade"] == 34
+    assert com_unidade["idade_unidade"] == "ANOS"
+    layout = leiaute_pa()
+    campos = tuple(
+        c.model_copy(update={"unidade": None}) if c.nome_fisico == "PA_IDADE" else c
+        for c in layout.campos
+    )
+    sem_unidade = layout.model_copy(update={"campos": campos})
+    _, (linha,) = _normalizar(
+        _saida(tmp_path, "b"), [registro_pa(PA_IDADE="034")], layout=sem_unidade
+    )
+    assert linha["idade"] is None
+    assert linha["idade_unidade"] is None
+    assert linha["idade_motivo"] == "DESCONHECIDO"
+    assert linha["idade_bruto"] == "034"
+
+
+def test_dinheiro_e_decimal_exato(tmp_path: Path) -> None:
+    ref, (linha,) = _normalizar(tmp_path, [registro_pa(PA_VALPRO="1234.56", PA_VALAPR="0.10")])
+    assert linha["valor_apresentado"] == Decimal("1234.56")
+    assert linha["valor_aprovado"] == Decimal("0.10")
+    tipo = pq.read_schema(ref.caminho).field("valor_apresentado").type
+    assert str(tipo).startswith("decimal")
+
+
+def test_esquema_de_saida_segue_o_catalogo_e_descarta_identificadores(tmp_path: Path) -> None:
+    ref, (linha,) = _normalizar(tmp_path, [registro_pa()])
+    nomes = pq.read_schema(ref.caminho).names
+    assert nomes == [c.nome for c in ESQUEMA.colunas]
+    assert not {n for n in nomes if any(t in n for t in ("cnpj", "cns", "autoriz", "fntorc"))}
+    assert linha["pa_gestao"] == "350000"
+    assert linha["pa_racacor"] == "03"
+
+
+def test_hash_logico_e_linhas_conferem_com_a_relacao(tmp_path: Path) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()] * 2 + [registro_pa(PA_INDICA="0")])
+    con = duckdb.connect()
+    con.execute("CREATE TABLE t AS SELECT * FROM read_parquet(?)", [ref.caminho])
+    assert hash_logico_relacao(con, "t", [c.nome for c in ESQUEMA.colunas]) == ref.hash_logico
+    assert con.execute("SELECT count(*) FROM t").fetchone() == (ref.linhas,)
+
+
+def test_dataset_registra_origem_sintetica_e_artefato(tmp_path: Path) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()], deletados={0})
+    ref = normalize_pa(
+        artefato,
+        leiaute_pa(),
+        _saida(tmp_path),
+        runtime=_runtime(tmp_path),
+        origem_dados=OrigemDados.SINTETICO,
+    )
+    assert ref.origem_dados is OrigemDados.SINTETICO
+    assert ref.artifact_ids == (artefato.artifact_id,)
+    assert ref.schema_id == "sia_pa.v1"
+    (linha,) = pq.read_table(ref.caminho).to_pylist()
+    assert linha["row_id"] == f"{artefato.artifact_id}#0"
+    assert linha["artifact_id"] == artefato.artifact_id
+    assert linha["membro"] is None
+    assert linha["deletado"] is True
+
+
+def test_fidelidade_desligada_le_por_arquivo_com_o_mesmo_resultado(tmp_path: Path) -> None:
+    registros = [registro_pa(), registro_pa(PA_INDICA="6")]
+    completa, _ = _normalizar(tmp_path, registros)
+    desligada, _ = _normalizar(
+        _saida(tmp_path, "b"),
+        registros,
+        runtime=_runtime(_saida(tmp_path, "b"), verificacao_fidelidade="DESLIGADA"),
+    )
+    assert desligada.hash_logico == completa.hash_logico
+
+
+def test_perfil_por_estrato_reconciliado_inclui_aprovacoes(tmp_path: Path) -> None:
+    registros = [
+        registro_pa(PA_CMP="201712", PA_DOCORIG="I", PA_INDICA="5"),
+        registro_pa(PA_CMP="201712", PA_DOCORIG="C", PA_INDICA="0"),
+        registro_pa(PA_CMP="201711", PA_DOCORIG="I", PA_INDICA="6"),
+        registro_pa(PA_CMP="", PA_DOCORIG="X", PA_INDICA="9"),
+    ]
+    ref, _ = _normalizar(tmp_path, registros, deletados={3})
+    perfil = perfil_pa(ref, _saida(tmp_path, "perfil"))
+    assert perfil.reconciliado
+    assert perfil.linhas == 4
+    assert set(perfil.totais.values()) == {4}
+    linhas = pq.read_table(perfil.caminho).to_pylist()
+    atendimento = {
+        (item["origem"], item["valor"]): item
+        for item in linhas
+        if item["dimensao"] == "competencia_atendimento"
+    }
+    assert atendimento[("CANONICO", "201712")]["linhas"] == 2
+    assert atendimento[("CANONICO", None)]["linhas"] == 1
+    assert atendimento[("BRUTO", " " * 6)]["linhas"] == 1
+    assert atendimento[("CANONICO", "201712")]["indica_5"] == 1
+    assert atendimento[("CANONICO", "201712")]["indica_0"] == 1
+    assert atendimento[("CANONICO", None)]["indica_outros"] == 1
+    assert atendimento[("CANONICO", None)]["deletados"] == 1
+
+
+def test_label_pa_recusa_dataset_divergente_da_referencia(tmp_path: Path) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()] * 2)
+    tabela = pq.read_table(ref.caminho)
+    pq.write_table(tabela.slice(0, 1), ref.caminho)
+    with pytest.raises(ValueError, match="dataset_divergente"):
+        label_pa(ref, CAMINHO_CODEBOOK, _saida(tmp_path, "rotulos"))
+
+
+def test_label_pa_herda_origem_e_artefatos(tmp_path: Path) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()] * 2)
+    rotulos, linhas = _rotular(tmp_path, ref)
+    assert rotulos.schema_id == "sia_pa_rotulos.v1"
+    assert rotulos.origem_dados is OrigemDados.SINTETICO
+    assert rotulos.artifact_ids == ref.artifact_ids
+    assert rotulos.linhas == 2
+    assert pq.read_schema(rotulos.caminho).names == [c.nome for c in ESQUEMA_ROTULOS.colunas]
+    assert all(linha["contradicoes"] == "" for linha in linhas)
+
+
+def test_perfil_recusa_codebook_com_codigo_fora_do_padrao(tmp_path: Path) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()])
+    codebook = tmp_path / "codebook.yaml"
+    codebook.write_text('codigos:\n  "5 OR 1=1": APROVADO_TOTAL\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="codebook_codigo_invalido"):
+        perfil_pa(ref, _saida(tmp_path, "perfil"), codebook=codebook)
+
+
+@pytest.mark.parametrize("modo", ["COMPLETA", "DESLIGADA"])
+def test_dbc_que_descomprime_alem_do_declarado_vai_para_quarentena(
+    tmp_path: Path, modo: str
+) -> None:
+    import struct
+
+    from tests.fixtures.dbc_encoder import dbf_para_dbc
+    from tests.fixtures.dbf_writer import escrever_dbf
+
+    campos = campos_pa(60)
+    linhas = [tuple(registro_pa()[c.nome] for c in campos)] * 20
+    dbf = bytearray(escrever_dbf(campos, linhas, com_eof=False))
+    struct.pack_into("<I", dbf, 4, 1)
+    artefato = artefato_pa(_saida(tmp_path, "artefatos"), dbf_para_dbc(bytes(dbf)))
+    runtime = _runtime(tmp_path, verificacao_fidelidade=modo)
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=runtime)
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+    assert erro.value.motivo.startswith("dbf_excede_tamanho_declarado")
+
+
+def _quarentena_caminho(tmp_path: Path, artefato: ArtifactVersion, raiz: Path) -> None:
+    runtime = RuntimeConfig.model_validate({"raiz_dados": str(raiz)})
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=runtime)
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CAMINHO_INSEGURO
+    assert list(_saida(tmp_path).iterdir()) == []
+
+
+def test_conteudo_fora_da_raiz_de_dados_nao_e_lido(tmp_path: Path) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()])
+    _quarentena_caminho(tmp_path, artefato, _saida(tmp_path, "outra_raiz"))
+
+
+def test_caminho_divergente_do_enderecamento_por_conteudo_nao_e_lido(tmp_path: Path) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()])
+    raiz = _saida(tmp_path, "artefatos")
+    copia = raiz / "copia.dbc"
+    copia.write_bytes(Path(artefato.caminho_conteudo).read_bytes())
+    desviado = artefato.model_copy(update={"caminho_conteudo": str(copia)})
+    _quarentena_caminho(tmp_path, desviado, raiz)
+
+
+def test_caminho_com_subida_de_diretorio_nao_e_lido(tmp_path: Path) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()])
+    raiz = _saida(tmp_path, "artefatos")
+    caminho = Path(artefato.caminho_conteudo)
+    torto = raiz / "sha256" / ".." / ".." / "artefatos" / caminho.relative_to(raiz)
+    desviado = artefato.model_copy(update={"caminho_conteudo": str(torto) + "/../x.dbc"})
+    _quarentena_caminho(tmp_path, desviado, raiz)
+
+
+def test_link_simbolico_para_fora_da_raiz_nao_e_lido(tmp_path: Path) -> None:
+    fora = _artefato(_saida(tmp_path, "fora"), [registro_pa()])
+    raiz = _saida(tmp_path, "artefatos")
+    caminho = raiz / Path(fora.caminho_conteudo).relative_to(
+        _saida(_saida(tmp_path, "fora"), "artefatos")
+    )
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    caminho.symlink_to(fora.caminho_conteudo)
+    desviado = fora.model_copy(update={"caminho_conteudo": str(caminho)})
+    _quarentena_caminho(tmp_path, desviado, raiz)
+
+
+def test_label_pa_recusa_parquet_com_tipo_fisico_trocado(tmp_path: Path) -> None:
+    import pyarrow as pa
+
+    ref, _ = _normalizar(tmp_path, [registro_pa()] * 2)
+    tabela = pq.read_table(ref.caminho)
+    indice = tabela.column_names.index("quantidade_apresentada")
+    texto = tabela.column(indice).cast(pa.string())
+    pq.write_table(tabela.set_column(indice, "quantidade_apresentada", texto), ref.caminho)
+    with pytest.raises(ValueError, match="dataset_divergente"):
+        label_pa(ref, CAMINHO_CODEBOOK, _saida(tmp_path, "rotulos"))
+
+
+def test_perfil_identifica_o_codebook_usado(tmp_path: Path) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()])
+    outro = tmp_path / "outro.yaml"
+    outro.write_text('codigos:\n  "5": APROVADO_TOTAL\n', encoding="utf-8")
+    padrao = perfil_pa(ref, _saida(tmp_path, "perfil"))
+    alternativo = perfil_pa(ref, _saida(tmp_path, "perfil"), codebook=outro)
+    assert padrao.caminho != alternativo.caminho
+    assert padrao.codebook_sha256 != alternativo.codebook_sha256
+    assert Path(padrao.caminho).exists()
+    assert Path(alternativo.caminho).exists()
+
+
+def _leiaute_com(**campos: Any) -> LayoutSpec:
+    from sustemporal.contracts import LayoutSpec
+
+    return LayoutSpec.model_validate({**leiaute_pa().model_dump(mode="json"), **campos})
+
+
+@pytest.mark.parametrize(
+    ("vigencia", "aceito"),
+    [
+        ({"valido_de": "201901"}, False),
+        ({"valido_ate": "201712"}, False),
+        ({"valido_de": "201801", "valido_ate": "201801"}, True),
+        ({"valido_de": "201701"}, True),
+    ],
+)
+def test_vigencia_do_leiaute_e_respeitada(
+    tmp_path: Path, vigencia: dict[str, str], aceito: bool
+) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()])
+    layout = _leiaute_com(**vigencia)
+    if aceito:
+        ref = normalize_pa(artefato, layout, _saida(tmp_path), runtime=_runtime(tmp_path))
+        assert ref.linhas == 1
+        return
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(artefato, layout, _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_LEIAUTE
+    assert erro.value.motivo.startswith("leiaute_fora_da_vigencia")
+
+
+def test_conteudo_ausente_nunca_vira_dataset(tmp_path: Path) -> None:
+    from sustemporal.ingest.dbf import ArquivoAusente
+
+    artefato = _artefato(tmp_path, [registro_pa()])
+    Path(artefato.caminho_conteudo).unlink()
+    with pytest.raises(ArquivoAusente):
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert list(_saida(tmp_path).iterdir()) == []
+
+
+def test_conteudo_com_sha256_divergente_vai_para_quarentena(tmp_path: Path) -> None:
+    artefato = _artefato(tmp_path, [registro_pa()])
+    Path(artefato.caminho_conteudo).write_bytes(dbc_pa([registro_pa(PA_INDICA="0")]))
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CHECKSUM
+    assert list(_saida(tmp_path).iterdir()) == []
+
+
+class _EspiaoFidelidade:
+    def __init__(self, divergencias: tuple[str, ...] = ()) -> None:
+        self.chamadas: list[tuple[bytes, str]] = []
+        self._divergencias = divergencias
+
+    def __call__(self, dbc: bytes, leitura: object, modo: str, **_: object) -> object:
+        from sustemporal.ingest.dbc import RelatorioFidelidade
+
+        self.chamadas.append((dbc, modo))
+        return RelatorioFidelidade(modo, True, 1, self._divergencias, ())
+
+
+@pytest.mark.parametrize("modo", ["COMPLETA", "AMOSTRAL", "DESLIGADA"])
+def test_fidelidade_e_verificada_com_os_bytes_do_artefato(
+    tmp_path: Path, modo: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    from sustemporal.ingest import sia_pa
+
+    espiao = _EspiaoFidelidade()
+    monkeypatch.setattr(sia_pa, "verificar_fidelidade", espiao)
+    artefato = _artefato(tmp_path, [registro_pa()])
+    runtime = _runtime(tmp_path, verificacao_fidelidade=modo)
+    normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=runtime)
+    if modo == "DESLIGADA":
+        assert espiao.chamadas == []
+        return
+    ((dados, modo_usado),) = espiao.chamadas
+    assert hashlib.sha256(dados).hexdigest() == artefato.sha256
+    assert modo_usado == modo
+
+
+def test_fidelidade_reprovada_vai_para_quarentena_sem_dataset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sustemporal.ingest import sia_pa
+
+    monkeypatch.setattr(sia_pa, "verificar_fidelidade", _EspiaoFidelidade(("bytes_divergentes",)))
+    artefato = _artefato(tmp_path, [registro_pa()])
+    with pytest.raises(QuarentenaLeitura) as erro:
+        normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+    assert erro.value.motivo.startswith("fidelidade_reprovada")
+    assert list(_saida(tmp_path).iterdir()) == []
+
+
+def test_perfil_nao_reconcilia_com_deletados_divergentes(tmp_path: Path) -> None:
+    from sustemporal.contracts import Reconciliacao
+
+    ref, _ = _normalizar(tmp_path, [registro_pa()] * 3, deletados={0})
+    errada = Reconciliacao(fisicos=3, deletados=2, canonicas=3)
+    perfil = perfil_pa(ref.model_copy(update={"reconciliacao": errada}), _saida(tmp_path, "perfil"))
+    assert not perfil.reconciliado
+
+
+def test_artefato_da_aquisicao_com_caminho_relativo_e_lido_fora_do_armazenamento(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sustemporal.acquisition.fetch import fetch_source
+    from sustemporal.acquisition.manifest import Manifesto
+    from sustemporal.contracts import (
+        CanalPublicacao,
+        ChaveArtefato,
+        FamiliaFonte,
+        FormatoArquivo,
+        MotivoRequisicao,
+        SourceRequest,
+    )
+
+    origem = _saida(tmp_path, "origem") / "PASP1801a.dbc"
+    origem.write_bytes(dbc_pa([registro_pa(), registro_pa(PA_INDICA="0")]))
+    chave = ChaveArtefato(
+        fonte=FamiliaFonte.SIA_PA,
+        uf="SP",
+        competencia_arquivo="201801",
+        parte="a",
+        canal=CanalPublicacao.ATUAL,
+        nome_original=origem.name,
+    )
+    requisicao = SourceRequest(
+        chave=chave,
+        localizador=origem.as_uri(),
+        formato_esperado=FormatoArquivo.DBC,
+        tamanho_maximo_bytes=10_000_000,
+        motivo=MotivoRequisicao.PRIMARIA,
+    )
+    store = _saida(tmp_path, "store")
+    observacao = fetch_source(requisicao, store)
+    assert observacao.artifact_id is not None
+    versao = Manifesto(store / "manifesto.jsonl").ler().versoes[observacao.artifact_id]
+    assert not Path(versao.caminho_conteudo).is_absolute()
+    monkeypatch.chdir(_saida(tmp_path, "outro_diretorio"))
+    runtime = RuntimeConfig.model_validate({"raiz_dados": str(store)})
+    ref = normalize_pa(versao, leiaute_pa(), _saida(tmp_path), runtime=runtime)
+    assert ref.linhas == 2
+
+
+def test_ramo_dbf_parseia_a_copia_conferida_pelo_sha256(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import hashlib
+
+    from sustemporal.contracts import FormatoArquivo
+    from sustemporal.ingest import sia_pa
+    from sustemporal.ingest.dbc import descomprimir_dbc
+
+    lidos: list[tuple[Path, str]] = []
+    original = sia_pa.ler_dbf_arquivo
+
+    def espiao(caminho: Path, **kwargs: Any) -> Any:
+        lidos.append((caminho, hashlib.sha256(caminho.read_bytes()).hexdigest()))
+        return original(caminho, **kwargs)
+
+    monkeypatch.setattr(sia_pa, "ler_dbf_arquivo", espiao)
+    dbf = descomprimir_dbc(dbc_pa([registro_pa()]))[0]
+    artefato = artefato_pa(_saida(tmp_path, "artefatos"), dbf, formato=FormatoArquivo.DBF)
+    ref = normalize_pa(artefato, leiaute_pa(), _saida(tmp_path), runtime=_runtime(tmp_path))
+    assert ref.linhas == 1
+    ((caminho, sha256),) = lidos
+    assert sha256 == artefato.sha256
+    assert caminho != Path(artefato.caminho_conteudo)
+
+
+def test_label_pa_recusa_codebook_de_outro_campo(tmp_path: Path) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()])
+    outro = tmp_path / "outro_campo.yaml"
+    outro.write_text(
+        CAMINHO_CODEBOOK.read_text(encoding="utf-8").replace("campo: PA_INDICA", "campo: PA_SEXO"),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="codebook_campo"):
+        label_pa(ref, outro, _saida(tmp_path, "rotulos"))
+
+
+def test_perfil_recusa_codigo_maiusculo_no_codebook(tmp_path: Path) -> None:
+    ref, _ = _normalizar(tmp_path, [registro_pa()])
+    codebook = tmp_path / "maiusculo.yaml"
+    codebook.write_text('codigos:\n  "A": APROVADO_TOTAL\n', encoding="utf-8")
+    with pytest.raises(ValueError, match="codebook_codigo_invalido"):
+        perfil_pa(ref, _saida(tmp_path, "perfil"), codebook=codebook)

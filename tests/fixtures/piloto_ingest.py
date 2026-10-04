@@ -10,7 +10,13 @@ import duckdb
 
 from sustemporal.contracts import DatasetRef
 
-__all__ = ["cobertura_ingest", "config_ingest", "fontes_ingest", "resultados_ingest"]
+__all__ = [
+    "cobertura_ingest",
+    "config_ingest",
+    "fontes_ingest",
+    "motivos_ingest",
+    "resultados_ingest",
+]
 
 RAIZ = Path(__file__).resolve().parents[2]
 DRS_XI = RAIZ / "catalog" / "territorio" / "drs_xi.yaml"
@@ -85,3 +91,17 @@ def cobertura_ingest(
             {"c": cobertura.caminho, "i": instrumento, "k": competencia},
         ).fetchall()
     return {(str(f), str(b)): str(e) for f, b, e in consulta}
+
+
+def motivos_ingest(pasta: Path, competencia: str) -> set[str]:
+    """Motivos (não nulos) da cobertura na competência pedida."""
+    linhas = (_execucao(pasta) / "datasets.jsonl").read_text(encoding="utf-8").splitlines()
+    datasets = [DatasetRef.model_validate(json.loads(linha)) for linha in linhas]
+    (cobertura,) = [d for d in datasets if d.schema_id == "cobertura.v1"]
+    with closing(duckdb.connect()) as con:
+        consulta = con.execute(
+            "SELECT DISTINCT motivo FROM read_parquet($c) "
+            "WHERE competencia = $k AND motivo IS NOT NULL",
+            {"c": cobertura.caminho, "k": competencia},
+        ).fetchall()
+    return {str(m) for (m,) in consulta}

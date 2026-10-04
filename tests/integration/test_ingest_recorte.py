@@ -11,6 +11,7 @@ from tests.fixtures.piloto_ingest import (
     cobertura_ingest,
     config_ingest,
     fontes_ingest,
+    motivos_ingest,
     resultados_ingest,
 )
 from tests.fixtures.piloto_manifesto import registrar_versoes
@@ -115,3 +116,18 @@ def test_parte_incompleta_rebaixa_tambem_a_competencia_de_processamento_dos_regi
     _rodar(tmp_path, competencias='"201801", "201802"')
     estados = cobertura_ingest(tmp_path, competencia="201802")
     assert estados[("VIGENCIA_PROCEDIMENTO", "PROCESSAMENTO")] != "DISPONIVEL"
+    motivos = motivos_ingest(tmp_path, "201802")
+    assert any("incompleto_via_arquivo competencia_arquivo=201801" in m for m in motivos)
+    (pa,) = [
+        r
+        for r in resultados_ingest(tmp_path)
+        if r["fonte"] == "SIA_PA" and r["estado"] == "NORMALIZADO"
+    ]
+    assert pa.get("diagnostico") == "competencia_processamento_divergente_do_arquivo n=1"
+
+
+def test_sem_divergencia_de_competencia_nao_ha_diagnostico(tmp_path: Path) -> None:
+    registrar_versoes(_manifesto(tmp_path), _versoes(tmp_path / "dados" / "raw").values())
+    _rodar(tmp_path)
+    (pa,) = [r for r in resultados_ingest(tmp_path) if r["fonte"] == "SIA_PA"]
+    assert "diagnostico" not in pa

@@ -7,6 +7,8 @@
 # caminhos de outro dono → compartilhado.
 # Branch sem dono: em PR reprova, salvo humanos.branches; fora de PR, só claude/* reprova.
 # src/, catalog/ e config/ são fechados: o que não é de uma sessão é do orquestrador.
+# Módulos com sufixo `*` admitem divisão em arquivos irmãos (`sia_pa_perfil.py`), pelo limite
+# de 500 linhas por arquivo.
 versao: 1
 integradores: ["ORQ"]
 humanos:
@@ -107,10 +109,10 @@ donos:
   S2:
     branches: ["claude/s2-*"]
     caminhos:
-      - "src/sustemporal/ingest/dbc.py"
-      - "src/sustemporal/ingest/dbf.py"
-      - "src/sustemporal/ingest/sia_pa.py"
-      - "src/sustemporal/evaluation/labels.py"
+      - "src/sustemporal/ingest/dbc*.py"
+      - "src/sustemporal/ingest/dbf*.py"
+      - "src/sustemporal/ingest/sia_pa*.py"
+      - "src/sustemporal/evaluation/labels*.py"
       - "catalog/layouts/sia_pa.yaml"
       - "catalog/labels/*"
       - "catalog/schemas/sia_pa*.yaml"
@@ -122,12 +124,12 @@ donos:
   S3:
     branches: ["claude/s3-*"]
     caminhos:
-      - "src/sustemporal/ingest/sigtap.py"
-      - "src/sustemporal/ingest/cnes.py"
-      - "src/sustemporal/ingest/coverage.py"
-      - "src/sustemporal/ingest/territorio.py"
+      - "src/sustemporal/ingest/sigtap*.py"
+      - "src/sustemporal/ingest/cnes*.py"
+      - "src/sustemporal/ingest/coverage*.py"
+      - "src/sustemporal/ingest/territorio*.py"
       - "src/sustemporal/ingest/cli.py"
-      - "src/sustemporal/reporting/report.py"
+      - "src/sustemporal/reporting/report*.py"
       - "src/sustemporal/reporting/cli.py"
       - "catalog/layouts/cnes.yaml"
       - "catalog/layouts/sigtap.yaml"
@@ -165,12 +167,12 @@ donos:
     caminhos:
       - "src/sustemporal/contracts/experiment.py"
       - "src/sustemporal/contracts/evaluation.py"
-      - "src/sustemporal/evaluation/split.py"
-      - "src/sustemporal/evaluation/baselines.py"
-      - "src/sustemporal/evaluation/features.py"
-      - "src/sustemporal/evaluation/metrics.py"
-      - "src/sustemporal/evaluation/bootstrap.py"
-      - "src/sustemporal/evaluation/freeze.py"
+      - "src/sustemporal/evaluation/split*.py"
+      - "src/sustemporal/evaluation/baselines*.py"
+      - "src/sustemporal/evaluation/features*.py"
+      - "src/sustemporal/evaluation/metrics*.py"
+      - "src/sustemporal/evaluation/bootstrap*.py"
+      - "src/sustemporal/evaluation/freeze*.py"
       - "src/sustemporal/evaluation/cli.py"
       - "config/cohort.yaml"
       - "config/splits.yaml"
@@ -185,12 +187,12 @@ donos:
     branches: ["claude/s6-*"]
     caminhos:
       - "src/sustemporal/contracts/explanation.py"
-      - "src/sustemporal/explanation/evidence.py"
-      - "src/sustemporal/explanation/prov.py"
-      - "src/sustemporal/explanation/explain.py"
+      - "src/sustemporal/explanation/evidence*.py"
+      - "src/sustemporal/explanation/prov*.py"
+      - "src/sustemporal/explanation/explain*.py"
       - "src/sustemporal/explanation/cli.py"
       - "src/sustemporal/explanation/templates/*"
-      - "src/sustemporal/evaluation/ablation.py"
+      - "src/sustemporal/evaluation/ablation*.py"
       - "docs/method/explicacoes.md"
       - "tests/unit/snapshots/contratos_explanation.json"
       - "tests/unit/test_contratos_explanation.py"
@@ -212,10 +214,10 @@ donos:
     branches: ["claude/s8-*"]
     caminhos:
       - "src/sustemporal/contracts/annotation.py"
-      - "src/sustemporal/evaluation/annotation.py"
+      - "src/sustemporal/evaluation/annotation*.py"
       - "src/sustemporal/evaluation/annotation_cli.py"
-      - "src/sustemporal/evaluation/values.py"
-      - "src/sustemporal/evaluation/performance.py"
+      - "src/sustemporal/evaluation/values*.py"
+      - "src/sustemporal/evaluation/performance*.py"
       - "docs/method/annotation.md"
       - "docs/method/valores.md"
       - "tests/unit/snapshots/contratos_annotation.json"
@@ -225,7 +227,7 @@ donos:
   S9:
     branches: ["claude/s9-*"]
     caminhos:
-      - "src/sustemporal/reporting/reproduce.py"
+      - "src/sustemporal/reporting/reproduce*.py"
       - "docs/method/claims.md"
       - "docs/runbooks/reproducao.md"
       - "docs/PENDENCIAS.md"

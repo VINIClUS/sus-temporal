@@ -18,6 +18,7 @@ from sustemporal.contracts.base import (
 )
 from sustemporal.contracts.records import RowId, SchemaId
 from sustemporal.contracts.temporal import (
+    CriterioTemporal,
     EstadoSelecao,
     MetodoId,
     SelecaoVersao,
@@ -187,6 +188,7 @@ class RuleSpec(ContratoBase):
     referencia: DocRef
     pressupostos: tuple[str, ...] = ()
     decisao_g0: ReferenciaDecisao | None = None
+    criterios_temporais: tuple[CriterioTemporal, ...] = ()
 
     @model_validator(mode="after")
     def _coerencia(self) -> RuleSpec:
@@ -197,7 +199,14 @@ class RuleSpec(ContratoBase):
             raise ValueError(f"regra_sem_requisito_de_fonte regra={self.rule_id}")
         if not self.campos_necessarios:
             raise ValueError(f"regra_sem_campos_necessarios regra={self.rule_id}")
+        self._criterios_das_fontes()
         return self
+
+    def _criterios_das_fontes(self) -> None:
+        fontes = [criterio.fonte for criterio in self.criterios_temporais]
+        exigidas = {requisito.fonte for requisito in self.requisitos_fonte}
+        if len(set(fontes)) != len(fontes) or not set(fontes) <= exigidas:
+            raise ValueError(f"regra_com_criterio_de_fonte_invalido regra={self.rule_id}")
 
 
 class RuleEvaluation(ContratoBase):

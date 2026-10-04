@@ -1,0 +1,37 @@
+# Codebook de PA_INDICA (rótulo do SIA-PA). O valor bruto é comparado depois de aparar espaços;
+# código fora da lista vira DESCONHECIDO com o bruto preservado, sem correção. Contradições entre o
+# rótulo e quantidades ou valores formam um vocabulário fechado: são contadas, nunca corrigidas, e
+# só avaliadas quando os insumos existem (insumo nulo não gera contradição). As contradições são
+# INFERIDA da semântica dos códigos e dos nomes dos campos; nenhuma é regra oficial.
+codebook_id: sia_pa_indica.v1
+campo: PA_INDICA
+proveniencia: SECUNDARIA
+confirmacao: A_CONFIRMAR
+documento:
+  doc_id: W1
+  titulo: >-
+    Microdatasus R/process_sia.R, bloco PA_INDICA (W1 = S1), com a transcrição do Informe Técnico
+    SIASUS 2019-07 (S6-S8)
+  url: https://github.com/rfsaldanha/microdatasus/blob/master/R/process_sia.R
+  estado: PENDENTE
+  proveniencia: SECUNDARIA
+  confirmacao: A_CONFIRMAR
+codigos:
+  "0": NAO_APROVADO
+  "5": APROVADO_TOTAL
+  "6": APROVADO_PARCIAL
+contradicoes:
+  NAO_APROVADO_COM_QUANTIDADE_APROVADA: rótulo NAO_APROVADO e quantidade aprovada maior que zero.
+  NAO_APROVADO_COM_VALOR_APROVADO: rótulo NAO_APROVADO e valor aprovado maior que zero.
+  APROVADO_TOTAL_COM_QUANTIDADE_DIVERGENTE: >-
+    rótulo APROVADO_TOTAL e quantidade aprovada diferente da apresentada.
+  APROVADO_TOTAL_COM_VALOR_DIVERGENTE: >-
+    rótulo APROVADO_TOTAL e valor aprovado diferente do apresentado.
+  APROVADO_PARCIAL_SEM_REDUCAO: >-
+    rótulo APROVADO_PARCIAL com quantidade aprovada igual à apresentada e valor aprovado igual ao
+    apresentado.
+  APROVADO_SEM_QUANTIDADE_APROVADA: >-
+    rótulo APROVADO_TOTAL ou APROVADO_PARCIAL e quantidade aprovada zero.
+  QUANTIDADE_APROVADA_MAIOR_QUE_APRESENTADA: >-
+    quantidade aprovada maior que a apresentada, qualquer rótulo.
+  VALOR_APROVADO_MAIOR_QUE_APRESENTADO: valor aprovado maior que o apresentado, qualquer rótulo.

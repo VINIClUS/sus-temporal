@@ -1,0 +1,38 @@
+# Candidata do primeiro incremento (plano §5); escolher as famílias observáveis é decisão do G0.
+rule_id: INSTRUMENTO_REGISTRO_SIGTAP
+familia: INSTRUMENTO_REGISTRO
+versao: 0.1.0
+estado: CANDIDATA_PRE_G0
+descricao: >-
+  O instrumento do registro SIA-PA (PA_DOCORIG) é admitido para o procedimento em
+  rl_procedimento_registro da versão do SIGTAP selecionada pela política temporal, pelo mapa
+  C→01, I→02, P→06, S→07, A→08, B→09 (INFERIDA dos rótulos). Procedimento sem registro listado
+  leva a inconclusão.
+instrumentos: [C, I, P, S, A, B]
+condicao_aplicabilidade: instrumento_na_lista_da_regra
+unidade_avaliacao: OCORRENCIA
+campos_necessarios: [instrumento, procedimento]
+requisitos_fonte:
+  - fonte: SIA_PA
+    schema_id: sia_pa.v1
+    campos: [procedimento, instrumento, competencia_atendimento, competencia_processamento]
+  - fonte: SIGTAP
+    schema_id: sigtap_proc_registro.v1
+    campos: [dt_competencia, co_procedimento, co_registro]
+politica_id: documentada_pendente
+criterios_temporais: []
+referencia:
+  doc_id: O12
+  titulo: SIGTAP, membros do zip da Tabela Unificada
+  localizador: >-
+    rl_procedimento_registro.txt, tb_registro.txt e respectivos *_layout.txt em
+    TabelaUnificada_{AAAAMM}_v{geração}.zip; leiaute lido na cópia 2026-02 (S16)
+  estado: PENDENTE
+  proveniencia: SECUNDARIA
+  confirmacao: A_CONFIRMAR
+pressupostos:
+  - >-
+    Critério temporal documental por fonte NAO_RESOLVIDO; B_ATEND e B_PROC são alternativas
+    exploratórias.
+  - Correspondência PA_DOCORIG–CO_REGISTRO INFERIDA dos rótulos; A_CONFIRMAR.
+  - Leiaute de rl_procedimento_registro SECUNDARIA (S16); A_CONFIRMAR.

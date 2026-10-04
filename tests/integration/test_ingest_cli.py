@@ -201,35 +201,3 @@ def test_parte_do_sia_pa_nao_encontrada_impede_cobertura_disponivel(tmp_path: Pa
             {"c": cobertura.caminho},
         ).fetchall()
     assert ("DISPONIVEL",) not in estados
-
-
-def test_parte_esperada_no_catalogo_e_nao_listada_impede_cobertura_disponivel(
-    tmp_path: Path,
-) -> None:
-    store = tmp_path / "dados" / "raw"
-    registros = [registro("C", "201801", "201801")]
-    versoes = [
-        artefato_pa(store, dbc_pa(registros)),
-        artefato_sigtap(store, zip_sigtap(pacote_padrao())),
-    ]
-    (tmp_path / "manifestos").mkdir(parents=True)
-    registrar_versoes(tmp_path / "manifestos" / "aquisicao.jsonl", versoes)
-    fontes = tmp_path / "sources.yaml"
-    texto = FONTES.read_text(encoding="utf-8")
-    marcador = '    multipartes: "true"\n'
-    assert marcador in texto
-    fontes.write_text(
-        texto.replace(marcador, marcador + '    partes_esperadas:\n      "201801": [a, b]\n', 1),
-        encoding="utf-8",
-    )
-    assert cli.main(["ingest", "--config", str(_config(tmp_path, fontes=fontes))]) == ExitCode.OK
-    (execucao,) = _execucoes(tmp_path)
-    datasets = [DatasetRef.model_validate(x) for x in _jsonl(execucao / "datasets.jsonl")]
-    (cobertura,) = [d for d in datasets if d.schema_id == "cobertura.v1"]
-    with closing(duckdb.connect()) as con:
-        motivos = con.execute(
-            "SELECT DISTINCT estado, motivo FROM read_parquet($c) WHERE competencia = '201801'",
-            {"c": cobertura.caminho},
-        ).fetchall()
-    assert "DISPONIVEL" not in {estado for estado, _ in motivos}
-    assert any("parte_nao_obtida" in (motivo or "") for _, motivo in motivos)

@@ -1,0 +1,147 @@
+"""T04: completude das partes do SIA-PA na ingestão, coerente com o seletor do T06 (SINTETICO)."""
+
+from __future__ import annotations
+
+import json
+from contextlib import closing
+from pathlib import Path
+
+import duckdb
+import pytest
+from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf
+from tests.fixtures.piloto_conjuntos import registro
+from tests.fixtures.piloto_manifesto import registrar_versoes
+from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa
+from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
+
+from sustemporal import cli
+from sustemporal.config import load_config
+from sustemporal.contracts import (
+    BaseTemporal,
+    CatalogoFamilias,
+    CriterioTemporal,
+    DatasetRef,
+    EstadoSelecao,
+    FamiliaFonte,
+)
+from sustemporal.contracts.temporal import CompetenciaArquivo
+from sustemporal.errors import ExitCode
+from sustemporal.temporal.registry import RegistroTemporal
+from sustemporal.temporal.selector import partes_esperadas_do_catalogo, selecionar_versao
+from sustemporal.yamlio import carregar_yaml
+
+RAIZ = Path(__file__).resolve().parents[2]
+DRS_XI = RAIZ / "catalog" / "territorio" / "drs_xi.yaml"
+FONTES = RAIZ / "catalog" / "sources.yaml"
+FAMILIAS = RAIZ / "catalog" / "familias.yaml"
+PF = FamiliaFonte.CNES_PF
+
+
+def _fontes(pasta: Path, partes: list[str] | None) -> Path:
+    texto = FONTES.read_text(encoding="utf-8")
+    marcador = '    multipartes: "true"\n'
+    assert marcador in texto
+    if partes is not None:
+        declaracao = f'    partes_esperadas:\n      "201801": [{", ".join(partes)}]\n'
+        texto = texto.replace(marcador, marcador + declaracao, 1)
+    destino = pasta / "sources.yaml"
+    destino.write_text(texto, encoding="utf-8")
+    return destino
+
+
+def _config(pasta: Path, fontes: Path) -> Path:
+    linhas = [
+        'versao: "1"',
+        "origem_dados: SINTETICO",
+        f"catalogos:\n  fontes: {fontes}",
+        "runtime:",
+        f"  raiz_dados: {pasta / 'dados'}",
+        f"  raiz_manifestos: {pasta / 'manifestos'}",
+        f"  raiz_saidas: {pasta / 'saidas'}",
+        "  duckdb_memoria: 256MB",
+        '  duckdb_threads: "1"',
+        "piloto:",
+        "  uf: SP",
+        '  competencias_processamento: ["201801"]',
+        f"  territorio: {DRS_XI}",
+        "  familias_fontes: [SIA_PA, CNES_PF, SIGTAP]",
+    ]
+    caminho = pasta / "ingest.yaml"
+    caminho.write_text("\n".join(linhas) + "\n", encoding="utf-8")
+    return caminho
+
+
+def _executar(pasta: Path, partes_obtidas: list[str], declaradas: list[str] | None) -> Path:
+    store = pasta / "dados" / "raw"
+    registros = [registro("C", "201801", "201801")]
+    pf = [registro_pf("0012345", "225125")]
+    versoes = [artefato_pa(store, dbc_pa(registros), parte=p) for p in partes_obtidas]
+    versoes += [
+        artefato_sigtap(store, zip_sigtap(pacote_padrao())),
+        artefato_cnes(store, dbc_cnes(PF, pf), PF),
+    ]
+    (pasta / "manifestos").mkdir(parents=True)
+    registrar_versoes(pasta / "manifestos" / "aquisicao.jsonl", versoes)
+    config = _config(pasta, _fontes(pasta, declaradas))
+    assert cli.main(["ingest", "--config", str(config)]) == ExitCode.OK
+    return config
+
+
+def _cobertura(pasta: Path) -> list[tuple[str, str, str, str | None]]:
+    (execucao,) = sorted(p for p in (pasta / "saidas" / "ingest").iterdir() if p.is_dir())
+    linhas = (execucao / "datasets.jsonl").read_text(encoding="utf-8").splitlines()
+    datasets = [DatasetRef.model_validate(json.loads(linha)) for linha in linhas]
+    (cobertura,) = [d for d in datasets if d.schema_id == "cobertura.v1"]
+    with closing(duckdb.connect()) as con:
+        return [
+            (str(f), str(b), str(e), m)
+            for f, b, e, m in con.execute(
+                "SELECT familia_regra, base_temporal, estado, motivo FROM read_parquet($c) "
+                "WHERE competencia = '201801' AND instrumento = 'C'",
+                {"c": cobertura.caminho},
+            ).fetchall()
+        ]
+
+
+@pytest.mark.parametrize(
+    ("obtidas", "declaradas", "motivo"),
+    [
+        (["a"], ["a", "b"], "partes_ausentes ausentes=b"),
+        (["a", "b"], ["a"], "partes_nao_declaradas extras=b"),
+        (["a"], None, "completude=INDETERMINADA"),
+    ],
+    ids=["declarada_sem_versao", "presente_nao_declarada", "sem_declaracao"],
+)
+def test_partes_do_sia_pa_incompletas_nunca_deixam_a_cobertura_disponivel(
+    tmp_path: Path, obtidas: list[str], declaradas: list[str] | None, motivo: str
+) -> None:
+    _executar(tmp_path, obtidas, declaradas)
+    linhas = _cobertura(tmp_path)
+    assert "DISPONIVEL" not in {estado for _, _, estado, _ in linhas}
+    assert all(motivo in (m or "") for _, _, estado, m in linhas if estado == "INSUFICIENTE")
+
+
+def _fonte_auxiliar(familia: str) -> FamiliaFonte:
+    catalogo = CatalogoFamilias.model_validate(carregar_yaml(FAMILIAS))
+    (entrada,) = [f for f in catalogo.familias if f.familia.value == familia]
+    return next(r.fonte for r in entrada.requisitos_fonte if r.fonte is not FamiliaFonte.SIA_PA)
+
+
+def test_cobertura_disponivel_implica_selecao_selecionada_no_seletor(tmp_path: Path) -> None:
+    config_caminho = _executar(tmp_path, ["a"], ["a"])
+    config = load_config(config_caminho)
+    registro_temporal = RegistroTemporal.de_manifesto(
+        tmp_path / "manifestos" / "aquisicao.jsonl",
+        partes_esperadas=partes_esperadas_do_catalogo(config),
+    )
+    competencia = CompetenciaArquivo("201801")
+    disponiveis = [(f, b) for f, b, estado, _ in _cobertura(tmp_path) if estado == "DISPONIVEL"]
+    assert disponiveis
+    for familia, base in disponiveis:
+        if base != BaseTemporal.PROCESSAMENTO.value:
+            continue
+        for fonte in (FamiliaFonte.SIA_PA, _fonte_auxiliar(familia)):
+            uf = None if fonte is FamiliaFonte.SIGTAP else "SP"
+            criterio = CriterioTemporal(fonte=fonte, base=BaseTemporal.PROCESSAMENTO)
+            selecao = selecionar_versao(registro_temporal, criterio, competencia, uf=uf)
+            assert selecao.estado is EstadoSelecao.SELECIONADA, (familia, fonte, selecao.motivo)

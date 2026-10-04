@@ -20,7 +20,9 @@ __all__ = ["registrar_falha", "registrar_versoes"]
 _INSTANTE = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 
 
-def registrar_versoes(manifesto: Path, versoes: Iterable[ArtifactVersion]) -> None:
+def registrar_versoes(
+    manifesto: Path, versoes: Iterable[ArtifactVersion], *, observado_em: datetime = _INSTANTE
+) -> None:
     """Uma observação OBTIDO por versão, com relógio fixo."""
     destino = Manifesto(manifesto)
     for versao in versoes:
@@ -29,7 +31,7 @@ def registrar_versoes(manifesto: Path, versoes: Iterable[ArtifactVersion]) -> No
             observation_id=f"obs_{hashlib.sha256(semente).hexdigest()[:32]}",
             chave=versao.chave,
             request_sha256=hashlib.sha256(versao.localizador.encode()).hexdigest(),
-            observado_em=_INSTANTE,
+            observado_em=observado_em,
             resultado=ResultadoTentativa.OBTIDO,
             artifact_id=versao.artifact_id,
             sha256_obtido=versao.sha256,

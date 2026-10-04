@@ -24,7 +24,11 @@ from sustemporal.explanation.counterfactual_contexto import (
     ContextoIndisponivel,
     contexto_da_execucao,
 )
-from sustemporal.explanation.counterfactual_operacoes import CATALOGO_OPERACOES
+from sustemporal.explanation.counterfactual_operacoes import (
+    CATALOGO_OPERACOES,
+    CatalogoOperacoesInvalido,
+    carregar_operacoes,
+)
 from sustemporal.explanation.explain import montar_explicacao
 from sustemporal.rules.cli import EntradaValidacao
 from tests.fixtures.contrafactual_execucao import (
@@ -193,3 +197,31 @@ def test_falha_sem_gravacao_nao_deixa_resultado_antigo(
     monkeypatch.setattr(Path, "write_bytes", disco_cheio)
     assert _rodar(execucao, execucao.ausencia) == 5
     assert not destino.exists()
+
+
+@pytest.mark.parametrize("conteudo", [b"\xff\xfe\x00nao_utf8", b'{"dataset": {"dataset_id"'])
+def test_entrada_ilegivel_e_recusa_de_contexto(tmp_path: Path, conteudo: bytes) -> None:
+    execucao = executar_validacao_sintetica(tmp_path)
+    (_pasta_da_execucao(execucao) / ARQUIVO_ENTRADA).write_bytes(conteudo)
+    with pytest.raises(ContextoIndisponivel, match="contrafactual_sem_contexto"):
+        contexto_da_execucao(_saidas(execucao), execucao.run_id, execucao.config)
+    assert _rodar(execucao, execucao.ausencia) == 2
+
+
+@pytest.mark.parametrize(
+    "texto",
+    [
+        'versao: "1"\noperacoes: [\n',
+        'versao: "1"\noperacoes:\n  - op_id: INCLUIR_CBO_NO_ESTABELECIMENTO\n    custo: "0"\n',
+    ],
+    ids=["yaml_malformado", "viola_contrato"],
+)
+def test_catalogo_de_operacoes_invalido_e_recusa_de_configuracao(
+    execucao: Execucao, tmp_path: Path, texto: str
+) -> None:
+    catalogo = tmp_path / "operations.yaml"
+    catalogo.write_text(texto, encoding="utf-8")
+    args = argparse.Namespace(run=execucao.run_id, row=execucao.ausencia)
+    assert executar_counterfactual(args, execucao.config, catalogo=catalogo) == 2
+    with pytest.raises(CatalogoOperacoesInvalido, match="catalogo_operacoes_invalido"):
+        carregar_operacoes(catalogo)

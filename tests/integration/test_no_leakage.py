@@ -178,6 +178,7 @@ def test_pertenca_historica_sem_historico_e_recusada(tmp_path: Path) -> None:
         ("sia_pa.v1", "cnes_bruto"),
         ("sia_pa.v1", "cnes_motivo"),
         ("sia_pa.v1", "coluna_inexistente"),
+        ("sia_pa.v1", "competencia_processamento"),
         ("sia_pa_rotulos.v1", "rotulo"),
         ("sia_pa_rotulos.v1", "contradicoes"),
     ],

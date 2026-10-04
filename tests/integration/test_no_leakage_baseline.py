@@ -161,3 +161,81 @@ def test_confirmatorio_com_dados_sinteticos_e_recusado(tmp_path: Path) -> None:
             rotulos=cenario.rotulos,
             decisoes=tmp_path / "decisoes",
         )
+
+
+def _extras_calibracao(rotulo: str, n: int = 12) -> tuple[tuple[LinhaPa, str], ...]:
+    return tuple(
+        (
+            LinhaPa(
+                artefato("pa_202301"),
+                200 + i,
+                competencia_processamento="202301",
+                idade=900 + i,
+                procedimento="0888888888",
+                cnes="0000099",
+            ),
+            rotulo if i % 2 else "APROVADO_TOTAL",
+        )
+        for i in range(n)
+    )
+
+
+_AJUSTADOS_NO_DESENVOLVIMENTO = ("vocabulario", "numericos", "coeficientes", "intercepto")
+
+
+def test_codificador_e_modelo_nao_mudam_com_a_calibracao(tmp_path: Path) -> None:
+    base = cenario_baseline(tmp_path / "base")
+    run = fit_baseline(
+        base.split, FEATURES_PADRAO, base.config, tmp_path / "rb", rotulos=base.rotulos
+    )
+    esperado = _parametros(run.saidas[0].caminho)
+    for nome, rotulo in (("rej", "NAO_APROVADO"), ("apr", "APROVADO_TOTAL")):
+        alterado = cenario_baseline(tmp_path / nome, extras=_extras_calibracao(rotulo))
+        run_alt = fit_baseline(
+            alterado.split,
+            FEATURES_PADRAO,
+            alterado.config,
+            tmp_path / f"r{nome}",
+            rotulos=alterado.rotulos,
+        )
+        obtido = _parametros(run_alt.saidas[0].caminho)
+        for chave in _AJUSTADOS_NO_DESENVOLVIMENTO:
+            assert obtido[chave] == esperado[chave], chave
+
+
+def _youden_de_referencia(pares: list[tuple[float, int]]) -> tuple[float, float]:
+    positivos = sum(alvo for _, alvo in pares)
+    negativos = len(pares) - positivos
+    melhor: tuple[float, float] = (-2.0, 0.0)
+    for limiar in sorted({escore for escore, _ in pares}, reverse=True):
+        vp = sum(1 for e, a in pares if e >= limiar and a == 1)
+        fp = sum(1 for e, a in pares if e >= limiar and a == 0)
+        indice = vp / positivos - fp / negativos
+        if indice > melhor[0]:
+            melhor = (indice, limiar)
+    return melhor
+
+
+def test_limiar_escolhido_na_calibracao(tmp_path: Path) -> None:
+    cenario = cenario_baseline(tmp_path, invertidas=("202301",))
+    run = fit_baseline(
+        cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run", rotulos=cenario.rotulos
+    )
+    con = duckdb.connect()
+    try:
+        linhas = con.execute(
+            "SELECT p.escore, r.rotulo FROM read_parquet($p) p JOIN read_parquet($r) r "
+            "USING (row_id) WHERE p.metodo = 'B_ML' AND p.particao = 'CALIBRACAO' "
+            "AND r.rotulo IN ('NAO_APROVADO', 'APROVADO_TOTAL')",
+            {"p": run.saidas[0].caminho, "r": cenario.rotulos.caminho},
+        ).fetchall()
+    finally:
+        con.close()
+    pares = [(float(e), 1 if r == "NAO_APROVADO" else 0) for e, r in linhas]
+    melhor, _ = _youden_de_referencia(pares)
+    limiar = float(_parametros(run.saidas[0].caminho)["limiar"])
+    assert any(abs(limiar - escore) < 1e-8 for escore, _ in pares)
+    vp = sum(1 for e, a in pares if e >= limiar - 1e-9 and a == 1)
+    fp = sum(1 for e, a in pares if e >= limiar - 1e-9 and a == 0)
+    positivos = sum(a for _, a in pares)
+    assert vp / positivos - fp / (len(pares) - positivos) == pytest.approx(melhor)

@@ -198,7 +198,12 @@ class Cenario:
     linhas: tuple[LinhaPa, ...]
 
 
-def _linhas_da_competencia(competencia: str, n: int) -> list[tuple[LinhaPa, str]]:
+_INVERSO = {"NAO_APROVADO": "APROVADO_TOTAL", "APROVADO_TOTAL": "NAO_APROVADO"}
+
+
+def _linhas_da_competencia(
+    competencia: str, n: int, *, invertida: bool = False
+) -> list[tuple[LinhaPa, str]]:
     art = artefato(f"pa_{competencia}")
     saida = []
     for indice in range(n):
@@ -216,6 +221,8 @@ def _linhas_da_competencia(competencia: str, n: int) -> list[tuple[LinhaPa, str]
         rotulo = "NAO_APROVADO" if rejeitado else "APROVADO_TOTAL"
         if indice % 7 == 6:
             rotulo = "APROVADO_PARCIAL"
+        if invertida:
+            rotulo = _INVERSO.get(rotulo, rotulo)
         saida.append((linha, rotulo))
     return saida
 
@@ -226,8 +233,11 @@ def cenario_baseline(
     competencias: tuple[str, ...] = ("201901", "202001", "202301", "202401"),
     n: int = 30,
     extras: tuple[tuple[LinhaPa, str], ...] = (),
+    invertidas: tuple[str, ...] = (),
 ) -> Cenario:
-    pares = [par for c in competencias for par in _linhas_da_competencia(c, n)]
+    pares = [
+        par for c in competencias for par in _linhas_da_competencia(c, n, invertida=c in invertidas)
+    ]
     pares.extend(extras)
     linhas = tuple(linha for linha, _ in pares)
     dataset = gravar_sia_pa(list(linhas), raiz / "entrada" / "sia_pa.parquet")

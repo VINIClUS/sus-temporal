@@ -28,13 +28,14 @@ from sustemporal.ingest.dbf import ArquivoAusente, QuarentenaLeitura
 from sustemporal.ingest.registry import normalizador
 from sustemporal.ingest.sigtap_zip import carregar_leiautes_sigtap
 from sustemporal.ingest.territorio import carregar_territorio
-from sustemporal.temporal.selector import partes_esperadas_do_catalogo
+from sustemporal.temporal.selector import partes_esperadas_do_catalogo, uf_da_execucao
 from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
     import argparse
     from collections.abc import Sequence
 
+    from sustemporal.acquisition.manifest import EstadoManifesto
     from sustemporal.contracts import (
         ArtifactObservation,
         ArtifactVersion,
@@ -133,13 +134,15 @@ class _Execucao:
         declarada sem versão, parte não declarada ou partes sem declaração no catálogo tornam a
         competência incompleta (a aquisição não grava observação de parte ausente da listagem)."""
         esperadas_por = partes_esperadas_do_catalogo(config)
-        partes: dict[str, set[str | None]] = defaultdict(set)
+        artefatos: dict[str, dict[str | None, set[str]]] = defaultdict(lambda: defaultdict(set))
         for versao in versoes:
             competencia = versao.chave.competencia_arquivo
             if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
-                partes[competencia.valor].add(versao.chave.parte)
-        for valor, obtidas in partes.items():
-            motivo = _incompletude(obtidas, esperadas_por.get((FamiliaFonte.SIA_PA, valor)))
+                artefatos[competencia.valor][versao.chave.parte].add(versao.artifact_id)
+        for valor, por_parte in artefatos.items():
+            motivo = _republicacao(por_parte) or _incompletude(
+                set(por_parte), esperadas_por.get((FamiliaFonte.SIA_PA, valor))
+            )
             if motivo is not None:
                 self.sia_pa_incompleto[valor] = motivo
 
@@ -166,6 +169,14 @@ class _Execucao:
             self.sia_pa_incompleto[competencia.valor] = estado
 
 
+def _republicacao(por_parte: dict[str | None, set[str]]) -> str | None:
+    """Mais de uma versão de conteúdo para a mesma parte: o seletor dá AMBIGUA."""
+    divergentes = sorted(parte or "" for parte, ids in por_parte.items() if len(ids) > 1)
+    if not divergentes:
+        return None
+    return f"republicacao_com_conteudo_divergente partes={','.join(divergentes)}"
+
+
 def _incompletude(obtidas: set[str | None], esperadas: frozenset[str] | None) -> str | None:
     nomeadas = {parte for parte in obtidas if parte is not None}
     if esperadas is None:
@@ -181,9 +192,29 @@ def _incompletude(obtidas: set[str | None], esperadas: frozenset[str] | None) ->
     return None
 
 
-def _do_piloto(chave: ChaveArtefato, uf: str) -> bool:
-    """Arquivo publicado (não listagem) da UF do piloto ou de fonte nacional (sem UF)."""
-    return chave.tipo_conteudo is None and (chave.uf is None or chave.uf == uf)
+def _no_recorte(chave: ChaveArtefato, uf: str | None) -> bool:
+    """Fonte nacional (sem UF) sempre; fonte com UF só da UF da execução (como o seletor)."""
+    return chave.uf is None or chave.uf == uf
+
+
+def _recortar(
+    manifesto: EstadoManifesto, uf: str | None, execucao: _Execucao
+) -> tuple[list[ArtifactVersion], list[ArtifactObservation], int]:
+    """Arquivos publicados no recorte; os de fora viram FORA_DO_RECORTE, nunca somem."""
+    publicadas = [v for v in manifesto.versoes.values() if v.chave.tipo_conteudo is None]
+    listagens = len(manifesto.versoes) - len(publicadas)
+    versoes = [v for v in publicadas if _no_recorte(v.chave, uf)]
+    for versao in publicadas:
+        if not _no_recorte(versao.chave, uf):
+            execucao.resultados.append(
+                _resultado(versao, None, "FORA_DO_RECORTE", uf=versao.chave.uf)
+            )
+    observacoes = [
+        o
+        for o in manifesto.observacoes
+        if o.chave.tipo_conteudo is None and _no_recorte(o.chave, uf)
+    ]
+    return versoes, observacoes, listagens
 
 
 def _chave_logica(chave: ChaveArtefato) -> tuple[object, ...]:
@@ -213,8 +244,7 @@ def executar_ingest(args: argparse.Namespace, config: RunConfig) -> int:
     saida = _pasta_execucao(Path(config.runtime.raiz_saidas) / "ingest")
     execucao = _Execucao(config, saida)
     manifesto = Manifesto(Path(config.runtime.raiz_manifestos) / NOME_MANIFESTO_AQUISICAO).ler()
-    versoes = [v for v in manifesto.versoes.values() if _do_piloto(v.chave, piloto.uf)]
-    observacoes = [o for o in manifesto.observacoes if _do_piloto(o.chave, piloto.uf)]
+    versoes, observacoes, listagens = _recortar(manifesto, uf_da_execucao(config), execucao)
     for versao in versoes:
         if versao.chave.fonte in {*RESERVADAS, *_NORMALIZAVEIS}:
             execucao.normalizar(versao)
@@ -236,9 +266,10 @@ def executar_ingest(args: argparse.Namespace, config: RunConfig) -> int:
     _gravar_jsonl(saida / "datasets.jsonl", [d.model_dump_json() for d in datasets])
     _gravar_jsonl(saida / "resultados.jsonl", [json.dumps(r) for r in execucao.resultados])
     logger.info(
-        "ingest_concluido versoes=%s datasets=%s args=%s",
+        "ingest_concluido versoes=%s datasets=%s listagens_ignoradas=%s args=%s",
         len(manifesto.versoes),
         len(datasets),
+        listagens,
         vars(args).get("comando"),
     )
     return ExitCode.OK

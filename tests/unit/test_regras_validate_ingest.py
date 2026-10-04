@@ -247,3 +247,15 @@ def test_integridade_omite_versoes_observadas_so_depois_do_corte() -> None:
     corte = obs.observado_em - timedelta(days=1)
     assert versao.artifact_id not in integridade_do_registro(registro, corte=corte)
     assert versao.artifact_id in integridade_do_registro(registro)
+
+
+def test_territorio_com_digito_verificador_invalido_sai_com_config_invalida(
+    tmp_path: Path,
+) -> None:
+    mundo = montar_ingest(tmp_path)
+    caminho = tmp_path / "territorio.yaml"
+    conteudo = json.loads(caminho.read_text(encoding="utf-8"))
+    ibge7 = conteudo["municipios"][0]["ibge7"]
+    conteudo["municipios"][0]["ibge7"] = ibge7[:6] + str((int(ibge7[6]) + 1) % 10)
+    caminho.write_text(json.dumps(conteudo), encoding="utf-8")
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA

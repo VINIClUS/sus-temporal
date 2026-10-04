@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 from pathlib import Path
 
@@ -283,3 +284,59 @@ def test_marcas_de_sia_pa_incompleto_da_ingestao_continuam_no_relatorio(tmp_path
     assert all(
         "sia_pa_incompleto competencia=201801 motivo=" in str(lin["motivo"]) for lin in linhas
     )
+
+
+def test_populacao_vazia_no_recorte_nao_vira_fonte_ausente(tmp_path: Path) -> None:
+    registros = [registro("C", "201801", "201801", PA_UFMUN=FORA_DO_DRS_XI)] * 2
+    _manifesto_completo(tmp_path, registros, truncar=False)
+    estados = _estados_disponibilidade(tmp_path, ["a"])
+    assert "AUSENTE" not in estados.values()
+    relatorio = relatorio_gravado(tmp_path)
+    motivos = {str(lin["motivo"]) for lin in linhas_tabela(relatorio, "piloto_disponibilidade.v1")}
+    assert not any("sia_pa_ausente" in motivo for motivo in motivos)
+    assert all("populacao_vazia_no_recorte competencia=201801" in motivo for motivo in motivos)
+    exclusoes = {
+        str(lin["motivo"]): int(lin["linhas"])
+        for lin in linhas_tabela(relatorio, "piloto_exclusoes.v1")
+    }
+    assert exclusoes == {"fora_do_territorio": 2}
+
+
+def _execucao_ingest(pasta: Path) -> Path:
+    (execucao,) = sorted(p for p in (pasta / "saidas" / "ingest").iterdir() if p.is_dir())
+    return execucao
+
+
+def test_selecao_fica_presa_ao_manifesto_lido_pela_ingestao(tmp_path: Path) -> None:
+    _manifesto_com_falhas(tmp_path)
+    config = config_ingest(tmp_path, fontes_ingest(tmp_path, ["a"]))
+    assert cli.main(["ingest", "--config", str(config)]) == ExitCode.OK
+    sigtap = artefato_sigtap(tmp_path / "dados" / "raw", zip_sigtap(pacote_padrao("201801")))
+    registrar_versoes(tmp_path / "manifestos" / "aquisicao.jsonl", [sigtap])
+    assert cli.main(["pilot-report", "--config", str(config)]) == ExitCode.OK
+    relatorio = relatorio_gravado(tmp_path)
+    sigtap_classes = {
+        str(lin["classe"])
+        for lin in linhas_tabela(relatorio, "piloto_inconclusivos.v1")
+        if lin["fonte"] == "SIGTAP"
+    }
+    assert "selecionada" not in sigtap_classes
+    assert "ausente_nao_encontrado_na_listagem" in sigtap_classes
+    disponibilidade = linhas_tabela(relatorio, "piloto_disponibilidade.v1")
+    assert "DISPONIVEL" not in {lin["estado"] for lin in disponibilidade}
+
+
+@pytest.mark.parametrize("adulterar", ["sem_registro", "hash_divergente"])
+def test_posicao_do_manifesto_ausente_ou_divergente_recusa(tmp_path: Path, adulterar: str) -> None:
+    _manifesto_com_falhas(tmp_path)
+    config = config_ingest(tmp_path, fontes_ingest(tmp_path, ["a"]))
+    assert cli.main(["ingest", "--config", str(config)]) == ExitCode.OK
+    posicao = _execucao_ingest(tmp_path) / "manifesto_lido.json"
+    assert posicao.is_file()
+    if adulterar == "sem_registro":
+        posicao.unlink()
+    else:
+        conteudo = json.loads(posicao.read_text(encoding="utf-8"))
+        conteudo["cabeca_sha256"] = "0" * 64
+        posicao.write_text(json.dumps(conteudo), encoding="utf-8")
+    assert cli.main(["pilot-report", "--config", str(config)]) == ExitCode.CONFIG_INVALIDA

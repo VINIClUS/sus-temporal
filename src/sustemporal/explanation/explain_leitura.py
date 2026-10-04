@@ -239,6 +239,11 @@ def ler_registro(con: duckdb.DuckDBPyConnection, run: RunResult, row_id: str) ->
     entradas = [d for d in run.entradas if d.schema_id == "sia_pa.v1"]
     if encontrado is None or len(entradas) != 1:
         raise ExplicacaoIndisponivel(f"registro_indisponivel run={run.run_id} row={row_id}")
+    artifact_id, membro, indice = encontrado.groups()
+    if artifact_id not in entradas[0].artifact_ids:
+        raise ExplicacaoIndisponivel(
+            f"registro_fora_do_conjunto row={row_id} dataset_id={entradas[0].dataset_id}"
+        )
     _conferir(con, entradas[0])
     linhas = _linhas(
         con,
@@ -248,7 +253,6 @@ def ler_registro(con: duckdb.DuckDBPyConnection, run: RunResult, row_id: str) ->
     if len(linhas) != 1:
         raise ExplicacaoIndisponivel(f"registro_inexistente_na_entrada row={row_id}")
     linha = linhas[0]
-    artifact_id, membro, indice = encontrado.groups()
     try:
         origem = RowLocator(
             artifact_id=artifact_id,

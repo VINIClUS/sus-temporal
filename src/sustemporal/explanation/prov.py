@@ -180,14 +180,24 @@ def _execucao(doc: ProvDocument, elementos: ElementosProv) -> str:
     return execucao
 
 
+def _conjuntos_do_registro(elementos: ElementosProv) -> list[DatasetRef]:
+    """Conjuntos SIA-PA de entrada: a derivação registro → SIA-PA é sempre exigida.
+
+    Raises:
+        ProvIncompleto: execução sem `sia_pa.v1` de entrada.
+    """
+    conjuntos = [d for d in elementos.run.entradas if d.schema_id == "sia_pa.v1"]
+    if not conjuntos:
+        raise ProvIncompleto(f"prov_sem_conjunto_do_registro run={elementos.run.run_id}")
+    return sorted(conjuntos, key=lambda d: d.dataset_id)
+
+
 def _registro(doc: ProvDocument, elementos: ElementosProv) -> str:
     registro = elementos.registro
     identificador = _id_registro(registro.row_id)
     doc.entity(identificador, {"sus:row_id": registro.row_id, "sus:tipo": "registro"})
-    origem = [d for d in elementos.run.entradas if registro.origem.artifact_id in d.artifact_ids]
-    for dataset in sorted(origem, key=lambda d: d.dataset_id):
-        if dataset.schema_id == "sia_pa.v1":
-            doc.wasDerivedFrom(identificador, f"sus:{dataset.dataset_id}")
+    for dataset in _conjuntos_do_registro(elementos):
+        doc.wasDerivedFrom(identificador, f"sus:{dataset.dataset_id}")
     return identificador
 
 
@@ -234,11 +244,7 @@ def arestas_exigidas(elementos: ElementosProv) -> list[tuple[str, str]]:
     arestas = [
         (f"sus:{d.dataset_id}", f"sus:{a}") for d in elementos.run.entradas for a in d.artifact_ids
     ]
-    arestas += [
-        (registro, f"sus:{d.dataset_id}")
-        for d in elementos.run.entradas
-        if d.schema_id == "sia_pa.v1" and elementos.registro.origem.artifact_id in d.artifact_ids
-    ]
+    arestas += [(registro, f"sus:{d.dataset_id}") for d in _conjuntos_do_registro(elementos)]
     for evidencia in elementos.evidencias:
         arestas += [(f"sus:{evidencia.evidence_id}", o) for o in _origens_da_evidencia(evidencia)]
     for avaliacao in elementos.avaliacoes:

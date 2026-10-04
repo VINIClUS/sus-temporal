@@ -3,15 +3,29 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from decimal import ROUND_HALF_EVEN, Decimal
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
+from sustemporal.contracts.evaluation import ValorMetrica
+
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
-    from sustemporal.contracts.evaluation import ValorMetrica
+__all__ = [
+    "FORA_DE_ESCOPO_DOCUMENTADA",
+    "NAO_APROVADO",
+    "LinhaAvaliada",
+    "Situacao",
+    "calcular_metricas",
+    "razao",
+]
 
-__all__ = ["LinhaAvaliada", "Situacao", "calcular_metricas"]
+NAO_APROVADO = "NAO_APROVADO"
+APROVADO_TOTAL = "APROVADO_TOTAL"
+APROVADO_PARCIAL = "APROVADO_PARCIAL"
+FORA_DE_ESCOPO_DOCUMENTADA = "CAUSA_FORA_DE_ESCOPO_DOCUMENTADA"
+_CASAS = Decimal("0.000001")
 
 
 class Situacao(StrEnum):
@@ -34,11 +48,112 @@ class LinhaAvaliada:
     causa: str | None = None
 
 
+def razao(nome: str, estrato: str, numerador: int, denominador: int) -> ValorMetrica:
+    """Razão com 6 casas (meio-par); denominador zero dá valor None, nunca zero."""
+    valor = None
+    if denominador > 0:
+        valor = (Decimal(numerador) / Decimal(denominador)).quantize(
+            _CASAS, rounding=ROUND_HALF_EVEN
+        )
+    return ValorMetrica(
+        nome=nome, estrato=estrato, numerador=numerador, denominador=denominador, valor=valor
+    )
+
+
+def _situacao(linha: LinhaAvaliada, metodo: str) -> Situacao:
+    return linha.situacoes.get(metodo, Situacao.ABSTENCAO)
+
+
+def _contar(linhas: Sequence[LinhaAvaliada], condicao: Callable[[LinhaAvaliada], bool]) -> int:
+    return sum(1 for linha in linhas if condicao(linha))
+
+
+def _do_rotulo(linhas: Sequence[LinhaAvaliada], rotulo: str) -> list[LinhaAvaliada]:
+    return [linha for linha in linhas if linha.rotulo == rotulo]
+
+
+def _por_metodo(metodo: str, estrato: str, linhas: Sequence[LinhaAvaliada]) -> list[ValorMetrica]:
+    def alerta(linha: LinhaAvaliada) -> bool:
+        return _situacao(linha, metodo) is Situacao.ALERTA
+
+    rejeicoes = _do_rotulo(linhas, NAO_APROVADO)
+    aprovacoes = _do_rotulo(linhas, APROVADO_TOTAL)
+    parciais = _do_rotulo(linhas, APROVADO_PARCIAL)
+    sem_alerta = [linha for linha in rejeicoes if not alerta(linha)]
+    documentadas = _contar(sem_alerta, lambda linha: linha.causa == FORA_DE_ESCOPO_DOCUMENTADA)
+    acertos = _contar(rejeicoes, alerta)
+    falsos = _contar(aprovacoes, alerta)
+    abstencoes = _contar(linhas, lambda linha: _situacao(linha, metodo) is Situacao.ABSTENCAO)
+    valores = {
+        "cobertura_rejeicoes": (acertos, len(rejeicoes)),
+        "cobertura_verificabilidade": (len(linhas) - abstencoes, len(linhas)),
+        "precisao_alertas": (acertos, acertos + falsos),
+        "falsos_alertas_aprovacoes": (falsos, len(aprovacoes)),
+        "abstencao": (abstencoes, len(linhas)),
+        "alerta_aprovacao_parcial": (_contar(parciais, alerta), len(parciais)),
+        "rejeicoes_sem_alerta_fora_de_escopo_documentada": (documentadas, len(sem_alerta)),
+        "rejeicoes_sem_alerta_causa_indeterminada": (
+            len(sem_alerta) - documentadas,
+            len(sem_alerta),
+        ),
+    }
+    return [razao(f"{metodo}.{nome}", estrato, n, d) for nome, (n, d) in valores.items()]
+
+
+def _estratos(linhas: Sequence[LinhaAvaliada]) -> dict[str, list[LinhaAvaliada]]:
+    estratos: dict[str, list[LinhaAvaliada]] = {
+        "TOTAL": list(linhas),
+        "dominio_comum": [linha for linha in linhas if linha.no_dominio_comum],
+    }
+    for linha in linhas:
+        for chave, valor in (
+            ("instrumento", linha.instrumento),
+            ("competencia", linha.competencia),
+        ):
+            estratos.setdefault(f"{chave}={valor}", []).append(linha)
+    return estratos
+
+
+def _pareadas(a: str, b: str, linhas: Sequence[LinhaAvaliada]) -> list[ValorMetrica]:
+    rejeicoes = _do_rotulo(linhas, NAO_APROVADO)
+    so_a = _contar(
+        rejeicoes,
+        lambda linha: (
+            _situacao(linha, a) is Situacao.ALERTA and _situacao(linha, b) is not Situacao.ALERTA
+        ),
+    )
+    so_b = _contar(
+        rejeicoes,
+        lambda linha: (
+            _situacao(linha, b) is Situacao.ALERTA and _situacao(linha, a) is not Situacao.ALERTA
+        ),
+    )
+    discordantes = _contar(linhas, lambda linha: _situacao(linha, a) is not _situacao(linha, b))
+    prefixo = f"divergencia.{a}_x_{b}"
+    return [
+        razao(f"{prefixo}.so_{a}", "TOTAL", so_a, len(rejeicoes)),
+        razao(f"{prefixo}.so_{b}", "TOTAL", so_b, len(rejeicoes)),
+        razao(f"{prefixo}.discordancia", "TOTAL", discordantes, len(linhas)),
+    ]
+
+
 def calcular_metricas(
     linhas: Sequence[LinhaAvaliada],
     metodos: Sequence[str],
     *,
     pares: Sequence[tuple[str, str]] = (),
 ) -> list[ValorMetrica]:
-    """Métricas por método e estrato, divergências pareadas e domínio comum."""
-    raise NotImplementedError
+    """Métricas por método e estrato, divergências pareadas e domínio comum.
+
+    A população inteira (inconclusivas e linhas sem situação do método inclusive) fica nos
+    denominadores de cobertura; o domínio comum vem de `no_dominio_comum`, definido sem o
+    resultado dos métodos; rejeição sem alerta só é fora de escopo com causa documentada.
+    """
+    metricas: list[ValorMetrica] = []
+    for estrato, subconjunto in _estratos(linhas).items():
+        metricas.append(razao("populacao.tamanho_estrato", estrato, len(subconjunto), len(linhas)))
+        for metodo in metodos:
+            metricas.extend(_por_metodo(metodo, estrato, subconjunto))
+    for a, b in pares:
+        metricas.extend(_pareadas(a, b, linhas))
+    return metricas

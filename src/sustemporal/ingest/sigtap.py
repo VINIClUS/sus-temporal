@@ -8,6 +8,7 @@ ser lida inteira vai para quarentena: nunca há leitura parcial nem conjunto vaz
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import io
 import logging
@@ -130,13 +131,14 @@ def _ler_tabela(
         _membro_declarado(artifact, nome)
     try:
         with zipfile.ZipFile(io.BytesIO(dados)) as arquivo:
+            conteudo = ler_membro(arquivo, nomes[1], limite)
             try:
                 leiaute = ler_membro(arquivo, nomes[0], limite)
             except ArquivoAusente as erro:
                 raise QuarentenaLeitura(
                     EstadoIntegridade.QUARENTENA_LEIAUTE, f"leiaute_ausente tabela={tabela}"
                 ) from erro
-            return leiaute, ler_membro(arquivo, nomes[1], limite)
+            return leiaute, conteudo
     except zipfile.BadZipFile as erro:
         raise QuarentenaLeitura(
             EstadoIntegridade.QUARENTENA_TRUNCADO, f"zip_ilegivel id={artifact.artifact_id}"
@@ -145,6 +147,38 @@ def _ler_tabela(
         raise _inesperado(
             f"zip_ilegivel id={artifact.artifact_id} erro={type(erro).__name__}"
         ) from erro
+
+
+def _latin1(codificacao: str) -> bool:
+    try:
+        return codecs.lookup(codificacao).name == "iso8859-1"
+    except LookupError:
+        return False
+
+
+def _conferir_leiaute_declarado(artifact: ArtifactVersion, layout: LayoutSpec) -> None:
+    """Codificação latin-1 e vigência do leiaute contra a competência do artefato.
+
+    Raises:
+        QuarentenaLeitura: codificação não latin-1 ou competência fora de `valido_de`/`valido_ate`.
+    """
+    if not _latin1(layout.codificacao):
+        raise QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_LEIAUTE,
+            f"codificacao_nao_latin1 layout={layout.layout_id}",
+        )
+    if layout.valido_de is None and layout.valido_ate is None:
+        return
+    competencia = artifact.chave.competencia_arquivo
+    fora = competencia is None or not (
+        (layout.valido_de is None or layout.valido_de <= competencia)
+        and (layout.valido_ate is None or competencia <= layout.valido_ate)
+    )
+    if fora:
+        raise QuarentenaLeitura(
+            EstadoIntegridade.QUARENTENA_LEIAUTE,
+            f"leiaute_fora_da_vigencia layout={layout.layout_id} competencia={competencia}",
+        )
 
 
 def _chave(brutos: list[str], campo: CampoLeiaute) -> Valores:
@@ -313,10 +347,12 @@ def normalize_sigtap(
     out: Path,
     *,
     runtime: RuntimeConfig | None = None,
-    origem_dados: OrigemDados = OrigemDados.REAL,
+    origem_dados: OrigemDados = OrigemDados.SINTETICO,
     limite_membro_bytes: int = LIMITE_MEMBRO_PADRAO,
 ) -> DatasetRef:
     """Normaliza uma tabela de um pacote TabelaUnificada do SIGTAP.
+
+    `origem_dados` padrão é SINTETICO (direção segura); a ingestão de dados reais passa REAL.
 
     Raises:
         QuarentenaLeitura: artefato não íntegro, zip ilegível, leiaute ausente ou incompatível,
@@ -330,6 +366,7 @@ def normalize_sigtap(
             EstadoIntegridade.QUARENTENA_LEIAUTE, f"tabela_desconhecida tabela={tabela}"
         )
     esquema = EsquemaCanonico.de_yaml(ESQUEMAS / f"{TABELAS[tabela]}.yaml")
+    _conferir_leiaute_declarado(artifact, layout)
     dados = _bytes_do_artefato(artifact, configuracao)
     brutos, conteudo = _ler_tabela(artifact, dados, tabela, limite_membro_bytes)
     colunas, decimais = _canonicas(artifact, layout, brutos, conteudo)

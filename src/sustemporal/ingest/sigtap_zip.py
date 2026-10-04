@@ -128,6 +128,14 @@ def _ler_limitado(arquivo: zipfile.ZipFile, info: zipfile.ZipInfo, limite: int) 
     try:
         with arquivo.open(info) as membro:
             return acumular_limitado(membro, limite, excesso)
+    except zipfile.BadZipFile as erro:
+        # O zipfile só distingue CRC divergente pelo texto da mensagem ("Bad CRC-32").
+        estado = (
+            EstadoIntegridade.QUARENTENA_CHECKSUM
+            if "CRC" in str(erro)
+            else EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO
+        )
+        raise QuarentenaLeitura(estado, f"membro_ilegivel nome={info.filename}") from erro
     except ERROS_ZIP as erro:
         raise _inesperado(
             f"membro_ilegivel nome={info.filename} erro={type(erro).__name__}"

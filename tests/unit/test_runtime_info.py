@@ -69,7 +69,9 @@ def test_arvores_sujas_diferentes_no_mesmo_commit_tem_hashes_diferentes(tmp_path
 def test_hash_de_diferencas_e_deterministico(tmp_path: Path) -> None:
     raiz = _repositorio(tmp_path)
     (raiz / "modulo.py").write_text("VALOR = 2\n", encoding="utf-8")
-    assert versao_codigo(raiz) == versao_codigo(raiz)
+    primeira = versao_codigo(raiz)
+    segunda = versao_codigo(raiz)
+    assert primeira == segunda
 
 
 def test_arquivo_nao_rastreado_entra_no_hash_de_diferencas(tmp_path: Path) -> None:

@@ -69,6 +69,8 @@ _COLUNAS_SIA_PA = (
     "competencia_atendimento",
     "deletado",
 )
+# Exclusões que não escondem par algum da referência: agregação, duplicata exata e deletado.
+_SEM_PERDA = frozenset({"agregada_em_contagem", "duplicata_exata", "deletado"})
 _CONFERENCIA = "conferencia"
 _DESCARTAR_CONFERENCIA = "DROP TABLE conferencia"
 
@@ -90,6 +92,7 @@ class _Fonte:
     schema_id: str
     disponiveis: frozenset[str]
     por_registro: dict[str, frozenset[str]]
+    com_perda: frozenset[str] = frozenset()
 
 
 def _conferidos(
@@ -137,20 +140,31 @@ def _fonte(datasets: Sequence[DatasetRef], schema_id: str, campos: Sequence[str]
     exigidas = list(dict.fromkeys([competencia, *campos]))
     lidas = [*exigidas, "co_registro"] if "co_registro" in nomes else exigidas
     disponiveis: set[str] = set()
+    com_perda: set[str] = set()
     por_registro: dict[str, set[str]] = defaultdict(set)
     for dataset in datasets:
+        destino = com_perda if _perdeu_linhas(dataset) else disponiveis
         for linha in _distintos(dataset, list(dict.fromkeys(lidas))):
             if any(linha[c] is None for c in exigidas):
                 continue
             valor = str(linha[competencia])
-            disponiveis.add(valor)
-            if linha.get("co_registro") is not None:
+            destino.add(valor)
+            if destino is disponiveis and linha.get("co_registro") is not None:
                 por_registro[str(linha["co_registro"])].add(valor)
     return _Fonte(
         schema_id,
-        frozenset(disponiveis),
-        {codigo: frozenset(valores) for codigo, valores in por_registro.items()},
+        frozenset(disponiveis - com_perda),
+        {codigo: frozenset(valores - com_perda) for codigo, valores in por_registro.items()},
+        frozenset(com_perda),
     )
+
+
+def _perdeu_linhas(dataset: DatasetRef) -> bool:
+    """Linhas do arquivo descartadas por motivo que pode esconder um par da referência."""
+    if dataset.reconciliacao is None:
+        return False
+    motivos = dataset.reconciliacao.excluidas_por_motivo
+    return any(total and motivo not in _SEM_PERDA for motivo, total in motivos.items())
 
 
 def _necessarias(
@@ -191,6 +205,10 @@ def _celula(
     faltam = sorted(necessarias - disponiveis)
     if not faltam:
         return EstadoCobertura.DISPONIVEL, None
+    perdas = sorted(necessarias & fonte.com_perda)
+    if perdas:
+        motivo = f"linhas_descartadas schema={fonte.schema_id} competencias={','.join(perdas)}"
+        return EstadoCobertura.INSUFICIENTE, motivo
     motivo = f"fonte_ausente schema={fonte.schema_id}{sufixo} competencias={','.join(faltam)}"
     total = len(faltam) == len(necessarias)
     return (EstadoCobertura.AUSENTE if total else EstadoCobertura.INSUFICIENTE), motivo

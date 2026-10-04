@@ -32,7 +32,8 @@ from sustemporal.yamlio import carregar_yaml
 if TYPE_CHECKING:
     import argparse
 
-    from sustemporal.contracts import ArtifactVersion, DatasetRef, RuntimeConfig
+    from sustemporal.acquisition.manifest import EstadoManifesto
+    from sustemporal.contracts import ArtifactVersion, ChaveArtefato, DatasetRef, RuntimeConfig
     from sustemporal.contracts.config import PilotSpec, RunConfig
 
 __all__ = ["executar_ingest"]
@@ -107,6 +108,16 @@ class _Execucao:
         for layout in _leiautes(fonte):
             self._uma(funcao, versao, layout)
 
+    def marcar_tentativas_sem_versao(self, manifesto: EstadoManifesto) -> None:
+        """Parte do SIA-PA tentada e nunca obtida torna a competência incompleta."""
+        obtidas = {_chave_logica(v.chave) for v in manifesto.versoes.values()}
+        for observacao in manifesto.observacoes:
+            chave = observacao.chave
+            competencia = chave.competencia_arquivo
+            sem_versao = _chave_logica(chave) not in obtidas
+            if chave.fonte is FamiliaFonte.SIA_PA and competencia is not None and sem_versao:
+                self.sia_pa_incompleto[competencia.valor] = observacao.resultado.value
+
     def _uma(self, funcao: _Normalizar, versao: ArtifactVersion, layout: LayoutSpec) -> None:
         try:
             dataset = funcao(
@@ -128,6 +139,10 @@ class _Execucao:
         competencia = versao.chave.competencia_arquivo
         if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
             self.sia_pa_incompleto[competencia.valor] = estado
+
+
+def _chave_logica(chave: ChaveArtefato) -> tuple[object, ...]:
+    return (chave.fonte, chave.uf, chave.competencia_arquivo, chave.parte)
 
 
 def _pasta_execucao(raiz: Path) -> Path:
@@ -156,6 +171,7 @@ def executar_ingest(args: argparse.Namespace, config: RunConfig) -> int:
     for versao in manifesto.versoes.values():
         if versao.chave.fonte in {*RESERVADAS, *_NORMALIZAVEIS}:
             execucao.normalizar(versao)
+    execucao.marcar_tentativas_sem_versao(manifesto)
     sia_pa = [d for d in execucao.datasets if d.schema_id == "sia_pa.v1"]
     auxiliares = [d for d in execucao.datasets if d.schema_id != "sia_pa.v1"]
     competencias = [c.valor for c in piloto.competencias_processamento]

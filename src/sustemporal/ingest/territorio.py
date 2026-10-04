@@ -18,9 +18,17 @@ from sustemporal.yamlio import YamlInvalido, carregar_yaml
 if TYPE_CHECKING:
     from pathlib import Path
 
-__all__ = ["carregar_territorio", "municipios_ibge6"]
+__all__ = ["CODIGOS_UF", "carregar_territorio", "municipios_ibge6"]
 
 logger = logging.getLogger(__name__)
+
+# Código IBGE das UF (prefixo de 2 dígitos dos códigos de município).
+CODIGOS_UF = {
+    "RO": "11", "AC": "12", "AM": "13", "RR": "14", "PA": "15", "AP": "16", "TO": "17",
+    "MA": "21", "PI": "22", "CE": "23", "RN": "24", "PB": "25", "PE": "26", "AL": "27",
+    "SE": "28", "BA": "29", "MG": "31", "ES": "32", "RJ": "33", "SP": "35", "PR": "41",
+    "SC": "42", "RS": "43", "MS": "50", "MT": "51", "GO": "52", "DF": "53",
+}  # fmt: skip
 
 
 def _digito_verificador(ibge6: str) -> str:
@@ -43,6 +51,10 @@ def carregar_territorio(caminho: Path, *, uf: str) -> Territorio:
         raise ConfigInvalida(f"territorio_invalido caminho={caminho}") from erro
     if territorio.uf != uf:
         raise ConfigInvalida(f"territorio_uf_divergente territorio={territorio.uf} piloto={uf}")
+    prefixo = CODIGOS_UF.get(uf, "")
+    de_fora = [m.ibge7 for m in territorio.municipios if not m.ibge7.startswith(prefixo)]
+    if de_fora:
+        raise ConfigInvalida(f"territorio_municipio_de_outra_uf uf={uf} ibge7={','.join(de_fora)}")
     invalidos = [
         m.ibge7 for m in territorio.municipios if _digito_verificador(m.ibge6) != m.ibge7[6]
     ]

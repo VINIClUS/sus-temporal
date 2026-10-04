@@ -63,7 +63,12 @@ CORRESPONDENCIA_DOCORIG_REGISTRO = {
 }
 _COLUNAS_COMPETENCIA = ("dt_competencia", "competencia_arquivo")
 _BASES = (BaseTemporal.ATENDIMENTO, BaseTemporal.PROCESSAMENTO)
-_COLUNAS_SIA_PA = ("competencia_processamento", "instrumento", "competencia_atendimento")
+_COLUNAS_SIA_PA = (
+    "competencia_processamento",
+    "instrumento",
+    "competencia_atendimento",
+    "deletado",
+)
 _CONFERENCIA = "conferencia"
 _DESCARTAR_CONFERENCIA = "DROP TABLE conferencia"
 
@@ -111,7 +116,7 @@ def _registros(datasets: Sequence[DatasetRef]) -> _Registros:
     for dataset in datasets:
         for linha in _distintos(dataset, _COLUNAS_SIA_PA):
             processamento, instrumento = linha["competencia_processamento"], linha["instrumento"]
-            if processamento is None:
+            if processamento is None or linha["deletado"]:
                 continue
             resultado.competencias.add(processamento)
             if instrumento is None:
@@ -228,6 +233,18 @@ def _linhas(
     return linhas
 
 
+def _marcar_incompleto(linhas: list[dict[str, str | None]], incompleto: Mapping[str, str]) -> None:
+    """Competência com parte do SIA-PA não normalizada nunca fica DISPONIVEL."""
+    for linha in linhas:
+        competencia = str(linha["competencia"])
+        if competencia not in incompleto:
+            continue
+        aviso = f"sia_pa_incompleto competencia={competencia} motivo={incompleto[competencia]}"
+        if linha["estado"] == EstadoCobertura.DISPONIVEL.value:
+            linha["estado"] = EstadoCobertura.INSUFICIENTE.value
+        linha["motivo"] = aviso if linha["motivo"] is None else f"{aviso}; {linha['motivo']}"
+
+
 def build_coverage(
     sia_pa: Sequence[DatasetRef],
     auxiliares: Sequence[DatasetRef],
@@ -241,7 +258,9 @@ def build_coverage(
 ) -> DatasetRef:
     """Matriz completa de cobertura a partir das tabelas efetivamente carregadas.
 
-    `origem_dados` padrão é SINTETICO (direção segura).
+    `origem_dados` padrão é SINTETICO (direção segura). `sia_pa_incompleto` mapeia competência →
+    motivo quando alguma parte do SIA-PA daquela competência não foi normalizada (quarentena,
+    ausência ou falha): a competência nunca fica DISPONIVEL.
 
     Raises:
         ValueError: conjunto de entrada com estrutura, contagem ou hash divergente do declarado.
@@ -251,6 +270,7 @@ def build_coverage(
     esquema = EsquemaCanonico.de_yaml(ESQUEMAS / "cobertura.yaml")
     with closing(conectar(configuracao)) as con:
         linhas = _linhas(con, catalogo, (sia_pa, auxiliares), sorted(set(competencias)))
+    _marcar_incompleto(linhas, sia_pa_incompleto or {})
     campos = [pa.field(c.nome, pa.string(), nullable=c.anulavel) for c in esquema.colunas]
     tabela = pa.Table.from_pylist(linhas, schema=pa.schema(campos))
     artefatos = tuple(sorted({a for d in [*sia_pa, *auxiliares] for a in d.artifact_ids}))

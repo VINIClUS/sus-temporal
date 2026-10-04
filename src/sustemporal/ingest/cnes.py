@@ -32,7 +32,7 @@ from sustemporal.contracts.rules import FamiliaRegra
 from sustemporal.duck import conectar
 from sustemporal.errors import FalhaOperacionalErro
 from sustemporal.ingest.cnes_leitura import gravar_relacao, ler_artefato_dbf
-from sustemporal.ingest.dbf import COLUNA_DELETADO, QuarentenaLeitura
+from sustemporal.ingest.dbf import COLUNA_DELETADO, QuarentenaLeitura, compactar
 from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
@@ -164,9 +164,8 @@ def _conferir_competen(con: duckdb.DuckDBPyConnection, esperada: str) -> None:
         {"c": esperada},
     ).fetchall()
     if lidas:
-        raise _inesperado(
-            f"competencia_divergente arquivo={esperada} lidas={[linha[0] for linha in lidas]}"
-        )
+        valores = compactar([str(linha[0]) for linha in lidas[:10]])
+        raise _inesperado(f"competencia_divergente arquivo={esperada} lidas={valores}")
 
 
 def _motivos(con: duckdb.DuckDBPyConnection) -> dict[str, int]:

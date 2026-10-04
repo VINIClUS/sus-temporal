@@ -355,3 +355,9 @@ def test_avaliacoes_sem_coluna_de_regra_e_falha_operacional(tmp_path: Path, colu
     run = cenario.run.model_copy(update={"saidas": saidas})
     with pytest.raises(FalhaOperacionalErro, match=f"valores_leiaute_incompativel .*{coluna}"):
         _executar(replace(cenario, run=run), tmp_path)
+
+
+def test_resultado_fora_do_enum_e_falha_operacional(tmp_path: Path) -> None:
+    linhas = [Linha("r1", REJ, D("5.00"), D("0.00"), resultado="APROVADO")]
+    with pytest.raises(FalhaOperacionalErro, match="valores_resultado_desconhecido"):
+        _resumir(tmp_path, linhas)

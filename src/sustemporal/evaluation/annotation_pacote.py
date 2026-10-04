@@ -12,7 +12,7 @@ import logging
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sustemporal.contracts import AnnotationSample, ConclusaoCaso, FamiliaRegra
+from sustemporal.contracts import AnnotationSample, MapaCasos, hash_canonico
 from sustemporal.duck import identificador_seguro
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
 
@@ -28,10 +28,11 @@ __all__ = [
     "COLUNAS_PACOTE",
     "CONCLUSOES_POR_FORMULARIO",
     "FAMILIAS_POR_FORMULARIO",
-    "FORMULARIO",
     "FORMULARIO_VERSAO",
+    "INSTRUCOES_POR_FORMULARIO",
     "carregar_mapa",
     "casos_do_pacote",
+    "formulario",
     "gravar_saidas",
 ]
 
@@ -94,19 +95,42 @@ FAMILIAS_POR_FORMULARIO: dict[str, tuple[str, ...]] = {
         "QUANTIDADE_MAXIMA",
     ),
 }
-FORMULARIO: dict[str, object] = {
-    "versao": FORMULARIO_VERSAO,
-    "conclusoes": [c.value for c in ConclusaoCaso],
-    "familias": [f.value for f in FamiliaRegra],
-    "familias_multiplas": True,
-    "campos": ["caso_id", "avaliador", "conclusao", "familias", "evidencias", "minutos"],
-    "instrucoes": (
+INSTRUCOES_POR_FORMULARIO: dict[str, str] = {
+    FORMULARIO_VERSAO: (
         "Registre todas as incompatibilidades cadastrais sustentadas pelas fontes consultadas. "
         "Use CAUSA_INDETERMINADA quando as fontes consultadas não sustentam nenhuma causa e "
         "EVIDENCIA_INSUFICIENTE quando faltam fontes para decidir. Não force causa única. "
+        "Copie o sample_id do cabeçalho de casos.json no lote de respostas. "
         "O pacote não traz saídas do motor de regras e elas não devem ser consultadas."
     ),
 }
+
+
+def formulario(versao: str) -> dict[str, object]:
+    """Formulário montado só com dados congelados da versão, nunca com enums correntes.
+
+    Raises:
+        FalhaOperacionalErro: versão de formulário desconhecida.
+    """
+    if versao not in CONCLUSOES_POR_FORMULARIO or versao not in FAMILIAS_POR_FORMULARIO:
+        raise FalhaOperacionalErro(f"formulario_desconhecido versao={versao}")
+    return {
+        "versao": versao,
+        "conclusoes": list(CONCLUSOES_POR_FORMULARIO[versao]),
+        "familias": list(FAMILIAS_POR_FORMULARIO[versao]),
+        "familias_multiplas": True,
+        "campos": [
+            "sample_id",
+            "formulario_versao",
+            "avaliador",
+            "caso_id",
+            "conclusao",
+            "familias",
+            "evidencias",
+            "minutos",
+        ],
+        "instrucoes": INSTRUCOES_POR_FORMULARIO[versao],
+    }
 
 
 def _valor(valor: object) -> object:
@@ -195,8 +219,11 @@ def gravar_saidas(
                 "casos": casos,
             },
         )
-    _gravar_json(out / "pacote" / "formulario.json", FORMULARIO)
-    _gravar_json(out / "privado" / "mapa_casos.json", dict(mapa))
+    _gravar_json(out / "pacote" / "formulario.json", formulario(amostra.formulario_versao))
+    privado = MapaCasos(
+        sample_id=amostra.sample_id, sha256=hash_canonico(dict(mapa)), casos=dict(mapa)
+    )
+    _gravar_json(out / "privado" / "mapa_casos.json", privado.model_dump(mode="json"))
     _gravar_json(out / "privado" / "estratos.json", dict(estrato_por_row))
     _gravar_json(out / "amostra.json", amostra.model_dump(mode="json"))
     logger.info(
@@ -208,7 +235,7 @@ def gravar_saidas(
     )
 
 
-def carregar_mapa(out: Path) -> dict[str, str]:
-    """Mapa privado caso_id → row_id gravado fora do pacote cego."""
-    dados = json.loads((out / "privado" / "mapa_casos.json").read_text(encoding="utf-8"))
-    return {str(caso): str(row_id) for caso, row_id in dados.items()}
+def carregar_mapa(out: Path) -> MapaCasos:
+    """Mapa privado caso_id → row_id gravado fora do pacote cego, com sample_id e sha256."""
+    caminho = out / "privado" / "mapa_casos.json"
+    return MapaCasos.model_validate_json(caminho.read_text(encoding="utf-8"))

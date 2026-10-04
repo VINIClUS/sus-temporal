@@ -19,10 +19,15 @@ from sustemporal.contracts import (
     EstadoReferencia,
     FamiliaRegra,
     LoteAvaliacoes,
+    MapaCasos,
     ReferenciaHumana,
+    hash_canonico,
 )
 from sustemporal.errors import ErroSustemporal, FalhaOperacionalErro
-from sustemporal.evaluation.annotation_pacote import FAMILIAS_POR_FORMULARIO
+from sustemporal.evaluation.annotation_pacote import (
+    CONCLUSOES_POR_FORMULARIO,
+    FAMILIAS_POR_FORMULARIO,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -92,7 +97,7 @@ def familias_do_formulario(amostra: AnnotationSample) -> tuple[str, ...]:
         FalhaOperacionalErro: versão de formulário desconhecida.
     """
     familias = FAMILIAS_POR_FORMULARIO.get(amostra.formulario_versao)
-    if familias is None:
+    if familias is None or amostra.formulario_versao not in CONCLUSOES_POR_FORMULARIO:
         raise FalhaOperacionalErro(
             f"formulario_desconhecido versao={amostra.formulario_versao} "
             f"amostra={amostra.sample_id}"
@@ -112,19 +117,35 @@ def _exigir_lote(amostra: AnnotationSample, lote: LoteAvaliacoes) -> None:
             f"lido={lote.formulario_versao}"
         )
     permitidas = set(familias_do_formulario(amostra))
+    conclusoes = set(CONCLUSOES_POR_FORMULARIO.get(amostra.formulario_versao, ()))
+    invalidas = sorted({r.conclusao.value for r in lote.respostas} - conclusoes)
+    if invalidas:
+        raise ValueError(f"conclusao_fora_do_formulario conclusoes={','.join(invalidas)}")
     fora = sorted({f.value for r in lote.respostas for f in r.familias} - permitidas)
     if fora:
         raise ValueError(f"familia_fora_do_formulario familias={','.join(fora)}")
 
 
+def _exigir_mapa(amostra: AnnotationSample, mapa: MapaCasos) -> None:
+    if mapa.sample_id != amostra.sample_id:
+        raise FalhaOperacionalErro(
+            f"mapa_de_outra_amostra amostra_esperada={amostra.sample_id} "
+            f"amostra_lida={mapa.sample_id}"
+        )
+    esperadas = set(amostra.casos) | set(amostra.casos_treino)
+    integro = hash_canonico(dict(mapa.casos)) == mapa.sha256
+    if not integro or sorted(mapa.casos.values()) != sorted(esperadas):
+        raise FalhaOperacionalErro(f"mapa_casos_divergente amostra={amostra.sample_id}")
+
+
 def _por_caso(
-    amostra: AnnotationSample, mapa: Mapping[str, str], lote: LoteAvaliacoes
+    amostra: AnnotationSample, mapa: MapaCasos, lote: LoteAvaliacoes
 ) -> dict[str, AvaliacaoCaso]:
     _exigir_lote(amostra, lote)
     finais, treino = set(amostra.casos), set(amostra.casos_treino)
     respostas: dict[str, AvaliacaoCaso] = {}
     for avaliacao in lote.respostas:
-        row_id = mapa.get(avaliacao.caso_id)
+        row_id = mapa.casos.get(avaliacao.caso_id)
         if row_id in treino:
             raise ValueError(f"caso_de_treino_na_avaliacao_final caso={avaliacao.caso_id}")
         if row_id not in finais:
@@ -137,13 +158,15 @@ def _por_caso(
 
 def _pareadas(
     amostra: AnnotationSample,
-    mapa: Mapping[str, str],
+    mapa: MapaCasos,
     avaliador_a: LoteAvaliacoes,
     avaliador_b: LoteAvaliacoes,
 ) -> list[tuple[AvaliacaoCaso, AvaliacaoCaso]]:
+    _exigir_mapa(amostra, mapa)
     a = _por_caso(amostra, mapa, avaliador_a)
     b = _por_caso(amostra, mapa, avaliador_b)
-    esperados = {caso for caso, row_id in mapa.items() if row_id in set(amostra.casos)}
+    finais = set(amostra.casos)
+    esperados = {caso for caso, row_id in mapa.casos.items() if row_id in finais}
     if set(a) != esperados or set(b) != esperados:
         raise ValueError(f"avaliacoes_incompletas esperados={len(esperados)} a={len(a)} b={len(b)}")
     if avaliador_a.avaliador == avaliador_b.avaliador:
@@ -168,7 +191,7 @@ def _bruta(pares: Sequence[tuple[str, str]]) -> Fraction:
 
 def concordancia(
     amostra: AnnotationSample,
-    mapa: Mapping[str, str],
+    mapa: MapaCasos,
     avaliador_a: LoteAvaliacoes,
     avaliador_b: LoteAvaliacoes,
 ) -> RelatorioConcordancia:
@@ -214,7 +237,7 @@ def _mesma_resposta(a: AvaliacaoCaso, b: AvaliacaoCaso) -> bool:
 
 def fechar_referencia(
     amostra: AnnotationSample,
-    mapa: Mapping[str, str],
+    mapa: MapaCasos,
     avaliador_a: LoteAvaliacoes,
     avaliador_b: LoteAvaliacoes,
     adjudicacoes: LoteAvaliacoes | None = None,
@@ -239,9 +262,9 @@ def fechar_referencia(
         if _mesma_resposta(a, b):
             if caso in adjudicadas:
                 raise ValueError(f"adjudicacao_sem_divergencia caso={caso}")
-            casos[mapa[caso]] = a
+            casos[mapa.casos[caso]] = a
         elif caso in adjudicadas:
-            casos[mapa[caso]] = adjudicadas[caso]
+            casos[mapa.casos[caso]] = adjudicadas[caso]
         else:
             pendentes.append(caso)
     estado = EstadoReferencia.ABERTA if pendentes else EstadoReferencia.FECHADA

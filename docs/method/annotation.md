@@ -56,7 +56,10 @@ antes de congelá-lo.
 - fora do pacote: `row_id`, artefato, membro, índice, colunas `_bruto`/`_motivo`, município do
   paciente, raça/cor, etnia e qualquer coluna estranha ao esquema (inclusive resultados do motor
   que porventura estejam no Parquet). A lista fica em `AnnotationSample.colunas_excluidas`;
-- `privado/mapa_casos.json` (caso → row_id) fica com a coordenação, fora do pacote.
+- `privado/mapa_casos.json` (`MapaCasos`: caso → row_id, `sample_id` e sha256 canônico do
+  conteúdo) fica com a coordenação, fora do pacote. Concordância e fechamento conferem o mapa
+  contra a amostra antes de usá-lo: mapa de outra exportação é `mapa_de_outra_amostra`; mapa
+  adulterado ou com outros registros é `mapa_casos_divergente`.
 
 Por que cada grupo de colunas é necessário: CNES, município, tipo de unidade, gestão e
 habilitações/incentivos permitem consultar o cadastro do estabelecimento (CNES); competências
@@ -88,6 +91,9 @@ ou de outro formulário é falha operacional (`respostas_de_outra_amostra`,
 `respostas_de_outro_formulario`), mesmo que os `caso_id` coincidam. O conjunto de famílias usado
 no κ por família vem da versão congelada do formulário (`FAMILIAS_POR_FORMULARIO`), nunca do enum
 corrente; versão desconhecida é falha operacional (`formulario_desconhecido`).
+O formulário exportado é montado só com dados congelados por versão
+(`CONCLUSOES_POR_FORMULARIO`, `FAMILIAS_POR_FORMULARIO`, `INSTRUCOES_POR_FORMULARIO`); conclusão
+fora da versão é recusada (`conclusao_fora_do_formulario`).
 
 ## Concordância e adjudicação
 - Antes da adjudicação: concordância bruta e κ de Cohen (exatos, em `Fraction`) sobre a resposta

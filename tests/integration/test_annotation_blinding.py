@@ -587,6 +587,11 @@ def test_familias_saem_da_versao_congelada_do_formulario(
     v1 = concordancia(amostra, mapa, _lote(amostra, respostas_a), _lote(amostra, respostas_b))
     assert set(v1.por_familia) == set(FAMILIAS_POR_FORMULARIO[FORMULARIO_VERSAO])
     monkeypatch.setitem(FAMILIAS_POR_FORMULARIO, "anotacao_formulario.v0", (P.value, E.value))
+    monkeypatch.setitem(
+        CONCLUSOES_POR_FORMULARIO,
+        "anotacao_formulario.v0",
+        CONCLUSOES_POR_FORMULARIO[FORMULARIO_VERSAO],
+    )
     antiga = amostra.model_copy(update={"formulario_versao": "anotacao_formulario.v0"})
     v0 = concordancia(antiga, mapa, _lote(antiga, respostas_a), _lote(antiga, respostas_b))
     assert set(v0.por_familia) == {P.value, E.value}

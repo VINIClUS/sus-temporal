@@ -27,7 +27,6 @@ from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
 from sustemporal.evaluation.annotation_amostragem import alocar, embaralhar, estratos, sortear
 from sustemporal.evaluation.annotation_pacote import (
     COLUNAS_PACOTE,
-    FORMULARIO,
     FORMULARIO_VERSAO,
     carregar_mapa,
     casos_do_pacote,
@@ -45,7 +44,6 @@ if TYPE_CHECKING:
 __all__ = [
     "COLUNAS_PACOTE",
     "DIMENSOES_OBSERVAVEIS",
-    "FORMULARIO",
     "FORMULARIO_VERSAO",
     "SCHEMA_REGISTROS",
     "SCHEMA_ROTULOS",

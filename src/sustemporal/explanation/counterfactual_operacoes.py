@@ -11,8 +11,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
 from sustemporal.contracts.counterfactual import OperationSpec
-from sustemporal.yamlio import carregar_yaml
+from sustemporal.yamlio import YamlInvalido, carregar_yaml
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -220,12 +222,23 @@ def carregar_operacoes(caminho: Path = CATALOGO_OPERACOES) -> tuple[OperationSpe
     """Operações do catálogo, validadas pelo contrato e pelos efeitos conhecidos.
 
     Raises:
-        CatalogoOperacoesInvalido: catálogo sem versão 1 ou com operação fora do catálogo fechado.
+        CatalogoOperacoesInvalido: arquivo ilegível, YAML inválido, operação que viola o
+            contrato, catálogo sem versão 1 ou com operação fora do catálogo fechado.
     """
-    conteudo = carregar_yaml(caminho)
+    try:
+        conteudo = carregar_yaml(caminho)
+    except (OSError, UnicodeDecodeError, YamlInvalido) as erro:
+        raise CatalogoOperacoesInvalido(
+            f"catalogo_operacoes_invalido caminho={caminho} erro={erro}"
+        ) from erro
     if not isinstance(conteudo, dict) or conteudo.get("versao") != "1":
         raise CatalogoOperacoesInvalido(f"catalogo_operacoes_sem_versao caminho={caminho}")
-    operacoes = [OperationSpec.model_validate(item) for item in conteudo.get("operacoes") or []]
+    try:
+        operacoes = [OperationSpec.model_validate(i) for i in conteudo.get("operacoes") or []]
+    except ValidationError as erro:
+        raise CatalogoOperacoesInvalido(
+            f"catalogo_operacoes_invalido caminho={caminho} erros={erro.error_count()}"
+        ) from erro
     validadas = validar_operacoes(operacoes)
     logger.info("catalogo_operacoes_carregado operacoes=%d", len(validadas))
     return validadas

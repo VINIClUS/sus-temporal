@@ -82,7 +82,7 @@ def _entrada(raiz: Path, run_id: str) -> EntradaValidacao:
         )
     try:
         return EntradaValidacao.model_validate_json(existentes[0].read_text(encoding="utf-8"))
-    except (OSError, ValidationError) as erro:
+    except (OSError, UnicodeDecodeError, ValidationError) as erro:
         raise ContextoIndisponivel(
             f"contrafactual_sem_contexto run={run_id} entrada_ilegivel={existentes[0]}"
         ) from erro

@@ -23,8 +23,9 @@ duas partes:
 
 O registro não resume o histórico a "primeira/última vez visto". `intervalos()` deriva, para
 uma chave, os trechos contíguos de observação do mesmo conteúdo. A sequência A, B, A dá três
-intervalos, todos rotulados `OBSERVACAO_DA_PESQUISA`. Eles dizem quando **a pesquisa** viu cada
-conteúdo, não quando o DATASUS o publicou ou o alterou.
+intervalos, todos rotulados `OBSERVACAO_DA_PESQUISA`. Uma observação NAO_ENCONTRADO da mesma
+parte encerra o intervalo corrente: A, ausente, A dá dois intervalos. Eles dizem quando **a
+pesquisa** viu cada conteúdo, não quando o DATASUS o publicou ou o alterou.
 
 ## 3. Decisão por chave (`selecionar_versao`)
 A entrada é:
@@ -50,6 +51,9 @@ A decisão segue estes passos:
    - dois ou mais conteúdos íntegros distintos (republicação divergente, inclusive A→B→A) dão
      **AMBIGUA**;
    - só conteúdo em quarentena dá **EM_QUARENTENA**;
+   - falha de coleta com bytes (INTERROMPIDO com `bytes_recebidos > 0`, ou CONTEUDO_INVALIDO
+     recusado antes do hash) também dá **EM_QUARENTENA**, com motivo `falha_de_coleta_com_bytes`.
+     Assim a falha de coleta não se confunde com ausência estrutural;
    - só tentativas sem bytes dão **AUSENTE**.
 
    A integridade considerada é a da observação, quando ela registra uma (pendência T02-11), e
@@ -74,8 +78,14 @@ Toda seleção traz um `motivo` determinístico e os ids das observações usada
 reproduzir a justificativa só a partir do manifesto.
 
 ## 4. Política e registro (`select_snapshots`)
-- **Política:** é a da execução (`RunConfig.politica_id`); sem ela, vale a da regra. Os arquivos
-  ficam em `catalog/policies/<id>.yaml`.
+- **Política:** uma só por execução. Vale a passada pelo chamador (`politica=`), senão
+  `RunConfig.politica_id`, carregada de `catalog/policies/<id>.yaml`. `RuleSpec.politica_id`
+  nunca escolhe. Sem nenhuma das duas, cada fonte sai NAO_RESOLVIDA com motivo
+  `politica_da_execucao_ausente`. O padrão por método (`politica_padrao`) é do motor, que sempre
+  passa `politica=`; `temporal/` não importa `rules/`.
+- **Critério (`criterio_da_regra`):** é o da política para a fonte. Em M_TEMP, ele só vale se
+  fonte, base e deslocamento coincidirem com um critério de `RuleSpec.criterios_temporais`, com a
+  mesma semântica do motor. Sem coincidência, a fonte fica sem critério.
 - **Fontes:** a seleção cobre cada fonte auxiliar da regra (≠ SIA_PA).
 - **NAO_RESOLVIDA, sem base e sem competência:** política `NAO_RESOLVIDA` ou sem critério para
   a fonte. O motivo é o mesmo do motor: `politica_sem_criterio_para_a_fonte fonte=<f>`.
@@ -106,8 +116,9 @@ cortes diferentes, são erro.
 ## 5. Lote (`temporal/lote.py`)
 O lote parte de uma tabela de registros no DuckDB (`row_id`, `competencia_atendimento`,
 `competencia_processamento`). Uma competência fora do padrão AAAAMM conta como nula e resulta
-em `competencia_base_ausente`. Um corte sem fuso é recusado. O DuckDB calcula a competência requerida por registro, regra e
-fonte. Cada chave distinta (fonte, base, competência) é decidida pela **mesma**
+em `competencia_base_ausente`. UF e corte vêm da `RunConfig` da execução, que recusa corte sem
+fuso. O critério por regra e fonte é o de `criterio_da_regra`. O DuckDB calcula a competência
+requerida por registro, regra e fonte. Cada chave distinta (fonte, base, competência) é decidida pela **mesma**
 `selecionar_versao`, e o resultado volta por junção.
 
 A equivalência com a seleção por registro é testada por propriedade (Hypothesis). A tabela

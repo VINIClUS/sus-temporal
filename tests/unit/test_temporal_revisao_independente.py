@@ -60,7 +60,7 @@ def _politica(*fontes: FamiliaFonte, pendente: bool = False) -> PoliticaTemporal
     return PoliticaTemporal(
         politica_id="EXP",
         tipo=TipoPolitica.DOCUMENTADA if pendente else TipoPolitica.ALTERNATIVA_EXPLORATORIA,
-        metodo="M_TEMP",
+        metodo="B_ATEND",
         criterios=criterios or (_ATEND,),
         documento=docref(pendente=True) if pendente else None,
     )
@@ -164,7 +164,7 @@ def _lote(registro: RegistroTemporal, politica: PoliticaTemporal) -> list[tuple[
     )
     linha = registro_producao("201801", "201801")
     con.execute("INSERT INTO registros VALUES (?, '201801', '201801')", [linha.row_id])
-    selecionar_lote(con, "registros", [regra()], politica, registro, run_id="r", uf="SP")
+    selecionar_lote(con, "registros", [regra()], politica, registro, run_id="r", config=_config())
     return con.execute(
         "SELECT base, competencia_requerida, estado, artifact_ids, motivo FROM selecao_versoes"
     ).fetchall()

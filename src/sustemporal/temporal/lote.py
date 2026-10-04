@@ -16,11 +16,12 @@ from sustemporal.contracts.temporal import CompetenciaArquivo
 from sustemporal.duck import identificador_seguro
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.temporal.selector import (
-    criterio_da_fonte,
+    criterio_da_regra,
     fontes_auxiliares,
     motivo_pendencia,
     motivo_sem_criterio,
     selecionar_versao,
+    uf_da_execucao,
 )
 from sustemporal.yamlio import carregar_yaml
 
@@ -29,6 +30,7 @@ if TYPE_CHECKING:
 
     import duckdb
 
+    from sustemporal.contracts import RunConfig
     from sustemporal.contracts.base import OrigemDados
     from sustemporal.contracts.rules import RuleSpec
     from sustemporal.contracts.temporal import PoliticaTemporal
@@ -109,7 +111,7 @@ def _regras_fontes(
     linhas: list[tuple[str, str, str | None, int, str | None]] = []
     for regra in regras:
         for fonte in fontes_auxiliares(regra):
-            criterio = criterio_da_fonte(politica, fonte)
+            criterio = criterio_da_regra(politica, regra, fonte)
             if criterio is None:
                 linhas.append((regra.rule_id, fonte.value, None, 0, motivo_sem_criterio(fonte)))
             else:
@@ -169,22 +171,20 @@ def selecionar_lote(
     registro: RegistroTemporal,
     *,
     run_id: str,
-    uf: str | None = None,
-    corte: datetime | None = None,
+    config: RunConfig,
 ) -> None:
     """Cria `selecao_versoes` a partir da tabela `registros` (row_id e as duas competências).
 
     `registros` precisa ter `row_id`, `competencia_atendimento` e `competencia_processamento`
-    (VARCHAR AAAAMM ou nulo).
+    (VARCHAR AAAAMM ou nulo). UF e corte vêm da `config` da execução, como na seleção por
+    registro; a política é a da execução, passada pelo chamador.
 
     Raises:
-        ValueError: nome de tabela fora do catálogo do DuckDB ou corte sem fuso.
+        ValueError: nome de tabela fora do catálogo do DuckDB.
     """
-    if corte is not None and corte.utcoffset() is None:
-        raise ValueError(f"corte_sem_fuso corte={corte.isoformat()}")
     pendencia = motivo_pendencia(politica)
     _criar_pedidos(con, registros, list(_regras_fontes(regras, politica)))
-    _decidir_chaves(con, politica, registro, (uf, corte))
+    _decidir_chaves(con, politica, registro, (uf_da_execucao(config), config.corte_observacao))
     con.execute(_SQL_SELECAO, {"run_id": run_id, "pendencia": pendencia})
     total = con.execute("SELECT count(*) FROM selecao_versoes").fetchall()[0][0]
     logger.info("selecao_lote_concluida run_id=%s linhas=%d", run_id, total)

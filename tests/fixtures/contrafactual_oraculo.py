@@ -11,7 +11,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import combinations
 
-__all__ = ["MundoOraculo", "n_instancias", "solucoes_minimas"]
+from hypothesis import strategies as st
+
+__all__ = ["MundoOraculo", "Sorteio", "mundos_pequenos", "n_instancias", "solucoes_minimas"]
 
 _INCLUIR = "INCLUIR_CBO_NO_ESTABELECIMENTO"
 _RECLASSIFICAR = "RECLASSIFICAR_CBO_NO_ESTABELECIMENTO"
@@ -91,3 +93,44 @@ def solucoes_minimas(mundo: MundoOraculo) -> tuple[int | None, set[frozenset[tup
         return None, set()
     menor = min(solucoes.values())
     return menor, {s for s, c in solucoes.items() if c == menor}
+
+
+_CBOS_SORTEIO = ("225125", "322205", "515105")
+_OPERACOES = (_INCLUIR, _RECLASSIFICAR, _CADASTRAR)
+
+
+@dataclass(frozen=True)
+class Sorteio:
+    """Mundo do oráculo e como materializá-lo: CBOs com o total em 2 linhas e orçamento."""
+
+    mundo: MundoOraculo
+    repetidos: frozenset[str]
+    max_candidatos: int
+
+    def pf_materializado(self) -> dict[str, int | tuple[int, ...]]:
+        return {
+            cbo: (1, n - 1) if cbo in self.repetidos and n > 1 else n
+            for cbo, n in self.mundo.pf.items()
+        }
+
+
+@st.composite
+def mundos_pequenos(desenhar: st.DrawFn, cbo_alvo: str) -> Sorteio:
+    contagens = desenhar(st.lists(st.integers(0, 2), min_size=3, max_size=3))
+    if not any(contagens):
+        contagens[0] = 1
+    pf = {cbo: n for cbo, n in zip(_CBOS_SORTEIO, contagens, strict=True) if n > 0}
+    ops = desenhar(st.sets(st.sampled_from(_OPERACOES), min_size=1))
+    mundo = MundoOraculo(
+        pf=pf,
+        st_presente=desenhar(st.booleans()),
+        cbo_alvo=cbo_alvo,
+        outros_cbos=tuple(
+            desenhar(st.lists(st.sampled_from(_CBOS_SORTEIO), max_size=2, unique=True))
+        ),
+        custos={op: desenhar(st.integers(1, 3)) for op in sorted(ops)},
+        max_operacoes=desenhar(st.integers(1, 3)),
+    )
+    repetidos = frozenset(desenhar(st.sets(st.sampled_from(_CBOS_SORTEIO))))
+    orcamento = desenhar(st.one_of(st.just(1000), st.integers(1, 4)))
+    return Sorteio(mundo=mundo, repetidos=repetidos, max_candidatos=orcamento)

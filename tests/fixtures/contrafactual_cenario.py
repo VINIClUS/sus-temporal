@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -10,52 +10,26 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
-from sustemporal.contracts.base import (
-    Confirmacao,
-    DocRef,
-    FamiliaFonte,
-    OrigemDados,
-    Proveniencia,
-    ValorNormalizado,
-)
+from sustemporal.contracts.base import Confirmacao, DocRef, OrigemDados, Proveniencia
 from sustemporal.contracts.counterfactual import AlvoOperacao, OperationSpec
-from sustemporal.contracts.explanation import (
-    EstadoCobertura,
-    Evidence,
-    ExplanationBundle,
-    Limitacao,
-    TipoEvidencia,
-)
-from sustemporal.contracts.records import (
-    DatasetRef,
-    ProductionRecord,
-    RowLocator,
-    calcular_dataset_id,
-)
-from sustemporal.contracts.rules import (
-    Aplicabilidade,
-    EstadoAvaliacao,
-    RuleEvaluation,
-)
-from sustemporal.contracts.temporal import BaseTemporal, EstadoSelecao, MetodoId, SelecaoVersao
+from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.explanation.counterfactual_contexto import ContextoContrafactual
 from sustemporal.hashing import hash_logico_linhas
 from sustemporal.rules.catalog import carregar_esquema, carregar_regras
-from tests.fixtures.regras_cenario import artefato, materializar, snapshot_vazio
-from tests.fixtures.regras_exemplos import (
-    ART_CNES,
-    ART_SIA,
-    COMPETENCIA,
-    cenario_base,
-    registro,
-)
+from tests.fixtures.contrafactual_bundle import bundle_sintetico, registro_contrato
+from tests.fixtures.regras_cenario import artefato, materializar, reemitir, snapshot_vazio
+from tests.fixtures.regras_exemplos import ART_CNES, COMPETENCIA, cenario_base, registro
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
+    from sustemporal.contracts import ExplanationBundle
     from sustemporal.contracts.rules import RuleSpec
+    from sustemporal.rules.insumos import InsumosAvaliacao
 
 __all__ = [
+    "ART_ST",
     "CBO_ALVO",
     "CBO_OUTRO",
     "CBO_TERCEIRO",
@@ -87,98 +61,62 @@ class Mundo:
     arquivos: tuple[str, ...]
 
 
-def _linhas_pf(pf: dict[str, int]) -> tuple[dict[str, object], ...]:
+@dataclass(frozen=True)
+class OpcoesST:
+    """CNES ST SINTETICO: presença do CNES do registro, linhas extras, tipos e integridade."""
+
+    presente: bool = True
+    extras: tuple[dict[str, str], ...] = ()
+    tipos: dict[str, pa.DataType] | None = None
+    integridade: EstadoIntegridade | None = EstadoIntegridade.OK
+
+
+def _linhas_pf(pf: dict[str, int | tuple[int, ...]]) -> tuple[dict[str, object], ...]:
+    """Contagens por CBO; uma tupla distribui o total do par em linhas repetidas."""
     base = {"artifact_id": ART_CNES, "competencia_arquivo": COMPETENCIA, "cnes": CNES}
-    return tuple(base | {"cbo": cbo, "n_vinculos": n} for cbo, n in sorted(pf.items()) if n > 0)
+    linhas = []
+    for cbo, valor in sorted(pf.items()):
+        partes = valor if isinstance(valor, tuple) else (valor,)
+        linhas += [base | {"cbo": cbo, "n_vinculos": n} for n in partes if n > 0]
+    return tuple(linhas)
 
 
-def _gravar_st(raiz: Path, *, presente: bool) -> DatasetRef:
+def _gravar_st(raiz: Path, opcoes: OpcoesST) -> DatasetRef:
     colunas = [c.nome for c in carregar_esquema(_ST).colunas]
-    cnes = ["7654321", CNES] if presente else ["7654321"]
+    cnes = ["7654321", CNES] if opcoes.presente else ["7654321"]
     linhas = [{"competencia_arquivo": COMPETENCIA, "cnes": c, "artifact_id": ART_ST} for c in cnes]
-    esquema = pa.schema([(c, pa.string()) for c in colunas])
+    linhas += [dict(extra) for extra in opcoes.extras]
+    tipos = opcoes.tipos or {}
+    esquema = pa.schema([(c, tipos.get(c, pa.string())) for c in colunas])
     tabela = pa.Table.from_pylist([{c: linha.get(c) for c in colunas} for linha in linhas], esquema)
     caminho = raiz / "cnes_estabelecimento.parquet"
     pq.write_table(tabela, caminho)
-    valores = [tuple(linha.get(c) for c in colunas) for linha in linhas]
+    lidas = pq.read_table(caminho)
+    valores = [tuple(lidas.column(c)[i].as_py() for c in colunas) for i in range(lidas.num_rows)]
     hash_logico = hash_logico_linhas(colunas, valores)
+    artefatos = tuple(sorted({str(linha["artifact_id"]) for linha in linhas}))
     return DatasetRef(
-        dataset_id=calcular_dataset_id(_ST, hash_logico, (ART_ST,)),
+        dataset_id=calcular_dataset_id(_ST, hash_logico, artefatos),
         schema_id=_ST,
         caminho=str(caminho),
         hash_logico=hash_logico,
         linhas=len(linhas),
-        artifact_ids=(ART_ST,),
+        artifact_ids=artefatos,
         origem_dados=OrigemDados.SINTETICO,
         produzido_por="fixture_contrafactual_sintetica",
     )
 
 
-def _registro_contrato(indice: int, campos: dict[str, str | None]) -> ProductionRecord:
-    return ProductionRecord(
-        row_id=f"{ART_SIA}#{indice}",
-        origem=RowLocator(artifact_id=ART_SIA, indice=indice),
-        cnes=campos["cnes"],
-        competencia_atendimento=campos["competencia_atendimento"],
-        competencia_processamento=campos["competencia_processamento"],
-        instrumento=ValorNormalizado(bruto=campos["instrumento"], valor=campos["instrumento"]),
-        procedimento=campos["procedimento"],
-        cbo=campos["cbo"],
-    )
-
-
-def _bundle(registro_alvo: ProductionRecord, pf: DatasetRef) -> ExplanationBundle:
-    evidencia = Evidence(
-        evidence_id="ev_ausencia_sintetica",
-        tipo=TipoEvidencia.AUSENCIA_NA_FONTE,
-        query_id="q_estab_cbo",
-        sql_sha256="0" * 64,
-        parametros={"cnes": CNES, "cbo": str(registro_alvo.cbo)},
-        dataset_id=pf.dataset_id,
-        hash_logico=pf.hash_logico,
-        artifact_ids=(ART_CNES,),
-        cobertura=EstadoCobertura.DISPONIVEL,
-        integridade=EstadoIntegridade.OK,
-        n_resultados=0,
-    )
-    selecao = SelecaoVersao(
-        fonte=FamiliaFonte.CNES_PF,
-        base=BaseTemporal.ATENDIMENTO,
-        competencia_requerida=COMPETENCIA,
-        estado=EstadoSelecao.SELECIONADA,
-        artifact_ids=(ART_CNES,),
-        motivo="selecao_sintetica",
-    )
-    avaliacao = RuleEvaluation(
-        run_id="run_sintetico",
-        row_id=registro_alvo.row_id,
-        rule_id="ESTAB_CBO_CNES",
-        versao="0.1.0",
-        politica_id="b_atend_sintetica",
-        metodo=MetodoId.B_ATEND,
-        estado=EstadoAvaliacao.VIOLACAO,
-        aplicabilidade=Aplicabilidade.APLICAVEL,
-        insumos_completos=True,
-        incompatibilidade_demonstrada=True,
-        selecoes=(selecao,),
-        evidence_ids=(evidencia.evidence_id,),
-    )
-    return ExplanationBundle(
-        bundle_id="bundle_sintetico",
-        run_id="run_sintetico",
-        row_id=registro_alvo.row_id,
-        registro=registro_alvo,
-        avaliacoes=(avaliacao,),
-        selecoes=(selecao,),
-        evidencias=(evidencia,),
-        prov_n="SINTETICO",
-        prov_json_sha256="0" * 64,
-        limitacoes=(
-            Limitacao.AUSENCIA_NAO_PROVA_INEXISTENCIA,
-            Limitacao.RESULTADO_NAO_E_CAUSA_OFICIAL,
-            Limitacao.DADOS_SINTETICOS,
-        ),
-    )
+def _pf_int32(insumos: InsumosAvaliacao) -> InsumosAvaliacao:
+    """Regrava o CNES PF com `n_vinculos` INTEGER (inteiro aceito pelo motor)."""
+    pf = next(d for d in insumos.auxiliares if d.schema_id == _PF)
+    tabela = pq.read_table(pf.caminho)
+    indice = tabela.schema.get_field_index("n_vinculos")
+    tabela = tabela.set_column(indice, "n_vinculos", tabela.column(indice).cast(pa.int32()))
+    pq.write_table(tabela, pf.caminho)
+    novo = reemitir(pf)
+    auxiliares = tuple(novo if d.schema_id == _PF else d for d in insumos.auxiliares)
+    return replace(insumos, auxiliares=auxiliares)
 
 
 def _selecoes_extras(
@@ -194,13 +132,18 @@ def _selecoes_extras(
 def montar(
     raiz: Path,
     *,
-    pf: dict[str, int],
+    pf: dict[str, int | tuple[int, ...]],
     st_presente: bool = True,
+    st: OpcoesST | None = None,
     outros: tuple[tuple[str, str], ...] = (),
     regras: tuple[RuleSpec, ...] | None = None,
     competencia_aberta: str | None = None,
+    agora: Callable[[], datetime] = relogio,
+    pf_int32: bool = False,
+    alvos: tuple[tuple[str, str], ...] = (("ESTAB_CBO_CNES", COMPETENCIA),),
 ) -> Mundo:
     """Registro 0 com o par (CNES, CBO_ALVO) ausente do PF; `outros` são (cbo, instrumento)."""
+    opcoes_st = st or OpcoesST(presente=st_presente)
     demais = (
         registro(i, cbo=cbo, instrumento=instrumento)
         for i, (cbo, instrumento) in enumerate(outros, start=1)
@@ -208,29 +151,31 @@ def montar(
     registros = (registro(0, cbo=CBO_ALVO), *demais)
     regras = regras if regras is not None else tuple(carregar_regras())
     cenario = cenario_base(*registros)
-    cenario = cenario.com(selecoes=cenario.selecoes + _selecoes_extras(cenario.selecoes, regras))
-    auxiliares = dict(cenario.auxiliares) | {_PF: _linhas_pf(pf)}
-    integridade = dict(cenario.integridade) | {ART_ST: EstadoIntegridade.OK}
+    integridade = dict(cenario.integridade)
+    if opcoes_st.integridade is not None:
+        integridade[ART_ST] = opcoes_st.integridade
     cenario = cenario.com(
-        auxiliares=auxiliares,
+        selecoes=cenario.selecoes + _selecoes_extras(cenario.selecoes, regras),
+        auxiliares=dict(cenario.auxiliares) | {_PF: _linhas_pf(pf)},
         integridade=integridade,
         artefatos_auxiliar={_PF: (ART_CNES,)},
     )
     dataset, insumos = materializar(cenario, raiz / "entrada")
-    st = _gravar_st(raiz / "entrada", presente=st_presente)
+    if pf_int32:
+        insumos = _pf_int32(insumos)
     contexto = ContextoContrafactual(
         dataset=dataset,
         snapshots=snapshot_vazio(),
         regras=regras,
         insumos=insumos,
-        cadastros=(st,),
+        cadastros=(_gravar_st(raiz / "entrada", opcoes_st),),
         competencia_aberta_cnes=competencia_aberta,
-        relogio=relogio,
+        relogio=agora,
     )
     pf_ref = next(d for d in insumos.auxiliares if d.schema_id == _PF)
-    alvo = _registro_contrato(0, registros[0])
+    bundle = bundle_sintetico(registro_contrato(0, registros[0]), pf_ref, alvos)
     arquivos = tuple(sorted(str(p) for p in (raiz / "entrada").iterdir()))
-    return Mundo(contexto=contexto, bundle=_bundle(alvo, pf_ref), arquivos=arquivos)
+    return Mundo(contexto=contexto, bundle=bundle, arquivos=arquivos)
 
 
 def _docref_sintetica(oficial: bool) -> DocRef:

@@ -26,6 +26,7 @@ __all__ = [
     "aplicar",
     "carregar_operacoes",
     "instancias",
+    "ordem_de_aplicacao",
     "ordenar_por_dependencia",
     "validar_operacoes",
 ]
@@ -146,6 +147,11 @@ def validar_operacoes(operacoes: Sequence[OperationSpec]) -> tuple[OperationSpec
             raise CatalogoOperacoesInvalido(f"dependencia_desconhecida op={op.op_id}")
     ordenar_por_dependencia(operacoes)
     return tuple(sorted(operacoes, key=lambda op: op.op_id))
+
+
+def ordem_de_aplicacao(passos: Sequence[Instancia], nivel: dict[str, int]) -> list[Instancia]:
+    """Instâncias na ordem das dependências; empate pela própria instância."""
+    raise NotImplementedError
 
 
 def ordenar_por_dependencia(operacoes: Sequence[OperationSpec]) -> dict[str, int]:

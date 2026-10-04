@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from sustemporal.contracts import RuleSpec, RunConfig
     from sustemporal.explanation.counterfactual_contexto import ContextoContrafactual
 
-__all__ = ["RevalidacaoFalhou", "Sobreposicao"]
+__all__ = ["InsumoCadastralInvalido", "RevalidacaoFalhou", "Sobreposicao"]
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,10 @@ _PF = "cnes_estab_cbo.v1"
 _ST = "cnes_estabelecimento.v1"
 _TABELAS = {_PF: "sobreposicao_pf", _ST: "sobreposicao_st"}
 _TIPO_FISICO = {TipoCanonico.TEXTO: "VARCHAR", TipoCanonico.INTEIRO: "BIGINT"}
+
+
+class InsumoCadastralInvalido(ValueError):
+    """Cadastro CNES ilegível ou com conteúdo divergente do `DatasetRef` (falha operacional)."""
 
 
 class RevalidacaoFalhou(ValueError):

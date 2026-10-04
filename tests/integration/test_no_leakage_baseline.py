@@ -239,3 +239,41 @@ def test_limiar_escolhido_na_calibracao(tmp_path: Path) -> None:
     fp = sum(1 for e, a in pares if e >= limiar - 1e-9 and a == 0)
     positivos = sum(a for _, a in pares)
     assert vp / positivos - fp / (len(pares) - positivos) == pytest.approx(melhor)
+
+
+def test_codificador_ignora_linhas_fora_do_alvo_binario(tmp_path: Path) -> None:
+    base = cenario_baseline(tmp_path / "base")
+    run = fit_baseline(
+        base.split, FEATURES_PADRAO, base.config, tmp_path / "rb", rotulos=base.rotulos
+    )
+    extras = tuple(
+        (
+            LinhaPa(
+                artefato("pa_201901"),
+                300 + i,
+                competencia_processamento="201901",
+                idade=5000,
+                procedimento="0777777777",
+            ),
+            rotulo,
+        )
+        for i, rotulo in enumerate(["APROVADO_PARCIAL", "APROVADO_PARCIAL", "DESCONHECIDO"] * 2)
+    )
+    alterado = cenario_baseline(tmp_path / "alt", extras=extras)
+    run_alt = fit_baseline(
+        alterado.split, FEATURES_PADRAO, alterado.config, tmp_path / "ra", rotulos=alterado.rotulos
+    )
+    esperado, obtido = _parametros(run.saidas[0].caminho), _parametros(run_alt.saidas[0].caminho)
+    for chave in _AJUSTADOS_NO_DESENVOLVIMENTO:
+        assert obtido[chave] == esperado[chave], chave
+
+
+def test_ausente_tem_categoria_propria_mesmo_raro(tmp_path: Path) -> None:
+    sem_cbo = LinhaPa(artefato("pa_202301"), 400, competencia_processamento="202301", cbo=None)
+    cenario = cenario_baseline(tmp_path, extras=((sem_cbo, "APROVADO_TOTAL"),))
+    run = fit_baseline(
+        cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run", rotulos=cenario.rotulos
+    )
+    parametros = _parametros(run.saidas[0].caminho)
+    assert "__AUSENTE__" in parametros["vocabulario"]["cbo"]
+    assert parametros["desconhecidas"]["CALIBRACAO"]["cbo"] == 0

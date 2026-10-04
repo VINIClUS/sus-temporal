@@ -15,6 +15,7 @@ from tests.fixtures.protocolo_dados import (
     artefato,
     cenario_baseline,
     coorte,
+    fontes_identidade,
     gravar_sia_pa,
     gravar_territorio,
 )
@@ -41,6 +42,7 @@ def _ler(caminho: str, colunas: str) -> list[tuple[object, ...]]:
 def _split(tmp_path: Path, linhas: list[LinhaPa], **kwargs: Any) -> SplitManifest:
     dataset = gravar_sia_pa(linhas, tmp_path / "pa.parquet")
     territorio = gravar_territorio(tmp_path / "territorio.yaml")
+    kwargs.setdefault("fonte_por_artefato", fontes_identidade(linhas))
     return build_splits(dataset, coorte(territorio), tmp_path / "split", spec=SPEC_PADRAO, **kwargs)
 
 
@@ -113,12 +115,29 @@ def test_republicacao_que_cruza_particoes_e_recusada(tmp_path: Path) -> None:
         _split(tmp_path, linhas, fonte_por_artefato=fontes)
 
 
-def test_sem_chave_de_fonte_registra_limite_longitudinal(tmp_path: Path) -> None:
+def test_limites_longitudinais_registrados(tmp_path: Path) -> None:
     manifesto = _split(tmp_path, [LinhaPa(artefato("a"), 0)])
     assert manifesto.limites is not None
     textos = " ".join(manifesto.limites)
-    assert "republicacoes_sem_chave_de_fonte" in textos
     assert "sem_vinculo_longitudinal" in textos
+    assert "republicacoes_agrupadas_por_fonte" in textos
+
+
+@pytest.mark.parametrize("fontes", [None, {}])
+def test_artefato_sem_fonte_conhecida_e_recusado(
+    tmp_path: Path, fontes: dict[str, str] | None
+) -> None:
+    linhas = [LinhaPa(artefato("a"), 0), LinhaPa(artefato("b"), 0)]
+    with pytest.raises(ValueError, match="split_sem_fonte_para_artefato"):
+        _split(tmp_path, linhas, fonte_por_artefato=fontes)
+
+
+def test_fonte_inspecionada_nao_volta_ao_teste_por_outra_versao(tmp_path: Path) -> None:
+    inspecionada, republicada = artefato("v1_inspecionada"), artefato("v2_republicada")
+    linhas = [LinhaPa(republicada, 0, competencia_processamento="202401")]
+    fontes = {inspecionada: "SIA_PA:SP:2401", republicada: "SIA_PA:SP:2401"}
+    with pytest.raises(ValueError, match="teste_contem_fonte_inspecionada"):
+        _split(tmp_path, linhas, fonte_por_artefato=fontes, inspecionados=[inspecionada])
 
 
 def test_teste_disjunto_de_inspecionados(tmp_path: Path) -> None:
@@ -229,7 +248,10 @@ def test_transformacoes_ajustadas_so_no_treino(tmp_path: Path) -> None:
     )
     parametros = _parametros(run.saidas[0].caminho)
     treino = [
-        linha for linha in cenario.linhas if linha.competencia_processamento in {"201901", "202001"}
+        linha
+        for linha in cenario.linhas
+        if linha.competencia_processamento in {"201901", "202001"}
+        and cenario.rotulo_por_row[linha.row_id] in {"NAO_APROVADO", "APROVADO_TOTAL"}
     ]
     idades = [linha.idade for linha in treino if linha.idade is not None]
     numericos = parametros["numericos"]

@@ -129,6 +129,10 @@ def gravar_sia_pa(
     return _gravar(valores, "sia_pa.v1", destino, artifact_ids=artefatos, origem=origem)
 
 
+def fontes_identidade(linhas: list[LinhaPa]) -> dict[str, str]:
+    return {linha.artifact_id: linha.artifact_id for linha in linhas}
+
+
 def gravar_rotulos(
     rotulos: dict[str, str],
     destino: Path,
@@ -196,6 +200,7 @@ class Cenario:
     rotulos: DatasetRef
     config: RunConfig
     linhas: tuple[LinhaPa, ...]
+    rotulo_por_row: dict[str, str]
 
 
 _INVERSO = {"NAO_APROVADO": "APROVADO_TOTAL", "APROVADO_TOTAL": "NAO_APROVADO"}
@@ -245,6 +250,12 @@ def cenario_baseline(
         {linha.row_id: rotulo for linha, rotulo in pares}, raiz / "entrada" / "rotulos.parquet"
     )
     territorio = gravar_territorio(raiz / "territorio.yaml")
-    split = build_splits(dataset, coorte(territorio), raiz / "split", spec=SPEC_PADRAO)
+    split = build_splits(
+        dataset,
+        coorte(territorio),
+        raiz / "split",
+        spec=SPEC_PADRAO,
+        fonte_por_artefato=fontes_identidade(list(linhas)),
+    )
     config = RunConfig.model_validate({"versao": "1", "origem_dados": "SINTETICO"})
-    return Cenario(split, rotulos, config, linhas)
+    return Cenario(split, rotulos, config, linhas, {linha.row_id: r for linha, r in pares})

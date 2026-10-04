@@ -3,8 +3,9 @@
 Entradas: os `DatasetRef` do `ingest` (SIA-PA, auxiliares e `cobertura.v1`) e, quando houver, a
 `selecao_versoes.v1` de cada conjunto SIA-PA. O recorte territorial é explícito: linhas do
 SIA-PA cujo município do estabelecimento não está em `municipios_ibge6` do território da coorte
-são excluídas com motivo `fora_do_territorio`. Toda razão sai com numerador e denominador; o
-relatório é sempre exploratório (pré-G0) e nunca libera portão.
+são excluídas com motivo `fora_do_territorio`. A disponibilidade das tabelas vem da cobertura
+recalculada só com as linhas incluídas (`report_cobertura.py`). Toda razão sai com numerador e
+denominador; o relatório é sempre exploratório (pré-G0) e nunca libera portão.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ from sustemporal.contracts.evaluation import ValorMetrica
 from sustemporal.contracts.experiment import ModoExecucao
 from sustemporal.duck import conectar
 from sustemporal.ingest.territorio import carregar_territorio, municipios_ibge6
+from sustemporal.reporting.report_cobertura import recalcular_cobertura
 from sustemporal.reporting.report_publicacao import publicar_tabelas
 from sustemporal.reporting.report_selecao import carregar_disponibilidade, carregar_inconclusivos
 from sustemporal.reporting.report_tabelas import (
@@ -132,13 +134,15 @@ def build_pilot_report(
     municipios = municipios_ibge6(carregar_territorio(Path(cohort.territorio), uf=cohort.uf))
     sia_pa = [d for d in datasets if d.schema_id == "sia_pa.v1"]
     selecoes = [d for d in datasets if d.schema_id == "selecao_versoes.v1"]
-    cobertura = next((d for d in datasets if d.schema_id == "cobertura.v1"), None)
     execucao = runtime or RuntimeConfig()
     with closing(conectar(execucao)) as con:
         fisicas = carregar_registros_piloto(con, sia_pa)
         criar_tabelas_registros(con, cohort, municipios)
         carregar_rotulos(con, sia_pa, out, runtime=execucao)
         carregar_inconclusivos(con, selecoes, observacoes or {})
+        cobertura = recalcular_cobertura(
+            con, datasets, cohort, out, runtime=execucao, origem=origem
+        )
         carregar_disponibilidade(con, cobertura, cohort)
         tabelas = publicar_tabelas(con, out, datasets, origem)
         metricas = _metricas(con, fisicas)
@@ -147,7 +151,7 @@ def build_pilot_report(
         modo=ModoExecucao.EXPLORATORIO,
         origem_dados=origem,
         metricas=tuple(metricas),
-        tabelas=tuple(tabelas),
+        tabelas=(*tabelas, *([cobertura] if cobertura else [])),
         notas=tuple(_notas(origem, cohort, municipios, selecoes=len(selecoes))),
         criado_em=relogio(),
     )

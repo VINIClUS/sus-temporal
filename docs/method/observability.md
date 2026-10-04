@@ -54,10 +54,20 @@ artefatos das entradas):
 | `piloto_defasagem.v1` | linhas por defasagem em meses (processamento − atendimento); nula quando falta uma |
 | `piloto_rotulos.v1` | `ANTES`: PA_INDICA bruto; `DEPOIS`: rótulo do codebook; aprovações incluídas |
 | `piloto_inconclusivos.v1` | classe e linhas da seleção por regra, fonte, base e estado |
-| `piloto_disponibilidade.v1` | a `cobertura.v1` no intervalo e nos instrumentos da coorte |
+| `piloto_disponibilidade.v1` | a cobertura recalculada (abaixo) no intervalo e nos instrumentos da coorte |
 
 Os rótulos aqui servem só para descrever a distribuição antes e depois do pré-processamento. O
 classificador nunca recebe rótulo, campos de erro nem quantidades ou valores aprovados.
+
+## Disponibilidade das tabelas
+
+A cobertura da ingestão é estadual: um registro de outro município com atendimento nulo deixaria a
+célula INSUFICIENTE para todo o DRS XI. O relatório publica um `sia_pa.v1` só com as linhas
+incluídas (a mesma população dos denominadores) e recalcula a `cobertura.v1` com o
+`build_coverage` público, os mesmos auxiliares e as competências da cobertura da ingestão no
+intervalo da coorte. As marcas `sia_pa_incompleto competencia=… motivo=…` da ingestão (lidas por
+`marcas_sia_pa_incompleto`) continuam valendo. A cobertura recalculada entra nas tabelas do
+relatório. É o mesmo recálculo que o `validate --ingest` (#27) faz.
 
 ## Inconclusivos
 

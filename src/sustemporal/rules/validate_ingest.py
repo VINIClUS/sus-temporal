@@ -58,16 +58,23 @@ def _politica(metodo: MetodoId, config: RunConfig, regras: list[RuleSpec]) -> Po
     return politica_da_execucao(InsumosAvaliacao(), do_metodo, regras)
 
 
+def _recorte(municipios: frozenset[str], insumos: InsumosIngest) -> dict[str, object]:
+    """Conteúdo de `recorte_territorial.json`; o hash dele entra no `run_id`."""
+    origem = insumos.cobertura_da_ingestao
+    return {
+        "municipios": sorted(municipios),
+        "exclusoes": insumos.exclusoes,
+        "cobertura_da_ingestao": origem.dataset_id if origem else None,
+    }
+
+
 def _anexos(
     insumos: InsumosAvaliacao,
     lote: SelecaoEmLote,
     producao: DatasetRef,
-    recorte: tuple[frozenset[str], dict[str, int]],
-    *,
-    origem: DatasetRef | None = None,
+    recorte: dict[str, object],
 ) -> dict[str, str]:
     """`entrada_validacao.json` (o que basta para reavaliar) e `recorte_territorial.json`."""
-    municipios, exclusoes = recorte
     entrada = EntradaValidacao(
         dataset=producao,
         snapshots=lote.snapshots,
@@ -78,14 +85,9 @@ def _anexos(
         politica=insumos.politica,
         identidade_adicional=dict(insumos.identidade_adicional) or None,
     )
-    conteudo_recorte = {
-        "municipios": sorted(municipios),
-        "exclusoes": exclusoes,
-        "cobertura_da_ingestao": origem.dataset_id if origem else None,
-    }
     return {
         ARQUIVO_ENTRADA: entrada.model_dump_json(indent=2),
-        "recorte_territorial.json": json.dumps(conteudo_recorte, indent=2, sort_keys=True),
+        "recorte_territorial.json": json.dumps(recorte, indent=2, sort_keys=True),
     }
 
 
@@ -120,24 +122,19 @@ def validar_ingest(pasta: Path, metodo: MetodoId, config: RunConfig, saida: Path
     datasets = ler_datasets(pasta)
     municipios = municipios_do_piloto(config)
     insumos = _preparar(datasets, regras, (config, registro, municipios), saida / "entradas")
+    recorte = _recorte(municipios, insumos)
     avaliacao = InsumosAvaliacao(
         auxiliares=insumos.auxiliares,
         cobertura=insumos.cobertura,
         integridade=integridade_do_registro(registro, corte=config.corte_observacao),
         politica=politica,
-        identidade_adicional={"territorio_municipios": hash_canonico(sorted(municipios))},
+        identidade_adicional={"recorte_territorial": hash_canonico(recorte)},
     )
     try:
         lote = selecionar_em_lote(
             insumos.producao, regras, config, registro, saida / "selecoes", insumos=avaliacao
         )
-        anexos = _anexos(
-            avaliacao,
-            lote,
-            insumos.producao,
-            (municipios, insumos.exclusoes),
-            origem=insumos.cobertura_da_ingestao,
-        )
+        anexos = _anexos(avaliacao, lote, insumos.producao, recorte)
         return evaluate_rules(
             insumos.producao,
             lote.snapshots,

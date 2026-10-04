@@ -212,25 +212,25 @@ vêm antes de gravar qualquer arquivo:
   `origem_dados` igual em todos;
 - produção: união de todos os `sia_pa.v1`, cada linha física preservada (sem deduplicar; uma linha
   repetida em duas partes conta duas vezes), `artifact_ids` = união ordenada, hash por
-  `hash_logico_relacao`. Duas versões com a mesma chave lógica (fonte, UF, competência do arquivo,
-  parte) e artefatos diferentes são republicação concorrente → saída 2, nunca escolha automática;
-  artefato fora do registro, de UF ou competência do arquivo fora do piloto, ou, com
-  `corte_observacao`, sem observação `OBTIDO` até o corte →
-  saída 2; `row_id` repetido → falha operacional (saída 5);
-- território: carregado por `ingest.territorio.carregar_territorio` (contrato, UF e dígito
-  verificador) e `municipios_ibge6`. Produção sem a coluna `municipio_estabelecimento` → saída 2
-  (`territorio_sem_coluna`). Registros com `deletado` verdadeiro (deletados no DBF) saem antes
-  (`registro_deletado`). Só linhas com município no território entram; as demais nunca são
-  avaliadas e são contadas por motivo em `out/<run_id>/recorte_territorial.json`:
-  `fora_do_territorio` (município de fora) e `territorio_indeterminado` (município nulo). Cada
-  linha conta em um único motivo, com precedência `registro_deletado` > `territorio_indeterminado`
-  > `fora_do_territorio`. `registro_deletado` tem o nome do T10; `territorio_indeterminado`
-  corresponde ao `sem_municipio_estabelecimento` do T10 (mesmo critério, nome do desenho do
-  validate). Recorte
-  que deixa a população vazia → saída 2 (`populacao_vazia_apos_recorte`), nunca execução
-  `CONCLUIDA` vazia. O hash do conjunto de municípios entra no `run_id`
-  (`InsumosAvaliacao.identidade_adicional`), então outro território dá outra execução mesmo
-  quando a produção filtrada é igual;
+  `hash_logico_relacao`. Republicação concorrente → saída 2, nunca escolha automática: duas versões
+  da pasta com a mesma chave lógica (fonte, UF, competência do arquivo, parte), ou, pelo seletor do
+  T06 (`selecionar_versao`, critério de processamento) sobre o registro inteiro até o corte, seleção
+  `AMBIGUA` ou versão da pasta que não é a visível no registro (mesmo que a pasta traga uma só).
+  Artefato fora do registro, de UF ou competência do arquivo fora do piloto, ou, com
+  `corte_observacao`, sem observação `OBTIDO` até o corte → saída 2; `row_id` repetido → falha
+  operacional (saída 5);
+- população e território: território carregado por `ingest.territorio.carregar_territorio`
+  (contrato, UF e dígito verificador) e `municipios_ibge6`. Produção sem
+  `municipio_estabelecimento` ou `competencia_processamento` → saída 2 (`territorio_sem_coluna`).
+  Saem da população, nunca avaliadas, e são contadas em `out/<run_id>/recorte_territorial.json`,
+  cada linha num único motivo, na precedência do T10 (`evaluation/split.py`):
+  `registro_deletado` (deletado no DBF) > `sem_competencia_processamento` >
+  `fora_das_competencias_do_piloto` > `territorio_indeterminado` (município nulo; no T10,
+  `sem_municipio_estabelecimento`) > `fora_do_territorio`. Recorte que deixa a população vazia →
+  saída 2 (`populacao_vazia_apos_recorte`), nunca execução `CONCLUIDA` vazia. O hash do conteúdo
+  inteiro de `recorte_territorial.json` (municípios, contagens, cobertura da ingestão) entra no
+  `run_id` (`InsumosAvaliacao.identidade_adicional`), então outro território ou outras contagens
+  dão outra execução mesmo quando a produção filtrada é igual;
 - auxiliares: por esquema exigido pelas regras, uma relação derivada com as linhas de todos os
   artefatos daquele esquema, cada linha com o seu `artifact_id`; nada é deduplicado entre artefatos,
   porque a seleção decide quais versões valem e a avaliação junta por `artifact_id`;
@@ -239,7 +239,8 @@ vêm antes de gravar qualquer arquivo:
   produção territorial e os conjuntos auxiliares originais da ingestão (com `reconciliacao`, então
   perda de linhas continua tornando a célula insuficiente), nas competências de processamento do
   piloto, preservando as marcas de incompletude da ingestão (motivos
-  `sia_pa_incompleto competencia=AAAAMM motivo=…`, lidos por `incompletude_da_cobertura`): nunca
+  `sia_pa_incompleto competencia=AAAAMM motivo=…`, lidos por `incompletude_da_cobertura` na passada
+  de conferência, antes de qualquer gravação; marca fora do formato → saída 2): nunca
   sai `DISPONIVEL` onde a ingestão marcou arquivo incompleto. Assim um registro de fora do
   território não torna insuficiente uma célula do território. A cobertura recalculada entra na
   avaliação e no `run_id`; a da ingestão fica registrada em `recorte_territorial.json`

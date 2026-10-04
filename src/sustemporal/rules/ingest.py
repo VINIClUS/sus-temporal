@@ -20,7 +20,14 @@ from pydantic import ValidationError
 from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import ManifestoCorrompido
 from sustemporal.contracts.artifacts import EstadoIntegridade, ResultadoTentativa
+from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
+from sustemporal.contracts.temporal import (
+    BaseTemporal,
+    CompetenciaArquivo,
+    CriterioTemporal,
+    EstadoSelecao,
+)
 from sustemporal.duck import identificador_seguro
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
 from sustemporal.hashing import hash_logico_relacao
@@ -29,7 +36,11 @@ from sustemporal.rules.catalog import carregar_esquema, requisito_auxiliar
 from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
 from sustemporal.rules.preparo import conferir_tipos_fisicos
 from sustemporal.temporal.registry import RegistroTemporal
-from sustemporal.temporal.selector import partes_esperadas_do_catalogo
+from sustemporal.temporal.selector import (
+    partes_esperadas_do_catalogo,
+    selecionar_versao,
+    uf_da_execucao,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -53,6 +64,13 @@ logger = logging.getLogger(__name__)
 PRODUCAO = "sia_pa.v1"
 COBERTURA = "cobertura.v1"
 _UNIAO = "uniao_ingest"
+_EXCLUSOES = (
+    ("registro_deletado", "deletado IS TRUE"),
+    ("sem_competencia_processamento", "competencia_processamento IS NULL"),
+    ("fora_das_competencias_do_piloto", "NOT list_contains($c, competencia_processamento)"),
+    ("territorio_indeterminado", "municipio_estabelecimento IS NULL"),
+    ("fora_do_territorio", "NOT list_contains($m, municipio_estabelecimento)"),
+)
 _MARCA_INCOMPLETO = re.compile(r"sia_pa_incompleto competencia=([0-9]{6}) motivo=(.*?)(?:; |$)")
 _NAO_INTEGRAS = {
     estado
@@ -162,6 +180,34 @@ def _exigir_escopo_do_piloto(
             )
 
 
+def _exigir_versao_selecionavel(
+    artefatos: list[str], registro: RegistroTemporal, config: RunConfig
+) -> None:
+    """Pelo seletor do T06, as versões da pasta são as únicas visíveis no registro até o corte."""
+    criterio = CriterioTemporal(fonte=FamiliaFonte.SIA_PA, base=BaseTemporal.PROCESSAMENTO)
+    por_competencia: dict[str, set[str]] = defaultdict(set)
+    for artefato in artefatos:
+        por_competencia[str(registro.versoes[artefato].chave.competencia_arquivo)].add(artefato)
+    for competencia, da_pasta in sorted(por_competencia.items()):
+        selecao = selecionar_versao(
+            registro,
+            criterio,
+            CompetenciaArquivo(competencia),
+            uf=uf_da_execucao(config),
+            corte=config.corte_observacao,
+        )
+        if selecao.estado is EstadoSelecao.AMBIGUA:
+            raise ConfigInvalida(
+                f"producao_com_versoes_concorrentes competencia={competencia} "
+                f"motivo={selecao.motivo}"
+            )
+        if selecao.artifact_ids and not da_pasta <= set(selecao.artifact_ids):
+            raise ConfigInvalida(
+                f"producao_com_versao_nao_selecionada competencia={competencia} "
+                f"artefatos={sorted(da_pasta - set(selecao.artifact_ids))}"
+            )
+
+
 def _exigir_producao_coerente(
     producao: list[DatasetRef], registro: RegistroTemporal, config: RunConfig
 ) -> None:
@@ -178,6 +224,7 @@ def _exigir_producao_coerente(
                 f"producao_com_versoes_concorrentes chave={chave} artefatos={sorted(versoes)}"
             )
     _exigir_escopo_do_piloto(artefatos, registro, config)
+    _exigir_versao_selecionavel(artefatos, registro, config)
     corte = config.corte_observacao
     if corte is None:
         return
@@ -300,49 +347,36 @@ def exigir_sem_deletados(con: duckdb.DuckDBPyConnection, producao: DatasetRef) -
         raise ConfigInvalida(f"producao_com_registros_deletados linhas={linhas}")
 
 
-def _remover_deletados(con: duckdb.DuckDBPyConnection, colunas: list[str]) -> int:
-    """Registros marcados como deletados no DBF nunca entram na população avaliada."""
-    if "deletado" not in colunas:
-        return 0
-    contagem = con.execute(
-        f"SELECT count(*) FROM {_UNIAO} WHERE deletado IS TRUE"  # noqa: S608
-    ).fetchall()[0][0]
-    con.execute(f"DELETE FROM {_UNIAO} WHERE deletado IS TRUE")  # noqa: S608
-    return int(contagem)
-
-
-def _recortar_territorio(
-    con: duckdb.DuckDBPyConnection, colunas: list[str], municipios: frozenset[str]
+def _recortar_populacao(
+    con: duckdb.DuckDBPyConnection,
+    colunas: list[str],
+    municipios: frozenset[str],
+    competencias: list[str],
 ) -> dict[str, int]:
-    """Mantém só o território; conta as excluídas por motivo (nunca somem em silêncio).
+    """Mantém só a população do piloto; conta as excluídas por motivo (nunca somem em silêncio).
+
+    Um motivo por linha, na precedência do T10 (`evaluation/split.py`).
 
     Raises:
-        ConfigInvalida: produção sem `municipio_estabelecimento` ou população vazia após o recorte.
+        ConfigInvalida: produção sem coluna exigida ou população vazia após o recorte.
     """
-    if "municipio_estabelecimento" not in colunas:
-        raise ConfigInvalida("territorio_sem_coluna coluna=municipio_estabelecimento")
-    deletados = _remover_deletados(con, colunas)
-    parametros = {"m": sorted(municipios)}
-    contagem = (
-        "count(*) FILTER (WHERE municipio_estabelecimento IS NULL), "
-        "count(*) FILTER (WHERE NOT list_contains($m, municipio_estabelecimento)), "
-        "count(*) FILTER (WHERE list_contains($m, municipio_estabelecimento))"
-    )
-    consulta = f"SELECT {contagem} FROM {_UNIAO}"  # noqa: S608
-    nulas, fora, dentro = con.execute(consulta, parametros).fetchall()[0]
-    motivos = {
-        "registro_deletado": deletados,
-        "territorio_indeterminado": int(nulas),
-        "fora_do_territorio": int(fora),
-    }
-    exclusoes = {motivo: n for motivo, n in motivos.items() if n}
-    if not dentro:
+    for coluna in ("municipio_estabelecimento", "competencia_processamento"):
+        if coluna not in colunas:
+            raise ConfigInvalida(f"territorio_sem_coluna coluna={coluna}")
+    valores = {"m": sorted(municipios), "c": sorted(competencias)}
+    exclusoes: dict[str, int] = {}
+    for motivo, condicao in _EXCLUSOES:
+        if motivo == "registro_deletado" and "deletado" not in colunas:
+            continue
+        parametros = {k: v for k, v in valores.items() if f"${k}" in condicao}
+        consulta = f"SELECT count(*) FROM {_UNIAO} WHERE {condicao}"  # noqa: S608
+        quantidade = int(con.execute(consulta, parametros).fetchall()[0][0])
+        con.execute(f"DELETE FROM {_UNIAO} WHERE {condicao}", parametros)  # noqa: S608
+        if quantidade:
+            exclusoes[motivo] = quantidade
+    restantes = con.execute(f"SELECT count(*) FROM {_UNIAO}").fetchall()[0][0]  # noqa: S608
+    if not restantes:
         raise ConfigInvalida(f"populacao_vazia_apos_recorte exclusoes={exclusoes}")
-    con.execute(
-        f"DELETE FROM {_UNIAO} WHERE municipio_estabelecimento IS NULL "  # noqa: S608
-        "OR NOT list_contains($m, municipio_estabelecimento)",
-        parametros,
-    )
     return exclusoes
 
 
@@ -377,9 +411,13 @@ def incompletude_da_cobertura(
     return incompleto
 
 
+def _competencias_do_piloto(config: RunConfig) -> list[str]:
+    piloto = config.piloto
+    return [str(c) for c in piloto.competencias_processamento] if piloto else []
+
+
 def _recalcular_cobertura(
-    con: duckdb.DuckDBPyConnection,
-    cobertura: DatasetRef,
+    incompleto: dict[str, str],
     derivados: tuple[DatasetRef, list[DatasetRef]],
     config: RunConfig,
     destino: Path,
@@ -391,16 +429,14 @@ def _recalcular_cobertura(
     insuficiente.
     """
     producao, auxiliares = derivados
-    piloto = config.piloto
-    competencias = [str(c) for c in piloto.competencias_processamento] if piloto else []
     return build_coverage(
         [producao],
         auxiliares,
-        competencias,
+        _competencias_do_piloto(config),
         destino / "cobertura",
         runtime=config.runtime,
         origem_dados=producao.origem_dados,
-        sia_pa_incompleto=incompletude_da_cobertura(con, cobertura),
+        sia_pa_incompleto=incompleto,
     )
 
 
@@ -426,9 +462,10 @@ def preparar_insumos_ingest(
     fisicas = [_conferir(con, refs) for refs in grupos]
     if cobertura is not None:
         _conferir(con, [cobertura])
+    incompleto = incompletude_da_cobertura(con, cobertura) if cobertura is not None else {}
     colunas = _unir(con, producao, fisicas[0])
     _exigir_row_id_unico(con)
-    exclusoes = _recortar_territorio(con, colunas, municipios)
+    exclusoes = _recortar_populacao(con, colunas, municipios, _competencias_do_piloto(config))
     ref_producao = _gravar(con, colunas, producao, destino)
     derivados = [
         _gravar(con, _unir(con, refs, presentes), refs, destino)
@@ -437,9 +474,7 @@ def preparar_insumos_ingest(
     recalculada = None
     if cobertura is not None:
         originais = [ref for refs in grupos[1:] for ref in refs]
-        recalculada = _recalcular_cobertura(
-            con, cobertura, (ref_producao, originais), config, destino
-        )
+        recalculada = _recalcular_cobertura(incompleto, (ref_producao, originais), config, destino)
     logger.info(
         "insumos_ingest_prontos producao=%s exclusoes=%s", ref_producao.dataset_id, exclusoes
     )

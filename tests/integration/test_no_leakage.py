@@ -16,6 +16,7 @@ from tests.fixtures.protocolo_dados import (
     cenario_baseline,
     coorte,
     fontes_identidade,
+    gravar_rotulos,
     gravar_sia_pa,
     gravar_territorio,
 )
@@ -243,9 +244,7 @@ def _parametros(run_saida: str) -> dict[str, Any]:
 
 def test_transformacoes_ajustadas_so_no_treino(tmp_path: Path) -> None:
     cenario = cenario_baseline(tmp_path / "a")
-    run = fit_baseline(
-        cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run", rotulos=cenario.rotulos
-    )
+    run = fit_baseline(cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run")
     parametros = _parametros(run.saidas[0].caminho)
     treino = [
         linha
@@ -281,7 +280,6 @@ def test_transformacoes_ajustadas_so_no_treino(tmp_path: Path) -> None:
         FEATURES_PADRAO,
         alterado.config,
         tmp_path / "run_b",
-        rotulos=alterado.rotulos,
     )
     assert _parametros(run_alterado.saidas[0].caminho) == parametros
 
@@ -290,3 +288,26 @@ def test_inspecionado_sem_fonte_conhecida_e_recusado(tmp_path: Path) -> None:
     linhas = [LinhaPa(artefato("teste"), 0, competencia_processamento="202401")]
     with pytest.raises(ValueError, match="split_sem_fonte_para_artefato"):
         _split(tmp_path, linhas, inspecionados=[artefato("versao_antiga_fora_do_mapa")])
+
+
+def test_rotulos_particionados_com_a_populacao(tmp_path: Path) -> None:
+    art = artefato("a")
+    linhas = [
+        LinhaPa(art, 0, competencia_processamento="202001"),
+        LinhaPa(art, 1, competencia_processamento="202401"),
+        LinhaPa(art, 2, competencia_processamento="201712"),
+    ]
+    rotulos = gravar_rotulos(
+        {linha.row_id: "NAO_APROVADO" for linha in linhas}, tmp_path / "rotulos.parquet"
+    )
+    manifesto = _split(tmp_path, linhas, rotulos=rotulos)
+    assert manifesto.rotulos_por_particao is not None
+    por_particao = {
+        p: [r[0] for r in _ler(ds.caminho, "row_id")]
+        for p, ds in manifesto.rotulos_por_particao.items()
+    }
+    assert por_particao == {
+        Particao.DESENVOLVIMENTO: [linhas[0].row_id],
+        Particao.CALIBRACAO: [],
+        Particao.TESTE: [linhas[1].row_id],
+    }

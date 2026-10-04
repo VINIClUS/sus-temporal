@@ -189,6 +189,7 @@ class SplitManifest(ContratoBase):
     particoes: dict[Particao, DatasetRef] | None = None
     exclusoes: dict[str, InteiroNaoNegativo] | None = None
     limites: tuple[str, ...] | None = None
+    rotulos_por_particao: dict[Particao, DatasetRef] | None = None
 
     @model_validator(mode="after")
     def _coerencia(self) -> SplitManifest:
@@ -200,6 +201,8 @@ class SplitManifest(ContratoBase):
             raise ValueError(f"teste_contem_artefato_inspecionado split={self.split_id}")
         if self.particoes is not None:
             self._particoes_coerentes(declaradas, self.particoes)
+        if self.rotulos_por_particao is not None and set(self.rotulos_por_particao) != declaradas:
+            raise ValueError(f"split_rotulos_particoes_divergentes split={self.split_id}")
         return self
 
     def _particoes_coerentes(

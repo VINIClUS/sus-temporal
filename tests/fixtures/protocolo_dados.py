@@ -256,6 +256,7 @@ def cenario_baseline(
         raiz / "split",
         spec=SPEC_PADRAO,
         fonte_por_artefato=fontes_identidade(list(linhas)),
+        rotulos=rotulos,
     )
     config = RunConfig.model_validate({"versao": "1", "origem_dados": "SINTETICO"})
     return Cenario(split, rotulos, config, linhas, {linha.row_id: r for linha, r in pares})

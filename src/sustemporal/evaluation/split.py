@@ -290,6 +290,7 @@ def build_splits(
     spec: SplitSpec | None = None,
     fonte_por_artefato: Mapping[str, str] | None = None,
     inspecionados: Iterable[str] = (),
+    rotulos: DatasetRef | None = None,
 ) -> SplitManifest:
     """Separa desenvolvimento, calibração e teste por competência de processamento.
 
@@ -302,6 +303,8 @@ def build_splits(
         ValueError: esquema inesperado, pertença histórica, artefato sem fonte, republicação
             em partições distintas ou artefato ou fonte de teste já inspecionados.
     """
+    if rotulos is not None:
+        raise NotImplementedError
     spec = spec if spec is not None else carregar_spec()
     vistos = tuple(sorted(set(inspecionados)))
     municipios = _municipios(cohort)

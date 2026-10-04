@@ -55,9 +55,7 @@ def test_categoria_desconhecida_no_teste(tmp_path: Path) -> None:
         cbo="99999X",
     )
     cenario = cenario_baseline(tmp_path, extras=((novo, "APROVADO_TOTAL"),))
-    run = fit_baseline(
-        cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run", rotulos=cenario.rotulos
-    )
+    run = fit_baseline(cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run")
     parametros = _parametros(run.saidas[0].caminho)
     assert "0999999999" not in parametros["vocabulario"]["procedimento"]
     assert parametros["desconhecidas"]["CALIBRACAO"]["procedimento"] == 1
@@ -74,7 +72,6 @@ def test_mesma_saida_com_mesma_semente(tmp_path: Path) -> None:
             FEATURES_PADRAO,
             cenario.config,
             tmp_path / nome,
-            rotulos=cenario.rotulos,
             relogio=_relogio,
         )
         for nome in ("a", "b")
@@ -87,9 +84,7 @@ def test_mesma_saida_com_mesma_semente(tmp_path: Path) -> None:
 
 def test_baseline_aprende_sinal_plantado(tmp_path: Path) -> None:
     cenario = cenario_baseline(tmp_path)
-    run = fit_baseline(
-        cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run", rotulos=cenario.rotulos
-    )
+    run = fit_baseline(cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run")
     procedimento = {linha.row_id: linha.procedimento for linha in cenario.linhas}
     calibracao = [
         r for r in _predicoes(run.saidas[0].caminho) if r[1] == "B_ML" and r[2] == "CALIBRACAO"
@@ -103,9 +98,7 @@ def test_baseline_aprende_sinal_plantado(tmp_path: Path) -> None:
 
 def test_controle_trivial_prediz_classe_prevalente_do_treino(tmp_path: Path) -> None:
     cenario = cenario_baseline(tmp_path)
-    run = fit_baseline(
-        cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run", rotulos=cenario.rotulos
-    )
+    run = fit_baseline(cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run")
     triviais = [r for r in _predicoes(run.saidas[0].caminho) if r[1] == "CONTROLE_TRIVIAL"]
     assert triviais
     assert {r[3] for r in triviais} == {"SEM_ALERTA"}
@@ -116,20 +109,33 @@ def test_controle_trivial_prediz_classe_prevalente_do_treino(tmp_path: Path) -> 
 def test_exploratorio_nao_le_nem_pontua_o_teste(tmp_path: Path) -> None:
     cenario = cenario_baseline(tmp_path)
     assert cenario.split.particoes is not None
+    assert cenario.split.rotulos_por_particao is not None
+    rotulos_teste = cenario.split.rotulos_por_particao[Particao.TESTE]
     Path(cenario.split.particoes[Particao.TESTE].caminho).unlink()
-    run = fit_baseline(
-        cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run", rotulos=cenario.rotulos
-    )
+    Path(rotulos_teste.caminho).unlink()
+    run = fit_baseline(cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run")
     particoes = {r[2] for r in _predicoes(run.saidas[0].caminho)}
     assert particoes == {"DESENVOLVIMENTO", "CALIBRACAO"}
     assert cenario.split.particoes[Particao.TESTE] not in run.entradas
+    assert rotulos_teste not in run.entradas
+    assert cenario.rotulos not in run.entradas
+
+
+def test_rotulos_do_teste_nao_alteram_execucao_exploratoria(tmp_path: Path) -> None:
+    base = cenario_baseline(tmp_path / "base")
+    invertido = cenario_baseline(tmp_path / "inv", invertidas=("202401",))
+    assert base.rotulos.hash_logico != invertido.rotulos.hash_logico
+    runs = [
+        fit_baseline(c.split, FEATURES_PADRAO, c.config, tmp_path / nome, relogio=_relogio)
+        for nome, c in (("rb", base), ("ri", invertido))
+    ]
+    assert runs[0].run_id == runs[1].run_id
+    assert [d.hash_logico for d in runs[0].entradas] == [d.hash_logico for d in runs[1].entradas]
 
 
 def test_aprovacao_parcial_fica_fora_do_ajuste(tmp_path: Path) -> None:
     cenario = cenario_baseline(tmp_path)
-    run = fit_baseline(
-        cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run", rotulos=cenario.rotulos
-    )
+    run = fit_baseline(cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run")
     contagens = _parametros(run.saidas[0].caminho)["contagens_treino"]
     assert contagens["APROVADO_PARCIAL"] > 0
     assert contagens["usadas_no_ajuste"] == contagens["NAO_APROVADO"] + contagens["APROVADO_TOTAL"]
@@ -137,8 +143,9 @@ def test_aprovacao_parcial_fica_fora_do_ajuste(tmp_path: Path) -> None:
 
 def test_baseline_sem_rotulos_e_recusado(tmp_path: Path) -> None:
     cenario = cenario_baseline(tmp_path)
+    sem_rotulos = cenario.split.model_copy(update={"rotulos_por_particao": None})
     with pytest.raises(ValueError, match="baseline_sem_rotulos"):
-        fit_baseline(cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run")
+        fit_baseline(sem_rotulos, FEATURES_PADRAO, cenario.config, tmp_path / "run")
 
 
 def test_confirmatorio_com_dados_sinteticos_e_recusado(tmp_path: Path) -> None:
@@ -158,7 +165,6 @@ def test_confirmatorio_com_dados_sinteticos_e_recusado(tmp_path: Path) -> None:
             FEATURES_PADRAO,
             config,
             tmp_path / "run",
-            rotulos=cenario.rotulos,
             decisoes=tmp_path / "decisoes",
         )
 
@@ -185,9 +191,7 @@ _AJUSTADOS_NO_DESENVOLVIMENTO = ("vocabulario", "numericos", "coeficientes", "in
 
 def test_codificador_e_modelo_nao_mudam_com_a_calibracao(tmp_path: Path) -> None:
     base = cenario_baseline(tmp_path / "base")
-    run = fit_baseline(
-        base.split, FEATURES_PADRAO, base.config, tmp_path / "rb", rotulos=base.rotulos
-    )
+    run = fit_baseline(base.split, FEATURES_PADRAO, base.config, tmp_path / "rb")
     esperado = _parametros(run.saidas[0].caminho)
     for nome, rotulo in (("rej", "NAO_APROVADO"), ("apr", "APROVADO_TOTAL")):
         alterado = cenario_baseline(tmp_path / nome, extras=_extras_calibracao(rotulo))
@@ -196,7 +200,6 @@ def test_codificador_e_modelo_nao_mudam_com_a_calibracao(tmp_path: Path) -> None
             FEATURES_PADRAO,
             alterado.config,
             tmp_path / f"r{nome}",
-            rotulos=alterado.rotulos,
         )
         obtido = _parametros(run_alt.saidas[0].caminho)
         for chave in _AJUSTADOS_NO_DESENVOLVIMENTO:
@@ -218,9 +221,7 @@ def _youden_de_referencia(pares: list[tuple[float, int]]) -> tuple[float, float]
 
 def test_limiar_escolhido_na_calibracao(tmp_path: Path) -> None:
     cenario = cenario_baseline(tmp_path, invertidas=("202301",))
-    run = fit_baseline(
-        cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run", rotulos=cenario.rotulos
-    )
+    run = fit_baseline(cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run")
     con = duckdb.connect()
     try:
         linhas = con.execute(
@@ -243,9 +244,7 @@ def test_limiar_escolhido_na_calibracao(tmp_path: Path) -> None:
 
 def test_codificador_ignora_linhas_fora_do_alvo_binario(tmp_path: Path) -> None:
     base = cenario_baseline(tmp_path / "base")
-    run = fit_baseline(
-        base.split, FEATURES_PADRAO, base.config, tmp_path / "rb", rotulos=base.rotulos
-    )
+    run = fit_baseline(base.split, FEATURES_PADRAO, base.config, tmp_path / "rb")
     extras = tuple(
         (
             LinhaPa(
@@ -260,9 +259,7 @@ def test_codificador_ignora_linhas_fora_do_alvo_binario(tmp_path: Path) -> None:
         for i, rotulo in enumerate(["APROVADO_PARCIAL", "APROVADO_PARCIAL", "DESCONHECIDO"] * 2)
     )
     alterado = cenario_baseline(tmp_path / "alt", extras=extras)
-    run_alt = fit_baseline(
-        alterado.split, FEATURES_PADRAO, alterado.config, tmp_path / "ra", rotulos=alterado.rotulos
-    )
+    run_alt = fit_baseline(alterado.split, FEATURES_PADRAO, alterado.config, tmp_path / "ra")
     esperado, obtido = _parametros(run.saidas[0].caminho), _parametros(run_alt.saidas[0].caminho)
     for chave in _AJUSTADOS_NO_DESENVOLVIMENTO:
         assert obtido[chave] == esperado[chave], chave
@@ -271,9 +268,7 @@ def test_codificador_ignora_linhas_fora_do_alvo_binario(tmp_path: Path) -> None:
 def test_ausente_tem_categoria_propria_mesmo_raro(tmp_path: Path) -> None:
     sem_cbo = LinhaPa(artefato("pa_202301"), 400, competencia_processamento="202301", cbo=None)
     cenario = cenario_baseline(tmp_path, extras=((sem_cbo, "APROVADO_TOTAL"),))
-    run = fit_baseline(
-        cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run", rotulos=cenario.rotulos
-    )
+    run = fit_baseline(cenario.split, FEATURES_PADRAO, cenario.config, tmp_path / "run")
     parametros = _parametros(run.saidas[0].caminho)
     assert "__AUSENTE__" in parametros["vocabulario"]["cbo"]
     assert parametros["desconhecidas"]["CALIBRACAO"]["cbo"] == 0

@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "criterio_da_fonte",
+    "criterio_da_regra",
     "fontes_auxiliares",
     "motivo_pendencia",
     "motivo_sem_criterio",
@@ -222,6 +223,12 @@ def criterio_da_fonte(politica: PoliticaTemporal, fonte: FamiliaFonte) -> Criter
     if politica.tipo is TipoPolitica.NAO_RESOLVIDA:
         return None
     return next((c for c in politica.criterios if c.fonte is fonte), None)
+
+
+def criterio_da_regra(
+    politica: PoliticaTemporal, regra: RuleSpec, fonte: FamiliaFonte
+) -> CriterioTemporal | None:
+    raise NotImplementedError("criterio_da_regra")
 
 
 def motivo_sem_criterio(fonte: FamiliaFonte) -> str:

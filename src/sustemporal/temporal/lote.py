@@ -29,6 +29,7 @@ if TYPE_CHECKING:
 
     import duckdb
 
+    from sustemporal.contracts import RunConfig
     from sustemporal.contracts.base import OrigemDados
     from sustemporal.contracts.rules import RuleSpec
     from sustemporal.contracts.temporal import PoliticaTemporal
@@ -171,6 +172,7 @@ def selecionar_lote(
     run_id: str,
     uf: str | None = None,
     corte: datetime | None = None,
+    config: RunConfig | None = None,
 ) -> None:
     """Cria `selecao_versoes` a partir da tabela `registros` (row_id e as duas competências).
 
@@ -180,6 +182,8 @@ def selecionar_lote(
     Raises:
         ValueError: nome de tabela fora do catálogo do DuckDB ou corte sem fuso.
     """
+    if config is not None:
+        raise NotImplementedError("config")
     if corte is not None and corte.utcoffset() is None:
         raise ValueError(f"corte_sem_fuso corte={corte.isoformat()}")
     pendencia = motivo_pendencia(politica)

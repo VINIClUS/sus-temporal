@@ -21,6 +21,7 @@ from sustemporal.contracts import (
     RunResult,
     TipoExecucao,
 )
+from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
 from tests.fixtures.anotacao_cenario import ARTEFATO_TESTE, gravar_dataset
 
 if TYPE_CHECKING:
@@ -80,12 +81,12 @@ def _agregados(linhas: list[Linha]) -> list[dict[str, object]]:
     ]
 
 
-def _avaliacao(linha: Linha, regra: str, politica: str) -> dict[str, object]:
+def _avaliacao(linha: Linha, regra: str, politica: str, versao: str) -> dict[str, object]:
     return {
         "run_id": RUN_ID,
         "row_id": linha.row_id,
         "rule_id": regra,
-        "versao": "0.1.0",
+        "versao": versao,
         "politica_id": politica,
         "metodo": MetodoId.M_TEMP.value,
         "estado": "VIOLACAO" if linha.violacoes else "CONFORME",
@@ -94,9 +95,11 @@ def _avaliacao(linha: Linha, regra: str, politica: str) -> dict[str, object]:
     }
 
 
-def _avaliacoes(linhas: list[Linha], politicas: tuple[str, ...]) -> list[dict[str, object]]:
+def _avaliacoes(
+    linhas: list[Linha], politicas: tuple[str, ...], versao: str
+) -> list[dict[str, object]]:
     return [
-        _avaliacao(linha, regra, politicas[i % len(politicas)])
+        _avaliacao(linha, regra, politicas[i % len(politicas)], versao)
         for i, linha in enumerate(linhas)
         for regra in linha.violacoes or ("ESTAB_CBO_CNES",)
     ]
@@ -114,6 +117,7 @@ def montar_valores(
     *,
     politicas: tuple[str, ...] = (POLITICA,),
     estado: EstadoExecucao = EstadoExecucao.CONCLUIDA,
+    versao_regras: str = "0.1.0",
 ) -> CenarioValores:
     raiz.mkdir(parents=True, exist_ok=True)
     artefatos = (ARTEFATO_TESTE,)
@@ -124,7 +128,10 @@ def montar_valores(
         raiz / "agregados.parquet", "agregados_registro.v1", _agregados(linhas), artefatos
     )
     avaliacoes = gravar_dataset(
-        raiz / "avaliacoes.parquet", "avaliacoes.v1", _avaliacoes(linhas, politicas), artefatos
+        raiz / "avaliacoes.parquet",
+        "avaliacoes.v1",
+        _avaliacoes(linhas, politicas, versao_regras),
+        artefatos,
     )
     run = RunResult(
         run_id=RUN_ID,
@@ -133,6 +140,7 @@ def montar_valores(
         politica_id=POLITICA,
         modo=ModoExecucao.EXPLORATORIO,
         config_hash="a" * 64,
+        catalogo_regras_sha256=catalogo_sha256(carregar_regras()),
         codigo=CodeVersion(commit="abc", sujo=False, versao_pacote="0.1"),
         ambiente=Ambiente(python="3.12", plataforma="linux"),
         saidas=(avaliacoes, agregados),

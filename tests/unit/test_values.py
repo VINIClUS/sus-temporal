@@ -108,23 +108,52 @@ def test_diferenca_negativa_fica_a_parte_sem_truncar(tmp_path: Path) -> None:
     assert tabela[(REJ, "NUMERADOR")]["ocorrencias"] == 1
 
 
-def test_rotulo_contraditorio_fica_a_parte(tmp_path: Path) -> None:
+def test_rotulo_contraditorio_reportado_a_parte_sem_sair_do_denominador(
+    tmp_path: Path,
+) -> None:
     linhas = [
         Linha(
             "r1",
             REJ,
             D("10.00"),
-            D("10.00"),
+            D("6.00"),
             ("ESTAB_CBO_CNES",),
             contradicoes="NAO_APROVADO_COM_VALOR_APROVADO",
         ),
         Linha("r2", REJ, D("4.00"), D("0.00"), ("ESTAB_CBO_CNES",)),
+        Linha("r3", REJ, D("2.00"), D("5.00"), contradicoes="VALOR_APROVADO_MAIOR_QUE_APRESENTADO"),
     ]
     _, tabela = _resumir(tmp_path, linhas)
     contraditorio = tabela[(REJ, "ROTULO_CONTRADITORIO")]
-    assert contraditorio["ocorrencias"] == 1
-    assert contraditorio["valor_apresentado"] == D("10")
-    assert tabela[(REJ, "DENOMINADOR")]["ocorrencias"] == 1
+    assert contraditorio["ocorrencias"] == 2
+    assert contraditorio["aditiva"] is False
+    assert contraditorio["valor_apresentado"] == D("12")
+    assert tabela[(REJ, "DENOMINADOR")]["ocorrencias"] == 2
+    assert tabela[(REJ, "DENOMINADOR")]["diferenca"] == D("8")
+    assert tabela[(REJ, "NUMERADOR")]["diferenca"] == D("8")
+    assert tabela[(REJ, "DIFERENCA_NEGATIVA")]["ocorrencias"] == 1
+
+
+def test_catalogo_de_regras_divergente_do_run_e_recusado(tmp_path: Path) -> None:
+    cenario = montar_valores(tmp_path / "dados", [Linha("r1", REJ, D("5.00"), D("0.00"))])
+    run = cenario.run.model_copy(update={"catalogo_regras_sha256": "f" * 64})
+    with pytest.raises(ValueError, match="catalogo_de_regras_divergente"):
+        _executar(replace(cenario, run=run), tmp_path)
+
+
+def test_execucao_sem_catalogo_de_regras_e_recusada(tmp_path: Path) -> None:
+    cenario = montar_valores(tmp_path / "dados", [Linha("r1", REJ, D("5.00"), D("0.00"))])
+    run = cenario.run.model_copy(update={"catalogo_regras_sha256": None})
+    with pytest.raises(ValueError, match="execucao_sem_catalogo_de_regras"):
+        _executar(replace(cenario, run=run), tmp_path)
+
+
+def test_versao_de_regra_divergente_e_recusada(tmp_path: Path) -> None:
+    cenario = montar_valores(
+        tmp_path / "dados", [Linha("r1", REJ, D("5.00"), D("0.00"))], versao_regras="0.2.0"
+    )
+    with pytest.raises(ValueError, match="versao_de_regra_divergente"):
+        _executar(cenario, tmp_path)
 
 
 def test_aprovacao_parcial_separada_da_rejeicao(tmp_path: Path) -> None:

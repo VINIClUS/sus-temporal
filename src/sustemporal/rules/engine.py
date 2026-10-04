@@ -74,6 +74,8 @@ def calcular_run_id(
         "cobertura": insumos.cobertura.dataset_id if insumos.cobertura else None,
         "integridade": sorted((a, str(e)) for a, e in insumos.integridade.items()),
     }
+    if insumos.identidade_adicional:
+        conteudo["adicional"] = sorted(insumos.identidade_adicional.items())
     return f"val_{hash_canonico(conteudo)[:40]}"
 
 

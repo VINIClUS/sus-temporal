@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import duckdb
 from pydantic import ValidationError
 
+from sustemporal.contracts.base import hash_canonico
 from sustemporal.contracts.experiment import Territorio
 from sustemporal.duck import conectar
 from sustemporal.errors import ConfigInvalida
@@ -102,6 +103,7 @@ def validar_ingest(pasta: Path, metodo: MetodoId, config: RunConfig, saida: Path
         cobertura=insumos.cobertura,
         integridade=integridade_do_registro(registro, corte=config.corte_observacao),
         politica=politica,
+        identidade_adicional={"territorio_municipios": hash_canonico(sorted(municipios))},
     )
     try:
         resultado = avaliar_com_registro(

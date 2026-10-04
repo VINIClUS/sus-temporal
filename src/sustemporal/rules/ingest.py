@@ -111,12 +111,15 @@ def integridade_do_registro(
 
     Quarentena observada prevalece; tentativa com bytes que não terminou em `OBTIDO` (falha de
     coleta) deixa a versão `NAO_VERIFICADO`, nunca `OK`. Com `corte`, só contam as observações
-    até ele (as posteriores não alteram uma execução histórica).
+    até ele e só entram versões observadas até ele (as posteriores não alteram uma execução
+    histórica nem o seu `run_id`).
     """
-    estados = {artefato: versao.integridade for artefato, versao in registro.versoes.items()}
-    for obs in registro.observacoes:
-        if corte is not None and obs.observado_em > corte:
-            continue
+    observacoes = [o for o in registro.observacoes if corte is None or o.observado_em <= corte]
+    vistas = {o.artifact_id for o in observacoes}
+    estados = {
+        a: v.integridade for a, v in registro.versoes.items() if corte is None or a in vistas
+    }
+    for obs in observacoes:
         atual = estados.get(obs.artifact_id or "")
         if atual is None:
             continue
@@ -131,6 +134,23 @@ def integridade_do_registro(
 def _chave_logica(versao: ArtifactVersion) -> str:
     chave = versao.chave
     return f"{chave.fonte}|{chave.uf}|{chave.competencia_arquivo}|{chave.parte}"
+
+
+def _exigir_escopo_do_piloto(
+    artefatos: list[str], registro: RegistroTemporal, config: RunConfig
+) -> None:
+    """Cada versão da produção é da UF e de uma competência de processamento do piloto."""
+    piloto = config.piloto
+    if piloto is None:
+        raise ConfigInvalida("validate_ingest_sem_piloto")
+    competencias = {str(c) for c in piloto.competencias_processamento}
+    for artefato in artefatos:
+        chave = registro.versoes[artefato].chave
+        if chave.uf != piloto.uf or str(chave.competencia_arquivo) not in competencias:
+            raise ConfigInvalida(
+                f"producao_fora_do_piloto artefato={artefato} uf={chave.uf} "
+                f"competencia={chave.competencia_arquivo}"
+            )
 
 
 def _exigir_producao_coerente(
@@ -148,6 +168,7 @@ def _exigir_producao_coerente(
             raise ConfigInvalida(
                 f"producao_com_versoes_concorrentes chave={chave} artefatos={sorted(versoes)}"
             )
+    _exigir_escopo_do_piloto(artefatos, registro, config)
     corte = config.corte_observacao
     if corte is None:
         return

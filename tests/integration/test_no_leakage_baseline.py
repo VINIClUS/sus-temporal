@@ -272,3 +272,32 @@ def test_ausente_tem_categoria_propria_mesmo_raro(tmp_path: Path) -> None:
     parametros = _parametros(run.saidas[0].caminho)
     assert "__AUSENTE__" in parametros["vocabulario"]["cbo"]
     assert parametros["desconhecidas"]["CALIBRACAO"]["cbo"] == 0
+
+
+def test_confirmatorio_recusado_antes_de_abrir_arquivos(tmp_path: Path) -> None:
+    cenario = cenario_baseline(tmp_path)
+    assert cenario.split.particoes is not None
+    assert cenario.split.rotulos_por_particao is not None
+    for refs in (cenario.split.particoes, cenario.split.rotulos_por_particao):
+        for ref in refs.values():
+            Path(ref.caminho).unlink()
+    freeze_id = f"frz_{'0' * 64}"
+    decisoes = tmp_path / "decisoes"
+    decisoes.mkdir()
+    (decisoes / "g2_sintetica.yaml").write_text(
+        "portao: G2\ndecisao: ABRIR_TESTE\ndata: 2025-06-01\nresponsaveis: [teste]\n"
+        f"registrado_por_humano: true\nfreeze_id: {freeze_id}\n",
+        encoding="utf-8",
+    )
+    config = RunConfig.model_validate(
+        {
+            "versao": "1",
+            "modo": "CONFIRMATORIO",
+            "origem_dados": "REAL",
+            "freeze_id": freeze_id,
+            "bootstrap": {"correcao": "HOLM"},
+        }
+    )
+    with pytest.raises(PortaoRecusado, match="confirmatorio_exige_freeze_verificado"):
+        fit_baseline(cenario.split, FEATURES_PADRAO, config, tmp_path / "run", decisoes=decisoes)
+    assert not (tmp_path / "run").exists()

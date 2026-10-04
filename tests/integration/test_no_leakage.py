@@ -314,3 +314,8 @@ def test_rotulos_particionados_com_a_populacao(tmp_path: Path) -> None:
     assert por_particao == {
         p: [r[0] for r in _ler(ds.caminho, "row_id")] for p, ds in manifesto.particoes.items()
     }
+
+
+def test_feature_spec_vazia_e_recusada() -> None:
+    with pytest.raises(ValueError, match="feature_spec_vazia"):
+        auditar_features(FeatureSpec(feature_set_id="vazia", atributos=()), ESQUEMAS)

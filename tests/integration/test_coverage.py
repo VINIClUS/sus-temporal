@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import duckdb
 import pytest
+from tests.fixtures.cnes_dbc import registro_pf
 from tests.fixtures.piloto_conjuntos import (
     conjunto_cnes_pf,
     conjunto_sia_pa,
@@ -198,3 +199,12 @@ def test_sia_pa_incompleto_na_competencia_nunca_fica_disponivel(tmp_path: Path) 
     linhas = [x for chave, x in _matriz(dataset).items() if chave[2] == "201801"]
     assert "DISPONIVEL" not in {x["estado"] for x in linhas}
     assert all("sia_pa_incompleto" in x["motivo"] for x in linhas if x["estado"] == "INSUFICIENTE")
+
+
+def test_linhas_descartadas_do_pf_impedem_cobertura_disponivel(tmp_path: Path) -> None:
+    pf = conjunto_cnes_pf(tmp_path, extras=[registro_pf("0012345", "")])
+    matriz = _matriz(_cobertura(tmp_path, [*conjuntos_sigtap(tmp_path), pf]))
+    linha = matriz[("ESTABELECIMENTO_CBO", "C", "201801", "PROCESSAMENTO")]
+    assert linha["estado"] == "INSUFICIENTE"
+    assert "linhas_descartadas" in linha["motivo"]
+    assert matriz[("PROCEDIMENTO_CBO", "C", "201801", "PROCESSAMENTO")]["estado"] == "DISPONIVEL"

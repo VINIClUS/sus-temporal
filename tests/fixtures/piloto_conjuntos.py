@@ -76,10 +76,13 @@ def conjuntos_sigtap(
     ]
 
 
-def conjunto_cnes_pf(pasta: Path, competencia: str = "201801") -> DatasetRef:
+def conjunto_cnes_pf(
+    pasta: Path, competencia: str = "201801", *, extras: Sequence[dict[str, str]] = ()
+) -> DatasetRef:
     registros = [
         registro_pf("0012345", "225125", competencia),
         registro_pf("0012345", "2231F9", competencia),
+        *extras,
     ]
     fonte = FamiliaFonte.CNES_PF
     artefato = artefato_cnes(pasta, dbc_cnes(fonte, registros), fonte, competencia=competencia)

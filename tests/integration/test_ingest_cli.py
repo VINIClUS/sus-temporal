@@ -11,12 +11,18 @@ import duckdb
 import pytest
 from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf, registro_st
 from tests.fixtures.piloto_conjuntos import registro
-from tests.fixtures.piloto_manifesto import registrar_versoes
+from tests.fixtures.piloto_manifesto import registrar_falha, registrar_versoes
 from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa
 from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
 
 from sustemporal import cli
-from sustemporal.contracts import ArtifactVersion, DatasetRef, FamiliaFonte, OrigemDados
+from sustemporal.contracts import (
+    ArtifactVersion,
+    DatasetRef,
+    FamiliaFonte,
+    OrigemDados,
+    ResultadoTentativa,
+)
 from sustemporal.errors import ExitCode
 from sustemporal.ingest.registry import NORMALIZADORES
 
@@ -168,3 +174,27 @@ def test_duas_execucoes_nao_sobrescrevem_a_anterior(tmp_path: Path) -> None:
     primeira, segunda = _execucoes(tmp_path)
     assert (primeira / "datasets.jsonl").is_file()
     assert (segunda / "datasets.jsonl").is_file()
+
+
+def test_parte_do_sia_pa_nao_encontrada_impede_cobertura_disponivel(tmp_path: Path) -> None:
+    store = tmp_path / "dados" / "raw"
+    registros = [registro("C", "201801", "201801")]
+    versoes = [
+        artefato_pa(store, dbc_pa(registros)),
+        artefato_sigtap(store, zip_sigtap(pacote_padrao())),
+    ]
+    (tmp_path / "manifestos").mkdir(parents=True)
+    manifesto = tmp_path / "manifestos" / "aquisicao.jsonl"
+    registrar_versoes(manifesto, versoes)
+    chave = versoes[0].chave.model_copy(update={"parte": "b", "nome_original": "PASP1801b.dbc"})
+    registrar_falha(manifesto, chave, ResultadoTentativa.NAO_ENCONTRADO, "sintetico://PASP1801b")
+    assert cli.main(["ingest", "--config", str(_config(tmp_path))]) == ExitCode.OK
+    (execucao,) = _execucoes(tmp_path)
+    datasets = [DatasetRef.model_validate(x) for x in _jsonl(execucao / "datasets.jsonl")]
+    (cobertura,) = [d for d in datasets if d.schema_id == "cobertura.v1"]
+    with closing(duckdb.connect()) as con:
+        estados = con.execute(
+            "SELECT DISTINCT estado FROM read_parquet($c) WHERE competencia = '201801'",
+            {"c": cobertura.caminho},
+        ).fetchall()
+    assert ("DISPONIVEL",) not in estados

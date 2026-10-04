@@ -6,6 +6,7 @@ from dataclasses import replace
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
 
+import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 
@@ -361,3 +362,41 @@ def test_resultado_fora_do_enum_e_falha_operacional(tmp_path: Path) -> None:
     linhas = [Linha("r1", REJ, D("5.00"), D("0.00"), resultado="APROVADO")]
     with pytest.raises(FalhaOperacionalErro, match="valores_resultado_desconhecido"):
         _resumir(tmp_path, linhas)
+
+
+def test_rotulo_fora_do_dominio_e_falha_operacional(tmp_path: Path) -> None:
+    linhas = [Linha("r1", "NAO_APROVAD0", D("5.00"), D("0.00"))]
+    with pytest.raises(
+        FalhaOperacionalErro, match="valores_rotulo_desconhecido valor=NAO_APROVAD0"
+    ):
+        _resumir(tmp_path, linhas)
+
+
+def test_tipo_fisico_incompativel_e_falha_operacional(tmp_path: Path) -> None:
+    cenario = montar_valores(tmp_path / "dados", [Linha("r1", REJ, D("5.00"), D("0.00"))])
+    tabela = pq.read_table(cenario.labels.caminho)
+    indice = tabela.column_names.index("valor_apresentado")
+    flutuante = tabela.column(indice).cast(pa.float64())
+    pq.write_table(
+        tabela.set_column(indice, "valor_apresentado", flutuante), cenario.labels.caminho
+    )
+    with pytest.raises(
+        FalhaOperacionalErro,
+        match=r"valores_leiaute_incompativel .*coluna=valor_apresentado tipo=DOUBLE "
+        r"esperado=DECIMAL",
+    ):
+        _executar(cenario, tmp_path)
+
+
+def test_metodo_fora_do_dominio_e_falha_operacional(tmp_path: Path) -> None:
+    cenario = montar_valores(tmp_path / "dados", [Linha("r1", REJ, D("5.00"), D("0.00"))])
+    avaliacoes = next(d for d in cenario.run.saidas if d.schema_id == "avaliacoes.v1")
+    tabela = pq.read_table(avaliacoes.caminho)
+    indice = tabela.column_names.index("metodo")
+    estranho = pa.array(["M_TEMPO"] * tabela.num_rows)
+    pq.write_table(tabela.set_column(indice, "metodo", estranho), avaliacoes.caminho)
+    nova = reemitir(avaliacoes)
+    saidas = tuple(nova if d.schema_id == "avaliacoes.v1" else d for d in cenario.run.saidas)
+    run = cenario.run.model_copy(update={"saidas": saidas, "metodo": None})
+    with pytest.raises(FalhaOperacionalErro, match="valores_metodo_desconhecido valor=M_TEMPO"):
+        _executar(replace(cenario, run=run), tmp_path)

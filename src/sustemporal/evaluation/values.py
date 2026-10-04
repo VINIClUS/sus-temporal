@@ -19,8 +19,6 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation, localcontext
 from typing import TYPE_CHECKING
 
-import duckdb
-
 from sustemporal.contracts import (
     DatasetRef,
     EstadoExecucao,
@@ -31,14 +29,16 @@ from sustemporal.contracts import (
 )
 from sustemporal.duck import conectar
 from sustemporal.errors import FalhaOperacionalErro
+from sustemporal.evaluation.values_entrada import conferir_entrada
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.sia_pa import gravar_parquet, produtor
 from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
-from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
     from pathlib import Path
+
+    import duckdb
 
     from sustemporal.contracts import FamiliaRegra, RuleSpec, RunResult
 
@@ -76,18 +76,6 @@ _ESCALA_RAZAO = Decimal("1e-12")
 _DIGITOS_INTEIROS = 32
 _PRECISAO = 80
 FAMILIAS_DE_ATENDIMENTO = frozenset({"CID", "IDADE", "SEXO"})
-_RESULTADOS = frozenset(r.value for r in ResultadoRegistro)
-_EXIGIDAS = {
-    "sia_pa_rotulos.v1": (
-        "row_id",
-        "rotulo",
-        "contradicoes",
-        "valor_apresentado",
-        "valor_aprovado",
-    ),
-    "agregados_registro.v1": ("run_id", "row_id", "violacoes", "resultado"),
-    "avaliacoes.v1": ("run_id", "rule_id", "versao", "politica_id", "metodo"),
-}
 _SQL_REGISTROS = (
     "SELECT a.row_id, a.violacoes, a.resultado, r.rotulo, r.contradicoes, "
     "r.valor_apresentado, r.valor_aprovado FROM read_parquet($agregados) a "
@@ -175,26 +163,6 @@ def _municipais(
             f"familia_de_atendimento_sem_governanca_municipal familias={','.join(de_atendimento)}"
         )
     return municipais
-
-
-def _conferir(con: duckdb.DuckDBPyConnection, *datasets: DatasetRef) -> None:
-    for dataset in datasets:
-        try:
-            verificar_conteudo(con, dataset)
-            descricao = con.execute(
-                "DESCRIBE SELECT * FROM read_parquet($c)", {"c": dataset.caminho}
-            ).fetchall()
-        except (ConteudoDivergente, duckdb.Error) as erro:
-            raise FalhaOperacionalErro(
-                f"valores_entrada_ilegivel_ou_divergente dataset={dataset.dataset_id} erro={erro}"
-            ) from erro
-        fisicas = {str(linha[0]) for linha in descricao}
-        ausentes = [c for c in _EXIGIDAS[dataset.schema_id] if c not in fisicas]
-        if ausentes:
-            raise FalhaOperacionalErro(
-                f"valores_leiaute_incompativel dataset={dataset.dataset_id} "
-                f"ausentes={','.join(ausentes)}"
-            )
 
 
 def _exigir_selecao_unica(
@@ -286,11 +254,6 @@ def _familias(registro: _Registro, familia_da_regra: Mapping[str, FamiliaRegra])
 
 
 def _categoria(registro: _Registro, familias: set[str], municipais: set[str]) -> str:
-    if registro.resultado not in _RESULTADOS:
-        raise FalhaOperacionalErro(
-            f"valores_resultado_desconhecido row_id={registro.row_id} "
-            f"resultado={registro.resultado}"
-        )
     if (registro.resultado == ResultadoRegistro.ALERTA) != bool(registro.violacoes):
         raise FalhaOperacionalErro(
             f"valores_agregado_incoerente row_id={registro.row_id} resultado={registro.resultado}"
@@ -470,7 +433,8 @@ def summarize_values(
     municipais = _municipais(governanca_por_familia)
     with closing(conectar(RuntimeConfig(duckdb_threads=1))) as con, localcontext() as contexto:
         contexto.prec = _PRECISAO
-        _conferir(con, labels, agregados, avaliacoes)
+        for entrada in (labels, agregados, avaliacoes):
+            conferir_entrada(con, entrada)
         _exigir_selecao_unica(con, avaliacoes, run)
         familia_da_regra = _familias_da_execucao(con, avaliacoes, run, regras)
         registros = _registros(con, agregados, labels, run.run_id)

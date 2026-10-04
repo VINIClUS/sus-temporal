@@ -84,9 +84,14 @@ contagem real. O esquema está declarado em `evaluation/values.py` até ser prom
 `catalog/schemas/` pelo orquestrador.
 
 ## Falhas
-Parquet ilegível ou divergente do `DatasetRef`, coluna exigida ausente, rótulo ausente para
-registro avaliado ou ocorrência repetida no run são `FalhaOperacionalErro` (nunca zero, nunca
-categoria). Execução não concluída é recusada.
+Antes de qualquer agregação, cada entrada (rótulos, `agregados_registro.v1`, `avaliacoes.v1`)
+passa por uma única conferência (`evaluation/values_entrada.py::conferir_entrada`): leitura do
+Parquet, colunas exigidas, tipo físico de cada coluna exigida contra o esquema canônico do
+catálogo, conteúdo (linhas e hash lógico) contra o `DatasetRef` e domínio de toda coluna de enum
+consumida (`rotulo` em `CodigoRotulo`, `resultado` em `ResultadoRegistro`, `metodo` em `MetodoId`,
+`estado` em `EstadoAvaliacao`). Qualquer divergência, assim como rótulo ausente para registro
+avaliado ou ocorrência repetida no run, é `FalhaOperacionalErro` (nunca zero, nunca categoria,
+nunca erro cru do DuckDB). Execução não concluída é recusada.
 
 ## Desempenho (`evaluation/performance.py`)
 `medir(Etapa, repeticoes=, cache=)`:

@@ -148,6 +148,7 @@ def test_descompressao_roda_filho_isolado_com_caminhos_absolutos(
     descompressao.descomprimir_limitado(type(tmp_path)("a.dbc"), type(tmp_path)("a.dbf"), 100)
     (comando,) = chamadas
     assert "-I" in comando
+    assert "-B" in comando
     assert all(os.path.isabs(c) for c in comando[-2:])
 
 

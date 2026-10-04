@@ -34,6 +34,7 @@ from sustemporal.duck import conectar, identificador_seguro
 from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.baselines_modelo import Ajuste, Linha, Predicao, ajustar, prever
 from sustemporal.evaluation.features import OrigemAtributo, auditar_features
+from sustemporal.evaluation.freeze import carregar_freeze, verificar_compatibilidade
 from sustemporal.gates import DIR_DECISOES, exigir_confirmatorio_valido
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.sia_pa import gravar_parquet, produtor
@@ -277,6 +278,26 @@ def _resultado(
     )
 
 
+def _conferir_congelamento(
+    config: RunConfig,
+    split: SplitManifest,
+    features: FeatureSpec,
+    entradas: list[DatasetRef],
+    codigo: CodeVersion | None,
+) -> None:
+    if config.freeze_id is None:
+        raise PortaoRecusado("confirmatorio_exige_freeze_id")
+    manifesto = carregar_freeze(Path(config.runtime.dir_congelamentos), config.freeze_id)
+    verificar_compatibilidade(
+        manifesto,
+        config=config,
+        split=split,
+        features=features,
+        datasets=entradas,
+        codigo=codigo if codigo is not None else versao_codigo(Path.cwd()),
+    )
+
+
 def fit_baseline(
     split: SplitManifest,
     features: FeatureSpec,
@@ -296,18 +317,17 @@ def fit_baseline(
     Raises:
         ValueError: sem rótulos, atributo proibido, esquema inesperado ou treino sem as duas
             classes.
-        PortaoRecusado: confirmatório, recusado antes de abrir arquivos até o T11 conferir o
-            `FreezeManifest` (código, split, atributos, config e entradas).
+        PortaoRecusado: confirmatório com código, split, atributos, config ou entradas fora do
+            `FreezeManifest`, sem G2 ou sem dados reais; tudo conferido antes de abrir arquivos.
+        ConfigInvalida: confirmatório sem o manifesto do `freeze_id`.
         FalhaOperacionalErro: entrada ilegível ou diferente do `DatasetRef`.
     """
-    if config.modo is ModoExecucao.CONFIRMATORIO:
-        raise PortaoRecusado(
-            f"confirmatorio_exige_freeze_verificado freeze={config.freeze_id} decisoes={decisoes}"
-        )
     agora = relogio or _agora
     iniciado = agora()
     particoes, rotulos = _particoes_permitidas(split, config.modo)
     entradas = [*particoes.values(), *rotulos.values()]
+    if config.modo is ModoExecucao.CONFIRMATORIO:
+        _conferir_congelamento(config, split, features, entradas, codigo)
     origem = _origem_unica(entradas)
     exigir_confirmatorio_valido(config, origem, diretorio=decisoes)
     esquemas = [carregar_esquema(_SCHEMA_ENTRADA), carregar_esquema(_SCHEMA_ROTULOS)]

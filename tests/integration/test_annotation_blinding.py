@@ -139,7 +139,7 @@ def test_coluna_do_motor_no_parquet_nao_chega_ao_pacote(tmp_path: Path) -> None:
     tabela = tabela.append_column("explicacao", pa.array(["regra x"] * tabela.num_rows))
     pq.write_table(tabela, caminho)
     out = tmp_path / "anotacao"
-    _preparar(cenario, out, tamanho=10, tamanho_treino=2)
+    _preparar(cenario, out, tamanho=10, tamanho_treino=2, dimensoes=("instrumento",))
     textos = "\n".join(_textos_do_pacote(out).values())
     assert "VIOLACAO" not in textos
     assert "explicacao" not in textos
@@ -224,7 +224,7 @@ def test_semente_da_config_determina_a_amostra(cenario: CenarioAnotacao, tmp_pat
 
 def test_treino_excluido_da_amostra_final(cenario: CenarioAnotacao, tmp_path: Path) -> None:
     out = tmp_path / "anotacao"
-    amostra = _preparar(cenario, out, tamanho=12, tamanho_treino=5)
+    amostra = _preparar(cenario, out, tamanho=12, tamanho_treino=5, dimensoes=("instrumento",))
     assert len(amostra.casos_treino) == 5
     assert not set(amostra.casos) & set(amostra.casos_treino)
     assert all(row_id.startswith("d") for row_id in amostra.casos_treino)
@@ -266,7 +266,7 @@ def test_concordancia_global_e_por_familia_preserva_indeterminados(
     cenario: CenarioAnotacao, tmp_path: Path
 ) -> None:
     out = tmp_path / "anotacao"
-    amostra = _preparar(cenario, out, tamanho=10, tamanho_treino=2)
+    amostra = _preparar(cenario, out, tamanho=10, tamanho_treino=2, dimensoes=("instrumento",))
     casos, mapa = _anotacoes(out, amostra)
     a = [_avaliacao(c, "a", IDENT, P) for c in casos[:4]] + [_avaliacao(casos[4], "a", IDENT, P, E)]
     a += [_avaliacao(c, "a", IND) for c in casos[5:8]]
@@ -289,7 +289,7 @@ def test_concordancia_global_e_por_familia_preserva_indeterminados(
 
 def test_comparacao_bloqueada_antes_do_fechamento(cenario: CenarioAnotacao, tmp_path: Path) -> None:
     out = tmp_path / "anotacao"
-    amostra = _preparar(cenario, out, tamanho=4, tamanho_treino=1)
+    amostra = _preparar(cenario, out, tamanho=4, tamanho_treino=1, dimensoes=("instrumento",))
     casos, mapa = _anotacoes(out, amostra)
     a = [_avaliacao(casos[0], "a", IDENT, P), _avaliacao(casos[1], "a", IND)]
     a += [_avaliacao(casos[2], "a", FORA), _avaliacao(casos[3], "a", IDENT, P)]

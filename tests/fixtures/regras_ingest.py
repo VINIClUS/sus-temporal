@@ -168,6 +168,7 @@ def montar_ingest(
     sem_manifesto: bool = False,
     producao_repetida: bool = False,
     corte: str | None = None,
+    auxiliar_divergente: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -183,6 +184,9 @@ def montar_ingest(
     refs = _datasets(pasta, itens, sem_cobertura=sem_cobertura)
     if producao_repetida:
         refs.append(next(ref for ref in refs if ref.schema_id == "sia_pa.v1"))
+    if auxiliar_divergente:
+        indice = max(i for i, ref in enumerate(refs) if ref.schema_id == "sigtap_procedimento.v1")
+        refs[indice] = refs[indice].model_copy(update={"linhas": refs[indice].linhas + 1})
     linhas = "".join(f"{ref.model_dump_json()}\n" for ref in refs)
     (pasta / "datasets.jsonl").write_text(linhas, encoding="utf-8")
     config: dict[str, object] = {

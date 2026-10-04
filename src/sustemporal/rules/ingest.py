@@ -29,6 +29,8 @@ from sustemporal.temporal.registry import RegistroTemporal
 from sustemporal.temporal.selector import partes_esperadas_do_catalogo
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     import duckdb
 
     from sustemporal.contracts.artifacts import ArtifactVersion
@@ -102,7 +104,9 @@ def _gravidade(estado: EstadoIntegridade) -> int:
     return 1 if estado is EstadoIntegridade.NAO_VERIFICADO else 0
 
 
-def integridade_do_registro(registro: RegistroTemporal) -> dict[str, EstadoIntegridade]:
+def integridade_do_registro(
+    registro: RegistroTemporal, *, corte: datetime | None = None
+) -> dict[str, EstadoIntegridade]:
     """Integridade por versão: a da versão, piorada pelas observações dela.
 
     Quarentena observada prevalece; tentativa com bytes que não terminou em `OBTIDO` (falha de

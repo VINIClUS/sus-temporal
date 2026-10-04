@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
 import pyarrow.parquet as pq
@@ -182,3 +183,35 @@ def test_integridade_do_registro_nunca_trata_quarentena_ou_falha_como_integra() 
     assert estados[ok] is EstadoIntegridade.OK
     assert estados[quarentena] is EstadoIntegridade.QUARENTENA_CHECKSUM
     assert estados[falha_versao.artifact_id] is EstadoIntegridade.NAO_VERIFICADO
+
+
+def test_datasets_jsonl_com_utf8_invalido_sai_com_config_invalida(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path)
+    (mundo.pasta / "datasets.jsonl").write_bytes(b'{"dataset_id": "\xff"}\n')
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+
+
+def test_auxiliar_divergente_nao_deixa_nenhum_arquivo_derivado(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, auxiliar_divergente=True)
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+    assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))
+
+
+def test_integridade_ignora_observacoes_posteriores_ao_corte() -> None:
+    obs, versao = observar(FamiliaFonte.CNES_PF, "202301", "ok", 1)
+    assert versao is not None
+    posterior = obs.model_copy(
+        update={
+            "observation_id": "obs_" + "e" * 32,
+            "observado_em": obs.observado_em + timedelta(days=30),
+            "integridade": EstadoIntegridade.QUARENTENA_CHECKSUM,
+        }
+    )
+    registro = registro_de([obs, posterior], [versao])
+    corte = obs.observado_em + timedelta(days=1)
+    assert (
+        integridade_do_registro(registro, corte=corte)[versao.artifact_id] is EstadoIntegridade.OK
+    )
+    assert integridade_do_registro(registro)[versao.artifact_id] is (
+        EstadoIntegridade.QUARENTENA_CHECKSUM
+    )

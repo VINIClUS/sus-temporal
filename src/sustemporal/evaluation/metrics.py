@@ -30,6 +30,7 @@ from sustemporal.evaluation.metrics_leitura import (
     ler_situacoes,
     verificar_entrada,
 )
+from sustemporal.gates import DIR_DECISOES
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -215,6 +216,7 @@ class ReferenciaCongelamento:
 
     freeze_id: str
     decisao_g2: str | None = None
+    decisoes: Path = DIR_DECISOES
 
 
 def evaluate_runs(

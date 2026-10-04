@@ -37,7 +37,7 @@ from sustemporal.evaluation.freeze import (
     verificar_compatibilidade,
 )
 from sustemporal.evaluation.freeze_registro import ler_registro, registrar_execucao
-from sustemporal.evaluation.metrics import evaluate_runs
+from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 
 if TYPE_CHECKING:
     from sustemporal.contracts.experiment import FreezeManifest
@@ -362,3 +362,126 @@ def test_cli_congela_e_avalia_exploratorio(tmp_path: Path, monkeypatch: pytest.M
     (entrada,) = ler_registro(raiz / "frozen" / "registro_execucoes.jsonl")
     assert entrada["freeze_id"] == freeze
     assert entrada["modo"] == "EXPLORATORIO"
+
+
+def test_intervalo_reamostra_estabelecimentos(tmp_path: Path, cenario: Cenario) -> None:
+    from sustemporal.contracts.experiment import BootstrapSpec
+    from sustemporal.evaluation.bootstrap import intervalo_razao
+
+    assert cenario.split.rotulos_por_particao is not None
+    rotulos = cenario.split.rotulos_por_particao[Particao.CALIBRACAO]
+    calibracao = [lp for lp in cenario.linhas if lp.competencia_processamento == "202301"]
+    alertas = {
+        lp.row_id: "ALERTA" if lp.cnes in {"0000000", "0000001"} else "ABSTENCAO"
+        for lp in calibracao
+    }
+    run = run_agregados(MetodoId.M_TEMP, alertas, tmp_path / "runs")
+    spec = BootstrapSpec(reamostragens=300, correcao="HOLM")
+    relatorio = evaluate_runs([run], rotulos, cenario.split, tmp_path / "av", bootstrap=spec)
+    metrica = next(
+        m
+        for m in relatorio.metricas
+        if (m.nome, m.estrato) == ("M_TEMP.cobertura_verificabilidade", "TOTAL")
+    )
+    ordenadas = sorted(calibracao, key=lambda lp: lp.row_id)
+    nums = [int(alertas[lp.row_id] == "ALERTA") for lp in ordenadas]
+    esperado = intervalo_razao(nums, [1] * len(nums), [lp.cnes or "" for lp in ordenadas], spec)
+    assert metrica.ic == esperado
+
+
+def test_confirmatorio_com_execucao_de_outro_freeze_e_recusado(
+    tmp_path: Path, cenario: Cenario
+) -> None:
+    assert cenario.split.rotulos_por_particao is not None
+    teste = [lp for lp in cenario.linhas if lp.competencia_processamento == "202401"]
+    run = run_agregados(MetodoId.M_TEMP, {lp.row_id: "ALERTA" for lp in teste}, tmp_path / "runs")
+    confirmatorio = run.model_copy(
+        update={"modo": ModoExecucao.CONFIRMATORIO, "freeze_id": f"frz_{'3' * 64}"}
+    )
+    with pytest.raises(PortaoRecusado, match="execucao_de_outro_freeze"):
+        evaluate_runs(
+            [confirmatorio],
+            cenario.split.rotulos_por_particao[Particao.TESTE],
+            cenario.split,
+            tmp_path / "av",
+            congelamento=ReferenciaCongelamento(
+                f"frz_{'4' * 64}", "experiments/decisions/g2.yaml", tmp_path / "decisoes"
+            ),
+        )
+
+
+def test_confirmatorio_sem_g2_e_recusado_na_biblioteca(tmp_path: Path, cenario: Cenario) -> None:
+    assert cenario.split.rotulos_por_particao is not None
+    freeze = f"frz_{'5' * 64}"
+    teste = [lp for lp in cenario.linhas if lp.competencia_processamento == "202401"]
+    run = run_agregados(MetodoId.M_TEMP, {lp.row_id: "ALERTA" for lp in teste}, tmp_path / "runs")
+    confirmatorio = run.model_copy(update={"modo": ModoExecucao.CONFIRMATORIO, "freeze_id": freeze})
+    with pytest.raises(PortaoRecusado, match="portao_sem_decisao"):
+        evaluate_runs(
+            [confirmatorio],
+            cenario.split.rotulos_por_particao[Particao.TESTE],
+            cenario.split,
+            tmp_path / "av",
+            congelamento=ReferenciaCongelamento(
+                freeze, "experiments/decisions/g2.yaml", tmp_path / "decisoes"
+            ),
+        )
+
+
+def test_predicoes_de_outra_execucao_nao_entram(tmp_path: Path, cenario: Cenario) -> None:
+    assert cenario.split.rotulos_por_particao is not None
+    (bml,) = [
+        r for r in _runs_exploratorios(cenario, tmp_path / "runs") if r.metodo is MetodoId.B_ML
+    ]
+    outro = bml.model_copy(update={"run_id": "bml_outra_execucao"})
+    rotulos = cenario.split.rotulos_por_particao[Particao.CALIBRACAO]
+    relatorio = evaluate_runs([outro], rotulos, cenario.split, tmp_path / "av")
+    abstencao = next(
+        m for m in relatorio.metricas if (m.nome, m.estrato) == ("B_ML.abstencao", "TOTAL")
+    )
+    assert abstencao.numerador == abstencao.denominador > 0
+
+
+def test_rotulos_que_nao_cobrem_a_particao_sao_falha_operacional(
+    tmp_path: Path, cenario: Cenario
+) -> None:
+    from tests.fixtures.protocolo_dados import gravar_rotulos
+
+    assert cenario.split.rotulos_por_particao is not None
+    teste = [lp for lp in cenario.linhas if lp.competencia_processamento == "202401"]
+    trocado = gravar_rotulos({lp.row_id: "APROVADO_TOTAL" for lp in teste}, tmp_path / "t.parquet")
+    adulterado = {**cenario.split.rotulos_por_particao, Particao.CALIBRACAO: trocado}
+    split = cenario.split.model_copy(update={"rotulos_por_particao": adulterado})
+    runs = _runs_exploratorios(cenario, tmp_path / "runs")[:1]
+    with pytest.raises(FalhaOperacionalErro, match="rotulos_fora_da_particao"):
+        evaluate_runs(runs, trocado, split, tmp_path / "av")
+
+
+def test_relatorio_nunca_e_sobrescrito(tmp_path: Path, cenario: Cenario) -> None:
+    assert cenario.split.rotulos_por_particao is not None
+    rotulos = cenario.split.rotulos_por_particao[Particao.CALIBRACAO]
+    runs = _runs_exploratorios(cenario, tmp_path / "runs")[:1]
+    primeiro = evaluate_runs(runs, rotulos, cenario.split, tmp_path / "av", relogio=relogio)
+    caminho = tmp_path / "av" / f"{primeiro.report_id}.json"
+    caminho.write_text(caminho.read_text(encoding="utf-8") + " ", encoding="utf-8")
+    with pytest.raises(FalhaOperacionalErro, match="relatorio_existente_divergente"):
+        evaluate_runs(runs, rotulos, cenario.split, tmp_path / "av", relogio=relogio)
+
+
+def test_diferenca_nula_mantem_intervalo(tmp_path: Path, cenario: Cenario) -> None:
+    assert cenario.split.rotulos_por_particao is not None
+    rotulos = cenario.split.rotulos_por_particao[Particao.CALIBRACAO]
+    calibracao = [lp for lp in cenario.linhas if lp.competencia_processamento == "202301"]
+    iguais = {lp.row_id: "ALERTA" for lp in calibracao}
+    runs = [
+        run_agregados(MetodoId.M_TEMP, iguais, tmp_path / "runs"),
+        run_agregados(MetodoId.B_ATEND, iguais, tmp_path / "runs"),
+    ]
+    relatorio = evaluate_runs(runs, rotulos, cenario.split, tmp_path / "av")
+    diferenca = next(
+        m
+        for m in relatorio.metricas
+        if (m.nome, m.estrato) == ("diferenca.M_TEMP_x_B_ATEND.cobertura_rejeicoes", "TOTAL")
+    )
+    assert diferenca.valor == 0
+    assert diferenca.ic is not None

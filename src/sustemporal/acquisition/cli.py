@@ -8,7 +8,11 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sustemporal.acquisition.comparacao import comparar_versoes
+from sustemporal.acquisition.comparacao import (
+    ComparacaoVersoes,
+    ResultadoComparacao,
+    comparar_versoes,
+)
 from sustemporal.acquisition.fetch import agora_utc, fetch_source, nomes_listados
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.acquisition.sources import (
@@ -44,7 +48,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
     from datetime import datetime
 
-    from sustemporal.acquisition.comparacao import ComparacaoVersoes
     from sustemporal.acquisition.sources import CatalogoFontes
     from sustemporal.acquisition.watch import Chave
     from sustemporal.contracts.artifacts import (
@@ -288,7 +291,14 @@ def _comparar_com_anteriores(
             )
         except (FalhaOperacionalErro, ValueError) as erro:
             logger.warning("comparacao_inconclusiva chave=%s erro=%s", chave, erro)
-            continue
+            comparacao = ComparacaoVersoes(
+                anterior.artifact_id,
+                nova.artifact_id,
+                ResultadoComparacao.INCONCLUSIVO,
+                0,
+                0,
+                f"comparacao_inconclusiva erro={erro}",
+            )
         comparacoes.append((chave, comparacao))
     return comparacoes
 
@@ -334,5 +344,6 @@ def executar_watch(
     resumo = resumir_vigilancia(observadas, [c for _, c in comparacoes])
     gravar_relatorio(Path(config.runtime.raiz_manifestos) / NOME_RELATORIO, comparacoes, resumo)
     falhas += sum(o.resultado is not ResultadoTentativa.OBTIDO for o in observadas)
+    falhas += sum(c.resultado is ResultadoComparacao.INCONCLUSIVO for _, c in comparacoes)
     logger.info("watch_concluido requisicoes=%d falhas=%d %s", len(requisicoes), falhas, resumo)
     return int(ExitCode.FALHA_OPERACIONAL if falhas else ExitCode.OK)

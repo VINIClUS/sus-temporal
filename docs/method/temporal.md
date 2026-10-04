@@ -135,7 +135,9 @@ Também confere a coerência de uma tabela fornecida com a política da execuç�
 1. Para cada família de `vigilancia.familias_fontes`, lista o diretório. A listagem é ela mesma
    uma observação.
 2. Toma as `janela_competencias` (6) competências mais recentes com arquivo listado para a UF,
-   até o mês do relógio. A janela vem dos nomes listados, nunca da data de coleta.
+   dentro do recorte do estudo (201801–202512) e nunca depois do mês do relógio. A janela vem dos
+   nomes listados, nunca da data de coleta. Competências publicadas depois de 2025 não são
+   observadas.
 3. Observa de novo cada arquivo (`observe_updates`), sem pular os já obtidos. Os mesmos bytes
    viram nova observação da mesma versão; bytes novos viram versão nova. O histórico não é
    substituído.
@@ -150,11 +152,13 @@ Também confere a coerência de uma tabela fornecida com a política da execuç�
    - **CORRESPONDENCIA_AMBIGUA:** saíram e entraram linhas. O conteúdo mudou, mas sem
      identificador longitudinal não se sabe que linha antiga virou qual nova. Só as contagens
      são registradas, sem pareamento.
-   - Uma comparação que não normaliza (quarentena, arquivo ausente) fica fora do relatório, com
-     aviso `comparacao_inconclusiva` no log.
+   - **INCONCLUSIVO:** a comparação não normaliza (quarentena, arquivo guardado ausente, leiaute
+     incompatível). Fica no relatório com o motivo e faz a execução sair com falha operacional
+     (5). Nunca é tratada como ausência de revisão.
 5. Acrescenta a `<raiz_manifestos>/vigilancia.jsonl` uma linha por comparação e um resumo. O
    resumo só fala das observações da pesquisa (`sem_revisao_observada … de=… ate=…
-   alcance=somente_observacoes_da_pesquisa`). **Ausência de revisão observada não afirma que
+   alcance=somente_observacoes_da_pesquisa`). Com comparação inconclusiva e nenhuma revisão, o
+   resumo é `vigilancia_inconclusiva`. **Ausência de revisão observada não afirma que
    nunca houve revisão:** uma republicação entre duas observações, ou antes da primeira, pode
    ter escapado.
 

@@ -33,6 +33,8 @@ if TYPE_CHECKING:
 __all__ = [
     "LEIAUTE_PA_PADRAO",
     "NOME_RELATORIO",
+    "RECORTE_FIM",
+    "RECORTE_INICIO",
     "carregar_leiaute_pa",
     "chave_de_comparacao",
     "competencias_da_janela",
@@ -47,6 +49,8 @@ logger = logging.getLogger(__name__)
 LEIAUTE_PA_PADRAO = Path(__file__).resolve().parents[3] / "catalog" / "layouts" / "sia_pa.yaml"
 NOME_RELATORIO = "vigilancia.jsonl"
 _MESES_PROCURADOS = 120
+RECORTE_INICIO = CompetenciaArquivo("201801")
+RECORTE_FIM = CompetenciaArquivo("202512")
 
 Chave = tuple[object, str | None, str | None, str | None]
 
@@ -83,12 +87,19 @@ def observe_updates(
 def competencias_da_janela(
     item: FonteCatalogo, uf: str, nomes: Iterable[str], janela: int, referencia: datetime
 ) -> list[CompetenciaArquivo]:
-    """As `janela` competências mais recentes, até o mês de `referencia`, com arquivo listado."""
+    """As `janela` competências mais recentes com arquivo listado, dentro do recorte do estudo.
+
+    O recorte é 2018–2025 (AGENTS.md): a busca parte do menor entre o mês de `referencia` e
+    `RECORTE_FIM` e nunca desce abaixo de `RECORTE_INICIO`.
+    """
     listados = sorted(set(nomes))
-    ano, mes = referencia.year, referencia.month
+    teto = min(f"{referencia.year:04d}{referencia.month:02d}", RECORTE_FIM.valor)
+    ano, mes = int(teto[:4]), int(teto[4:])
     achadas: list[CompetenciaArquivo] = []
     for _ in range(_MESES_PROCURADOS):
         competencia = CompetenciaArquivo(f"{ano:04d}{mes:02d}")
+        if competencia.valor < RECORTE_INICIO.valor:
+            break
         expressao = item.expressao(uf, competencia)
         if any(expressao.fullmatch(nome) for nome in listados):
             achadas.append(competencia)
@@ -123,13 +134,18 @@ def resumir_vigilancia(
     observacoes: Sequence[ArtifactObservation], comparacoes: Sequence[ComparacaoVersoes]
 ) -> str:
     """Resumo que só fala do que a pesquisa observou, sem afirmar nada fora das observações."""
-    revisoes = [c for c in comparacoes if c.resultado is not ResultadoComparacao.INALTERADA]
+    resultados = [c.resultado for c in comparacoes]
+    inconclusivas = resultados.count(ResultadoComparacao.INCONCLUSIVO)
+    revisoes = len(resultados) - inconclusivas - resultados.count(ResultadoComparacao.INALTERADA)
     instantes = sorted(o.observado_em for o in observacoes)
     if not instantes:
         return "sem_observacao alcance=somente_observacoes_da_pesquisa"
     prefixo = "revisao_observada" if revisoes else "sem_revisao_observada"
+    if not revisoes and inconclusivas:
+        prefixo = "vigilancia_inconclusiva"
     return (
-        f"{prefixo} revisoes={len(revisoes)} observacoes={len(observacoes)} "
+        f"{prefixo} revisoes={revisoes} inconclusivas={inconclusivas} "
+        f"observacoes={len(observacoes)} "
         f"de={instantes[0].isoformat()} ate={instantes[-1].isoformat()} "
         "alcance=somente_observacoes_da_pesquisa"
     )

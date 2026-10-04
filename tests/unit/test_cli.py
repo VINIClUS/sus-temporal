@@ -165,11 +165,16 @@ def _registrar_decisao(raiz: Path, nome: str, conteudo: str) -> None:
 
 
 @pytest.mark.parametrize("freeze", ["latest", "../x", f"frz_{'A' * 64}", "frz_curto"])
-def test_freeze_fora_do_padrao_e_recusado_pelo_parser(config_valida: Path, freeze: str) -> None:
+def test_freeze_fora_do_padrao_e_recusado_pelo_parser(
+    config_valida: Path, freeze: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _apontar(monkeypatch, "evaluate", "executar_ok")
     valido = ["evaluate", "--freeze", FREEZE, "--exploratory", "--config", str(config_valida)]
-    assert cli.main(valido) == ExitCode.NAO_IMPLEMENTADO
+    assert cli.main(valido) == ExitCode.OK
+    assert manipuladores_falsos.CHAMADAS == ["evaluate:1:padrao"]
     with pytest.raises(SystemExit):
         cli.main(["evaluate", "--freeze", freeze, "--config", str(config_valida)])
+    assert manipuladores_falsos.CHAMADAS == ["evaluate:1:padrao"]
 
 
 @pytest.mark.parametrize("run", ["../x", "", "run 1", "a/b"])

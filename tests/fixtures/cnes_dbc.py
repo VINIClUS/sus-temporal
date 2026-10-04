@@ -98,18 +98,19 @@ def artefato_cnes(
     competencia: str = "201801",
     integridade: EstadoIntegridade = EstadoIntegridade.OK,
     formato: FormatoArquivo = FormatoArquivo.DBC,
+    uf: str = "SP",
 ) -> ArtifactVersion:
     sha256 = hashlib.sha256(dados).hexdigest()
     extensao = formato.value.lower()
     grupo = fonte.value.removeprefix("CNES_")
-    nome = f"{grupo}SP{competencia[2:]}.{extensao}"
+    nome = f"{grupo}{uf}{competencia[2:]}.{extensao}"
     caminho = caminho_conteudo(pasta, sha256, extensao)
     caminho.parent.mkdir(parents=True, exist_ok=True)
     caminho.write_bytes(dados)
     chave = ChaveArtefato.model_validate(
         {
             "fonte": fonte,
-            "uf": "SP",
+            "uf": uf,
             "competencia_arquivo": competencia,
             "canal": CanalPublicacao.ATUAL,
             "nome_original": nome,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from contextlib import closing
 from pathlib import Path
@@ -17,15 +18,22 @@ from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
 from sustemporal import cli
 from sustemporal.config import load_config
 from sustemporal.contracts import (
+    ArtifactVersion,
     BaseTemporal,
     CatalogoFamilias,
+    ChaveArtefato,
     CriterioTemporal,
     DatasetRef,
+    EstadoIntegridade,
     EstadoSelecao,
     FamiliaFonte,
+    FormatoArquivo,
+    TipoConteudo,
 )
+from sustemporal.contracts.artifacts import calcular_artifact_id
 from sustemporal.contracts.temporal import CompetenciaArquivo
 from sustemporal.errors import ExitCode
+from sustemporal.store import caminho_conteudo
 from sustemporal.temporal.registry import RegistroTemporal
 from sustemporal.temporal.selector import partes_esperadas_do_catalogo, selecionar_versao
 from sustemporal.yamlio import carregar_yaml
@@ -145,3 +153,66 @@ def test_cobertura_disponivel_implica_selecao_selecionada_no_seletor(tmp_path: P
             criterio = CriterioTemporal(fonte=fonte, base=BaseTemporal.PROCESSAMENTO)
             selecao = selecionar_versao(registro_temporal, criterio, competencia, uf=uf)
             assert selecao.estado is EstadoSelecao.SELECIONADA, (familia, fonte, selecao.motivo)
+
+
+def _resultados(pasta: Path) -> list[dict[str, str]]:
+    (execucao,) = sorted(p for p in (pasta / "saidas" / "ingest").iterdir() if p.is_dir())
+    texto = (execucao / "resultados.jsonl").read_text(encoding="utf-8")
+    return [json.loads(linha) for linha in texto.splitlines()]
+
+
+def test_versoes_de_outra_uf_nao_entram_na_ingestao_nem_na_cobertura(tmp_path: Path) -> None:
+    store = tmp_path / "dados" / "raw"
+    registros = [registro("C", "201801", "201801")]
+    pf = [registro_pf("0012345", "225125")]
+    versoes = [
+        artefato_pa(store, dbc_pa(registros)),
+        artefato_sigtap(store, zip_sigtap(pacote_padrao())),
+        artefato_cnes(store, dbc_cnes(PF, pf), PF, uf="MG"),
+    ]
+    (tmp_path / "manifestos").mkdir(parents=True)
+    registrar_versoes(tmp_path / "manifestos" / "aquisicao.jsonl", versoes)
+    config = _config(tmp_path, _fontes(tmp_path, ["a"]))
+    assert cli.main(["ingest", "--config", str(config)]) == ExitCode.OK
+    assert "CNES_PF" not in {r["fonte"] for r in _resultados(tmp_path)}
+    estados = {(f, b): e for f, b, e, _ in _cobertura(tmp_path)}
+    assert estados[("ESTABELECIMENTO_CBO", "PROCESSAMENTO")] == "AUSENTE"
+    assert estados[("VIGENCIA_PROCEDIMENTO", "PROCESSAMENTO")] == "DISPONIVEL"
+
+
+def test_listagem_de_diretorio_nao_passa_pelos_normalizadores(tmp_path: Path) -> None:
+    store = tmp_path / "dados" / "raw"
+    registros = [registro("C", "201801", "201801")]
+    texto = b"PASP1801a.dbc\n"
+    sha256 = hashlib.sha256(texto).hexdigest()
+    caminho = caminho_conteudo(store, sha256, "txt")
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    caminho.write_bytes(texto)
+    chave = ChaveArtefato.model_validate(
+        {
+            "fonte": "SIA_PA",
+            "uf": "SP",
+            "competencia_arquivo": "201801",
+            "canal": "ATUAL",
+            "nome_original": "listagem.txt",
+            "tipo_conteudo": TipoConteudo.LISTAGEM_DIRETORIO,
+        }
+    )
+    listagem = ArtifactVersion(
+        artifact_id=calcular_artifact_id(chave, sha256),
+        chave=chave,
+        localizador="sintetico://listagem",
+        sha256=sha256,
+        tamanho_bytes=len(texto),
+        formato=FormatoArquivo.TXT,
+        caminho_conteudo=str(caminho),
+        integridade=EstadoIntegridade.OK,
+    )
+    versoes = [artefato_pa(store, dbc_pa(registros)), listagem]
+    (tmp_path / "manifestos").mkdir(parents=True)
+    registrar_versoes(tmp_path / "manifestos" / "aquisicao.jsonl", versoes)
+    config = _config(tmp_path, _fontes(tmp_path, ["a"]))
+    assert cli.main(["ingest", "--config", str(config)]) == ExitCode.OK
+    resultados = _resultados(tmp_path)
+    assert listagem.artifact_id not in {r["artifact_id"] for r in resultados}
+    assert [r["estado"] for r in resultados] == ["NORMALIZADO"]

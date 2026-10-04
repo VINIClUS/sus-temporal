@@ -49,10 +49,24 @@ Ausência de revisão observada (T13a) não significa que nunca houve revisão.
 
 ## Governança municipal
 A governança vem do catálogo de operações do T09 (`Governanca`: `MUNICIPAL_DOCUMENTADA`,
-`FORA_DA_GOVERNANCA_MUNICIPAL`, `DESCONHECIDA`), passada como `governanca_por_familia`. Sem esse
-mapa — situação atual, com o T09 ainda fora do main e as operações com governança `DESCONHECIDA`
-—, nenhuma família conta como documentada e o numerador é zero; as incompatibilidades ficam em
-`INCOMPATIBILIDADE_SEM_GOVERNANCA_DOCUMENTADA`, com contagem e valor.
+`FORA_DA_GOVERNANCA_MUNICIPAL`, `DESCONHECIDA`), passada como `governanca_por_familia`.
+- Sem o mapa (situação atual: T09 fora do main e operações com governança `DESCONHECIDA`), o
+  numerador e a razão ficam **indeterminados** (nulos, não zero); as incompatibilidades ficam em
+  `INCOMPATIBILIDADE_SEM_GOVERNANCA_DOCUMENTADA`, com contagem e valor.
+- Com o mapa, só famílias `MUNICIPAL_DOCUMENTADA` entram no numerador; `DESCONHECIDA` e
+  `FORA_DA_GOVERNANCA_MUNICIPAL` não entram (numerador zero é então um valor determinado).
+- CID, idade e sexo são fatos do atendimento, fora do catálogo de operações (plano §6), e não
+  podem ser marcados como governança municipal.
+
+## Coerência das entradas
+- Rótulos precisam cobrir os registros de entrada do run (`artifact_ids` dos `sia_pa.v1` em
+  `RunResult.entradas`); rótulos de outro dataset são recusados. Sem entradas declaradas, a
+  conferência não é possível e fica registrada em log.
+- `agregados_registro.v1` incoerente (ALERTA sem violação ou violação sem ALERTA) é falha
+  operacional.
+- `politica_id` e `metodo` das avaliações precisam coincidir com os do run.
+- Somas usam precisão decimal de 80 dígitos; valor com mais de 32 dígitos inteiros ou mais de 6
+  casas decimais é recusado, nunca arredondado.
 
 ## Saída `valores_p3.v1`
 Uma linha por estrato e categoria: `run_id`, `estrato`, `categoria`, `aditiva`, `ocorrencias`,
@@ -67,11 +81,19 @@ registro avaliado ou ocorrência repetida no run são `FalhaOperacionalErro` (nu
 categoria). Execução não concluída é recusada.
 
 ## Desempenho (`evaluation/performance.py`)
-`medir(Etapa, repeticoes=, cache=)` registra tempos por repetição (relógio injetável), pico de
-memória Python (`tracemalloc`; não inclui buffers nativos do DuckDB), RSS máximo do processo e
-armazenamento do diretório de saída; `gravar_relatorio` grava ambiente, instante UTC, origem dos
-dados, cache e repetições. Etapas sem implementação no main (`contrafactuais` do T09, `metricas`
-do T11) saem `NAO_MEDIDO motivo=…`. O teste `tests/perf/test_desempenho_s8.py` (marcador `perf`)
-exercita o harness em cenário sintético pequeno; a escala DRS XI e SP roda na máquina do
-pesquisador, com etapas montadas sobre os artefatos reais (aquisição, ingestão, rótulos, seleção,
-motor, explicação, anotação e valores), cache frio e quente declarados e ao menos três repetições.
+`medir(Etapa, repeticoes=, cache=)`:
+- cronometra cada repetição sem `tracemalloc` (relógio injetável);
+- mede o pico de memória Python numa rodada extra com `tracemalloc` (não inclui buffers nativos do
+  DuckDB); se quem chama já usa `tracemalloc`, a memória fica nula com motivo
+  `memoria_nao_medida_tracemalloc_ativo`;
+- registra o RSS máximo do **processo inteiro** (`ru_maxrss`, convertido para bytes), que não
+  isola etapas do mesmo processo: para isolar, rodar cada etapa em processo próprio;
+- registra o armazenamento acrescentado ao diretório de saída durante a medição e o total;
+- registra o cache por repetição: com `FRIO`, só a primeira repetição é fria.
+
+`gravar_relatorio` grava ambiente, instante UTC, origem dos dados e as medições. Etapas sem
+implementação no main (`contrafactuais` do T09, `metricas` do T11) saem `NAO_MEDIDO motivo=…`. O
+teste `tests/perf/test_desempenho_s8.py` (marcador `perf`) exercita o harness em cenário sintético
+pequeno; a escala DRS XI e SP roda na máquina do pesquisador, com etapas montadas sobre os
+artefatos reais (aquisição, ingestão, rótulos, seleção, motor, explicação, anotação e valores),
+cache frio e quente declarados e ao menos três repetições.

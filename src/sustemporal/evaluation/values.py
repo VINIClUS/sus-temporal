@@ -16,7 +16,7 @@ from __future__ import annotations
 import logging
 from contextlib import closing
 from dataclasses import dataclass
-from decimal import ROUND_HALF_EVEN, Decimal
+from decimal import ROUND_HALF_EVEN, Decimal, InvalidOperation, localcontext
 from typing import TYPE_CHECKING
 
 import duckdb
@@ -71,6 +71,9 @@ ELEGIVEIS = (IDENTIFICADA, SEM_GOVERNANCA, "INCONCLUSIVO", "SEM_VIOLACAO_VERIFIC
 CATEGORIAS = (*ELEGIVEIS, "DIFERENCA_NEGATIVA", "CAMPOS_INSUFICIENTES", "ROTULO_CONTRADITORIO")
 _ESCALA_VALOR = Decimal("1e-6")
 _ESCALA_RAZAO = Decimal("1e-12")
+_DIGITOS_INTEIROS = 32
+_PRECISAO = 80
+FAMILIAS_DE_ATENDIMENTO = frozenset({"CID", "IDADE", "SEXO"})
 _EXIGIDAS = {
     "sia_pa_rotulos.v1": (
         "row_id",
@@ -143,6 +146,32 @@ def _exigir_execucao(run: RunResult, labels: DatasetRef) -> None:
         raise ValueError(
             f"origem_dados_divergente run={run.origem_dados} rotulos={labels.origem_dados}"
         )
+    registros = [d for d in run.entradas if d.schema_id == "sia_pa.v1"]
+    if not registros:
+        logger.warning("valores_rotulos_sem_registros_de_entrada run=%s", run.run_id)
+        return
+    esperados = {a for d in registros for a in d.artifact_ids}
+    if not esperados <= set(labels.artifact_ids):
+        raise ValueError(
+            f"rotulos_de_outro_dataset run={run.run_id} rotulos={labels.dataset_id} "
+            f"faltantes={len(esperados - set(labels.artifact_ids))}"
+        )
+
+
+def _municipais(
+    governanca_por_familia: Mapping[FamiliaRegra, Governanca] | None,
+) -> set[str] | None:
+    if governanca_por_familia is None:
+        return None
+    municipais = {
+        f.value for f, g in governanca_por_familia.items() if g is Governanca.MUNICIPAL_DOCUMENTADA
+    }
+    de_atendimento = sorted(municipais & FAMILIAS_DE_ATENDIMENTO)
+    if de_atendimento:
+        raise ValueError(
+            f"familia_de_atendimento_sem_governanca_municipal familias={','.join(de_atendimento)}"
+        )
+    return municipais
 
 
 def _conferir(con: duckdb.DuckDBPyConnection, *datasets: DatasetRef) -> None:
@@ -173,7 +202,10 @@ def _exigir_selecao_unica(
         {"c": avaliacoes.caminho, "r": run.run_id},
     ).fetchall()
     politicas = {str(politica) for politica, _ in selecoes}
-    if len(selecoes) > 1 or (run.politica_id is not None and politicas - {run.politica_id}):
+    metodos = {str(metodo) for _, metodo in selecoes}
+    politica_divergente = run.politica_id is not None and politicas - {run.politica_id}
+    metodo_divergente = run.metodo is not None and metodos - {run.metodo.value}
+    if len(selecoes) > 1 or politica_divergente or metodo_divergente:
         raise ValueError(
             f"selecao_de_versoes_multipla run={run.run_id} selecoes={len(selecoes)} "
             f"politicas={','.join(sorted(politicas))}"
@@ -218,6 +250,10 @@ def _familias(registro: _Registro, familia_da_regra: Mapping[str, FamiliaRegra])
 
 
 def _categoria(registro: _Registro, familias: set[str], municipais: set[str]) -> str:
+    if (registro.resultado == "ALERTA") != bool(registro.violacoes):
+        raise FalhaOperacionalErro(
+            f"valores_agregado_incoerente row_id={registro.row_id} resultado={registro.resultado}"
+        )
     if registro.contradicoes:
         return "ROTULO_CONTRADITORIO"
     if registro.apresentado is None or registro.aprovado is None:
@@ -274,7 +310,11 @@ def _linha(
 
 
 def _linhas_do_estrato(
-    run_id: str, estrato: str, acumulados: Mapping[tuple[str, str], _Acumulado]
+    run_id: str,
+    estrato: str,
+    acumulados: Mapping[tuple[str, str], _Acumulado],
+    *,
+    determinado: bool,
 ) -> list[tuple[object, ...]]:
     linhas = [
         _linha(run_id, estrato, c, acumulados.get((estrato, c), _Acumulado())) for c in CATEGORIAS
@@ -284,19 +324,30 @@ def _linhas_do_estrato(
         denominador.juntar(acumulados.get((estrato, categoria), _Acumulado()))
     numerador = acumulados.get((estrato, IDENTIFICADA), _Acumulado())
     linhas.append(_linha(run_id, estrato, "DENOMINADOR", denominador))
-    linhas.append(_linha(run_id, estrato, "NUMERADOR", numerador))
+    if determinado:
+        linhas.append(_linha(run_id, estrato, "NUMERADOR", numerador))
+    else:
+        linhas.append((run_id, estrato, "NUMERADOR", True, None, None, None, None, None))
     familias = sorted(c for e, c in acumulados if e == estrato and c.startswith("FAMILIA_"))
     linhas += [
         _linha(run_id, estrato, f, acumulados[(estrato, f)], aditiva=False) for f in familias
     ]
     if estrato in ESTRATOS_COM_RAZAO:
-        razao = _razao(numerador, denominador)
+        razao = _razao(numerador, denominador) if determinado else None
         linhas.append((run_id, estrato, "RAZAO", False, None, None, None, None, razao))
     return linhas
 
 
 def _escala(valor: object) -> object:
-    if isinstance(valor, Decimal) and valor != valor.quantize(_ESCALA_VALOR):
+    if not isinstance(valor, Decimal):
+        return valor
+    if valor != 0 and valor.adjusted() >= _DIGITOS_INTEIROS:
+        raise ValueError(f"valor_fora_da_escala valor={valor}")
+    try:
+        exato = valor == valor.quantize(_ESCALA_VALOR)
+    except InvalidOperation as erro:
+        raise ValueError(f"valor_fora_da_escala valor={valor}") from erro
+    if not exato:
         raise ValueError(f"valor_com_mais_de_6_decimais valor={valor}")
     return valor
 
@@ -343,31 +394,37 @@ def summarize_values(
 ) -> DatasetRef:
     """Soma d(r) uma vez por ocorrência, com categorias de exclusão explícitas.
 
-    Sem `governanca_por_familia`, nenhuma família tem governança municipal documentada e o
-    numerador é zero; as incompatibilidades ficam em categoria própria.
+    Sem `governanca_por_familia`, numerador e razão ficam indeterminados (nulos) e as
+    incompatibilidades ficam em categoria própria. Com o mapa, só famílias marcadas
+    `MUNICIPAL_DOCUMENTADA` entram no numerador; famílias de fatos do atendimento (CID, idade,
+    sexo; fora do catálogo de operações, plano §6) não podem ser marcadas.
 
     Raises:
         FalhaOperacionalErro: saída ausente ou repetida, Parquet ilegível ou divergente, leiaute
-            incompatível, rótulos que não cobrem a execução ou ocorrência repetida.
-        ValueError: execução não concluída, mais de uma seleção de versões, regra fora do
-            catálogo, origem de dados divergente ou valor com mais de 6 casas decimais.
+            incompatível, rótulos que não cobrem a execução, ocorrência repetida ou agregado
+            incoerente com as violações.
+        ValueError: execução não concluída, mais de uma seleção de versões ou divergente do run,
+            rótulos de outro dataset, regra fora do catálogo, família de atendimento com
+            governança municipal, origem de dados divergente ou valor fora da escala.
     """
     _exigir_execucao(run, labels)
     agregados = _saida(run, "agregados_registro.v1")
     avaliacoes = _saida(run, "avaliacoes.v1")
     familia_da_regra = {r.rule_id: r.familia for r in (regras or carregar_regras())}
-    municipais = {
-        f.value
-        for f, g in (governanca_por_familia or {}).items()
-        if g is Governanca.MUNICIPAL_DOCUMENTADA
-    }
-    with closing(conectar(RuntimeConfig(duckdb_threads=1))) as con:
+    municipais = _municipais(governanca_por_familia)
+    with closing(conectar(RuntimeConfig(duckdb_threads=1))) as con, localcontext() as contexto:
+        contexto.prec = _PRECISAO
         _conferir(con, labels, agregados, avaliacoes)
         _exigir_selecao_unica(con, avaliacoes, run)
         registros = _registros(con, agregados, labels, run.run_id)
-        acumulados = _acumular(registros, familia_da_regra, municipais)
+        acumulados = _acumular(registros, familia_da_regra, municipais or set())
         estratos = sorted({e for e, _ in acumulados} | set(ESTRATOS_COM_RAZAO))
-        linhas = [x for e in estratos for x in _linhas_do_estrato(run.run_id, e, acumulados)]
+        determinado = municipais is not None
+        linhas = [
+            x
+            for e in estratos
+            for x in _linhas_do_estrato(run.run_id, e, acumulados, determinado=determinado)
+        ]
         ref = _gravar(con, linhas, out, (labels, agregados))
     logger.info(
         "valores_p3 run=%s ocorrencias=%d linhas=%d dataset=%s",

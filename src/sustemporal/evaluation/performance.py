@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import resource
+import sys
 import time
 import tracemalloc
 from dataclasses import asdict, dataclass
@@ -69,9 +70,11 @@ class Medicao:
     cache: Cache
     repeticoes: int
     tempos_ns: tuple[int, ...]
+    cache_por_repeticao: tuple[Cache, ...]
     pico_python_bytes: int | None
-    rss_max_kib: int | None
+    rss_max_processo_bytes: int | None
     armazenamento_bytes: int | None
+    armazenamento_total_bytes: int | None
 
 
 def etapa_pendente(nome: str) -> Etapa:
@@ -92,9 +95,11 @@ def _nao_medido(etapa: Etapa, motivo: str, cache: Cache) -> Medicao:
         cache=cache,
         repeticoes=0,
         tempos_ns=(),
+        cache_por_repeticao=(),
         pico_python_bytes=None,
-        rss_max_kib=None,
+        rss_max_processo_bytes=None,
         armazenamento_bytes=None,
+        armazenamento_total_bytes=None,
     )
 
 
@@ -104,19 +109,35 @@ def _armazenamento(saida: Path | None) -> int | None:
     return sum(c.stat().st_size for c in saida.rglob("*") if c.is_file())
 
 
-def _executar_uma(etapa: Etapa, relogio: Callable[[], int]) -> tuple[int, int]:
-    executar = etapa.executar
-    if executar is None:
-        raise ValueError(f"etapa_sem_execucao etapa={etapa.nome}")
+def _rss_max_bytes() -> int:
+    """Pico de RSS do processo inteiro (não por etapa); KiB no Linux, bytes no macOS."""
+    pico = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    return int(pico) if sys.platform == "darwin" else int(pico) * 1024
+
+
+def _cronometrar(executar: Callable[[], object], relogio: Callable[[], int]) -> int:
+    inicio = relogio()
+    executar()
+    return relogio() - inicio
+
+
+def _pico_python(executar: Callable[[], object]) -> int | None:
+    """Rodada extra só para memória; não interfere num tracemalloc já ativo de quem chama."""
+    if tracemalloc.is_tracing():
+        return None
     tracemalloc.start()
     try:
-        inicio = relogio()
         executar()
-        fim = relogio()
         _, pico = tracemalloc.get_traced_memory()
     finally:
         tracemalloc.stop()
-    return fim - inicio, pico
+    return pico
+
+
+def _caches(cache: Cache, repeticoes: int) -> tuple[Cache, ...]:
+    if cache is Cache.FRIO:
+        return (Cache.FRIO, *(Cache.QUENTE,) * (repeticoes - 1))
+    return (cache,) * repeticoes
 
 
 def medir(
@@ -126,37 +147,40 @@ def medir(
     cache: Cache = Cache.NAO_CONTROLADO,
     relogio: Callable[[], int] = time.perf_counter_ns,
 ) -> Medicao:
-    """Executa a etapa `repeticoes` vezes e registra tempo, pico de memória e armazenamento.
+    """Executa a etapa `repeticoes` vezes cronometradas e uma rodada extra para memória.
 
-    O pico de memória Python vem do `tracemalloc` (não inclui buffers nativos do DuckDB); o RSS
-    máximo do processo (`ru_maxrss`) cobre o resto, sem separar etapas do mesmo processo.
+    O tempo é medido sem `tracemalloc`. O pico de memória Python vem da rodada extra (não inclui
+    buffers nativos do DuckDB) e fica nulo se quem chama já usa `tracemalloc`. O RSS máximo é do
+    processo inteiro. O armazenamento é o que o diretório de saída ganhou durante a medição; o
+    total também é registrado. Com cache `FRIO`, só a primeira repetição é fria.
 
     Raises:
         ValueError: `repeticoes` menor que 1.
     """
     if repeticoes < 1:
         raise ValueError(f"repeticoes_invalidas repeticoes={repeticoes}")
-    if etapa.executar is None:
+    executar = etapa.executar
+    if executar is None:
         return _nao_medido(etapa, etapa.motivo_ausencia or "sem_execucao", cache)
-    tempos: list[int] = []
-    pico = 0
-    for _ in range(repeticoes):
-        try:
-            tempo, pico_rodada = _executar_uma(etapa, relogio)
-        except NotImplementedError:
-            return _nao_medido(etapa, "nao_implementado", cache)
-        tempos.append(tempo)
-        pico = max(pico, pico_rodada)
+    antes = _armazenamento(etapa.saida) or 0
+    try:
+        tempos = tuple(_cronometrar(executar, relogio) for _ in range(repeticoes))
+        pico = _pico_python(executar)
+    except NotImplementedError:
+        return _nao_medido(etapa, "nao_implementado", cache)
+    total = _armazenamento(etapa.saida)
     medicao = Medicao(
         etapa=etapa.nome,
         estado=EstadoMedicao.MEDIDO,
-        motivo="",
+        motivo="" if pico is not None else "memoria_nao_medida_tracemalloc_ativo",
         cache=cache,
         repeticoes=repeticoes,
-        tempos_ns=tuple(tempos),
+        tempos_ns=tempos,
+        cache_por_repeticao=_caches(cache, repeticoes),
         pico_python_bytes=pico,
-        rss_max_kib=resource.getrusage(resource.RUSAGE_SELF).ru_maxrss,
-        armazenamento_bytes=_armazenamento(etapa.saida),
+        rss_max_processo_bytes=_rss_max_bytes(),
+        armazenamento_bytes=None if total is None else total - antes,
+        armazenamento_total_bytes=total,
     )
     logger.info("desempenho_medido etapa=%s repeticoes=%d cache=%s", etapa.nome, repeticoes, cache)
     return medicao

@@ -14,6 +14,7 @@ import json
 import logging
 import uuid
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
@@ -118,6 +119,24 @@ class _Execucao:
         for layout in _leiautes(fonte):
             self._uma(funcao, versao, layout)
 
+    def admitir(
+        self, versao: ArtifactVersion, recorte: _Recorte, instantes: list[datetime]
+    ) -> bool:
+        detalhe = recorte.fora(versao.chave)
+        if detalhe is not None:
+            self.resultados.append(_resultado(versao, None, "FORA_DO_RECORTE", **detalhe))
+            return False
+        if any(recorte.no_corte(instante) for instante in instantes):
+            return True
+        primeira = min(instantes).isoformat() if instantes else None
+        self.resultados.append(
+            _resultado(versao, None, "FORA_DO_CORTE", primeira_observacao=primeira)
+        )
+        competencia = versao.chave.competencia_arquivo
+        if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
+            self.sia_pa_incompleto[competencia.valor] = "versao_fora_do_corte"
+        return False
+
     def marcar_tentativas_sem_versao(
         self, versoes: Sequence[ArtifactVersion], observacoes: Sequence[ArtifactObservation]
     ) -> None:
@@ -193,32 +212,46 @@ def _incompletude(obtidas: set[str | None], esperadas: frozenset[str] | None) ->
     return None
 
 
-def _no_recorte(chave: ChaveArtefato, uf: str | None) -> bool:
-    """Família nacional (SIGTAP) sempre; família regional só com a UF da execução, e nunca sem
-    UF (um artefato regional sem UF não pode passar por nacional)."""
-    if chave.fonte in FONTES_NACIONAIS:
-        return True
-    return chave.uf is not None and chave.uf == uf
+@dataclass(frozen=True)
+class _Recorte:
+    """Recorte da execução: famílias configuradas, UF (família nacional fica) e corte."""
+
+    familias: frozenset[FamiliaFonte]
+    uf: str | None
+    corte: datetime | None
+
+    def fora(self, chave: ChaveArtefato) -> dict[str, str] | None:
+        """Detalhe do motivo quando a chave fica fora; None quando entra."""
+        if chave.fonte not in self.familias:
+            return {"familia": chave.fonte.value}
+        if chave.fonte in FONTES_NACIONAIS:
+            return None
+        if chave.uf is None:
+            return {"motivo": "uf_ausente_em_familia_regional"}
+        return None if chave.uf == self.uf else {"uf": chave.uf}
+
+    def no_corte(self, instante: datetime) -> bool:
+        return self.corte is None or instante <= self.corte
 
 
 def _recortar(
-    manifesto: EstadoManifesto, uf: str | None, execucao: _Execucao
+    manifesto: EstadoManifesto, recorte: _Recorte, execucao: _Execucao
 ) -> tuple[list[ArtifactVersion], list[ArtifactObservation], int]:
-    """Arquivos publicados no recorte; os de fora viram FORA_DO_RECORTE, nunca somem."""
+    """Arquivos publicados no recorte e no corte; os de fora viram resultado, nunca somem."""
     publicadas = [v for v in manifesto.versoes.values() if v.chave.tipo_conteudo is None]
-    listagens = len(manifesto.versoes) - len(publicadas)
-    versoes = [v for v in publicadas if _no_recorte(v.chave, uf)]
-    for versao in publicadas:
-        if not _no_recorte(versao.chave, uf):
-            execucao.resultados.append(
-                _resultado(versao, None, "FORA_DO_RECORTE", uf=versao.chave.uf)
-            )
+    observadas: dict[str, list[datetime]] = defaultdict(list)
+    for observacao in manifesto.observacoes:
+        if observacao.artifact_id is not None:
+            observadas[observacao.artifact_id].append(observacao.observado_em)
+    versoes = [v for v in publicadas if execucao.admitir(v, recorte, observadas[v.artifact_id])]
     observacoes = [
         o
         for o in manifesto.observacoes
-        if o.chave.tipo_conteudo is None and _no_recorte(o.chave, uf)
+        if o.chave.tipo_conteudo is None
+        and recorte.fora(o.chave) is None
+        and recorte.no_corte(o.observado_em)
     ]
-    return versoes, observacoes, listagens
+    return versoes, observacoes, len(manifesto.versoes) - len(publicadas)
 
 
 def _chave_logica(chave: ChaveArtefato) -> tuple[object, ...]:
@@ -248,7 +281,10 @@ def executar_ingest(args: argparse.Namespace, config: RunConfig) -> int:
     saida = _pasta_execucao(Path(config.runtime.raiz_saidas) / "ingest")
     execucao = _Execucao(config, saida)
     manifesto = Manifesto(Path(config.runtime.raiz_manifestos) / NOME_MANIFESTO_AQUISICAO).ler()
-    versoes, observacoes, listagens = _recortar(manifesto, uf_da_execucao(config), execucao)
+    recorte = _Recorte(
+        frozenset(piloto.familias_fontes), uf_da_execucao(config), config.corte_observacao
+    )
+    versoes, observacoes, listagens = _recortar(manifesto, recorte, execucao)
     for versao in versoes:
         if versao.chave.fonte in {*RESERVADAS, *_NORMALIZAVEIS}:
             execucao.normalizar(versao)

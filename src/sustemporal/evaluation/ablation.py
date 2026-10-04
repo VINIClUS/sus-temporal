@@ -50,6 +50,9 @@ INTERPRETACAO_ABLACAO = (
 )
 _SELECOES = "selecao_versoes.v1"
 _TABELA = "ablacao_selecoes"
+_MOTIVO_TROCA = "ablacao_troca_de_versao observacao_original_descartada"
+_CAMPOS_ALVO = ("base", "competencia_requerida", "estado")
+_CAMPOS_SELECAO = (*_CAMPOS_ALVO, "artifact_ids", "observation_ids", "motivo")
 
 
 class TipoAblacao(StrEnum):
@@ -96,7 +99,7 @@ def _hash(con: duckdb.DuckDBPyConnection, schema_id: str) -> str:
 
 def _trocadas(
     con: duckdb.DuckDBPyConnection, fonte: FamiliaFonte, troca: Mapping[str, str]
-) -> list[tuple[str, str, str, str]]:
+) -> list[tuple[str, str, str, str, str]]:
     linhas = con.execute(
         f"SELECT row_id, rule_id, artifact_ids FROM {_TABELA} WHERE fonte = $f",  # noqa: S608
         {"f": str(fonte)},
@@ -106,8 +109,36 @@ def _trocadas(
         atuais = [a for a in str(artefatos or "").split(";") if a]
         novos = ";".join(sorted({troca.get(a, a) for a in atuais}))
         if novos != ";".join(atuais):
-            alteradas.append((novos, str(row_id), str(rule_id), str(fonte)))
+            alteradas.append((novos, _MOTIVO_TROCA, str(row_id), str(rule_id), str(fonte)))
     return alteradas
+
+
+def _reescrever(
+    selecoes: DatasetRef,
+    fonte: FamiliaFonte,
+    troca: Mapping[str, str],
+    caminho: Path,
+    runtime: RuntimeConfig | None,
+) -> tuple[list[tuple[str, str, str, str, str]], str]:
+    con = conectar(runtime or RuntimeConfig())
+    try:
+        verificar_conteudo(con, selecoes)
+        con.execute(
+            f"CREATE TEMP TABLE {_TABELA} AS SELECT * FROM read_parquet($c)",  # noqa: S608
+            {"c": selecoes.caminho},
+        )
+        alteradas = _trocadas(con, fonte, troca)
+        if not alteradas:
+            raise ValueError(f"troca_sem_efeito fonte={fonte} troca={sorted(troca)}")
+        con.executemany(
+            f"UPDATE {_TABELA} SET artifact_ids = ?, observation_ids = '', "  # noqa: S608
+            "motivo = motivo || ' ' || ? WHERE row_id = ? AND rule_id = ? AND fonte = ?",
+            alteradas,
+        )
+        con.sql(f"SELECT * FROM {_TABELA}").write_parquet(str(caminho))  # noqa: S608
+        return alteradas, _hash(con, _SELECOES)
+    finally:
+        con.close()
 
 
 def trocar_versao_fonte(
@@ -120,7 +151,10 @@ def trocar_versao_fonte(
 ) -> DatasetRef:
     """Nova `selecao_versoes.v1` em que só as versões de `fonte` são trocadas por `troca`.
 
-    Base, competência requerida, estado e as outras fontes ficam iguais.
+    Base, competência requerida, estado e as outras fontes ficam iguais; as linhas trocadas perdem
+    as observações da versão antiga e o motivo registra a troca. Versão substituta de outra
+    competência não é aceita silenciosamente: o motor a recusa como competência divergente
+    (`VIGENCIA_NAO_RESOLVIDA`), nunca a usa como mês vizinho.
 
     Raises:
         ValueError: esquema diferente de `selecao_versoes.v1` ou troca sem efeito.
@@ -129,33 +163,17 @@ def trocar_versao_fonte(
         raise ValueError(f"ablacao_exige_selecoes schema_id={selecoes.schema_id}")
     destino.mkdir(parents=True, exist_ok=True)
     caminho = destino / f"selecoes_{fonte.value.lower()}.parquet"
-    con = conectar(runtime or RuntimeConfig())
-    try:
-        verificar_conteudo(con, selecoes)
-        con.execute(
-            f"CREATE TEMP TABLE {_TABELA} AS SELECT * FROM read_parquet($c)",  # noqa: S608
-            {"c": selecoes.caminho},
-        )
-        alteradas = _trocadas(con, fonte, troca)
-        if not alteradas:
-            raise ValueError(f"troca_sem_efeito fonte={fonte} troca={sorted(troca)}")
-        con.executemany(
-            f"UPDATE {_TABELA} SET artifact_ids = ? "  # noqa: S608
-            "WHERE row_id = ? AND rule_id = ? AND fonte = ?",
-            alteradas,
-        )
-        con.sql(f"SELECT * FROM {_TABELA}").write_parquet(str(caminho))  # noqa: S608
-        hash_logico = _hash(con, _SELECOES)
-    finally:
-        con.close()
+    alteradas, hash_logico = _reescrever(selecoes, fonte, troca, caminho, runtime)
+    novos = {parte for linha in alteradas for parte in linha[0].split(";") if parte}
+    artefatos = tuple(sorted({*selecoes.artifact_ids, *novos}))
     logger.info("selecao_trocada fonte=%s linhas_alteradas=%d", fonte, len(alteradas))
     return DatasetRef(
-        dataset_id=calcular_dataset_id(_SELECOES, hash_logico, selecoes.artifact_ids),
+        dataset_id=calcular_dataset_id(_SELECOES, hash_logico, artefatos),
         schema_id=_SELECOES,
         caminho=str(caminho),
         hash_logico=hash_logico,
         linhas=selecoes.linhas,
-        artifact_ids=selecoes.artifact_ids,
+        artifact_ids=artefatos,
         origem_dados=selecoes.origem_dados,
         produzido_por=f"ablacao_{fonte.value.lower()}",
     )
@@ -177,11 +195,14 @@ def _exigir_fixos(base: RunResult, variante: RunResult, tipo: TipoAblacao) -> No
     _exigir(mesma_politica, f"ablacao_politica_diferente tipo={tipo}")
     _exigir(base.config_hash == variante.config_hash, f"ablacao_config_diferente tipo={tipo}")
     _exigir(base.origem_dados is variante.origem_dados, f"ablacao_origem_diferente tipo={tipo}")
+    mesmo_codigo = (base.codigo, base.ambiente) == (variante.codigo, variante.ambiente)
+    _exigir(mesmo_codigo, f"ablacao_codigo_diferente tipo={tipo}")
+    _exigir(
+        base.snapshot_set_id == variante.snapshot_set_id, f"ablacao_snapshot_diferente tipo={tipo}"
+    )
     if tipo is TipoAblacao.VERSAO_REGRA:
         iguais = _entradas(base, sem_selecoes=False) == _entradas(variante, sem_selecoes=False)
         _exigir(iguais, f"ablacao_entradas_diferentes tipo={tipo}")
-        mesmo_snapshot = base.snapshot_set_id == variante.snapshot_set_id
-        _exigir(mesmo_snapshot, f"ablacao_snapshot_diferente tipo={tipo}")
         return
     mesmo_catalogo = base.catalogo_regras_sha256 == variante.catalogo_regras_sha256
     _exigir(mesmo_catalogo, f"ablacao_catalogo_diferente tipo={tipo}")
@@ -220,10 +241,10 @@ def _exigir_selecoes_isoladas(
     for chave, linha in base.items():
         outra = variante[chave]
         if linha["fonte"] in alvo:
-            mesmas = all(linha[c] == outra[c] for c in ("base", "competencia_requerida"))
+            mesmas = all(linha[c] == outra[c] for c in _CAMPOS_ALVO)
             _exigir(mesmas, f"ablacao_competencia_alterada fonte={linha['fonte']}")
             continue
-        iguais = all(linha[c] == outra[c] for c in ("estado", "artifact_ids", "base"))
+        iguais = all(linha[c] == outra[c] for c in _CAMPOS_SELECAO)
         _exigir(iguais, f"ablacao_fonte_nao_isolada tipo={tipo} fonte={linha['fonte']}")
 
 

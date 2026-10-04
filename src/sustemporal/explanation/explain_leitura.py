@@ -84,16 +84,20 @@ def _conferir(con: duckdb.DuckDBPyConnection, ref: DatasetRef) -> None:
 def _linhas(
     con: duckdb.DuckDBPyConnection, consulta: str, parametros: dict[str, object]
 ) -> list[dict[str, Any]]:
-    cursor = con.execute(consulta, parametros)
-    nomes = [coluna[0] for coluna in cursor.description or ()]
-    return [dict(zip(nomes, linha, strict=True)) for linha in cursor.fetchall()]
+    try:
+        cursor = con.execute(consulta, parametros)
+        nomes = [coluna[0] for coluna in cursor.description or ()]
+        return [dict(zip(nomes, linha, strict=True)) for linha in cursor.fetchall()]
+    except (duckdb.Error, OSError) as erro:
+        raise ExplicacaoIndisponivel(f"saida_ilegivel erro={type(erro).__name__}") from erro
 
 
 def _exigir_mesma_execucao(con: duckdb.DuckDBPyConnection, ref: DatasetRef, run_id: str) -> None:
-    alheias = con.execute(
-        "SELECT count(*) FROM read_parquet($c) WHERE run_id IS DISTINCT FROM $r",
+    alheias = _linhas(
+        con,
+        "SELECT count(*) AS n FROM read_parquet($c) WHERE run_id IS DISTINCT FROM $r",
         {"c": ref.caminho, "r": run_id},
-    ).fetchall()[0][0]
+    )[0]["n"]
     if alheias:
         raise ExplicacaoIndisponivel(
             f"saida_mistura_execucoes run={run_id} schema={ref.schema_id} linhas={alheias}"
@@ -148,9 +152,10 @@ def _ler(
 ) -> dict[str, list[dict[str, Any]]]:
     por_registro = {}
     for schema_id in _COM_RUN_ID:
+        filtro = "row_id = $row OR row_id IS NULL" if schema_id == "falhas.v1" else "row_id = $row"
         por_registro[schema_id] = _linhas(
             con,
-            "SELECT * FROM read_parquet($c) WHERE row_id = $row",
+            f"SELECT * FROM read_parquet($c) WHERE {filtro}",  # noqa: S608
             {"c": refs[schema_id].caminho, "row": row_id},
         )
     citadas = sorted({e for a in por_registro["avaliacoes.v1"] for e in _lista(a["evidence_ids"])})
@@ -193,6 +198,11 @@ def ler_saidas(con: duckdb.DuckDBPyConnection, run: RunResult, row_id: str) -> S
     linhas = _ler(con, refs, row_id)
     if not linhas["avaliacoes.v1"]:
         raise ExplicacaoIndisponivel(f"registro_sem_avaliacao run={run.run_id} row={row_id}")
+    if linhas["falhas.v1"]:
+        etapas = sorted({str(f["etapa"]) for f in linhas["falhas.v1"]})
+        raise ExplicacaoIndisponivel(
+            f"registro_com_falha_operacional run={run.run_id} row={row_id} etapas={etapas}"
+        )
     try:
         saidas = _montar(linhas, run, row_id)
     except (ValidationError, ValueError) as erro:

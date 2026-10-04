@@ -12,7 +12,7 @@ from string import Template
 from typing import TYPE_CHECKING
 
 from sustemporal.contracts.base import json_canonico
-from sustemporal.contracts.explanation import Afirmacao
+from sustemporal.contracts.explanation import Afirmacao, TipoEvidencia
 from sustemporal.contracts.rules import EstadoAvaliacao, ResultadoRegistro
 from sustemporal.contracts.temporal import EstadoSelecao
 from sustemporal.yamlio import carregar_texto_yaml
@@ -40,6 +40,11 @@ _TEMPLATE_DO_ESTADO = {
     EstadoAvaliacao.CONFORME: "regra.conforme",
     EstadoAvaliacao.NAO_APLICAVEL: "regra.nao_aplicavel",
     EstadoAvaliacao.INCONCLUSIVO: "regra.inconclusiva",
+}
+_EVIDENCIA_DO_TEMPLATE = {
+    "regra.violacao": TipoEvidencia.AUSENCIA_NA_FONTE,
+    "regra.conforme": TipoEvidencia.VINCULO_ENCONTRADO,
+    "regra.nao_aplicavel": TipoEvidencia.APLICABILIDADE,
 }
 _TEMPLATE_DO_RESULTADO = {
     ResultadoRegistro.ALERTA: "registro.alerta",
@@ -180,8 +185,14 @@ def afirmar(
         "aplicabilidade": avaliacao.aplicabilidade,
         "politica_id": contexto.politica_id if contexto else avaliacao.politica_id,
     }
-    if citadas:
-        valores |= _valores_evidencia(citadas[0])
+    tipo = _EVIDENCIA_DO_TEMPLATE.get(template_id)
+    if tipo is not None:
+        principal = next((e for e in citadas if e.tipo is tipo), None)
+        if principal is None:
+            raise TemplateInvalido(
+                f"template_sem_referencia template={template_id} tipo_evidencia={tipo}"
+            )
+        valores |= _valores_evidencia(principal)
     return Afirmacao(
         texto=_preencher(modelo, valores), template_id=template_id, referencias=referencias
     )

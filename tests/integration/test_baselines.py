@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import TYPE_CHECKING
 
+import pyarrow.parquet as pq
 import pytest
 from tests.fixtures.explicacao_cenario import (
     ART_CNES_ALT,
@@ -195,6 +196,12 @@ def test_troca_de_versao_nao_mexe_nas_outras_fontes(
     )
     assert trocadas.dataset_id != insumos_base.selecoes.dataset_id
     assert trocadas.linhas == insumos_base.selecoes.linhas
+    assert ART_CNES_ALT in trocadas.artifact_ids
+    linhas = pq.read_table(trocadas.caminho).to_pylist()
+    for linha in linhas:
+        trocada = linha["fonte"] == "CNES_PF"
+        assert (linha["artifact_ids"] == ART_CNES_ALT) is trocada
+        assert ("ablacao_troca_de_versao" in linha["motivo"]) is trocada
     with pytest.raises(ValueError, match="troca_sem_efeito"):
         trocar_versao_fonte(
             insumos_base.selecoes, FamiliaFonte.CNES_PF, {ART_SIGTAP: ART_CNES_ALT}, tmp_path / "y"

@@ -15,17 +15,22 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import duckdb
 from pydantic import TypeAdapter, ValidationError
 
+from sustemporal.contracts.base import Identificador
 from sustemporal.contracts.experiment import RunResult
 from sustemporal.contracts.records import RowId
 from sustemporal.contracts.rules import FalhaOperacional
 from sustemporal.errors import ExitCode
 from sustemporal.explanation.evidence import EvidenciaDivergente, sql_reexecucao
 from sustemporal.explanation.explain import ExplicacaoIndisponivel, montar_explicacao
+from sustemporal.explanation.explain_texto import TemplateInvalido
+from sustemporal.explanation.prov import ProvIncompleto
 
 if TYPE_CHECKING:
     import argparse
+    from collections.abc import Callable
 
     from sustemporal.contracts.config import RunConfig
     from sustemporal.explanation.explain import Explicacao
@@ -35,7 +40,16 @@ __all__ = ["diretorio_explicacao", "executar_explain", "localizar_execucao"]
 logger = logging.getLogger(__name__)
 
 _ROW_ID: TypeAdapter[str] = TypeAdapter(RowId)
+_IDENTIFICADOR: TypeAdapter[str] = TypeAdapter(Identificador)
 _DIRETORIOS_DE_EXECUCAO = ("runs", "validacao")
+_ARQUIVOS = (
+    "bundle.json",
+    "prov.provn",
+    "prov.json",
+    "explicacao.txt",
+    "reexecucoes.json",
+    "falha.json",
+)
 
 
 def _agora() -> datetime:
@@ -43,7 +57,10 @@ def _agora() -> datetime:
 
 
 class ExecucaoNaoResolvida(ValueError):
-    """`run_id` sem `run_result.json` exato, ambíguo ou incoerente."""
+    """`run_id` ou `row_id` fora do formato, ou sem `run_result.json` exato e coerente."""
+
+
+_RECUSAS = (ExecucaoNaoResolvida, ExplicacaoIndisponivel, TemplateInvalido, ProvIncompleto)
 
 
 def localizar_execucao(raiz: Path, run_id: str) -> RunResult:
@@ -90,8 +107,15 @@ def _reexecucoes(explicacao: Explicacao) -> str:
     return json.dumps(entradas, ensure_ascii=False, indent=2, sort_keys=True)
 
 
+def _limpar(destino: Path) -> None:
+    """Tira os arquivos de uma tentativa anterior: explicação e falha nunca convivem."""
+    for nome in _ARQUIVOS:
+        (destino / nome).unlink(missing_ok=True)
+
+
 def _gravar(destino: Path, explicacao: Explicacao) -> None:
     destino.mkdir(parents=True, exist_ok=True)
+    _limpar(destino)
     bundle = explicacao.bundle
     (destino / "bundle.json").write_text(bundle.model_dump_json(indent=2), encoding="utf-8")
     (destino / "prov.provn").write_text(bundle.prov_n, encoding="utf-8")
@@ -100,41 +124,60 @@ def _gravar(destino: Path, explicacao: Explicacao) -> None:
     (destino / "reexecucoes.json").write_text(_reexecucoes(explicacao), encoding="utf-8")
 
 
-def _registrar_falha(destino: Path, run_id: str, row_id: str, erro: Exception) -> None:
-    falha = FalhaOperacional(
-        run_id=run_id,
-        etapa="reexecutar_evidencia",
-        row_id=row_id,
-        erro=str(erro)[:500],
-        ocorrida_em=_agora(),
-    )
+def _registrar_falha(destino: Path, falha: FalhaOperacional) -> None:
     destino.mkdir(parents=True, exist_ok=True)
+    _limpar(destino)
     (destino / "falha.json").write_text(falha.model_dump_json(indent=2), encoding="utf-8")
 
 
-def executar_explain(args: argparse.Namespace, config: RunConfig) -> int:
+def _validar_argumentos(args: argparse.Namespace) -> tuple[str, str]:
+    """Raises: ExecucaoNaoResolvida para `--run` ou `--row` fora do formato."""
+    try:
+        run_id = _IDENTIFICADOR.validate_python(args.run)
+        row_id = _ROW_ID.validate_python(args.row)
+    except ValidationError as erro:
+        raise ExecucaoNaoResolvida(
+            f"argumento_invalido run={args.run!r} row={args.row!r}"
+        ) from erro
+    if set(run_id) <= {"."}:
+        raise ExecucaoNaoResolvida(f"argumento_invalido run={run_id!r}")
+    return run_id, row_id
+
+
+def executar_explain(
+    args: argparse.Namespace,
+    config: RunConfig,
+    *,
+    relogio: Callable[[], datetime] = _agora,
+) -> int:
     """Grava `bundle.json`, `prov.provn`, `prov.json`, `explicacao.txt` e `reexecucoes.json`.
 
     Returns:
-        0; 2 para execução ou linha inexistente ou incoerente; 5 para evidência divergente
-        (registrada em `falha.json`, sem gravar explicação).
+        0; 2 para argumento, execução ou linha inexistente ou incoerente; 5 para evidência
+        divergente (só `falha.json`, nenhuma explicação) ou falha de leitura/gravação.
     """
     raiz = Path(config.runtime.raiz_saidas)
     try:
-        row_id = _ROW_ID.validate_python(args.row)
-        run = localizar_execucao(raiz, args.run)
-        explicacao = montar_explicacao(run, row_id, runtime=config.runtime)
-    except ValidationError:
-        logger.error("explain_recusado erro=row_invalido row=%s", args.row)
-        return int(ExitCode.CONFIG_INVALIDA)
-    except (ExecucaoNaoResolvida, ExplicacaoIndisponivel) as erro:
+        run_id, row_id = _validar_argumentos(args)
+        destino = diretorio_explicacao(raiz, run_id, row_id)
+        run = localizar_execucao(raiz, run_id)
+        _gravar(destino, montar_explicacao(run, row_id, runtime=config.runtime))
+    except _RECUSAS as erro:
         logger.error("explain_recusado erro=%s", erro)
         return int(ExitCode.CONFIG_INVALIDA)
     except EvidenciaDivergente as erro:
-        _registrar_falha(diretorio_explicacao(raiz, args.run, args.row), args.run, args.row, erro)
+        falha = FalhaOperacional(
+            run_id=run_id,
+            etapa="reexecutar_evidencia",
+            row_id=row_id,
+            erro=str(erro)[:500],
+            ocorrida_em=relogio(),
+        )
+        _registrar_falha(destino, falha)
         logger.error("explain_falhou erro=%s", erro)
         return int(ExitCode.FALHA_OPERACIONAL)
-    destino = diretorio_explicacao(raiz, run.run_id, row_id)
-    _gravar(destino, explicacao)
-    logger.info("explain_concluido run=%s destino=%s", run.run_id, destino)
+    except (OSError, duckdb.Error) as erro:
+        logger.error("explain_falhou erro=falha_operacional tipo=%s", type(erro).__name__)
+        return int(ExitCode.FALHA_OPERACIONAL)
+    logger.info("explain_concluido run=%s destino=%s", run_id, destino)
     return int(ExitCode.OK)

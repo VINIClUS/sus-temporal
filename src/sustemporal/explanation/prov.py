@@ -207,6 +207,7 @@ def _evidencias(doc: ProvDocument, elementos: ElementosProv, execucao: str) -> N
             atributos["sus:sql_reexecucao_sha256"] = sql
         if evidencia.tipo in _SEM_PROVA:
             atributos["sus:limitacao"] = AVISO_AUSENCIA
+        atributos["sus:derivada_de"] = f"sus:{evidencia.dataset_id}"
         doc.entity(f"sus:{evidencia.evidence_id}", atributos)
         doc.wasGeneratedBy(f"sus:{evidencia.evidence_id}", execucao)
         doc.wasDerivedFrom(f"sus:{evidencia.evidence_id}", f"sus:{evidencia.dataset_id}")
@@ -215,6 +216,8 @@ def _evidencias(doc: ProvDocument, elementos: ElementosProv, execucao: str) -> N
 def _avaliacoes(doc: ProvDocument, elementos: ElementosProv, execucao: str, registro: str) -> None:
     for avaliacao in elementos.avaliacoes:
         identificador = _id_avaliacao(avaliacao)
+        regra = _id_regra(elementos.regras[avaliacao.rule_id])
+        origens = [registro, regra, *(f"sus:{e}" for e in avaliacao.evidence_ids)]
         doc.entity(
             identificador,
             {
@@ -223,13 +226,12 @@ def _avaliacoes(doc: ProvDocument, elementos: ElementosProv, execucao: str, regi
                 "sus:estado": str(avaliacao.estado),
                 "sus:motivos": ";".join(avaliacao.motivos),
                 "sus:causa_oficial_atribuida": "false",
+                "sus:derivada_de": ";".join(origens),
             },
         )
         doc.wasGeneratedBy(identificador, execucao)
-        doc.wasDerivedFrom(identificador, registro)
-        doc.wasDerivedFrom(identificador, _id_regra(elementos.regras[avaliacao.rule_id]))
-        for evidence_id in avaliacao.evidence_ids:
-            doc.wasDerivedFrom(identificador, f"sus:{evidence_id}")
+        for origem in origens:
+            doc.wasDerivedFrom(identificador, origem)
     selecionados = {
         a for avaliacao in elementos.avaliacoes for s in avaliacao.selecoes for a in s.artifact_ids
     }
@@ -253,25 +255,35 @@ def montar_documento(elementos: ElementosProv) -> ProvDocument:
     return doc
 
 
-def _avaliacoes_sem_derivacao(doc: ProvDocument) -> Iterable[str]:
-    derivadas = {str(r.formal_attributes[0][1]) for r in doc.get_records(ProvDerivation)}
+def _derivacoes_ausentes(doc: ProvDocument) -> Iterable[str]:
+    """Entidade que declara `sus:derivada_de` sem a aresta `wasDerivedFrom` correspondente."""
+    arestas = {
+        (str(r.formal_attributes[0][1]), str(r.formal_attributes[1][1]))
+        for r in doc.get_records(ProvDerivation)
+    }
     for registro in doc.get_records():
         atributos = {str(c): str(v) for c, v in registro.attributes}
-        if atributos.get("sus:tipo") == "avaliacao" and str(registro.identifier) not in derivadas:
-            yield str(registro.identifier)
+        exigidas = [o for o in atributos.get("sus:derivada_de", "").split(";") if o]
+        if atributos.get("sus:tipo") == "avaliacao" and not exigidas:
+            yield f"{registro.identifier} origem=nenhuma"
+        for origem in exigidas:
+            if (str(registro.identifier), origem) not in arestas:
+                yield f"{registro.identifier} origem={origem}"
 
 
 def exigir_relacoes(documento: ProvDocument) -> None:
-    """Exige `used`, `wasGeneratedBy`, `wasDerivedFrom` e `wasAssociatedWith`, e avaliação derivada.
+    """Exige as quatro relações e cada `wasDerivedFrom` declarado em `sus:derivada_de`.
+
+    Avaliação deriva do registro, da regra e de cada evidência; evidência, do conjunto consultado.
 
     Raises:
-        ProvIncompleto: relação ausente ou avaliação sem `wasDerivedFrom`.
+        ProvIncompleto: relação ausente ou derivação declarada sem aresta.
     """
     for nome, classe in _RELACOES:
         if not list(documento.get_records(classe)):
             raise ProvIncompleto(f"prov_sem_relacao relacao={nome}")
-    for identificador in _avaliacoes_sem_derivacao(documento):
-        raise ProvIncompleto(f"prov_avaliacao_sem_derivacao entidade={identificador}")
+    for ausente in _derivacoes_ausentes(documento):
+        raise ProvIncompleto(f"prov_derivacao_ausente entidade={ausente}")
 
 
 def exportar(documento: ProvDocument) -> DocumentoProv:

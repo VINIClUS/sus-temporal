@@ -15,7 +15,7 @@ from pydantic import ValidationError
 
 from sustemporal.contracts.base import OrigemDados, hash_canonico
 from sustemporal.contracts.config import RuntimeConfig
-from sustemporal.contracts.experiment import TipoExecucao
+from sustemporal.contracts.experiment import EstadoExecucao, TipoExecucao
 from sustemporal.contracts.explanation import ExplanationBundle, Limitacao, TipoEvidencia
 from sustemporal.contracts.rules import MotivoInconclusao
 from sustemporal.duck import conectar
@@ -117,6 +117,8 @@ def _ler(
 ) -> tuple[SaidasRegistro, ProductionRecord]:
     if run.tipo is not TipoExecucao.VALIDACAO:
         raise ExplicacaoIndisponivel(f"execucao_nao_e_validacao run={run.run_id} tipo={run.tipo}")
+    if run.estado is EstadoExecucao.FALHOU:
+        raise ExplicacaoIndisponivel(f"execucao_falhou run={run.run_id}")
     con = conectar(runtime)
     try:
         return ler_saidas(con, run, row_id), ler_registro(con, run, row_id)

@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import re
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pyarrow as pa
@@ -15,6 +16,7 @@ from prov.model import ProvDocument
 from pydantic import ValidationError
 
 from sustemporal.contracts.config import RunConfig, RuntimeConfig
+from sustemporal.contracts.experiment import EstadoExecucao
 from sustemporal.contracts.explanation import (
     Afirmacao,
     EstadoCobertura,
@@ -22,7 +24,7 @@ from sustemporal.contracts.explanation import (
     Limitacao,
     TipoEvidencia,
 )
-from sustemporal.contracts.rules import EstadoAvaliacao
+from sustemporal.contracts.rules import EstadoAvaliacao, FalhaOperacional
 from sustemporal.errors import ExitCode
 from sustemporal.explanation.cli import diretorio_explicacao, executar_explain
 from sustemporal.explanation.evidence import (
@@ -204,6 +206,32 @@ def test_prov_sem_derivacao_e_recusado(execucao: RunResult) -> None:
         exigir_relacoes(documento)
 
 
+@pytest.mark.parametrize(
+    ("gerada", "usada"),
+    [
+        ("sus:avaliacao_", "sus:ev_"),
+        ("sus:avaliacao_", "sus:regra_"),
+        ("sus:avaliacao_", "sus:registro_"),
+        ("sus:ev_", "sus:ds_"),
+    ],
+)
+def test_prov_sem_uma_derivacao_exigida_e_recusado(
+    execucao: RunResult, gerada: str, usada: str
+) -> None:
+    conteudo = json.loads(montar_explicacao(execucao, LINHA_VIOLACAO).prov_json)
+    conteudo["wasDerivedFrom"] = {
+        chave: aresta
+        for chave, aresta in conteudo["wasDerivedFrom"].items()
+        if not (
+            aresta["prov:generatedEntity"].startswith(gerada)
+            and aresta["prov:usedEntity"].startswith(usada)
+        )
+    }
+    documento = ProvDocument.deserialize(content=json.dumps(conteudo), format="json")
+    with pytest.raises(ProvIncompleto, match="prov_derivacao_ausente"):
+        exigir_relacoes(documento)
+
+
 def test_reexecucao_da_evidencia_reproduz_resultado_e_hash(execucao: RunResult) -> None:
     explicacao = montar_explicacao(execucao, LINHA_VIOLACAO)
     assert explicacao.reexecucoes
@@ -322,6 +350,30 @@ def test_saida_com_conteudo_divergente_e_recusada(execucao: RunResult) -> None:
         explain(adulterada, LINHA_CONFORME)
 
 
+@pytest.mark.parametrize("linha_da_falha", [LINHA_CONFORME, None])
+def test_registro_ou_execucao_com_falha_operacional_e_recusado(
+    execucao: RunResult, linha_da_falha: str | None
+) -> None:
+    caminho = saida(execucao, "falhas.v1")
+    falha = {
+        "run_id": execucao.run_id,
+        "sequencia": 1,
+        "etapa": "avaliar_regra",
+        "row_id": linha_da_falha,
+        "rule_id": "ESTAB_CBO_CNES",
+        "erro": "falha_sintetica",
+        "ocorrida_em": "2026-01-01T00:00:00+00:00",
+    }
+    pq.write_table(pa.Table.from_pylist([falha], pq.read_schema(caminho)), caminho)
+    ref = reemitir(next(r for r in execucao.saidas if r.schema_id == "falhas.v1"))
+    adulterada = _trocar_saida(execucao, "falhas.v1", **ref.model_dump(exclude={"caminho"}))
+    with pytest.raises(ExplicacaoIndisponivel, match="registro_com_falha_operacional"):
+        explain(adulterada, LINHA_CONFORME)
+    falhou = execucao.model_copy(update={"estado": EstadoExecucao.FALHOU, "falhas": 1})
+    with pytest.raises(ExplicacaoIndisponivel, match="execucao_falhou"):
+        explain(falhou, LINHA_CONFORME)
+
+
 def test_linha_inexistente_e_recusada(execucao: RunResult) -> None:
     with pytest.raises(ExplicacaoIndisponivel, match="registro_sem_avaliacao"):
         explain(execucao, LINHA_CONFORME.replace("#0", "#99"))
@@ -370,3 +422,28 @@ def test_cli_execucao_ou_linha_inexistente_sai_com_2(
     )
     codigo = executar_explain(_args(run_id or execucao.run_id, row_id), _config(tmp_path))
     assert codigo == ExitCode.CONFIG_INVALIDA
+
+
+def test_cli_recusa_run_fora_da_raiz(tmp_path: Path) -> None:
+    for run_id in ("..", "../x", "/etc"):
+        codigo = executar_explain(_args(run_id, LINHA_CONFORME), _config(tmp_path))
+        assert codigo == ExitCode.CONFIG_INVALIDA
+
+
+def test_cli_com_evidencia_divergente_grava_so_a_falha(tmp_path: Path) -> None:
+    execucao = executar_cenario(tmp_path, nome="validacao")
+    (tmp_path / "validacao" / execucao.run_id).symlink_to(
+        tmp_path / "validacao" / "saida" / execucao.run_id
+    )
+    args, config = _args(execucao.run_id, LINHA_VIOLACAO), _config(tmp_path)
+    assert executar_explain(args, config) == ExitCode.OK
+    cnes = next(d for d in execucao.entradas if d.schema_id == "cnes_estab_cbo.v1")
+    _reescrever(cnes.caminho, lambda linha: linha | {"cbo": "223505"})
+    instante = datetime(2026, 1, 1, tzinfo=UTC)
+    codigo = executar_explain(args, config, relogio=lambda: instante)
+    assert codigo == ExitCode.FALHA_OPERACIONAL
+    destino = diretorio_explicacao(tmp_path, execucao.run_id, LINHA_VIOLACAO)
+    assert {p.name for p in destino.iterdir()} == {"falha.json"}
+    falha = FalhaOperacional.model_validate_json((destino / "falha.json").read_text("utf-8"))
+    assert falha.ocorrida_em == instante
+    assert "evidencia_divergente" in falha.erro

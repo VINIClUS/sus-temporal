@@ -85,6 +85,7 @@ def _executar(
     declaradas: list[str] | None,
     *,
     republicar: bool = False,
+    quarentena_ao_lado: bool = False,
 ) -> Path:
     store = pasta / "dados" / "raw"
     registros = [registro("C", "201801", "201801")]
@@ -93,6 +94,12 @@ def _executar(
     if republicar:
         outro = [*registros, registro("C", "201801", "201801", PA_QTDPRO="2")]
         versoes.append(artefato_pa(store, dbc_pa(outro), parte=partes_obtidas[0]))
+    if quarentena_ao_lado:
+        outro = [*registros, registro("C", "201801", "201801", PA_QTDPRO="3")]
+        truncado = EstadoIntegridade.QUARENTENA_TRUNCADO
+        versoes.append(
+            artefato_pa(store, dbc_pa(outro), parte=partes_obtidas[0], integridade=truncado)
+        )
     versoes += [
         artefato_sigtap(store, zip_sigtap(pacote_padrao())),
         artefato_cnes(store, dbc_cnes(PF, pf), PF),
@@ -144,11 +151,20 @@ def _fonte_auxiliar(familia: str) -> FamiliaFonte:
     return next(r.fonte for r in entrada.requisitos_fonte if r.fonte is not FamiliaFonte.SIA_PA)
 
 
-@pytest.mark.parametrize("republicar", [False, True], ids=["completo", "republicacao_divergente"])
+@pytest.mark.parametrize(
+    ("cenario", "espera_disponivel"),
+    [("completo", True), ("republicacao_divergente", False), ("quarentena_ao_lado", True)],
+)
 def test_cobertura_disponivel_implica_selecao_selecionada_no_seletor(
-    tmp_path: Path, republicar: bool
+    tmp_path: Path, cenario: str, espera_disponivel: bool
 ) -> None:
-    config_caminho = _executar(tmp_path, ["a"], ["a"], republicar=republicar)
+    config_caminho = _executar(
+        tmp_path,
+        ["a"],
+        ["a"],
+        republicar=cenario == "republicacao_divergente",
+        quarentena_ao_lado=cenario == "quarentena_ao_lado",
+    )
     config = load_config(config_caminho)
     registro_temporal = RegistroTemporal.de_manifesto(
         tmp_path / "manifestos" / "aquisicao.jsonl",
@@ -156,7 +172,7 @@ def test_cobertura_disponivel_implica_selecao_selecionada_no_seletor(
     )
     competencia = CompetenciaArquivo("201801")
     disponiveis = [(f, b) for f, b, estado, _ in _cobertura(tmp_path) if estado == "DISPONIVEL"]
-    assert bool(disponiveis) is not republicar
+    assert bool(disponiveis) is espera_disponivel
     for familia, base in disponiveis:
         if base != BaseTemporal.PROCESSAMENTO.value:
             continue

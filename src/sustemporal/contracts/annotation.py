@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from enum import StrEnum
+from typing import Annotated
 
-from pydantic import model_validator
+from pydantic import StringConstraints, model_validator
 
 from sustemporal.contracts.base import (
     ContratoBase,
@@ -12,11 +14,25 @@ from sustemporal.contracts.base import (
     Identificador,
     Inteiro,
     InteiroNaoNegativo,
+    Sha256Hex,
     razao_confere,
 )
 from sustemporal.contracts.experiment import FreezeId
+from sustemporal.contracts.rules import FamiliaRegra
 
-__all__ = ["AnnotationSample", "Estrato"]
+__all__ = [
+    "AnnotationSample",
+    "AvaliacaoCaso",
+    "CasoId",
+    "ConclusaoCaso",
+    "EstadoReferencia",
+    "Estrato",
+    "LoteAvaliacoes",
+    "MapaCasos",
+    "ReferenciaHumana",
+]
+
+CasoId = Annotated[str, StringConstraints(pattern=r"^(caso|treino)_[0-9]{4,}$")]
 
 
 class Estrato(ContratoBase):
@@ -47,6 +63,7 @@ class AnnotationSample(ContratoBase):
     casos_treino: tuple[str, ...] = ()
     colunas_excluidas: tuple[str, ...] = ()
     formulario_versao: str
+    dimensoes_estrato: tuple[str, ...] | None = None
 
     @model_validator(mode="after")
     def _treino_separado(self) -> AnnotationSample:
@@ -63,4 +80,87 @@ class AnnotationSample(ContratoBase):
                 f"amostra_estratos_divergem_dos_casos amostra={self.sample_id} "
                 f"estratos={total} casos={len(self.casos)}"
             )
+        return self
+
+
+class ConclusaoCaso(StrEnum):
+    INCOMPATIBILIDADE_IDENTIFICADA = "INCOMPATIBILIDADE_IDENTIFICADA"
+    CAUSA_FORA_DE_ESCOPO_DOCUMENTADA = "CAUSA_FORA_DE_ESCOPO_DOCUMENTADA"
+    CAUSA_INDETERMINADA = "CAUSA_INDETERMINADA"
+    EVIDENCIA_INSUFICIENTE = "EVIDENCIA_INSUFICIENTE"
+
+
+class AvaliacaoCaso(ContratoBase):
+    """Uma resposta do formulário: várias famílias só com incompatibilidade identificada."""
+
+    caso_id: CasoId
+    avaliador: Identificador
+    conclusao: ConclusaoCaso
+    familias: tuple[FamiliaRegra, ...] = ()
+    evidencias: str = ""
+    minutos: DecimalExato | None = None
+
+    @model_validator(mode="after")
+    def _familias_coerentes(self) -> AvaliacaoCaso:
+        identificada = self.conclusao is ConclusaoCaso.INCOMPATIBILIDADE_IDENTIFICADA
+        if identificada != bool(self.familias):
+            raise ValueError(
+                f"avaliacao_familias_incoerentes caso={self.caso_id} conclusao={self.conclusao}"
+            )
+        if len(set(self.familias)) != len(self.familias):
+            raise ValueError(f"avaliacao_familia_repetida caso={self.caso_id}")
+        if self.minutos is not None and self.minutos < 0:
+            raise ValueError(f"avaliacao_minutos_negativos caso={self.caso_id}")
+        return self
+
+
+class LoteAvaliacoes(ContratoBase):
+    """Respostas de um avaliador (ou do adjudicador) presas à amostra exportada."""
+
+    sample_id: Identificador
+    formulario_versao: str
+    avaliador: Identificador
+    respostas: tuple[AvaliacaoCaso, ...]
+
+    @model_validator(mode="after")
+    def _um_avaliador(self) -> LoteAvaliacoes:
+        if any(r.avaliador != self.avaliador for r in self.respostas):
+            raise ValueError(
+                f"avaliador_unico_por_lado amostra={self.sample_id} avaliador={self.avaliador}"
+            )
+        return self
+
+
+class MapaCasos(ContratoBase):
+    """Mapa privado caso_id → row_id preso à amostra pelo sample_id e pelo sha256 do conteúdo."""
+
+    sample_id: Identificador
+    sha256: Sha256Hex
+    casos: dict[str, str]
+
+
+class EstadoReferencia(StrEnum):
+    ABERTA = "ABERTA"
+    FECHADA = "FECHADA"
+
+
+class ReferenciaHumana(ContratoBase):
+    """Referência adjudicada por row_id; só FECHADA pode ser comparada ao motor."""
+
+    sample_id: Identificador
+    estado: EstadoReferencia
+    casos: dict[str, AvaliacaoCaso]
+    casos_amostra: tuple[str, ...]
+    pendentes: tuple[CasoId, ...] = ()
+
+    @model_validator(mode="after")
+    def _fechamento(self) -> ReferenciaHumana:
+        if not set(self.casos) <= set(self.casos_amostra):
+            raise ValueError(f"referencia_com_caso_fora_da_amostra amostra={self.sample_id}")
+        if self.estado is not EstadoReferencia.FECHADA:
+            return self
+        if self.pendentes:
+            raise ValueError(f"referencia_fechada_com_pendencias amostra={self.sample_id}")
+        if set(self.casos) != set(self.casos_amostra):
+            raise ValueError(f"referencia_fechada_incompleta amostra={self.sample_id}")
         return self

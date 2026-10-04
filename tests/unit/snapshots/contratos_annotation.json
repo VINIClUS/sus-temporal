@@ -66,6 +66,21 @@
     "title": "Colunas Excluidas",
     "type": "array"
    },
+   "dimensoes_estrato": {
+    "anyOf": [
+     {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Dimensoes Estrato"
+   },
    "estratos": {
     "items": {
      "$ref": "#/$defs/Estrato"
@@ -110,6 +125,89 @@
   "title": "AnnotationSample",
   "type": "object"
  },
+ "AvaliacaoCaso": {
+  "$defs": {
+   "ConclusaoCaso": {
+    "enum": [
+     "INCOMPATIBILIDADE_IDENTIFICADA",
+     "CAUSA_FORA_DE_ESCOPO_DOCUMENTADA",
+     "CAUSA_INDETERMINADA",
+     "EVIDENCIA_INSUFICIENTE"
+    ],
+    "title": "ConclusaoCaso",
+    "type": "string"
+   },
+   "FamiliaRegra": {
+    "enum": [
+     "PROCEDIMENTO_CBO",
+     "ESTABELECIMENTO_CBO",
+     "INSTRUMENTO_REGISTRO",
+     "VIGENCIA_PROCEDIMENTO",
+     "SERVICO_CLASSIFICACAO",
+     "HABILITACAO",
+     "CID",
+     "IDADE",
+     "SEXO",
+     "QUANTIDADE_MAXIMA"
+    ],
+    "title": "FamiliaRegra",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "description": "Uma resposta do formulário: várias famílias só com incompatibilidade identificada.",
+  "properties": {
+   "avaliador": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Avaliador",
+    "type": "string"
+   },
+   "caso_id": {
+    "pattern": "^(caso|treino)_[0-9]{4,}$",
+    "title": "Caso Id",
+    "type": "string"
+   },
+   "conclusao": {
+    "$ref": "#/$defs/ConclusaoCaso"
+   },
+   "evidencias": {
+    "default": "",
+    "title": "Evidencias",
+    "type": "string"
+   },
+   "familias": {
+    "default": [],
+    "items": {
+     "$ref": "#/$defs/FamiliaRegra"
+    },
+    "title": "Familias",
+    "type": "array"
+   },
+   "minutos": {
+    "anyOf": [
+     {
+      "type": "number"
+     },
+     {
+      "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Minutos"
+   }
+  },
+  "required": [
+   "caso_id",
+   "avaliador",
+   "conclusao"
+  ],
+  "title": "AvaliacaoCaso",
+  "type": "object"
+ },
  "Estrato": {
   "additionalProperties": false,
   "properties": {
@@ -147,6 +245,290 @@
    "prob_inclusao"
   ],
   "title": "Estrato",
+  "type": "object"
+ },
+ "LoteAvaliacoes": {
+  "$defs": {
+   "AvaliacaoCaso": {
+    "additionalProperties": false,
+    "description": "Uma resposta do formulário: várias famílias só com incompatibilidade identificada.",
+    "properties": {
+     "avaliador": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Avaliador",
+      "type": "string"
+     },
+     "caso_id": {
+      "pattern": "^(caso|treino)_[0-9]{4,}$",
+      "title": "Caso Id",
+      "type": "string"
+     },
+     "conclusao": {
+      "$ref": "#/$defs/ConclusaoCaso"
+     },
+     "evidencias": {
+      "default": "",
+      "title": "Evidencias",
+      "type": "string"
+     },
+     "familias": {
+      "default": [],
+      "items": {
+       "$ref": "#/$defs/FamiliaRegra"
+      },
+      "title": "Familias",
+      "type": "array"
+     },
+     "minutos": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Minutos"
+     }
+    },
+    "required": [
+     "caso_id",
+     "avaliador",
+     "conclusao"
+    ],
+    "title": "AvaliacaoCaso",
+    "type": "object"
+   },
+   "ConclusaoCaso": {
+    "enum": [
+     "INCOMPATIBILIDADE_IDENTIFICADA",
+     "CAUSA_FORA_DE_ESCOPO_DOCUMENTADA",
+     "CAUSA_INDETERMINADA",
+     "EVIDENCIA_INSUFICIENTE"
+    ],
+    "title": "ConclusaoCaso",
+    "type": "string"
+   },
+   "FamiliaRegra": {
+    "enum": [
+     "PROCEDIMENTO_CBO",
+     "ESTABELECIMENTO_CBO",
+     "INSTRUMENTO_REGISTRO",
+     "VIGENCIA_PROCEDIMENTO",
+     "SERVICO_CLASSIFICACAO",
+     "HABILITACAO",
+     "CID",
+     "IDADE",
+     "SEXO",
+     "QUANTIDADE_MAXIMA"
+    ],
+    "title": "FamiliaRegra",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "description": "Respostas de um avaliador (ou do adjudicador) presas à amostra exportada.",
+  "properties": {
+   "avaliador": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Avaliador",
+    "type": "string"
+   },
+   "formulario_versao": {
+    "title": "Formulario Versao",
+    "type": "string"
+   },
+   "respostas": {
+    "items": {
+     "$ref": "#/$defs/AvaliacaoCaso"
+    },
+    "title": "Respostas",
+    "type": "array"
+   },
+   "sample_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Sample Id",
+    "type": "string"
+   }
+  },
+  "required": [
+   "sample_id",
+   "formulario_versao",
+   "avaliador",
+   "respostas"
+  ],
+  "title": "LoteAvaliacoes",
+  "type": "object"
+ },
+ "MapaCasos": {
+  "additionalProperties": false,
+  "description": "Mapa privado caso_id → row_id preso à amostra pelo sample_id e pelo sha256 do conteúdo.",
+  "properties": {
+   "casos": {
+    "additionalProperties": {
+     "type": "string"
+    },
+    "title": "Casos",
+    "type": "object"
+   },
+   "sample_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Sample Id",
+    "type": "string"
+   },
+   "sha256": {
+    "pattern": "^[0-9a-f]{64}$",
+    "title": "Sha256",
+    "type": "string"
+   }
+  },
+  "required": [
+   "sample_id",
+   "sha256",
+   "casos"
+  ],
+  "title": "MapaCasos",
+  "type": "object"
+ },
+ "ReferenciaHumana": {
+  "$defs": {
+   "AvaliacaoCaso": {
+    "additionalProperties": false,
+    "description": "Uma resposta do formulário: várias famílias só com incompatibilidade identificada.",
+    "properties": {
+     "avaliador": {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "title": "Avaliador",
+      "type": "string"
+     },
+     "caso_id": {
+      "pattern": "^(caso|treino)_[0-9]{4,}$",
+      "title": "Caso Id",
+      "type": "string"
+     },
+     "conclusao": {
+      "$ref": "#/$defs/ConclusaoCaso"
+     },
+     "evidencias": {
+      "default": "",
+      "title": "Evidencias",
+      "type": "string"
+     },
+     "familias": {
+      "default": [],
+      "items": {
+       "$ref": "#/$defs/FamiliaRegra"
+      },
+      "title": "Familias",
+      "type": "array"
+     },
+     "minutos": {
+      "anyOf": [
+       {
+        "type": "number"
+       },
+       {
+        "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Minutos"
+     }
+    },
+    "required": [
+     "caso_id",
+     "avaliador",
+     "conclusao"
+    ],
+    "title": "AvaliacaoCaso",
+    "type": "object"
+   },
+   "ConclusaoCaso": {
+    "enum": [
+     "INCOMPATIBILIDADE_IDENTIFICADA",
+     "CAUSA_FORA_DE_ESCOPO_DOCUMENTADA",
+     "CAUSA_INDETERMINADA",
+     "EVIDENCIA_INSUFICIENTE"
+    ],
+    "title": "ConclusaoCaso",
+    "type": "string"
+   },
+   "EstadoReferencia": {
+    "enum": [
+     "ABERTA",
+     "FECHADA"
+    ],
+    "title": "EstadoReferencia",
+    "type": "string"
+   },
+   "FamiliaRegra": {
+    "enum": [
+     "PROCEDIMENTO_CBO",
+     "ESTABELECIMENTO_CBO",
+     "INSTRUMENTO_REGISTRO",
+     "VIGENCIA_PROCEDIMENTO",
+     "SERVICO_CLASSIFICACAO",
+     "HABILITACAO",
+     "CID",
+     "IDADE",
+     "SEXO",
+     "QUANTIDADE_MAXIMA"
+    ],
+    "title": "FamiliaRegra",
+    "type": "string"
+   }
+  },
+  "additionalProperties": false,
+  "description": "Referência adjudicada por row_id; só FECHADA pode ser comparada ao motor.",
+  "properties": {
+   "casos": {
+    "additionalProperties": {
+     "$ref": "#/$defs/AvaliacaoCaso"
+    },
+    "title": "Casos",
+    "type": "object"
+   },
+   "casos_amostra": {
+    "items": {
+     "type": "string"
+    },
+    "title": "Casos Amostra",
+    "type": "array"
+   },
+   "estado": {
+    "$ref": "#/$defs/EstadoReferencia"
+   },
+   "pendentes": {
+    "default": [],
+    "items": {
+     "pattern": "^(caso|treino)_[0-9]{4,}$",
+     "type": "string"
+    },
+    "title": "Pendentes",
+    "type": "array"
+   },
+   "sample_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Sample Id",
+    "type": "string"
+   }
+  },
+  "required": [
+   "sample_id",
+   "estado",
+   "casos",
+   "casos_amostra"
+  ],
+  "title": "ReferenciaHumana",
   "type": "object"
  }
 }

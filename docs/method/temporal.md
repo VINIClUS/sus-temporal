@@ -129,7 +129,104 @@ real.
 O motor (T07) pode derivar a mesma seleção do `SnapshotSet` pela chave (fonte, base, competência).
 Também confere a coerência de uma tabela fornecida com a política da execução.
 
-## 6. Limites declarados
+## 6. Vigilância de republicações (T13, `acquisition/watch.py`)
+`sustemporal watch --config config/watch.yaml` roda uma passada por chamada:
+
+1. Para cada família de `vigilancia.familias_fontes`, lista o diretório. A listagem é ela mesma
+   uma observação.
+2. Toma as `janela_competencias` (6) competências mais recentes com arquivo listado para a UF,
+   dentro do recorte do estudo (201801–202512) e nunca depois do mês do relógio.
+   - A janela vem dos nomes listados, nunca da data de coleta. A travessia dos meses usa
+     `CompetenciaArquivo.deslocar`, sem converter o código em número.
+   - Depois de 2025-12 a janela para de andar e fica nas 6 últimas competências de 2025.
+   - Observar além do recorte é decisão humana (T13-6, recorte na `RunConfig`).
+   - **Janela incompleta:** com menos competências listadas que `janela_competencias`
+     (inclusive listagem vazia ou truncada), o relatório recebe uma linha `janela_incompleta`
+     com o pedido e o obtido. A execução conta isso como falha e sai 5.
+   - **Listagem que falha** (NAO_ENCONTRADO, INTERROMPIDO e outras): o relatório recebe uma
+     linha de família `INCONCLUSIVO`, com motivo `listagem_nao_obtida resultado=<…>`. Uma
+     listagem obtida cujo conteúdo guardado está ausente, ilegível ou com hash divergente recebe
+     a mesma linha, com motivo `listagem_ilegivel`.
+3. Observa de novo cada arquivo (`observe_updates`), sem pular os já obtidos. Os mesmos bytes
+   viram nova observação da mesma versão; bytes novos viram versão nova. O histórico não é
+   substituído.
+4. Dá **exatamente um resultado por chave acompanhada** (fonte, UF, competência, parte,
+   geração): as chaves observadas nesta execução e as já acompanhadas que sumiram da listagem.
+   A geração (`versao_publicacao`, por exemplo o `vAAMMDDHHMM` do SIGTAP) faz parte da chave.
+   Cada geração listada é comparada só com ela mesma, e uma geração nova é ARQUIVO_NOVO, nunca
+   alteração da geração antiga.
+
+| Resultado | Quando | Falha (saída 5)? |
+|---|---|---|
+| `INALTERADA` | Mesma versão de conteúdo, ou (SIA-PA) o mesmo multiconjunto de linhas ativas, inclusive em outra ordem | não |
+| `REVISAO_REAL` | SIA-PA: entre as linhas ativas, só entraram linhas ou só saíram; ou as ativas são iguais e só as deletadas mudaram, em conteúdo ou em contagem (`revisao_so_em_deletadas`) | não |
+| `CORRESPONDENCIA_AMBIGUA` | SIA-PA: saíram e entraram linhas ativas; sem identificador longitudinal, nada é pareado e só as contagens ficam | não |
+| `ARQUIVO_NOVO` | Chave sem versão obtida antes: na primeira execução, ou uma parte ou competência que aparece depois do início da vigilância | não |
+| `ARQUIVO_SUMIU` | Chave já acompanhada, do início da janela atual em diante, que não está na listagem obtida. Ela nunca é trocada em silêncio por uma competência mais antiga. Uma janela vazia não aponta nada: fica só como janela incompleta | sim |
+| `BYTES_ALTERADOS_SEM_COMPARACAO` | Família sem comparação por linhas (CNES, SIGTAP) com `artifact_id` novo | não |
+| `INCONCLUSIVO` | Falha de obtenção (`observacao_sem_conteudo`), da listagem (`listagem_nao_obtida`), do leiaute ou da normalização (`comparacao_inconclusiva`) | sim |
+
+   **Comparação SIA-PA** (`acquisition/comparacao.py`): as duas versões passam pelo
+   `normalize_pa`, e só as linhas **ativas** (não deletadas) entram no multiconjunto.
+   - Ficam de fora as colunas de papel CHAVE e LINHAGEM do esquema `sia_pa.v1` (`row_id`,
+     `artifact_id`, `membro`, `indice_registro`, `deletado`). A lista é derivada do esquema.
+   - Linhas nunca são casadas por posição.
+   - As deletadas de cada versão são contadas à parte (`deletadas_anterior`, `deletadas_nova`).
+     A transição de deleção nunca é inferida por casamento de valores: quando as contagens
+     diferem, o motivo registra `transicao_de_delecao_ambigua`. Um registro que passa a
+     deletado aparece como saída das ativas.
+5. Acrescenta a `<raiz_manifestos>/vigilancia.jsonl` as linhas de família, uma linha por
+   tentativa de arquivo (e por chave sumida) e um resumo com a contagem por resultado.
+   - O resumo e o código de saída são calculados só a partir das linhas gravadas. O resumo
+     conta as observações de listagem e de arquivo (`observacoes=`, `de`/`ate`).
+   - A saída 5 ocorre se, e somente se, há linha não conclusiva: janela incompleta,
+     INCONCLUSIVO ou ARQUIVO_SUMIU. Um teste de propriedade confere isso.
+   - O resumo só fala das observações da pesquisa (`… de=… ate=…
+     alcance=somente_observacoes_da_pesquisa`), e o prefixo depende do que houve:
+   - `vigilancia_inconclusiva`: alguma janela incompleta, INCONCLUSIVO ou ARQUIVO_SUMIU;
+   - `revisao_observada`: REVISAO_REAL, CORRESPONDENCIA_AMBIGUA ou BYTES_ALTERADOS_SEM_COMPARACAO;
+   - `arquivos_novos_observados`: só ARQUIVO_NOVO além de INALTERADA;
+   - `sem_revisao_observada`: só com janelas completas e todas as chaves INALTERADA;
+   - `sem_observacao`: só com zero linhas.
+
+   **Ausência de revisão observada não afirma que nunca houve revisão:** uma republicação entre
+   duas observações, ou antes da primeira, pode ter escapado.
+
+**Vigilância não é coorte.** A vigilância segue o plano (T13: "A partir do piloto, acompanhar
+semanalmente uma janela móvel de seis competências recentes durante doze meses"), dentro do
+recorte 2018–2025, que é restrição do AGENTS.md. As observações dela não escolhem a coorte, que
+vem da própria config (piloto, coorte e partições). Uma republicação observada de uma competência
+da coorte só pesa nela pela seleção do T06, com o corte de observação congelado da execução.
+
+**Agendamento (máquina do pesquisador).** A cadência de 7 dias e a duração de 12 meses
+(`cadencia_dias`, `duracao_meses`) são cumpridas pelo agendador, não pela CLI. Exemplo de cron,
+toda segunda às 03:17:
+
+```cron
+17 3 * * 1  cd /caminho/sus-temporal && uv run sustemporal watch --config config/watch.yaml >> logs/watch.log 2>&1
+```
+
+Ou com systemd (`~/.config/systemd/user/sustemporal-watch.service` e `.timer`):
+
+```ini
+# sustemporal-watch.service
+[Service]
+Type=oneshot
+WorkingDirectory=/caminho/sus-temporal
+ExecStart=/usr/bin/env uv run sustemporal watch --config config/watch.yaml
+
+# sustemporal-watch.timer
+[Timer]
+OnCalendar=Mon *-*-* 03:17:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
+Depois de 12 meses, desative o timer (`systemctl --user disable --now sustemporal-watch.timer`)
+ou remova a linha do cron.
+
+## 7. Limites declarados
 - A retrospectiva não simula o conhecimento do gestor na data original. Ela usa as versões que a
   pesquisa conseguiu observar até o corte.
 - **Ausência de observação não é ausência de publicação.** AUSENTE quer dizer que a pesquisa não

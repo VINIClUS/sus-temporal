@@ -8,7 +8,12 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sustemporal.acquisition.fetch import fetch_source, nomes_listados
+from sustemporal.acquisition.comparacao import (
+    ComparacaoVersoes,
+    ResultadoComparacao,
+    comparar_versoes,
+)
+from sustemporal.acquisition.fetch import agora_utc, fetch_source, nomes_listados
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.acquisition.sources import (
     carregar_catalogo,
@@ -18,6 +23,22 @@ from sustemporal.acquisition.sources import (
     requisicoes_da_listagem,
     requisicoes_documentos,
 )
+from sustemporal.acquisition.watch import (
+    NOME_RELATORIO,
+    JanelaIncompleta,
+    carregar_leiaute_pa,
+    chave_de_comparacao,
+    chaves_sumidas,
+    classificar_chave,
+    competencias_da_janela,
+    gravar_relatorio,
+    linhas_do_relatorio,
+    nao_conclusiva,
+    observe_updates,
+    resumir_linhas,
+    sumida,
+    versoes_anteriores,
+)
 from sustemporal.contracts.artifacts import MotivoRequisicao, ResultadoTentativa
 from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.temporal import (
@@ -25,20 +46,23 @@ from sustemporal.contracts.temporal import (
     CompetenciaAtendimento,
     CompetenciaProcessamento,
 )
-from sustemporal.errors import ConfigInvalida, ExitCode
+from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro
 from sustemporal.hashing import sha256_arquivo
 
 if TYPE_CHECKING:
     import argparse
     from collections.abc import Callable, Iterable
+    from datetime import datetime
 
     from sustemporal.acquisition.sources import CatalogoFontes
+    from sustemporal.acquisition.watch import Chave
     from sustemporal.contracts.artifacts import (
         ArtifactObservation,
         ArtifactVersion,
         SourceRequest,
     )
-    from sustemporal.contracts.config import PilotSpec, RunConfig
+    from sustemporal.contracts.base import OrigemDados
+    from sustemporal.contracts.config import PilotSpec, RunConfig, VigilanciaSpec
 
     Obter = Callable[[SourceRequest], ArtifactObservation]
 
@@ -214,5 +238,141 @@ def executar_acquire(args: argparse.Namespace, config: RunConfig) -> int:
     return int(ExitCode.FALHA_OPERACIONAL if incompleta else ExitCode.OK)
 
 
-def executar_watch(args: argparse.Namespace, config: RunConfig) -> int:
-    raise NotImplementedError
+def _vigilancia(config: RunConfig) -> VigilanciaSpec:
+    if config.vigilancia is None:
+        raise ConfigInvalida("watch_exige_secao_vigilancia")
+    return config.vigilancia
+
+
+def _nomes_ou_motivo(store: Path, listagem: ArtifactObservation) -> tuple[list[str], str | None]:
+    """Nomes da listagem obtida, ou o motivo de inconclusão (não obtida ou guardada ilegível)."""
+    if listagem.resultado is not ResultadoTentativa.OBTIDO:
+        return [], f"listagem_nao_obtida resultado={listagem.resultado}"
+    try:
+        return nomes_listados(store, listagem), None
+    except (OSError, ValueError, FalhaOperacionalErro) as erro:
+        logger.warning("listagem_ilegivel id=%s erro=%s", listagem.observation_id, erro)
+        return [], f"listagem_ilegivel erro={erro}"
+
+
+def _planejar_vigilancia(
+    config: RunConfig, obter: Obter, referencia: datetime, anteriores: Iterable[Chave]
+) -> tuple[list[SourceRequest], list[Chave], list[JanelaIncompleta]]:
+    """Requisições da janela por família, chaves que sumiram e janelas incompletas."""
+    vigilancia = _vigilancia(config)
+    catalogo = _catalogo(config)
+    store, _ = _caminhos(config)
+    pedido = vigilancia.janela_competencias
+    acompanhadas = [c for c in anteriores if c[1] in (vigilancia.uf, None)]
+    requisicoes: list[SourceRequest] = []
+    sumidas: list[Chave] = []
+    incompletas: list[JanelaIncompleta] = []
+    for fonte in vigilancia.familias_fontes:
+        listagem = obter(requisicao_listagem(catalogo, fonte, motivo=MotivoRequisicao.VIGILANCIA))
+        nomes, motivo = _nomes_ou_motivo(store, listagem)
+        if motivo is not None:
+            inconclusiva = ResultadoComparacao.INCONCLUSIVO.value
+            incompletas.append(JanelaIncompleta(str(fonte), pedido, 0, (), motivo, inconclusiva))
+            continue
+        janela = competencias_da_janela(
+            catalogo.fonte(fonte), vigilancia.uf, nomes, pedido, referencia
+        )
+        if len(janela) < pedido:
+            obtidas = tuple(c.valor for c in janela)
+            motivo = "janela_incompleta"
+            incompletas.append(JanelaIncompleta(str(fonte), pedido, len(janela), obtidas, motivo))
+        da_fonte = requisicoes_da_listagem(
+            catalogo, fonte, vigilancia.uf, janela, nomes, motivo=MotivoRequisicao.VIGILANCIA
+        )
+        atuais = {chave_de_comparacao(r.chave) for r in da_fonte}
+        sumidas += chaves_sumidas(acompanhadas, atuais, fonte, janela)
+        requisicoes += da_fonte
+    return requisicoes, sumidas, incompletas
+
+
+def _comparar_pa(
+    config: RunConfig, anterior: ArtifactVersion, nova: ArtifactVersion
+) -> ComparacaoVersoes:
+    """Comparação SIA-PA por multiconjunto; falha de leiaute ou de normalização é INCONCLUSIVO."""
+    store, _ = _caminhos(config)
+    try:
+        return comparar_versoes(
+            anterior,
+            nova,
+            layout=carregar_leiaute_pa(config),
+            runtime=config.runtime.model_copy(update={"raiz_dados": str(store)}),
+            destino=Path(config.runtime.raiz_dados) / "vigilancia",
+            origem_dados=_origem_dados(config),
+        )
+    except (FalhaOperacionalErro, ValueError, OSError) as erro:
+        logger.warning("comparacao_inconclusiva artefato=%s erro=%s", anterior.artifact_id, erro)
+        motivo = f"comparacao_inconclusiva erro={erro}"
+        resultado = ResultadoComparacao.INCONCLUSIVO
+        return ComparacaoVersoes(anterior.artifact_id, nova.artifact_id, resultado, 0, 0, motivo)
+
+
+def _classificar_todas(
+    config: RunConfig,
+    anteriores: dict[Chave, ArtifactVersion],
+    observadas: list[ArtifactObservation],
+    sumidas: list[Chave],
+) -> list[tuple[Chave, ComparacaoVersoes]]:
+    """Uma linha por chave acompanhada: as observadas nesta execução e as que sumiram."""
+    _, manifesto = _caminhos(config)
+    versoes = Manifesto(manifesto).ler().versoes
+    comparar = partial(_comparar_pa, config)
+    linhas = [
+        (chave, classificar_chave(anteriores.get(chave), obs, versoes, comparar))
+        for obs in observadas
+        for chave in [chave_de_comparacao(obs.chave)]
+    ]
+    for chave in sumidas:
+        logger.warning("arquivo_sumiu_da_listagem chave=%s", chave)
+        linhas.append((chave, sumida(anteriores[chave])))
+    return linhas
+
+
+def _origem_dados(config: RunConfig) -> OrigemDados:
+    if config.origem_dados is None:
+        raise ConfigInvalida("watch_exige_origem_dados")
+    return config.origem_dados
+
+
+def executar_watch(
+    _args: argparse.Namespace, config: RunConfig, *, relogio: Callable[[], datetime] = agora_utc
+) -> int:
+    """Observa de novo a janela de competências e compara com as versões observadas antes.
+
+    Toda tentativa vira observação, inclusive sem mudança. O relatório
+    (`<raiz_manifestos>/vigilancia.jsonl`) recebe uma linha por comparação e um resumo que só
+    fala das observações da pesquisa. A cadência é do agendador externo (cron/systemd).
+
+    Raises:
+        ConfigInvalida: sem seção `vigilancia`, sem `origem_dados` ou catálogo inválido.
+        RedeProibida: fonte remota com `rede_permitida` falso (a recusa fica no manifesto).
+    """
+    _vigilancia(config)
+    _origem_dados(config)
+    store, manifesto = _caminhos(config)
+    anteriores = versoes_anteriores(manifesto)
+    rede = config.runtime.rede_permitida
+    buscar = partial(
+        fetch_source, store=store, rede_permitida=rede, relogio=relogio, manifesto=manifesto
+    )
+    listagens: list[ArtifactObservation] = []
+
+    def obter(requisicao: SourceRequest) -> ArtifactObservation:
+        listagens.append(buscar(requisicao))
+        return listagens[-1]
+
+    requisicoes, sumidas, incompletas = _planejar_vigilancia(config, obter, relogio(), anteriores)
+    observadas = observe_updates(
+        requisicoes, store, rede_permitida=rede, relogio=relogio, manifesto=manifesto
+    )
+    comparacoes = _classificar_todas(config, anteriores, observadas, sumidas)
+    linhas = linhas_do_relatorio(comparacoes, incompletas)
+    resumo = resumir_linhas(linhas, [*listagens, *observadas])
+    gravar_relatorio(Path(config.runtime.raiz_manifestos) / NOME_RELATORIO, linhas, resumo)
+    falhas = sum(nao_conclusiva(linha) for linha in linhas)
+    logger.info("watch_concluido requisicoes=%d falhas=%d %s", len(requisicoes), falhas, resumo)
+    return int(ExitCode.FALHA_OPERACIONAL if falhas else ExitCode.OK)

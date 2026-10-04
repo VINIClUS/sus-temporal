@@ -13,7 +13,7 @@ from sustemporal.yamlio import carregar_yaml
 
 __all__ = ["DIRETORIO_POLITICAS", "carregar_politica"]
 
-DIRETORIO_POLITICAS = Path("catalog/policies")
+DIRETORIO_POLITICAS = Path(__file__).resolve().parents[3] / "catalog" / "policies"
 _ID = re.compile(r"[A-Za-z0-9_.-]{1,128}")
 
 

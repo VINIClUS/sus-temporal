@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -28,7 +29,6 @@ from sustemporal.temporal.registry import RegistroTemporal
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Sequence
-    from datetime import datetime
 
     from sustemporal.contracts import ProductionRecord, RuleSpec, RunConfig
     from sustemporal.contracts.artifacts import ArtifactObservation
@@ -55,6 +55,8 @@ class _Parte:
     estado: EstadoSelecao
     artefatos: frozenset[str]
     observacoes: tuple[str, ...]
+    descartadas: tuple[str, ...] = ()
+    sem_versao: bool = False
 
 
 def nao_resolvida(fonte: FamiliaFonte, motivo: str) -> SelecaoVersao:
@@ -74,27 +76,36 @@ def _integridade(registro: RegistroTemporal, obs: ArtifactObservation) -> Estado
     return None if versao is None else versao.integridade
 
 
+def _integra(registro: RegistroTemporal, obs: ArtifactObservation) -> bool:
+    return (
+        obs.resultado is ResultadoTentativa.OBTIDO
+        and obs.artifact_id is not None
+        and _integridade(registro, obs) in _INTEGRAS
+    )
+
+
 def _avaliar_parte(
     registro: RegistroTemporal, observacoes: Sequence[ArtifactObservation]
 ) -> _Parte:
-    """Por parte: um conteúdo íntegro obtido seleciona; dois ou mais divergentes são ambíguos."""
+    """Por parte: um conteúdo íntegro obtido seleciona; dois ou mais divergentes são ambíguos.
+
+    Conteúdo em quarentena ao lado de conteúdo íntegro não impede a seleção (regra pendente do
+    G0), mas as observações descartadas ficam citadas no motivo.
+    """
     integras = [
-        o
-        for o in observacoes
-        if o.resultado is ResultadoTentativa.OBTIDO
-        and o.artifact_id is not None
-        and o.artifact_id in registro.versoes
-        and _integridade(registro, o) in _INTEGRAS
+        o for o in observacoes if _integra(registro, o) and o.artifact_id in registro.versoes
     ]
+    invalidas = [o for o in observacoes if o.sha256_obtido is not None and o not in integras]
     distintos = frozenset(o.artifact_id for o in integras if o.artifact_id is not None)
     if distintos:
         estado = EstadoSelecao.AMBIGUA if len(distintos) > 1 else EstadoSelecao.SELECIONADA
-        return _Parte(estado, distintos, tuple(o.observation_id for o in integras))
-    invalidas = [o for o in observacoes if o.sha256_obtido is not None]
+        descartadas = tuple(o.observation_id for o in invalidas)
+        return _Parte(estado, distintos, tuple(o.observation_id for o in integras), descartadas)
     if invalidas:
         artefatos = frozenset(o.artifact_id for o in invalidas if o.artifact_id is not None)
         ids = tuple(o.observation_id for o in invalidas)
-        return _Parte(EstadoSelecao.EM_QUARENTENA, artefatos, ids)
+        sem_versao = any(_integra(registro, o) for o in invalidas)
+        return _Parte(EstadoSelecao.EM_QUARENTENA, artefatos, ids, sem_versao=sem_versao)
     return _Parte(EstadoSelecao.AUSENTE, frozenset(), tuple(o.observation_id for o in observacoes))
 
 
@@ -108,7 +119,7 @@ def _estado_multipartes(
             EstadoSelecao.INCOMPLETA,
             f"partes_sem_declaracao completude=INDETERMINADA partes={listadas}",
         )
-    extras = {p or "" for p in partes} - esperadas
+    extras = {p for p in partes if p is not None} - esperadas
     if extras:
         return EstadoSelecao.INCOMPLETA, f"partes_nao_declaradas extras={','.join(sorted(extras))}"
     faltantes = esperadas - {p for p in integras if p is not None}
@@ -124,10 +135,12 @@ def _estado_combinado(
     if EstadoSelecao.AMBIGUA in estados:
         return EstadoSelecao.AMBIGUA, "republicacao_com_conteudo_divergente"
     if EstadoSelecao.EM_QUARENTENA in estados:
-        return EstadoSelecao.EM_QUARENTENA, "conteudo_em_quarentena"
+        sem_versao = any(p.sem_versao for p in partes.values())
+        motivo = "observacao_integra_sem_versao" if sem_versao else "conteudo_em_quarentena"
+        return EstadoSelecao.EM_QUARENTENA, motivo
     if estados == {EstadoSelecao.AUSENTE}:
         return EstadoSelecao.AUSENTE, "sem_conteudo_obtido"
-    if any(parte is not None for parte in partes):
+    if esperadas is not None or any(parte is not None for parte in partes):
         return _estado_multipartes(partes, esperadas)
     if EstadoSelecao.SELECIONADA in estados:
         return EstadoSelecao.SELECIONADA, "versao_unica_integra"
@@ -188,6 +201,9 @@ def selecionar_versao(
     esperadas = registro.partes_esperadas.get((criterio.fonte, competencia.valor))
     estado, motivo = _estado_combinado(partes, esperadas)
     artefatos = sorted({a for p in partes.values() for a in p.artefatos})
+    descartadas = sorted({o for p in partes.values() for o in p.descartadas})
+    if descartadas:
+        sufixo += f" descartadas_quarentena={','.join(descartadas)}"
     selecao = _selecao(
         criterio,
         competencia,
@@ -294,8 +310,9 @@ def select_snapshots(
 ) -> SnapshotSet:
     """Seleciona as versões exigidas pela regra ou registra a abstenção.
 
-    A política é a da execução (`config.politica_id`, senão a da regra). Com corte de observação,
-    o conjunto é congelado: observações posteriores ao corte não o alteram.
+    A política é a da execução (`config.politica_id`, senão a da regra). Com corte de observação
+    já passado no `relogio`, o conjunto é congelado: observações posteriores ao corte não o
+    alteram. Corte no futuro não congela.
 
     Raises:
         ConfigInvalida: política inexistente ou inválida.
@@ -309,21 +326,33 @@ def select_snapshots(
         registro = RegistroTemporal.de_manifesto(
             caminho, partes_esperadas=partes_esperadas_do_catalogo(config)
         )
-    if relogio is not None:
-        raise NotImplementedError("relogio")
     uf = _uf_da_execucao(config)
     corte = config.corte_observacao
     contexto = (registro, uf, corte)
     selecoes = tuple(
         _selecao_do_registro(record, fonte, politica, contexto) for fonte in fontes_auxiliares(rule)
     )
+    return _conjunto(selecoes, corte, relogio)
+
+
+def _agora() -> datetime:
+    return datetime.now(UTC)
+
+
+def _conjunto(
+    selecoes: Iterable[SelecaoVersao],
+    corte: datetime | None,
+    relogio: Callable[[], datetime] | None,
+) -> SnapshotSet:
+    """Conjunto canônico (seleções e ids ordenados); só congela com corte já passado."""
+    ordenadas = tuple(sorted(selecoes, key=_ordem))
     return SnapshotSet.criar(
-        artifact_ids=_ordenados(selecoes, "artifact_ids"),
-        observation_ids=_ordenados(selecoes, "observation_ids"),
+        artifact_ids=_ordenados(ordenadas, "artifact_ids"),
+        observation_ids=_ordenados(ordenadas, "observation_ids"),
         dataset_hashes=(),
-        selecoes=selecoes,
+        selecoes=ordenadas,
         corte_observacao=corte,
-        congelado=corte is not None,
+        congelado=corte is not None and corte <= (relogio or _agora)(),
     )
 
 
@@ -346,8 +375,6 @@ def unir_snapshots(
     Raises:
         ValueError: conjuntos com cortes diferentes ou decisões divergentes na mesma chave.
     """
-    if relogio is not None:
-        raise NotImplementedError("relogio")
     lista = list(conjuntos)
     cortes = {c.corte_observacao for c in lista}
     if len(cortes) > 1:
@@ -356,13 +383,4 @@ def unir_snapshots(
     chaves = [(s.fonte, s.base, s.competencia_requerida) for s in unicas if s.base is not None]
     if len(chaves) != len(set(chaves)):
         raise ValueError("snapshots_com_decisoes_divergentes_na_mesma_chave")
-    selecoes = tuple(sorted(unicas, key=_ordem))
-    corte = next(iter(cortes), None)
-    return SnapshotSet.criar(
-        artifact_ids=_ordenados(selecoes, "artifact_ids"),
-        observation_ids=_ordenados(selecoes, "observation_ids"),
-        dataset_hashes=(),
-        selecoes=selecoes,
-        corte_observacao=corte,
-        congelado=corte is not None,
-    )
+    return _conjunto(unicas, next(iter(cortes), None), relogio)

@@ -46,7 +46,7 @@ __all__ = ["configurar_parser", "executar_acquire", "executar_watch"]
 
 logger = logging.getLogger(__name__)
 
-CATALOGO_PADRAO = Path("catalog/sources.yaml")
+CATALOGO_PADRAO = Path(__file__).resolve().parents[3] / "catalog" / "sources.yaml"
 NOME_MANIFESTO_AQUISICAO = "aquisicao.jsonl"
 PASSADAS = ("primaria", "auxiliar", "documentos")
 _SEM_SELECAO = {FamiliaFonte.SIA_PA, FamiliaFonte.DOCUMENTO, FamiliaFonte.TERRITORIO_DRS}

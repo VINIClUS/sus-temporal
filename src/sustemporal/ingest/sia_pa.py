@@ -381,10 +381,10 @@ def normalize_pa(
     out: Path,
     *,
     runtime: RuntimeConfig | None = None,
-    origem_dados: OrigemDados = OrigemDados.REAL,
+    origem_dados: OrigemDados = OrigemDados.SINTETICO,
     esquema: Path | None = None,
 ) -> DatasetRef:
-    """Normaliza um artefato SIA-PA para o esquema canônico sia_pa.v1.
+    """Normaliza um artefato SIA-PA para sia_pa.v1; origem padrão SINTETICO, dado real passa REAL.
 
     Raises:
         QuarentenaLeitura: artefato não íntegro, arquivo truncado, leiaute incompatível ou

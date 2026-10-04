@@ -6,7 +6,7 @@ contradições, regras violadas e resultado agregado do motor.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -129,6 +129,7 @@ def montar_valores(
 ) -> CenarioValores:
     raiz.mkdir(parents=True, exist_ok=True)
     artefatos = (ARTEFATO_TESTE,)
+    linhas = [replace(linha, row_id=f"{ARTEFATO_TESTE}#{i}") for i, linha in enumerate(linhas)]
     labels = gravar_dataset(
         raiz / "rotulos.parquet", "sia_pa_rotulos.v1", _rotulos(linhas), artefatos
     )

@@ -34,7 +34,7 @@ Ausência de revisão observada (T13a) não significa que nunca houve revisão.
 | `DIFERENCA_NEGATIVA` | `d(r) < 0` (valor mantido negativo, nunca truncado) | não |
 | `IDENTIFICADA_GOVERNANCA_MUNICIPAL` | VIOLACAO em ao menos uma família com governança `MUNICIPAL_DOCUMENTADA` | sim (numerador) |
 | `INCOMPATIBILIDADE_SEM_GOVERNANCA_DOCUMENTADA` | VIOLACAO só em famílias sem governança municipal documentada | sim |
-| `INCONCLUSIVO` | sem violação e resultado `ABSTENCAO` | sim |
+| `ABSTENCAO_ELEGIVEL` | sem violação e resultado `ABSTENCAO` | sim |
 | `SEM_VIOLACAO_VERIFICADA` | demais | sim |
 
 - **Denominador**: soma de `d(r)` nas quatro categorias elegíveis (valores conhecidos e `d ≥ 0`),
@@ -43,6 +43,9 @@ Ausência de revisão observada (T13a) não significa que nunca houve revisão.
   várias violações.
 - **Razão** (`RAZAO`, só em `NAO_APROVADO` e `APROVADO_PARCIAL`): numerador ÷ denominador com 12
   casas (meio-par), apenas com denominador positivo; senão nula.
+- **Inconclusivo** (`INCONCLUSIVO`, `aditiva = false`): toda ocorrência com resultado
+  `ABSTENCAO`, inclusive as sem valor conhecido ou com diferença negativa, reportada com
+  contagem e valor; recorte sobreposto às categorias.
 - **Rótulo contraditório** (`ROTULO_CONTRADITORIO`, `aditiva = false`): ocorrências com
   `contradicoes` não vazio, em qualquer categoria, reportadas à parte com contagem e valor; o
   recorte se sobrepõe às categorias e não se soma a elas.
@@ -91,13 +94,17 @@ catálogo, conteúdo (linhas e hash lógico) contra o `DatasetRef` e domínio de
 consumida (`rotulo` em `CodigoRotulo`, `resultado` em `ResultadoRegistro`, `metodo` em `MetodoId`,
 `estado` em `EstadoAvaliacao`). Qualquer divergência, assim como rótulo ausente para registro
 avaliado ou ocorrência repetida no run, é `FalhaOperacionalErro` (nunca zero, nunca categoria,
-nunca erro cru do DuckDB). Execução não concluída é recusada.
+nunca erro cru do DuckDB). Cada agregado de `agregados_registro.v1` é recalculado a partir das
+linhas de `avaliacoes.v1` do mesmo registro pela definição canônica
+(`AgregadoRegistro.agregar`); divergência é `valores_agregado_incoerente_com_avaliacoes`.
+Execução não concluída é recusada.
 
 ## Desempenho (`evaluation/performance.py`)
 `medir(Etapa, repeticoes=, cache=)`:
 - cronometra cada repetição sem `tracemalloc` (relógio injetável);
-- mede o pico de memória Python numa rodada extra com `tracemalloc` (não inclui buffers nativos do
-  DuckDB); se quem chama já usa `tracemalloc`, a memória fica nula com motivo
+- mede o pico de memória Python numa rodada extra com `tracemalloc`, registrada em
+  `execucoes_totais` e `execucao_memoria` porque a etapa pode não ser idempotente (o pico não
+  inclui buffers nativos do DuckDB); se quem chama já usa `tracemalloc`, a memória fica nula com motivo
   `memoria_nao_medida_tracemalloc_ativo`;
 - registra o RSS máximo do **processo inteiro** (`ru_maxrss`, convertido para bytes), que não
   isola etapas do mesmo processo: para isolar, rodar cada etapa em processo próprio;

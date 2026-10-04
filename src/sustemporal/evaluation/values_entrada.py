@@ -8,15 +8,17 @@ DuckDB nem valor que escorrega para uma categoria.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import duckdb
 
 from sustemporal.contracts import (
+    AgregadoRegistro,
     CodigoRotulo,
     EstadoAvaliacao,
     MetodoId,
     ResultadoRegistro,
+    RuleEvaluation,
     TipoCanonico,
 )
 from sustemporal.duck import identificador_seguro
@@ -29,7 +31,7 @@ if TYPE_CHECKING:
 
     from sustemporal.contracts import DatasetRef
 
-__all__ = ["EXIGIDAS", "conferir_entrada"]
+__all__ = ["EXIGIDAS", "conferir_agregados", "conferir_entrada"]
 
 EXIGIDAS: dict[str, tuple[str, ...]] = {
     "sia_pa_rotulos.v1": (
@@ -39,7 +41,15 @@ EXIGIDAS: dict[str, tuple[str, ...]] = {
         "valor_apresentado",
         "valor_aprovado",
     ),
-    "agregados_registro.v1": ("run_id", "row_id", "violacoes", "resultado"),
+    "agregados_registro.v1": (
+        "run_id",
+        "row_id",
+        "violacoes",
+        "conformes",
+        "inconclusivas",
+        "nao_aplicaveis",
+        "resultado",
+    ),
     "avaliacoes.v1": ("run_id", "row_id", "rule_id", "versao", "politica_id", "metodo", "estado"),
 }
 _DOMINIOS: dict[str, dict[str, type[StrEnum]]] = {
@@ -125,3 +135,80 @@ def conferir_entrada(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> Non
     _exigir_leiaute(dataset, fisicos)
     _exigir_conteudo(con, dataset)
     _exigir_dominios(con, dataset)
+
+
+_SQL_AVALIACOES = (
+    "SELECT row_id, rule_id, estado, metodo, politica_id FROM read_parquet($c) "
+    "WHERE run_id = $r ORDER BY row_id, rule_id"
+)
+_SQL_AGREGADOS = (
+    "SELECT row_id, violacoes, conformes, inconclusivas, nao_aplicaveis, resultado "
+    "FROM read_parquet($c) WHERE run_id = $r ORDER BY row_id"
+)
+
+
+def _lista(texto: object) -> tuple[str, ...]:
+    return tuple(parte for parte in str(texto or "").split(";") if parte)
+
+
+def _avaliacoes_por_registro(
+    con: duckdb.DuckDBPyConnection, avaliacoes: DatasetRef, run_id: str
+) -> dict[str, list[RuleEvaluation]]:
+    """Só as colunas que `AgregadoRegistro.agregar` lê, já conferidas por `conferir_entrada`."""
+    por_registro: dict[str, list[RuleEvaluation]] = {}
+    linhas = con.execute(_SQL_AVALIACOES, {"c": avaliacoes.caminho, "r": run_id}).fetchall()
+    for row_id, rule_id, estado, metodo, politica_id in linhas:
+        campos: dict[str, Any] = {
+            "run_id": run_id,
+            "row_id": str(row_id),
+            "rule_id": str(rule_id),
+            "estado": EstadoAvaliacao(str(estado)),
+            "metodo": MetodoId(str(metodo)),
+            "politica_id": str(politica_id),
+        }
+        avaliacao = RuleEvaluation.model_construct(**campos)
+        por_registro.setdefault(str(row_id), []).append(avaliacao)
+    return por_registro
+
+
+def conferir_agregados(
+    con: duckdb.DuckDBPyConnection, agregados: DatasetRef, avaliacoes: DatasetRef, run_id: str
+) -> None:
+    """Recalcula cada agregado pelas avaliações do registro (`AgregadoRegistro.agregar`).
+
+    Raises:
+        FalhaOperacionalErro: agregado diferente do recalculado, avaliação de registro sem
+            agregado ou lote de avaliações inválido.
+    """
+    por_registro = _avaliacoes_por_registro(con, avaliacoes, run_id)
+    linhas = con.execute(_SQL_AGREGADOS, {"c": agregados.caminho, "r": run_id}).fetchall()
+    for row_id, violacoes, conformes, inconclusivas, nao_aplicaveis, resultado in linhas:
+        lido = (
+            _lista(violacoes),
+            _lista(conformes),
+            _lista(inconclusivas),
+            _lista(nao_aplicaveis),
+            str(resultado),
+        )
+        try:
+            canonico = AgregadoRegistro.agregar(
+                run_id, str(row_id), por_registro.pop(str(row_id), [])
+            )
+        except ValueError as erro:
+            raise FalhaOperacionalErro(
+                f"valores_agregado_incoerente_com_avaliacoes row={row_id} erro={erro}"
+            ) from erro
+        esperado = (
+            canonico.violacoes,
+            canonico.conformes,
+            canonico.inconclusivas,
+            canonico.nao_aplicaveis,
+            canonico.resultado.value,
+        )
+        if lido != esperado:
+            raise FalhaOperacionalErro(f"valores_agregado_incoerente_com_avaliacoes row={row_id}")
+    if por_registro:
+        raise FalhaOperacionalErro(
+            f"valores_agregado_incoerente_com_avaliacoes row={sorted(por_registro)[0]} "
+            "motivo=avaliacao_sem_agregado"
+        )

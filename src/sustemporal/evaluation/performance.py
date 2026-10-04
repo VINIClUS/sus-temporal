@@ -76,6 +76,8 @@ class Medicao:
     rss_max_processo_bytes: int | None
     armazenamento_bytes: int | None
     armazenamento_total_bytes: int | None
+    execucoes_totais: int = 0
+    execucao_memoria: int | None = None
 
 
 def etapa_pendente(nome: str) -> Etapa:
@@ -151,7 +153,9 @@ def medir(
     """Executa a etapa `repeticoes` vezes cronometradas e uma rodada extra para memória.
 
     O tempo é medido sem `tracemalloc`. O pico de memória Python vem da rodada extra (não inclui
-    buffers nativos do DuckDB) e fica nulo se quem chama já usa `tracemalloc`. O RSS máximo é do
+    buffers nativos do DuckDB) e fica nulo se quem chama já usa `tracemalloc`; a rodada extra
+    aparece em `execucoes_totais` e `execucao_memoria` (sua posição), nunca oculta, porque a etapa
+    pode não ser idempotente. O RSS máximo é do
     processo inteiro. O armazenamento é o que o diretório de saída ganhou durante a medição; o
     total também é registrado. Com cache `FRIO`, só a primeira repetição é fria.
 
@@ -182,6 +186,8 @@ def medir(
         rss_max_processo_bytes=_rss_max_bytes(),
         armazenamento_bytes=None if total is None else total - antes,
         armazenamento_total_bytes=total,
+        execucoes_totais=repeticoes + (1 if pico is not None else 0),
+        execucao_memoria=repeticoes + 1 if pico is not None else None,
     )
     logger.info("desempenho_medido etapa=%s repeticoes=%d cache=%s", etapa.nome, repeticoes, cache)
     return medicao

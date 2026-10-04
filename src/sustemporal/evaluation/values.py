@@ -29,7 +29,7 @@ from sustemporal.contracts import (
 )
 from sustemporal.duck import conectar
 from sustemporal.errors import FalhaOperacionalErro
-from sustemporal.evaluation.values_entrada import conferir_entrada
+from sustemporal.evaluation.values_entrada import conferir_agregados, conferir_entrada
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.sia_pa import gravar_parquet, produtor
 from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
@@ -68,9 +68,10 @@ COLUNAS_VALORES = tuple(nome for nome, _ in _TIPOS)
 ESTRATOS_COM_RAZAO = ("NAO_APROVADO", "APROVADO_PARCIAL")
 IDENTIFICADA = "IDENTIFICADA_GOVERNANCA_MUNICIPAL"
 SEM_GOVERNANCA = "INCOMPATIBILIDADE_SEM_GOVERNANCA_DOCUMENTADA"
-ELEGIVEIS = (IDENTIFICADA, SEM_GOVERNANCA, "INCONCLUSIVO", "SEM_VIOLACAO_VERIFICADA")
+ELEGIVEIS = (IDENTIFICADA, SEM_GOVERNANCA, "ABSTENCAO_ELEGIVEL", "SEM_VIOLACAO_VERIFICADA")
 CATEGORIAS = (*ELEGIVEIS, "DIFERENCA_NEGATIVA", "CAMPOS_INSUFICIENTES")
 CONTRADITORIO = "ROTULO_CONTRADITORIO"
+INCONCLUSIVO = "INCONCLUSIVO"
 _ESCALA_VALOR = Decimal("1e-6")
 _ESCALA_RAZAO = Decimal("1e-12")
 _DIGITOS_INTEIROS = 32
@@ -265,7 +266,7 @@ def _categoria(registro: _Registro, familias: set[str], municipais: set[str]) ->
     if familias:
         return IDENTIFICADA if familias & municipais else SEM_GOVERNANCA
     if registro.resultado == ResultadoRegistro.ABSTENCAO:
-        return "INCONCLUSIVO"
+        return "ABSTENCAO_ELEGIVEL"
     return "SEM_VIOLACAO_VERIFICADA"
 
 
@@ -283,6 +284,8 @@ def _acumular(
             chaves += [f"FAMILIA_{familia}" for familia in sorted(familias)]
         if registro.contradicoes:
             chaves.append(CONTRADITORIO)
+        if registro.resultado == ResultadoRegistro.ABSTENCAO:
+            chaves.append(INCONCLUSIVO)
         for chave in chaves:
             alvo = acumulados.setdefault((registro.rotulo, chave), _Acumulado())
             alvo.somar(registro.apresentado, registro.aprovado)
@@ -332,8 +335,9 @@ def _linhas_do_estrato(
         linhas.append(_linha(run_id, estrato, "NUMERADOR", numerador))
     else:
         linhas.append((run_id, estrato, "NUMERADOR", True, None, None, None, None, None))
-    contraditorio = acumulados.get((estrato, CONTRADITORIO), _Acumulado())
-    linhas.append(_linha(run_id, estrato, CONTRADITORIO, contraditorio, aditiva=False))
+    for recorte in (CONTRADITORIO, INCONCLUSIVO):
+        sobreposto = acumulados.get((estrato, recorte), _Acumulado())
+        linhas.append(_linha(run_id, estrato, recorte, sobreposto, aditiva=False))
     familias = sorted(c for e, c in acumulados if e == estrato and c.startswith("FAMILIA_"))
     linhas += [
         _linha(run_id, estrato, f, acumulados[(estrato, f)], aditiva=False) for f in familias
@@ -435,6 +439,7 @@ def summarize_values(
         contexto.prec = _PRECISAO
         for entrada in (labels, agregados, avaliacoes):
             conferir_entrada(con, entrada)
+        conferir_agregados(con, agregados, avaliacoes, run.run_id)
         _exigir_selecao_unica(con, avaliacoes, run)
         familia_da_regra = _familias_da_execucao(con, avaliacoes, run, regras)
         registros = _registros(con, agregados, labels, run.run_id)

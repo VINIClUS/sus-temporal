@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from sustemporal.contracts.experiment import Atributo, FeatureSpec
+from sustemporal.contracts.experiment import (
+    COLUNAS_PROIBIDAS_EM_ATRIBUTOS,
+    Atributo,
+    FeatureSpec,
+    validar_features,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -21,15 +27,15 @@ __all__ = [
     "auditar_features",
 ]
 
+logger = logging.getLogger(__name__)
+
 CATEGORICA = "CATEGORICA"
 NUMERICA = "NUMERICA"
 TRANSFORMACOES = frozenset({CATEGORICA, NUMERICA})
 
 
 def _atributo(coluna: str, transformacao: str = CATEGORICA) -> Atributo:
-    return Atributo(
-        nome=coluna, schema_id="sia_pa.v1", coluna=coluna, transformacao=transformacao
-    )
+    return Atributo(nome=coluna, schema_id="sia_pa.v1", coluna=coluna, transformacao=transformacao)
 
 
 FEATURES_PADRAO = FeatureSpec(
@@ -69,4 +75,39 @@ def auditar_features(
     Raises:
         ValueError: atributo proibido, de papel desconhecido ou com transformação não prevista.
     """
-    raise NotImplementedError
+    esquemas = tuple(esquemas)
+    for atributo in features.atributos:
+        _exigir_permitido(atributo)
+    validar_features(features, esquemas)
+    por_id = {esquema.schema_id: esquema for esquema in esquemas}
+    origens = []
+    for atributo in features.atributos:
+        coluna = next(c for c in por_id[atributo.schema_id].colunas if c.nome == atributo.coluna)
+        origens.append(
+            OrigemAtributo(
+                nome=atributo.nome,
+                schema_id=atributo.schema_id,
+                coluna=coluna.nome,
+                papel=coluna.papel.value,
+                transformacao=atributo.transformacao,
+                origem=coluna.descricao,
+            )
+        )
+    logger.info("features_auditadas feature_set=%s n=%d", features.feature_set_id, len(origens))
+    return tuple(origens)
+
+
+def _exigir_permitido(atributo: Atributo) -> None:
+    coluna = atributo.coluna.lower()
+    if any(
+        coluna == proibida or coluna.startswith(f"{proibida}_")
+        for proibida in COLUNAS_PROIBIDAS_EM_ATRIBUTOS
+    ):
+        raise ValueError(
+            f"feature_derivada_de_campo_proibido atributo={atributo.nome} coluna={atributo.coluna}"
+        )
+    if atributo.transformacao not in TRANSFORMACOES:
+        raise ValueError(
+            f"feature_transformacao_invalida atributo={atributo.nome} "
+            f"transformacao={atributo.transformacao}"
+        )

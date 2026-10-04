@@ -198,6 +198,35 @@ política exatamente como numa seleção fornecida. Entre métodos, com os mesmo
 exceção e sem saídas de avaliação; nunca vira `INCONCLUSIVO`. Versão ausente, fora do corte ou em
 quarentena no registro temporal chega como seleção diferente de `SELECIONADA` e dá `INCONCLUSIVO`.
 
+**Validação a partir do ingest.** `sustemporal validate --policy P --ingest DIR` (`rules/ingest.py`,
+`rules/validate_ingest.py`) monta os insumos de uma pasta `execucao_*` do `sustemporal ingest` e do
+registro temporal, sem gravar nada antes de todas as conferências:
+
+- registro: `RegistroTemporal.de_manifesto` do manifesto de aquisição em `raiz_manifestos`, com as
+  partes esperadas do catálogo; manifesto ausente, ilegível ou corrompido → saída 2;
+- `datasets.jsonl`: cada `DatasetRef` conferido como no motor (linhas, hash lógico, tipo físico);
+  `origem_dados` igual em todos;
+- produção: união de todos os `sia_pa.v1`, cada linha física preservada (sem deduplicar; uma linha
+  repetida em duas partes conta duas vezes), `artifact_ids` = união ordenada, hash por
+  `hash_logico_relacao`. Duas versões com a mesma chave lógica (fonte, UF, competência do arquivo,
+  parte) e artefatos diferentes são republicação concorrente → saída 2, nunca escolha automática;
+  artefato fora do registro ou, com `corte_observacao`, sem observação `OBTIDO` até o corte →
+  saída 2; `row_id` repetido → falha operacional (saída 5);
+- território: só linhas com `municipio_estabelecimento` no território do piloto (IBGE6) entram; as
+  demais são contadas por motivo (`fora_do_territorio`, `municipio_estabelecimento_ausente`) em
+  `out/<run_id>/recorte_territorial.json` e nunca são avaliadas;
+- auxiliares: por esquema exigido pelas regras, uma relação derivada com as linhas de todos os
+  artefatos daquele esquema, cada linha com o seu `artifact_id`; nada é deduplicado entre artefatos,
+  porque a seleção decide quais versões valem e a avaliação junta por `artifact_id`;
+- cobertura: no máximo um `cobertura.v1` (mais de um → saída 2); nenhum → matriz não fornecida;
+- integridade por versão, derivada do registro: a da versão, piorada pelas observações dela —
+  integridade observada `QUARENTENA_*` prevalece; tentativa com o artefato que não terminou em
+  `OBTIDO` (falha de coleta com bytes) deixa a versão `NAO_VERIFICADO`, nunca `OK`.
+
+A política é a de `politica_da_execucao` com o método de `--policy`; a avaliação é
+`avaliar_com_registro`, e as saídas ficam em `<raiz_saidas>/runs/<run_id>/` (relações derivadas em
+`runs/entradas/`, seleções em `runs/selecoes/`).
+
 Sem registro temporal, o motor aceita uma tabela `selecao_versoes.v1` pronta ou deriva a seleção
 do `SnapshotSet` por correspondência exata: para `(r, g, f)`, com critério `(base, deslocamento)`
 de `p` para `f`, competência requerida `= base(r) + deslocamento` (base `ATENDIMENTO → A(r)`,

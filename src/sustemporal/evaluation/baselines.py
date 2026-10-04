@@ -90,13 +90,21 @@ def _agora() -> datetime:
     return datetime.now(UTC)
 
 
-def _particoes_permitidas(split: SplitManifest, modo: ModoExecucao) -> dict[Particao, DatasetRef]:
+def _particoes_permitidas(
+    split: SplitManifest, modo: ModoExecucao
+) -> tuple[dict[Particao, DatasetRef], dict[Particao, DatasetRef]]:
+    """População e rótulos só das partições que o modo pode ler; TESTE só no confirmatório."""
     if split.particoes is None:
         raise ValueError(f"split_sem_particoes split={split.split_id}")
+    if split.rotulos_por_particao is None:
+        raise ValueError(f"baseline_sem_rotulos split={split.split_id}")
     permitidas = [Particao.DESENVOLVIMENTO, Particao.CALIBRACAO]
     if modo is ModoExecucao.CONFIRMATORIO:
         permitidas.append(Particao.TESTE)
-    return {p: split.particoes[p] for p in permitidas}
+    return (
+        {p: split.particoes[p] for p in permitidas},
+        {p: split.rotulos_por_particao[p] for p in permitidas},
+    )
 
 
 def _origem_unica(datasets: list[DatasetRef]) -> OrigemDados:
@@ -179,9 +187,10 @@ def _gravar_predicoes(
 def _run_id(
     config: RunConfig, split: SplitManifest, features: FeatureSpec, entradas: list[DatasetRef]
 ) -> str:
+    """Identidade só das entradas lidas; o `split_id` cita rótulos de partições não lidas."""
     conteudo = {
         "config": config.config_hash,
-        "split": split.split_id,
+        "spec": split.spec.model_dump(mode="json"),
         "features": features.model_dump(mode="json"),
         "entradas": [dataset.hash_logico for dataset in entradas],
     }
@@ -189,14 +198,16 @@ def _run_id(
 
 
 def _ler_particoes(
-    particoes: dict[Particao, DatasetRef], rotulos: DatasetRef, colunas: list[str]
+    particoes: dict[Particao, DatasetRef],
+    rotulos: dict[Particao, DatasetRef],
+    colunas: list[str],
 ) -> dict[Particao, list[Linha]]:
     con = conectar(RuntimeConfig(duckdb_threads=1))
     try:
-        _verificar(con, rotulos, _SCHEMA_ROTULOS)
-        for dataset in particoes.values():
+        for particao, dataset in particoes.items():
             _verificar(con, dataset, _SCHEMA_ENTRADA)
-        return {p: _carregar(con, ds, rotulos, colunas) for p, ds in particoes.items()}
+            _verificar(con, rotulos[particao], _SCHEMA_ROTULOS)
+        return {p: _carregar(con, ds, rotulos[p], colunas) for p, ds in particoes.items()}
     finally:
         con.close()
 
@@ -255,15 +266,14 @@ def fit_baseline(
     config: RunConfig,
     out: Path,
     *,
-    rotulos: DatasetRef | None = None,
     relogio: Callable[[], datetime] | None = None,
     decisoes: Path = DIR_DECISOES,
 ) -> RunResult:
     """Ajusta o baseline apenas com dados de treino e calibração.
 
-    O exploratório lê só DESENVOLVIMENTO e CALIBRACAO; o TESTE só é pontuado no confirmatório
-    liberado por G2. Codificação, frequências, balanceamento e coeficientes vêm do
-    desenvolvimento; o limiar, da calibração.
+    O exploratório lê só população e rótulos de DESENVOLVIMENTO e CALIBRACAO (rótulos já
+    particionados no split); o TESTE só é lido no confirmatório liberado por G2. Codificação,
+    frequências, balanceamento e coeficientes vêm do desenvolvimento; o limiar, da calibração.
 
     Raises:
         ValueError: sem rótulos, atributo proibido, esquema inesperado ou treino sem as duas
@@ -271,12 +281,10 @@ def fit_baseline(
         PortaoRecusado: confirmatório sem dados reais ou sem G2 para o congelamento.
         FalhaOperacionalErro: entrada ilegível ou diferente do `DatasetRef`.
     """
-    if rotulos is None:
-        raise ValueError(f"baseline_sem_rotulos split={split.split_id}")
     agora = relogio or _agora
     iniciado = agora()
-    particoes = _particoes_permitidas(split, config.modo)
-    entradas = [*particoes.values(), rotulos]
+    particoes, rotulos = _particoes_permitidas(split, config.modo)
+    entradas = [*particoes.values(), *rotulos.values()]
     origem = _origem_unica(entradas)
     exigir_confirmatorio_valido(config, origem, diretorio=decisoes)
     esquemas = [carregar_esquema(_SCHEMA_ENTRADA), carregar_esquema(_SCHEMA_ROTULOS)]

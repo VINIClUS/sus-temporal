@@ -291,11 +291,10 @@ def test_inspecionado_sem_fonte_conhecida_e_recusado(tmp_path: Path) -> None:
 
 
 def test_rotulos_particionados_com_a_populacao(tmp_path: Path) -> None:
-    art = artefato("a")
     linhas = [
-        LinhaPa(art, 0, competencia_processamento="202001"),
-        LinhaPa(art, 1, competencia_processamento="202401"),
-        LinhaPa(art, 2, competencia_processamento="201712"),
+        LinhaPa(artefato("dev"), 0, competencia_processamento="202001"),
+        LinhaPa(artefato("teste"), 0, competencia_processamento="202401"),
+        LinhaPa(artefato("fora"), 0, competencia_processamento="201712"),
     ]
     rotulos = gravar_rotulos(
         {linha.row_id: "NAO_APROVADO" for linha in linhas}, tmp_path / "rotulos.parquet"
@@ -310,4 +309,8 @@ def test_rotulos_particionados_com_a_populacao(tmp_path: Path) -> None:
         Particao.DESENVOLVIMENTO: [linhas[0].row_id],
         Particao.CALIBRACAO: [],
         Particao.TESTE: [linhas[1].row_id],
+    }
+    assert manifesto.particoes is not None
+    assert por_particao == {
+        p: [r[0] for r in _ler(ds.caminho, "row_id")] for p, ds in manifesto.particoes.items()
     }

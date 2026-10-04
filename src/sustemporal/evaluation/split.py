@@ -22,6 +22,7 @@ from sustemporal.contracts.experiment import (
 from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.duck import conectar, identificador_seguro
 from sustemporal.errors import FalhaOperacionalErro
+from sustemporal.evaluation.split_rotulos import particionar_rotulos
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.sia_pa import gravar_parquet, produtor
 from sustemporal.rules.catalog import carregar_esquema
@@ -247,6 +248,7 @@ def _split_id(
     *,
     municipios: list[str],
     inspecionados: tuple[str, ...],
+    rotulos: DatasetRef | None,
 ) -> str:
     conteudo = {
         "dataset": dataset.hash_logico,
@@ -255,6 +257,7 @@ def _split_id(
         "spec": spec.model_dump(mode="json"),
         "fontes": dict(sorted(fontes.items())) if fontes is not None else None,
         "inspecionados": list(inspecionados),
+        "rotulos": rotulos.hash_logico if rotulos is not None else None,
     }
     return f"spl_{hash_canonico(conteudo)}"
 
@@ -269,6 +272,7 @@ def _particionar(
     out: Path,
     inspecionados: tuple[str, ...],
 ) -> tuple[dict[str, int], int, dict[Particao, DatasetRef]]:
+    out.mkdir(parents=True, exist_ok=True)
     con = conectar(RuntimeConfig(duckdb_threads=1))
     try:
         _verificar_entrada(con, dataset)
@@ -280,6 +284,17 @@ def _particionar(
     finally:
         con.close()
     return exclusoes, agrupadas, particoes
+
+
+def _gravar_manifesto(manifesto: SplitManifest, out: Path) -> SplitManifest:
+    (out / f"{manifesto.split_id}.json").write_text(manifesto.model_dump_json(indent=2))
+    logger.info(
+        "split_construido split=%s linhas=%s exclusoes=%s",
+        manifesto.split_id,
+        manifesto.linhas_por_particao,
+        manifesto.exclusoes,
+    )
+    return manifesto
 
 
 def build_splits(
@@ -303,18 +318,21 @@ def build_splits(
         ValueError: esquema inesperado, pertença histórica, artefato sem fonte, republicação
             em partições distintas ou artefato ou fonte de teste já inspecionados.
     """
-    if rotulos is not None:
-        raise NotImplementedError
     spec = spec if spec is not None else carregar_spec()
     vistos = tuple(sorted(set(inspecionados)))
     municipios = _municipios(cohort)
-    out.mkdir(parents=True, exist_ok=True)
     exclusoes, agrupadas, particoes = _particionar(
         dataset, spec, cohort, municipios, fonte_por_artefato or {}, out=out, inspecionados=vistos
     )
     manifesto = SplitManifest(
         split_id=_split_id(
-            dataset, cohort, spec, fonte_por_artefato, municipios=municipios, inspecionados=vistos
+            dataset,
+            cohort,
+            spec,
+            fonte_por_artefato,
+            municipios=municipios,
+            inspecionados=vistos,
+            rotulos=rotulos,
         ),
         spec=spec,
         dataset_hash=dataset.hash_logico,
@@ -326,12 +344,6 @@ def build_splits(
         particoes=particoes,
         exclusoes=exclusoes,
         limites=_limites(cohort, agrupadas),
+        rotulos_por_particao=particionar_rotulos(rotulos, particoes, out) if rotulos else None,
     )
-    (out / f"{manifesto.split_id}.json").write_text(manifesto.model_dump_json(indent=2))
-    logger.info(
-        "split_construido split=%s linhas=%s exclusoes=%s",
-        manifesto.split_id,
-        manifesto.linhas_por_particao,
-        manifesto.exclusoes,
-    )
-    return manifesto
+    return _gravar_manifesto(manifesto, out)

@@ -14,6 +14,7 @@ import hashlib
 import json
 import logging
 import shutil
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -38,7 +39,7 @@ from sustemporal.explanation.counterfactual_contexto import (
 from sustemporal.explanation.counterfactual_operacoes import (
     CATALOGO_OPERACOES,
     CatalogoOperacoesInvalido,
-    carregar_operacoes,
+    operacoes_dos_bytes,
 )
 from sustemporal.explanation.counterfactual_sobreposicao import (
     InsumoCadastralInvalido,
@@ -46,13 +47,13 @@ from sustemporal.explanation.counterfactual_sobreposicao import (
 )
 from sustemporal.explanation.evidence import EvidenciaDivergente
 from sustemporal.explanation.explain import ExplicacaoIndisponivel, montar_explicacao
-from sustemporal.hashing import sha256_arquivo
 from sustemporal.runtime_info import versao_codigo
 
 if TYPE_CHECKING:
     import argparse
     from collections.abc import Callable
 
+    from sustemporal.contracts import OperationSpec
     from sustemporal.contracts.config import RunConfig
 
 __all__ = [
@@ -89,9 +90,33 @@ def _agora() -> datetime:
     return datetime.now(UTC)
 
 
-def _identidade(catalogo: Path) -> dict[str, object]:
+@dataclass(frozen=True)
+class _CatalogoLido:
+    """Operações e identidade derivadas dos mesmos bytes do catálogo, lidos uma vez."""
+
+    operacoes: tuple[OperationSpec, ...]
+    identidade: dict[str, object]
+
+    @property
+    def chave(self) -> str:
+        return str(self.identidade["identidade"])
+
+
+def _ler_catalogo(catalogo: Path) -> _CatalogoLido:
+    """Raises: CatalogoOperacoesInvalido para arquivo ilegível ou catálogo inválido."""
+    try:
+        bruto = catalogo.read_bytes()
+    except OSError as erro:
+        raise CatalogoOperacoesInvalido(
+            f"catalogo_operacoes_invalido caminho={catalogo} erro={erro}"
+        ) from erro
+    operacoes = operacoes_dos_bytes(bruto, origem=str(catalogo))
+    return _CatalogoLido(operacoes, _identidade(hashlib.sha256(bruto).hexdigest()))
+
+
+def _identidade(catalogo_sha256: str) -> dict[str, object]:
     conteudo: dict[str, object] = {
-        "catalogo_operacoes_sha256": sha256_arquivo(catalogo),
+        "catalogo_operacoes_sha256": catalogo_sha256,
         "codigo": versao_codigo(_RAIZ_CODIGO).model_dump(mode="json"),
     }
     return conteudo | {"identidade": hash_canonico(conteudo)[:32]}
@@ -103,7 +128,7 @@ def identidade_contrafactual(catalogo: Path = CATALOGO_OPERACOES) -> str:
     Outro catálogo ou outra versão do código gera outro destino: uma hipótese já publicada
     nunca é sobrescrita por outra produzida com regras de busca diferentes.
     """
-    return str(_identidade(catalogo)["identidade"])
+    return _ler_catalogo(catalogo).chave
 
 
 def diretorio_contrafactual(raiz: Path, run_id: str, row_id: str, identidade: str) -> Path:
@@ -148,14 +173,20 @@ def _publicar(destino: Path, arquivos: dict[str, bytes]) -> None:
 
 
 def _buscar(
-    raiz: Path, run_id: str, row_id: str, config: RunConfig, catalogo: Path
+    raiz: Path,
+    alvo: tuple[str, str],
+    config: RunConfig,
+    catalogo: _CatalogoLido,
+    relogio: Callable[[], datetime],
 ) -> dict[str, bytes]:
+    run_id, row_id = alvo
     run = localizar_execucao(raiz, run_id)
     bundle = montar_explicacao(run, row_id, runtime=config.runtime).bundle
-    contexto = contexto_da_execucao(raiz, run_id, config)
-    operacoes = carregar_operacoes(catalogo)
-    resultado = search_counterfactuals(bundle, config, contexto=contexto, operacoes=operacoes)
-    identidade = json.dumps(_identidade(catalogo), ensure_ascii=False, indent=2, sort_keys=True)
+    contexto = replace(contexto_da_execucao(raiz, run_id, config), relogio=relogio)
+    resultado = search_counterfactuals(
+        bundle, config, contexto=contexto, operacoes=catalogo.operacoes
+    )
+    identidade = json.dumps(catalogo.identidade, ensure_ascii=False, indent=2, sort_keys=True)
     return {
         ARQUIVO_RESULTADO: resultado.model_dump_json(indent=2).encode("utf-8"),
         "identidade.json": identidade.encode("utf-8"),
@@ -190,8 +221,9 @@ def executar_counterfactual(
     destino: Path | None = None
     try:
         run_id, row_id = _validar_argumentos(args)
-        destino = diretorio_contrafactual(raiz, run_id, row_id, identidade_contrafactual(catalogo))
-        _publicar(destino, _buscar(raiz, run_id, row_id, config, catalogo))
+        lido = _ler_catalogo(catalogo)
+        destino = diretorio_contrafactual(raiz, run_id, row_id, lido.chave)
+        _publicar(destino, _buscar(raiz, (run_id, row_id), config, lido, relogio))
     except _RECUSAS as erro:
         _remover(destino)
         logger.error("counterfactual_recusado erro=%s", erro)

@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from sustemporal.contracts.counterfactual import OperationSpec
-from sustemporal.yamlio import YamlInvalido, carregar_yaml
+from sustemporal.yamlio import YamlInvalido, carregar_texto_yaml
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -28,6 +28,7 @@ __all__ = [
     "aplicar",
     "carregar_operacoes",
     "instancias",
+    "operacoes_dos_bytes",
     "ordem_de_aplicacao",
     "ordenar_por_dependencia",
     "validar_operacoes",
@@ -219,15 +220,31 @@ def ordenar_por_dependencia(operacoes: Sequence[OperationSpec]) -> dict[str, int
 
 
 def carregar_operacoes(caminho: Path = CATALOGO_OPERACOES) -> tuple[OperationSpec, ...]:
-    """Operações do catálogo, validadas pelo contrato e pelos efeitos conhecidos.
+    """Operações do catálogo em `caminho` (lido uma vez); ver `operacoes_dos_bytes`.
 
     Raises:
-        CatalogoOperacoesInvalido: arquivo ilegível, YAML inválido, operação que viola o
-            contrato, catálogo sem versão 1 ou com operação fora do catálogo fechado.
+        CatalogoOperacoesInvalido: arquivo ilegível ou catálogo inválido.
     """
     try:
-        conteudo = carregar_yaml(caminho)
-    except (OSError, UnicodeDecodeError, YamlInvalido) as erro:
+        bruto = caminho.read_bytes()
+    except OSError as erro:
+        raise CatalogoOperacoesInvalido(
+            f"catalogo_operacoes_invalido caminho={caminho} erro={erro}"
+        ) from erro
+    return operacoes_dos_bytes(bruto, origem=str(caminho))
+
+
+def operacoes_dos_bytes(bruto: bytes, *, origem: str = "-") -> tuple[OperationSpec, ...]:
+    """Operações validadas pelo contrato e pelos efeitos conhecidos, a partir dos bytes lidos.
+
+    Raises:
+        CatalogoOperacoesInvalido: texto não UTF-8, YAML inválido, operação que viola o
+            contrato, catálogo sem versão 1 ou com operação fora do catálogo fechado.
+    """
+    caminho = origem
+    try:
+        conteudo = carregar_texto_yaml(bruto.decode("utf-8"))
+    except (UnicodeDecodeError, YamlInvalido) as erro:
         raise CatalogoOperacoesInvalido(
             f"catalogo_operacoes_invalido caminho={caminho} erro={erro}"
         ) from erro

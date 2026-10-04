@@ -175,8 +175,30 @@ operacional, não uma escolha arbitrária.
 critério documental não resolvido (as quatro candidatas estão assim, com o motivo nos
 `pressupostos`). Esse campo não escolhe versões: quem escolhe é a política da execução.
 
-A seleção por registro é produzida pela seleção temporal (T06, sessão S1). Enquanto a seleção em
-lote não está disponível, o motor aceita uma tabela `selecao_versoes.v1` pronta ou deriva a seleção
+**Política da execução.** Cada execução tem uma única política, resolvida só em
+`politica_da_execucao`, nesta ordem: `InsumosAvaliacao.politica` explícita; `RunConfig.politica_id`
+carregada por `temporal.politicas.carregar_politica` (id inexistente ou inválido →
+`ConfigInvalida`; método diferente do único método de validação em `RunConfig.metodos` →
+recusa); a padrão do método da configuração (`B_ATEND`/`B_PROC` exploratórias; `M_TEMP` sem
+documento → `NAO_RESOLVIDA`). `RuleSpec.politica_id` nunca escolhe a política. A mesma política
+resolvida é repassada à seleção temporal e ao motor.
+
+**Seleção em lote (T06).** `avaliar_com_registro` (`rules/lote.py`) recebe o `RegistroTemporal` e
+roda `selecionar_lote` sobre a tabela `registros` já conferida (conteúdo, tipos, domínio, chave e
+linhagem), com `uf` (`uf_da_execucao`: piloto ou vigilância) e `corte`
+(`RunConfig.corte_observacao`) tirados da própria `RunConfig`;
+`gravar_selecoes` grava `selecao_versoes.v1` em `out/selecoes/<sel_id>/` e devolve o `DatasetRef`
+(hash lógico sobre as colunas do esquema). O `SnapshotSet` da execução é `unir_snapshots` das
+seleções distintas do lote (uma por chave fonte, base, competência requerida). `sel_id` deriva da
+política, do conjunto SIA-PA, do catálogo de regras, do registro temporal completo (observações,
+versões, partes esperadas), da UF e do corte. A seleção gravada volta a `evaluate_rules` como
+`InsumosAvaliacao.selecoes`: o motor confere conteúdo contra o `DatasetRef` e coerência com a
+política exatamente como numa seleção fornecida. Entre métodos, com os mesmos insumos, só a seleção
+(e o `SnapshotSet`) muda. Falha na etapa de seleção em lote interrompe antes da avaliação, com
+exceção e sem saídas de avaliação; nunca vira `INCONCLUSIVO`. Versão ausente, fora do corte ou em
+quarentena no registro temporal chega como seleção diferente de `SELECIONADA` e dá `INCONCLUSIVO`.
+
+Sem registro temporal, o motor aceita uma tabela `selecao_versoes.v1` pronta ou deriva a seleção
 do `SnapshotSet` por correspondência exata: para `(r, g, f)`, com critério `(base, deslocamento)`
 de `p` para `f`, competência requerida `= base(r) + deslocamento` (base `ATENDIMENTO → A(r)`,
 `PROCESSAMENTO → Q(r)`); a seleção é a única `SelecaoVersao` do `SnapshotSet` com a mesma fonte,
@@ -186,7 +208,9 @@ base e competência; nenhuma → `AUSENTE`; competência base nula ou política 
 Em `M_TEMP`, o critério da política para a fonte `f` só vale quando coincide (base e deslocamento)
 com o critério documental da regra para `f` (`RuleSpec.criterios_temporais`); senão, a regra não
 tem critério para `f` e a seleção é `NAO_RESOLVIDA` (abstenção). Assim, uma política
-`DOCUMENTADA` não impõe critério a regras cujo critério documental não está resolvido.
+`DOCUMENTADA` não impõe critério a regras cujo critério documental não está resolvido. A regra
+vive numa única função, `temporal.selector.criterio_da_regra(politica, regra, fonte)`, usada pela
+seleção (por registro e em lote) e pela conferência do motor (`criar_regras_fontes`).
 
 Uma tabela de seleção fornecida precisa ser coerente com a política da execução: toda linha com
 estado diferente de `NAO_RESOLVIDA` tem `base` igual à base do critério de `p` para a fonte e

@@ -30,6 +30,7 @@ from sustemporal.contracts import (
     EstadoReferencia,
     FamiliaRegra,
     FreezeManifest,
+    LoteAvaliacoes,
     Particao,
     ReferenciaHumana,
     RuntimeConfig,
@@ -51,6 +52,7 @@ from sustemporal.evaluation.annotation_concordancia import (
     fechar_referencia,
     kappa_cohen,
 )
+from sustemporal.evaluation.annotation_pacote import FAMILIAS_POR_FORMULARIO
 from sustemporal.rules.catalog import carregar_esquema
 
 if TYPE_CHECKING:
@@ -240,7 +242,16 @@ def test_treino_excluido_da_amostra_final(cenario: CenarioAnotacao, tmp_path: Pa
     b = [_avaliacao(c, "b", ConclusaoCaso.CAUSA_INDETERMINADA) for c in finais]
     a.append(_avaliacao(treino[0], "a", ConclusaoCaso.CAUSA_INDETERMINADA))
     with pytest.raises(ValueError, match="caso_de_treino_na_avaliacao_final"):
-        concordancia(amostra, mapa, a, b)
+        concordancia(amostra, mapa, _lote(amostra, a), _lote(amostra, b))
+
+
+def _lote(amostra: AnnotationSample, respostas: list[AvaliacaoCaso]) -> LoteAvaliacoes:
+    return LoteAvaliacoes(
+        sample_id=amostra.sample_id,
+        formulario_versao=amostra.formulario_versao,
+        avaliador=respostas[0].avaliador,
+        respostas=tuple(respostas),
+    )
 
 
 def _avaliacao(
@@ -277,7 +288,7 @@ def test_concordancia_global_e_por_familia_preserva_indeterminados(
     b = [_avaliacao(c, "b", IDENT, P) for c in casos[:3]] + [_avaliacao(casos[3], "b", IND)]
     b += [_avaliacao(casos[4], "b", IDENT, P, E)] + [_avaliacao(c, "b", IND) for c in casos[5:8]]
     b += [_avaliacao(casos[8], "b", FORA), _avaliacao(casos[9], "b", IDENT, E)]
-    relatorio = concordancia(amostra, mapa, a, b)
+    relatorio = concordancia(amostra, mapa, _lote(amostra, a), _lote(amostra, b))
     assert relatorio.casos == 10
     # conclusões: I/I x4, I/IND x1, IND/IND x3, FORA/FORA x1, FORA/I x1 -> po = 8/10
     # (conclusão, famílias): A: I:P=4, I:PE=1, IND=3, FORA=2; B: I:P=3, I:PE=1, IND=4, FORA=1,
@@ -301,14 +312,16 @@ def test_comparacao_bloqueada_antes_do_fechamento(cenario: CenarioAnotacao, tmp_
     a += [_avaliacao(casos[2], "a", FORA), _avaliacao(casos[3], "a", IDENT, P)]
     b = [_avaliacao(casos[0], "b", IDENT, P), _avaliacao(casos[1], "b", IND)]
     b += [_avaliacao(casos[2], "b", FORA), _avaliacao(casos[3], "b", IDENT, E)]
-    aberta = fechar_referencia(amostra, mapa, a, b)
+    aberta = fechar_referencia(amostra, mapa, _lote(amostra, a), _lote(amostra, b))
     assert aberta.estado is EstadoReferencia.ABERTA
     assert aberta.pendentes == (casos[3],)
     motor = {mapa[c]: frozenset({P}) for c in casos}
     with pytest.raises(ReferenciaNaoFechada):
         comparar_com_motor(aberta, motor)
     adjudicada = _avaliacao(casos[3], "adj", IDENT, P, E)
-    fechada = fechar_referencia(amostra, mapa, a, b, [adjudicada])
+    fechada = fechar_referencia(
+        amostra, mapa, _lote(amostra, a), _lote(amostra, b), _lote(amostra, [adjudicada])
+    )
     assert fechada.estado is EstadoReferencia.FECHADA
     assert fechada.casos[mapa[casos[1]]].conclusao is IND
     contagens = comparar_com_motor(fechada, motor)
@@ -416,7 +429,7 @@ def test_concordancia_global_considera_familias(cenario: CenarioAnotacao, tmp_pa
     casos, mapa = _anotacoes(out, amostra)
     a = [_avaliacao(c, "a", IDENT, P) for c in casos]
     b = [_avaliacao(c, "b", IDENT, E) for c in casos]
-    assert concordancia(amostra, mapa, a, b).bruta == 0
+    assert concordancia(amostra, mapa, _lote(amostra, a), _lote(amostra, b)).bruta == 0
 
 
 def test_adjudicador_nao_pode_ser_avaliador(cenario: CenarioAnotacao, tmp_path: Path) -> None:
@@ -426,7 +439,13 @@ def test_adjudicador_nao_pode_ser_avaliador(cenario: CenarioAnotacao, tmp_path: 
     a = [_avaliacao(c, "a", IDENT, P) for c in casos]
     b = [_avaliacao(c, "b", IDENT, E) for c in casos]
     with pytest.raises(ValueError, match="adjudicador_nao_independente"):
-        fechar_referencia(amostra, mapa, a, b, [_avaliacao(casos[0], "a", IDENT, P)])
+        fechar_referencia(
+            amostra,
+            mapa,
+            _lote(amostra, a),
+            _lote(amostra, b),
+            _lote(amostra, [_avaliacao(casos[0], "a", IDENT, P)]),
+        )
 
 
 def test_referencia_fechada_exige_todos_os_casos_da_amostra() -> None:
@@ -459,7 +478,7 @@ def test_cada_lado_tem_um_unico_avaliador(cenario: CenarioAnotacao, tmp_path: Pa
     a = [_avaliacao(c, f"a{i}", IND) for i, c in enumerate(casos)]
     b = [_avaliacao(c, "b", IND) for c in casos]
     with pytest.raises(ValueError, match="avaliador_unico_por_lado"):
-        concordancia(amostra, mapa, a, b)
+        concordancia(amostra, mapa, _lote(amostra, a), _lote(amostra, b))
 
 
 def test_leiaute_sem_coluna_do_pacote_e_falha_operacional(tmp_path: Path) -> None:
@@ -491,4 +510,84 @@ def test_leiaute_sem_coluna_do_pacote_e_falha_operacional(tmp_path: Path) -> Non
             tamanho=10,
             tamanho_treino=2,
             dimensoes=("instrumento",),
+        )
+
+
+def test_respostas_de_outra_amostra_sao_recusadas(cenario: CenarioAnotacao, tmp_path: Path) -> None:
+    out_a, out_b = tmp_path / "a", tmp_path / "b"
+    amostra_a = _preparar(cenario, out_a, tamanho=4, tamanho_treino=1, dimensoes=("instrumento",))
+    outra = cenario.config.model_copy(update={"semente": 11})
+    amostra_b = prepare_annotation_sample(
+        cenario.labels,
+        cenario.split,
+        outra,
+        out_b,
+        particoes=cenario.particoes,
+        tamanho=4,
+        tamanho_treino=1,
+        dimensoes=("instrumento",),
+    )
+    assert amostra_a.sample_id != amostra_b.sample_id
+    casos_a, _ = _anotacoes(out_a, amostra_a)
+    casos_b, mapa_b = _anotacoes(out_b, amostra_b)
+    assert casos_a == casos_b
+    a = _lote(amostra_a, [_avaliacao(c, "a", IND) for c in casos_a])
+    b = _lote(amostra_b, [_avaliacao(c, "b", IND) for c in casos_b])
+    with pytest.raises(FalhaOperacionalErro, match="respostas_de_outra_amostra"):
+        concordancia(amostra_b, mapa_b, a, b)
+    with pytest.raises(FalhaOperacionalErro, match="respostas_de_outra_amostra"):
+        fechar_referencia(amostra_b, mapa_b, a, b)
+    pacote = json.loads((out_b / "pacote" / "casos.json").read_text(encoding="utf-8"))
+    assert pacote["sample_id"] == amostra_b.sample_id
+
+
+@pytest.mark.parametrize(
+    ("alvo", "coluna"), [("rotulos", "rotulo"), ("teste", "competencia_atendimento")]
+)
+def test_leiaute_sem_coluna_de_amostragem_e_falha_operacional(
+    tmp_path: Path, alvo: str, coluna: str
+) -> None:
+    cenario = montar_cenario(tmp_path / "dados")
+    dataset = cenario.labels if alvo == "rotulos" else cenario.particoes[Particao.TESTE]
+    tabela = pq.read_table(dataset.caminho)
+    pq.write_table(tabela.drop_columns([coluna]), dataset.caminho)
+    novo = reemitir(dataset)
+    labels, particoes, split = cenario.labels, dict(cenario.particoes), cenario.split
+    if alvo == "rotulos":
+        labels = novo
+    else:
+        particoes[Particao.TESTE] = novo
+        hashes = {**split.hash_por_particao, Particao.TESTE: novo.hash_logico}
+        split = split.model_copy(update={"hash_por_particao": hashes})
+    with pytest.raises(FalhaOperacionalErro, match="anotacao_leiaute_incompativel"):
+        prepare_annotation_sample(
+            labels,
+            split,
+            cenario.config,
+            tmp_path / "x",
+            particoes=particoes,
+            tamanho=10,
+            tamanho_treino=2,
+            dimensoes=("instrumento",),
+        )
+
+
+def test_familias_saem_da_versao_congelada_do_formulario(
+    cenario: CenarioAnotacao, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path / "anotacao"
+    amostra = _preparar(cenario, out, tamanho=4, tamanho_treino=1, dimensoes=("instrumento",))
+    casos, mapa = _anotacoes(out, amostra)
+    respostas_a = [_avaliacao(c, "a", IDENT, P) for c in casos]
+    respostas_b = [_avaliacao(c, "b", IND) for c in casos]
+    v1 = concordancia(amostra, mapa, _lote(amostra, respostas_a), _lote(amostra, respostas_b))
+    assert set(v1.por_familia) == set(FAMILIAS_POR_FORMULARIO[FORMULARIO_VERSAO])
+    monkeypatch.setitem(FAMILIAS_POR_FORMULARIO, "anotacao_formulario.v0", (P.value, E.value))
+    antiga = amostra.model_copy(update={"formulario_versao": "anotacao_formulario.v0"})
+    v0 = concordancia(antiga, mapa, _lote(antiga, respostas_a), _lote(antiga, respostas_b))
+    assert set(v0.por_familia) == {P.value, E.value}
+    desconhecida = amostra.model_copy(update={"formulario_versao": "anotacao_formulario.v9"})
+    with pytest.raises(FalhaOperacionalErro, match="formulario_desconhecido"):
+        concordancia(
+            desconhecida, mapa, _lote(desconhecida, respostas_a), _lote(desconhecida, respostas_b)
         )

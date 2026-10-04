@@ -26,6 +26,7 @@ __all__ = [
     "ConclusaoCaso",
     "EstadoReferencia",
     "Estrato",
+    "LoteAvaliacoes",
     "ReferenciaHumana",
 ]
 
@@ -108,6 +109,23 @@ class AvaliacaoCaso(ContratoBase):
             raise ValueError(f"avaliacao_familia_repetida caso={self.caso_id}")
         if self.minutos is not None and self.minutos < 0:
             raise ValueError(f"avaliacao_minutos_negativos caso={self.caso_id}")
+        return self
+
+
+class LoteAvaliacoes(ContratoBase):
+    """Respostas de um avaliador (ou do adjudicador) presas à amostra exportada."""
+
+    sample_id: Identificador
+    formulario_versao: str
+    avaliador: Identificador
+    respostas: tuple[AvaliacaoCaso, ...]
+
+    @model_validator(mode="after")
+    def _um_avaliador(self) -> LoteAvaliacoes:
+        if any(r.avaliador != self.avaliador for r in self.respostas):
+            raise ValueError(
+                f"avaliador_unico_por_lado amostra={self.sample_id} avaliador={self.avaliador}"
+            )
         return self
 
 

@@ -11,7 +11,11 @@ from tests.fixtures.aquisicao_dados import Relogio, servidor_ftp
 from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa, leiaute_pa, registro_pa
 
 from sustemporal.acquisition.cli import executar_watch
-from sustemporal.acquisition.comparacao import ResultadoComparacao, comparar_versoes
+from sustemporal.acquisition.comparacao import (
+    ComparacaoVersoes,
+    ResultadoComparacao,
+    comparar_versoes,
+)
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.acquisition.transport import TransporteFTP
 from sustemporal.acquisition.watch import observe_updates, resumir_vigilancia
@@ -75,10 +79,16 @@ def test_conteudo_inalterado_registra_cada_tentativa(tmp_path: Path) -> None:
     assert len(estado.versoes) == 1
 
 
-def _comparar(tmp_path: Path, antes: list[dict[str, str]], depois: list[dict[str, str]]):
+def _comparar(
+    tmp_path: Path,
+    antes: list[dict[str, str]],
+    depois: list[dict[str, str]],
+    *,
+    deletados_depois: tuple[int, ...] = (),
+) -> ComparacaoVersoes:
     raiz = tmp_path / "dados"
     anterior = artefato_pa(raiz, dbc_pa(antes))
-    nova = artefato_pa(raiz, dbc_pa(depois))
+    nova = artefato_pa(raiz, dbc_pa(depois, deletados=deletados_depois))
     return comparar_versoes(
         anterior,
         nova,
@@ -101,6 +111,13 @@ def test_linhas_que_entram_sem_sair_nenhuma_sao_revisao_real(tmp_path: Path) -> 
     comparacao = _comparar(tmp_path, [_R1, _R2], [_R1, _R2, _R2])
     assert comparacao.resultado is ResultadoComparacao.REVISAO_REAL
     assert (comparacao.linhas_removidas, comparacao.linhas_adicionadas) == (0, 1)
+
+
+def test_registro_que_passa_a_deletado_e_saida_e_conta_a_parte(tmp_path: Path) -> None:
+    comparacao = _comparar(tmp_path, [_R1, _R2], [_R1, _R2], deletados_depois=(1,))
+    assert comparacao.resultado is ResultadoComparacao.REVISAO_REAL
+    assert (comparacao.linhas_removidas, comparacao.linhas_adicionadas) == (1, 0)
+    assert comparacao.mudancas_de_delecao == 1
 
 
 def test_correspondencia_ambigua_nao_pareia_linhas(tmp_path: Path) -> None:
@@ -159,27 +176,27 @@ def _relatorio(tmp_path: Path) -> list[dict[str, object]]:
     return [json.loads(linha) for linha in relatorio.read_text(encoding="utf-8").splitlines()]
 
 
-def _alterar_dezembro(tmp_path: Path) -> None:
-    alterado = tmp_path / "origem" / "SIASUS" / "200801_" / "Dados" / "PASP2512a.dbc"
-    registro = registro_pa(PA_MVM="202512", PA_CMP="202512")
+def _alterar_julho(tmp_path: Path) -> None:
+    alterado = tmp_path / "origem" / "SIASUS" / "200801_" / "Dados" / "PASP2607a.dbc"
+    registro = registro_pa(PA_MVM="202607", PA_CMP="202607")
     alterado.write_bytes(dbc_pa([registro, registro]))
 
 
-def test_watch_observa_a_janela_do_recorte_e_registra_revisao(tmp_path: Path) -> None:
+def test_watch_observa_a_janela_movel_prospectiva_e_registra_revisao(tmp_path: Path) -> None:
     config = load_config(_ambiente_watch(tmp_path))
     relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
     args = argparse.Namespace()
     assert executar_watch(args, config, relogio=relogio) == ExitCode.OK
-    _alterar_dezembro(tmp_path)
+    _alterar_julho(tmp_path)
     assert executar_watch(args, config, relogio=relogio) == ExitCode.OK
     estado = Manifesto(tmp_path / "manifests" / "aquisicao.jsonl").ler()
     arquivos = [o for o in estado.observacoes if o.chave.tipo_conteudo is None]
-    assert sorted({o.chave.competencia_arquivo.valor for o in arquivos}) == ["202511", "202512"]
+    assert sorted({o.chave.competencia_arquivo.valor for o in arquivos}) == ["202601", "202607"]
     assert len(arquivos) == 4
     resultados = {
         (d["competencia"], d["resultado"]) for d in _relatorio(tmp_path) if "resultado" in d
     }
-    assert resultados == {("202511", "INALTERADA"), ("202512", "REVISAO_REAL")}
+    assert resultados == {("202601", "INALTERADA"), ("202607", "REVISAO_REAL")}
 
 
 def test_comparacao_que_falha_fica_inconclusiva_no_relatorio_e_na_saida(tmp_path: Path) -> None:
@@ -190,13 +207,13 @@ def test_comparacao_que_falha_fica_inconclusiva_no_relatorio_e_na_saida(tmp_path
     estado = Manifesto(tmp_path / "manifests" / "aquisicao.jsonl").ler()
     for versao in estado.versoes.values():
         competencia = versao.chave.competencia_arquivo
-        if competencia is not None and competencia.valor == "202512":
+        if competencia is not None and competencia.valor == "202607":
             (tmp_path / "data" / "raw" / versao.caminho_conteudo).unlink()
-    _alterar_dezembro(tmp_path)
+    _alterar_julho(tmp_path)
     assert executar_watch(args, config, relogio=relogio) == ExitCode.FALHA_OPERACIONAL
     linhas = _relatorio(tmp_path)
     resultados = {(d["competencia"], d["resultado"]) for d in linhas if "resultado" in d}
-    assert ("202512", "INCONCLUSIVO") in resultados
+    assert ("202607", "INCONCLUSIVO") in resultados
     resumo = str(linhas[-1]["resumo"])
     assert not resumo.startswith("sem_revisao_observada")
     assert "inconclusivas=1" in resumo

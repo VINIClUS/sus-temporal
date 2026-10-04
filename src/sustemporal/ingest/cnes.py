@@ -255,7 +255,7 @@ def normalize_cnes(
     if tabela.num_rows == 0:
         raise _inesperado(f"tabela_vazia layout={layout.layout_id} motivos={sorted(motivos)}")
     gravado = gravar_relacao(
-        _no_esquema(tabela, esquema), esquema, out, artifact.artifact_id, configuracao
+        _no_esquema(tabela, esquema), esquema, out, (artifact.artifact_id,), configuracao
     )
     return _referencia(
         artifact,

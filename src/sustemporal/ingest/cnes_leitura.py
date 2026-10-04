@@ -157,19 +157,19 @@ def gravar_relacao(
     tabela: pa.Table,
     esquema: EsquemaCanonico,
     out: Path,
-    artifact_id: str,
+    artifact_ids: tuple[str, ...],
     runtime: RuntimeConfig,
 ) -> tuple[str, str, Path]:
     """Grava o Parquet atomicamente e devolve (dataset_id, hash lógico, destino)."""
     nomes = [c.nome for c in esquema.colunas]
     with closing(conectar(runtime)) as con:
-        con.register("arrow_cnes", tabela)
-        con.execute("CREATE TABLE cnes AS SELECT * FROM arrow_cnes")
-        hash_logico = hash_logico_relacao(con, "cnes", nomes)
-        dataset_id = calcular_dataset_id(esquema.schema_id, hash_logico, (artifact_id,))
+        con.register("arrow_relacao", tabela)
+        con.execute("CREATE TABLE relacao AS SELECT * FROM arrow_relacao")
+        hash_logico = hash_logico_relacao(con, "relacao", nomes)
+        dataset_id = calcular_dataset_id(esquema.schema_id, hash_logico, artifact_ids)
         out.mkdir(parents=True, exist_ok=True)
         destino = out / f"{dataset_id}.parquet"
         temporario = destino.with_name(f".{destino.name}.tmp")
-        con.table("cnes").write_parquet(str(temporario))
+        con.table("relacao").write_parquet(str(temporario))
         temporario.replace(destino)
     return dataset_id, hash_logico, destino

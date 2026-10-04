@@ -74,7 +74,8 @@ def comparar_versoes(
     """Compara duas versões da mesma chave de arquivo SIA-PA por multiconjunto de linhas.
 
     INALTERADA: mesmos bytes, ou as mesmas linhas canônicas com as mesmas multiplicidades.
-    REVISAO_REAL: só entraram linhas, ou só saíram; a diferença dispensa pareamento.
+    REVISAO_REAL: só entraram linhas ativas, ou só saíram, ou as ativas são iguais e só as
+    deletadas mudaram; a diferença dispensa pareamento.
     CORRESPONDENCIA_AMBIGUA: saíram e entraram linhas. O conteúdo mudou, mas sem identificador
     longitudinal não se sabe que linha antiga virou qual nova; nada é pareado.
 
@@ -94,14 +95,9 @@ def comparar_versoes(
         ref = normalize_pa(versao, layout, saida, runtime=runtime, origem_dados=origem_dados)
         caminhos.append(ref.caminho)
     with closing(conectar(runtime)) as con:
-        removidas, adicionadas = _diferencas(con, caminhos[0], caminhos[1])
+        removidas, adicionadas, nas_deletadas = _diferencas(con, caminhos[0], caminhos[1])
         deletadas = (_deletadas(con, caminhos[0]), _deletadas(con, caminhos[1]))
-    resultado, motivo = _classificar(removidas, adicionadas)
-    if deletadas[0] != deletadas[1]:
-        motivo += (
-            f" transicao_de_delecao_ambigua deletadas_anterior={deletadas[0]} "
-            f"deletadas_nova={deletadas[1]}"
-        )
+    resultado, motivo = _resultado_e_motivo(removidas, adicionadas, nas_deletadas, deletadas)
     logger.info(
         "versoes_comparadas anterior=%s nova=%s resultado=%s removidas=%d adicionadas=%d",
         *ids,
@@ -139,22 +135,45 @@ def _deletadas(con: duckdb.DuckDBPyConnection, caminho: str) -> int:
     return int(con.execute(consulta, {"c": caminho}).fetchall()[0][0])
 
 
-def _diferencas(con: duckdb.DuckDBPyConnection, anterior: str, nova: str) -> tuple[int, int]:
-    """Saídas e entradas entre as linhas ativas (EXCEPT ALL: multiplicidade, nulos iguais)."""
+def _diferencas(con: duckdb.DuckDBPyConnection, anterior: str, nova: str) -> tuple[int, int, int]:
+    """Saídas e entradas entre as ativas, e diferenças entre as deletadas (EXCEPT ALL).
+
+    Multiplicidade preservada e nulos iguais. As deletadas são comparadas só entre si, sem
+    casar uma deletada com uma ativa da outra versão.
+    """
     fora = colunas_fora_da_comparacao()
     colunas = _colunas(con, anterior, fora)
     if colunas != _colunas(con, nova, fora):
         raise ValueError(f"esquemas_divergentes anterior={anterior} nova={nova}")
     lista = ", ".join(identificador_seguro(c, colunas) for c in colunas)
 
-    def ativas(parametro: str) -> str:
-        return f"SELECT {lista} FROM read_parquet(${parametro}) WHERE NOT {_DELETADO}"  # noqa: S608
+    def linhas(parametro: str, filtro: str) -> str:
+        return f"SELECT {lista} FROM read_parquet(${parametro}) WHERE {filtro}"  # noqa: S608
 
-    def contar(de: str, menos: str) -> int:
-        consulta = f"SELECT count(*) FROM ({ativas(de)} EXCEPT ALL {ativas(menos)})"  # noqa: S608
+    def contar(de: str, menos: str, filtro: str) -> int:
+        diferenca = f"{linhas(de, filtro)} EXCEPT ALL {linhas(menos, filtro)}"
+        consulta = f"SELECT count(*) FROM ({diferenca})"  # noqa: S608
         return int(con.execute(consulta, {"a": anterior, "b": nova}).fetchall()[0][0])
 
-    return contar("a", "b"), contar("b", "a")
+    ativas, deletadas = f"NOT {_DELETADO}", _DELETADO
+    nas_deletadas = contar("a", "b", deletadas) + contar("b", "a", deletadas)
+    return contar("a", "b", ativas), contar("b", "a", ativas), nas_deletadas
+
+
+def _resultado_e_motivo(
+    removidas: int, adicionadas: int, nas_deletadas: int, deletadas: tuple[int, int]
+) -> tuple[ResultadoComparacao, str]:
+    """Classifica pelas ativas; mudança só nas deletadas é REVISAO_REAL, nunca INALTERADA."""
+    resultado, motivo = _classificar(removidas, adicionadas)
+    if resultado is ResultadoComparacao.INALTERADA and nas_deletadas:
+        resultado = ResultadoComparacao.REVISAO_REAL
+        motivo = f"revisao_so_em_deletadas diferencas_nas_deletadas={nas_deletadas}"
+    if deletadas[0] != deletadas[1]:
+        motivo += (
+            f" transicao_de_delecao_ambigua deletadas_anterior={deletadas[0]} "
+            f"deletadas_nova={deletadas[1]}"
+        )
+    return resultado, motivo
 
 
 def _classificar(removidas: int, adicionadas: int) -> tuple[ResultadoComparacao, str]:

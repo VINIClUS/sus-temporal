@@ -1,0 +1,401 @@
+# Leiautes do CNES (PF{UF}{AAMM}.dbc e ST{UF}{AAMM}.dbc), um LayoutSpec por grupo.
+# O leitor confere nome, ordem, tipo, largura e decimais com rigor (ADR 0002): divergência vai para
+# QUARENTENA_LEIAUTE, nunca para leitura aproximada.
+# PF: 40 campos observados e impostos pelo CnesData (EMPIRICA_CNESDATA, S33), registrados aqui como
+# SECUNDARIA; competências observadas não registradas, validade para 2018–2025 A_CONFIRMAR em O7 e
+# nos cabeçalhos reais. Só CNES, CBO e COMPETEN são retidos, como contagens por
+# estabelecimento–CBO (cnes_estab_cbo.v1); CPF, CNS, nome, registro em conselho, residência e os
+# demais campos são lidos só para conferir o leiaute e nunca saem do leitor. As sentinelas de
+# CPF_PROF e CNS_PROF (noves) são as do CnesData (EMPIRICA_CNESDATA) e ficam só documentadas.
+# ST: leiaute desconhecido (A_CONFIRMAR em O7). Os nomes abaixo foram INFERIDA do PF; arquivos
+# reais irão para quarentena até a confirmação contra o cabeçalho real (docs/pendencias/T04.md).
+# SR e HB pertencem a famílias reservadas (catalog/familias.yaml) e não têm leiaute nem esquema.
+leiautes:
+  - layout_id: cnes.pf
+    fonte: CNES_PF
+    versao: "1"
+    codificacao: latin-1
+    formato: DBF
+    proveniencia: SECUNDARIA
+    confirmacao: A_CONFIRMAR
+    campos:
+      - nome_fisico: CNES
+        tipo_fisico: C
+        largura: "7"
+        decimais: "0"
+        nome_canonico: cnes
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+      - nome_fisico: CODUFMUN
+        tipo_fisico: C
+        largura: "6"
+        decimais: "0"
+        nome_canonico: codufmun
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: REGSAUDE
+        tipo_fisico: C
+        largura: "4"
+        decimais: "0"
+        nome_canonico: regsaude
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: MICR_REG
+        tipo_fisico: C
+        largura: "6"
+        decimais: "0"
+        nome_canonico: micr_reg
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: DISTRSAN
+        tipo_fisico: C
+        largura: "4"
+        decimais: "0"
+        nome_canonico: distrsan
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: DISTRADM
+        tipo_fisico: C
+        largura: "4"
+        decimais: "0"
+        nome_canonico: distradm
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: TPGESTAO
+        tipo_fisico: C
+        largura: "1"
+        decimais: "0"
+        nome_canonico: tpgestao
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: PF_PJ
+        tipo_fisico: C
+        largura: "1"
+        decimais: "0"
+        nome_canonico: pf_pj
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: CPF_CNPJ
+        tipo_fisico: C
+        largura: "14"
+        decimais: "0"
+        nome_canonico: cpf_cnpj
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: NIV_DEP
+        tipo_fisico: C
+        largura: "1"
+        decimais: "0"
+        nome_canonico: niv_dep
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: CNPJ_MAN
+        tipo_fisico: C
+        largura: "14"
+        decimais: "0"
+        nome_canonico: cnpj_man
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: ESFERA_A
+        tipo_fisico: C
+        largura: "2"
+        decimais: "0"
+        nome_canonico: esfera_a
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: ATIVIDAD
+        tipo_fisico: C
+        largura: "2"
+        decimais: "0"
+        nome_canonico: atividad
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: RETENCAO
+        tipo_fisico: C
+        largura: "2"
+        decimais: "0"
+        nome_canonico: retencao
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: NATUREZA
+        tipo_fisico: C
+        largura: "2"
+        decimais: "0"
+        nome_canonico: natureza
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: CLIENTEL
+        tipo_fisico: C
+        largura: "2"
+        decimais: "0"
+        nome_canonico: clientel
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: TP_UNID
+        tipo_fisico: C
+        largura: "2"
+        decimais: "0"
+        nome_canonico: tp_unid
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: TURNO_AT
+        tipo_fisico: C
+        largura: "2"
+        decimais: "0"
+        nome_canonico: turno_at
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: NIV_HIER
+        tipo_fisico: C
+        largura: "2"
+        decimais: "0"
+        nome_canonico: niv_hier
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: TERCEIRO
+        tipo_fisico: C
+        largura: "1"
+        decimais: "0"
+        nome_canonico: terceiro
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: CPF_PROF
+        tipo_fisico: C
+        largura: "11"
+        decimais: "0"
+        nome_canonico: cpf_prof
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+        sentinelas:
+          "99999999999": SENTINELA
+      - nome_fisico: CPFUNICO
+        tipo_fisico: C
+        largura: "1"
+        decimais: "0"
+        nome_canonico: cpfunico
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: CBO
+        tipo_fisico: C
+        largura: "6"
+        decimais: "0"
+        nome_canonico: cbo
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+      - nome_fisico: CBOUNICO
+        tipo_fisico: C
+        largura: "6"
+        decimais: "0"
+        nome_canonico: cbounico
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: NOMEPROF
+        tipo_fisico: C
+        largura: "60"
+        decimais: "0"
+        nome_canonico: nomeprof
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: CNS_PROF
+        tipo_fisico: C
+        largura: "15"
+        decimais: "0"
+        nome_canonico: cns_prof
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+        sentinelas:
+          "999999999999999": SENTINELA
+      - nome_fisico: CONSELHO
+        tipo_fisico: C
+        largura: "2"
+        decimais: "0"
+        nome_canonico: conselho
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: REGISTRO
+        tipo_fisico: C
+        largura: "13"
+        decimais: "0"
+        nome_canonico: registro
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: VINCULAC
+        tipo_fisico: C
+        largura: "6"
+        decimais: "0"
+        nome_canonico: vinculac
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: VINCUL_C
+        tipo_fisico: C
+        largura: "1"
+        decimais: "0"
+        nome_canonico: vincul_c
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: VINCUL_A
+        tipo_fisico: C
+        largura: "1"
+        decimais: "0"
+        nome_canonico: vincul_a
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: VINCUL_N
+        tipo_fisico: C
+        largura: "1"
+        decimais: "0"
+        nome_canonico: vincul_n
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: PROF_SUS
+        tipo_fisico: C
+        largura: "1"
+        decimais: "0"
+        nome_canonico: prof_sus
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: PROFNSUS
+        tipo_fisico: C
+        largura: "1"
+        decimais: "0"
+        nome_canonico: profnsus
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: HORAOUTR
+        tipo_fisico: N
+        largura: "3"
+        decimais: "0"
+        nome_canonico: horaoutr
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: HORAHOSP
+        tipo_fisico: N
+        largura: "3"
+        decimais: "0"
+        nome_canonico: horahosp
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: HORA_AMB
+        tipo_fisico: N
+        largura: "3"
+        decimais: "0"
+        nome_canonico: hora_amb
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: COMPETEN
+        tipo_fisico: C
+        largura: "6"
+        decimais: "0"
+        nome_canonico: competen
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+      - nome_fisico: UFMUNRES
+        tipo_fisico: C
+        largura: "6"
+        decimais: "0"
+        nome_canonico: ufmunres
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+      - nome_fisico: NAT_JUR
+        tipo_fisico: C
+        largura: "4"
+        decimais: "0"
+        nome_canonico: nat_jur
+        tipo_canonico: TEXTO
+        papel: DIAGNOSTICO
+        obrigatorio: "true"
+  - layout_id: cnes.st
+    fonte: CNES_ST
+    versao: "1"
+    codificacao: latin-1
+    formato: DBF
+    proveniencia: INFERIDA
+    confirmacao: A_CONFIRMAR
+    campos:
+      - nome_fisico: CNES
+        tipo_fisico: C
+        largura: "7"
+        decimais: "0"
+        nome_canonico: cnes
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"
+      - nome_fisico: CODUFMUN
+        tipo_fisico: C
+        largura: "6"
+        decimais: "0"
+        nome_canonico: municipio_estabelecimento
+        tipo_canonico: TEXTO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: TPGESTAO
+        tipo_fisico: C
+        largura: "1"
+        decimais: "0"
+        nome_canonico: tipo_gestao
+        tipo_canonico: TEXTO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: TP_UNID
+        tipo_fisico: C
+        largura: "2"
+        decimais: "0"
+        nome_canonico: tipo_unidade
+        tipo_canonico: TEXTO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: NAT_JUR
+        tipo_fisico: C
+        largura: "4"
+        decimais: "0"
+        nome_canonico: natureza_juridica
+        tipo_canonico: TEXTO
+        papel: ATRIBUTO
+        obrigatorio: "true"
+      - nome_fisico: COMPETEN
+        tipo_fisico: C
+        largura: "6"
+        decimais: "0"
+        nome_canonico: competen
+        tipo_canonico: TEXTO
+        papel: CHAVE
+        obrigatorio: "true"

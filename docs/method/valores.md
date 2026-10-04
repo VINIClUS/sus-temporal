@@ -53,7 +53,7 @@ Ausência de revisão observada (T13a) não significa que nunca houve revisão.
 ## Governança municipal
 A governança vem do catálogo de operações do T09 (`Governanca`: `MUNICIPAL_DOCUMENTADA`,
 `FORA_DA_GOVERNANCA_MUNICIPAL`, `DESCONHECIDA`), passada como `governanca_por_familia`.
-- Sem o mapa (situação atual: T09 fora do main e operações com governança `DESCONHECIDA`), o
+- Sem o mapa (situação atual: as operações do T09 têm governança `DESCONHECIDA`), o
   numerador e a razão ficam **indeterminados** (nulos, não zero); as incompatibilidades ficam em
   `INCOMPATIBILIDADE_SEM_GOVERNANCA_DOCUMENTADA`, com contagem e valor.
 - Com o mapa, só famílias `MUNICIPAL_DOCUMENTADA` entram no numerador; `DESCONHECIDA` e
@@ -99,8 +99,9 @@ categoria). Execução não concluída é recusada.
 - registra o armazenamento acrescentado ao diretório de saída durante a medição e o total;
 - registra o cache por repetição: com `FRIO`, só a primeira repetição é fria.
 
-`gravar_relatorio` grava ambiente, instante UTC, origem dos dados e as medições. Etapas sem
-implementação no main (`contrafactuais` do T09, `metricas` do T11) saem `NAO_MEDIDO motivo=…`. O
+`gravar_relatorio` grava ambiente, instante UTC, origem dos dados e as medições. A etapa
+`contrafactuais` (T09, ainda não montada no harness) e `metricas` (T11, fora do main) saem
+`NAO_MEDIDO motivo=…`. O
 teste `tests/perf/test_desempenho_s8.py` (marcador `perf`) exercita o harness em cenário sintético
 pequeno; a escala DRS XI e SP roda na máquina do pesquisador, com etapas montadas sobre os
 artefatos reais (aquisição, ingestão, rótulos, seleção, motor, explicação, anotação e valores),

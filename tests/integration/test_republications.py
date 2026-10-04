@@ -7,6 +7,7 @@ import json
 import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -33,6 +34,9 @@ from sustemporal.contracts.artifacts import (
 from sustemporal.contracts.base import CanalPublicacao, FamiliaFonte, OrigemDados
 from sustemporal.contracts.config import RuntimeConfig
 from sustemporal.errors import ExitCode
+
+if TYPE_CHECKING:
+    import pytest
 
 CATALOGO = Path("catalog/sources.yaml")
 _R1 = registro_pa(PA_PROC_ID="0301010072")
@@ -88,9 +92,10 @@ def _comparar(
     depois: list[dict[str, str]],
     *,
     deletados_depois: tuple[int, ...] = (),
+    deletados_antes: tuple[int, ...] = (),
 ) -> ComparacaoVersoes:
     raiz = tmp_path / "dados"
-    anterior = artefato_pa(raiz, dbc_pa(antes))
+    anterior = artefato_pa(raiz, dbc_pa(antes, deletados=deletados_antes))
     nova = artefato_pa(raiz, dbc_pa(depois, deletados=deletados_depois))
     return comparar_versoes(
         anterior,
@@ -492,3 +497,43 @@ def test_leiaute_que_nao_carrega_e_comparacao_inconclusiva(tmp_path: Path) -> No
     assert codigo == ExitCode.FALHA_OPERACIONAL
     resultado, motivo = _por_chave(linhas)[("202512", "a")]
     assert (resultado, motivo.split()[0]) == ("INCONCLUSIVO", "comparacao_inconclusiva")
+
+
+def test_listagem_guardada_ilegivel_vira_linha_de_familia_inconclusiva(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sustemporal.acquisition import cli as cli_aquisicao
+    from sustemporal.errors import FalhaOperacionalErro
+
+    def divergente(*_a: object) -> list[str]:
+        raise FalhaOperacionalErro("listagem_divergente caminho=sintetico")
+
+    _ambiente_watch(tmp_path)
+    monkeypatch.setattr(cli_aquisicao, "nomes_listados", divergente)
+    codigo, linhas = _executar(tmp_path)
+    assert codigo == ExitCode.FALHA_OPERACIONAL
+    (familia,) = [d for d in linhas if d.get("fonte") == "SIA_PA"]
+    assert familia.get("resultado") == "INCONCLUSIVO"
+    assert str(familia["motivo"]).startswith("listagem_ilegivel")
+
+
+def test_resumo_conta_listagens_e_arquivos(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path)
+    _codigo, linhas = _executar(tmp_path)
+    estado = Manifesto(tmp_path / "manifests" / "aquisicao.jsonl").ler()
+    resumo = str(linhas[-1]["resumo"])
+    assert f"observacoes={len(estado.observacoes)}" in resumo
+    assert f"de={estado.observacoes[0].observado_em.isoformat()}" in resumo
+
+
+def test_mudanca_so_em_linhas_deletadas_e_revisao_real(tmp_path: Path) -> None:
+    conteudo = _comparar(
+        tmp_path / "conteudo", [_R1, _R2], [_R1, _R3], deletados_antes=(1,), deletados_depois=(1,)
+    )
+    contagem = _comparar(tmp_path / "contagem", [_R1, _R2], [_R1], deletados_antes=(1,))
+    for comparacao in (conteudo, contagem):
+        assert comparacao.resultado is ResultadoComparacao.REVISAO_REAL
+        assert (comparacao.linhas_removidas, comparacao.linhas_adicionadas) == (0, 0)
+        assert "so_em_deletadas" in comparacao.motivo
+    resumo = resumir_vigilancia([], [conteudo])
+    assert resumo.startswith("revisao_observada")

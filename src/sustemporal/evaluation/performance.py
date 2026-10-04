@@ -1,8 +1,8 @@
 """Harness de desempenho (T13): tempo, memória e armazenamento com ambiente, cache e repetições.
 
-Mede só etapas executáveis. Etapa sem implementação no main (contrafactuais do T09, métricas do
-T11) ou stub que levanta `NotImplementedError` sai `NAO_MEDIDO` com motivo, nunca com número
-inventado. A escala DRS XI/SP roda na máquina do pesquisador (marcador `perf`, fora do CI).
+Mede só etapas executáveis. Etapa ainda não montada no harness (contrafactuais do T09) ou sem
+implementação no main (métricas do T11), ou stub que levanta `NotImplementedError`, sai
+`NAO_MEDIDO` com motivo, nunca com número inventado. A escala DRS XI/SP roda na máquina do pesquisador (marcador `perf`, fora do CI).
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 ETAPAS_PENDENTES = {
-    "contrafactuais": "T09_search_counterfactuals_fora_do_main",
+    "contrafactuais": "T09_etapa_nao_montada_no_harness",
     "metricas": "T11_evaluate_runs_fora_do_main",
 }
 

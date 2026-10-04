@@ -132,7 +132,11 @@ def test_politica_documental_ambigua_ou_nao_resolvida_se_abstem() -> None:
         documento=docref(pendente=True),
     )
     (sel,) = select_snapshots(
-        linha, regra(), _config("M_TEMP_PADRAO"), registro=registro, politica=pendente
+        linha,
+        regra(criterios_temporais=(_ATEND,)),
+        _config("M_TEMP_PADRAO"),
+        registro=registro,
+        politica=pendente,
     ).selecoes
     assert sel.estado is EstadoSelecao.NAO_RESOLVIDA
     assert "documento_pendente" in sel.motivo
@@ -283,8 +287,7 @@ def test_lote_equivale_a_selecao_por_registro(cenario, politica_id, com_corte) -
         politica,
         registro,
         run_id="run_t",
-        uf="SP",
-        corte=config.corte_observacao,
+        config=config,
     )
     lote = {
         linha[0]: linha[1:]
@@ -323,7 +326,9 @@ def test_gravar_selecoes_produz_dataset_com_hash_logico_e_contagem(tmp_path: Pat
         [(r.row_id, str(r.competencia_atendimento), None) for r in linhas],
     )
     politica = carregar_politica("B_ATEND")
-    selecionar_lote(con, "registros", [regra()], politica, _registro(jan), run_id="run_t", uf="SP")
+    selecionar_lote(
+        con, "registros", [regra()], politica, _registro(jan), run_id="run_t", config=_config()
+    )
     destino = tmp_path / "selecao_versoes.parquet"
     dataset = gravar_selecoes(con, destino, run_id="run_t", origem=OrigemDados.SINTETICO)
     colunas = [

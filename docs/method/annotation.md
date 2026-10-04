@@ -68,6 +68,9 @@ Idade, sexo e CID são quase-identificadores: o pacote fica em ambiente controla
 identificador de paciente nem município de residência, e não sai da máquina do pesquisador.
 Não há proteção de privacidade formal (ex.: k-anonimato); isso é limitação declarada.
 
+Parquet sem alguma coluna exigida pela amostragem (rótulo, competências, CNES, instrumento) ou
+pelo pacote é falha operacional (`anotacao_leiaute_incompativel`) antes de qualquer consulta.
+
 Uma exportação existente em `out/` nunca é sobrescrita por amostra diferente
 (`pacote_ja_exportado`); repetir a mesma exportação é idempotente. Partição de teste sem
 rejeições interrompe a exportação (`anotacao_sem_rejeicoes`) em vez de gerar pacote vazio;
@@ -78,6 +81,13 @@ treino menor que o pedido é registrado em log.
 `CAUSA_FORA_DE_ESCOPO_DOCUMENTADA`, `CAUSA_INDETERMINADA`, `EVIDENCIA_INSUFICIENTE`}; `familias`
 múltiplas (obrigatórias só com incompatibilidade identificada); `evidencias` (texto livre do
 avaliador); `minutos`. Causa indeterminada e evidência insuficiente são categorias próprias.
+
+As respostas são entregues em `LoteAvaliacoes` (`sample_id`, `formulario_versao`, `avaliador`,
+`respostas`); o cabeçalho de `pacote/casos.json` traz o `sample_id` a copiar. Lote de outra amostra
+ou de outro formulário é falha operacional (`respostas_de_outra_amostra`,
+`respostas_de_outro_formulario`), mesmo que os `caso_id` coincidam. O conjunto de famílias usado
+no κ por família vem da versão congelada do formulário (`FAMILIAS_POR_FORMULARIO`), nunca do enum
+corrente; versão desconhecida é falha operacional (`formulario_desconhecido`).
 
 ## Concordância e adjudicação
 - Antes da adjudicação: concordância bruta e κ de Cohen (exatos, em `Fraction`) sobre a resposta

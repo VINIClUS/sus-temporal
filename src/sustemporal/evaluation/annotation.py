@@ -59,6 +59,14 @@ DIMENSOES_OBSERVAVEIS = ("instrumento", "periodo", "estabelecimento", "defasagem
 SCHEMA_REGISTROS = "sia_pa.v1"
 SCHEMA_ROTULOS = "sia_pa_rotulos.v1"
 REJEICAO = "NAO_APROVADO"
+COLUNAS_ROTULOS = ("row_id", "rotulo")
+COLUNAS_AMOSTRAGEM = (
+    "row_id",
+    "cnes",
+    "instrumento",
+    "competencia_processamento",
+    "competencia_atendimento",
+)
 _MESES = "TRY_CAST(substr({c}, 1, 4) AS INTEGER) * 12 + TRY_CAST(substr({c}, 5, 2) AS INTEGER)"
 _SQL_REJEICOES = (
     "WITH base AS (SELECT p.row_id, p.cnes, p.instrumento, p.competencia_processamento, "  # noqa: S608
@@ -122,6 +130,21 @@ def _conferir(con: duckdb.DuckDBPyConnection, *datasets: DatasetRef) -> None:
             raise FalhaOperacionalErro(
                 f"anotacao_entrada_ilegivel_ou_divergente dataset={dataset.dataset_id} erro={erro}"
             ) from erro
+
+
+def _exigir_colunas(
+    con: duckdb.DuckDBPyConnection, dataset: DatasetRef, exigidas: tuple[str, ...]
+) -> None:
+    descricao = con.execute(
+        "DESCRIBE SELECT * FROM read_parquet($c)", {"c": dataset.caminho}
+    ).fetchall()
+    fisicas = {str(linha[0]) for linha in descricao}
+    ausentes = [c for c in exigidas if c not in fisicas]
+    if ausentes:
+        raise FalhaOperacionalErro(
+            f"anotacao_leiaute_incompativel dataset={dataset.dataset_id} "
+            f"ausentes={','.join(ausentes)}"
+        )
 
 
 def _unicidade(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> None:
@@ -210,6 +233,9 @@ def _sortear(
 ) -> _Sorteio:
     dimensoes, tamanho, tamanho_treino, semente = parametros
     _conferir(con, labels, teste, desenvolvimento)
+    _exigir_colunas(con, labels, COLUNAS_ROTULOS)
+    for registros in (teste, desenvolvimento):
+        _exigir_colunas(con, registros, (*COLUNAS_AMOSTRAGEM, *COLUNAS_PACOTE))
     for dataset in (labels, teste, desenvolvimento):
         _unicidade(con, dataset)
     populacao = _rejeicoes(con, teste, labels, dimensoes)

@@ -18,12 +18,14 @@ from sustemporal.contracts import (
     ConclusaoCaso,
     EstadoReferencia,
     FamiliaRegra,
+    LoteAvaliacoes,
     ReferenciaHumana,
 )
-from sustemporal.errors import ErroSustemporal
+from sustemporal.errors import ErroSustemporal, FalhaOperacionalErro
+from sustemporal.evaluation.annotation_pacote import FAMILIAS_POR_FORMULARIO
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Mapping, Sequence
 
     from sustemporal.contracts import AnnotationSample
 
@@ -34,6 +36,7 @@ __all__ = [
     "comparar_com_motor",
     "concordancia",
     "estimar_horas",
+    "familias_do_formulario",
     "fechar_referencia",
     "kappa_cohen",
 ]
@@ -82,12 +85,45 @@ def kappa_cohen(pares: Sequence[tuple[str, str]]) -> Fraction | None:
     return (observada - esperada) / (1 - esperada)
 
 
+def familias_do_formulario(amostra: AnnotationSample) -> tuple[str, ...]:
+    """Famílias da versão congelada do formulário da amostra, nunca do enum corrente.
+
+    Raises:
+        FalhaOperacionalErro: versão de formulário desconhecida.
+    """
+    familias = FAMILIAS_POR_FORMULARIO.get(amostra.formulario_versao)
+    if familias is None:
+        raise FalhaOperacionalErro(
+            f"formulario_desconhecido versao={amostra.formulario_versao} "
+            f"amostra={amostra.sample_id}"
+        )
+    return familias
+
+
+def _exigir_lote(amostra: AnnotationSample, lote: LoteAvaliacoes) -> None:
+    if lote.sample_id != amostra.sample_id:
+        raise FalhaOperacionalErro(
+            f"respostas_de_outra_amostra amostra_esperada={amostra.sample_id} "
+            f"amostra_lida={lote.sample_id}"
+        )
+    if lote.formulario_versao != amostra.formulario_versao:
+        raise FalhaOperacionalErro(
+            f"respostas_de_outro_formulario esperado={amostra.formulario_versao} "
+            f"lido={lote.formulario_versao}"
+        )
+    permitidas = set(familias_do_formulario(amostra))
+    fora = sorted({f.value for r in lote.respostas for f in r.familias} - permitidas)
+    if fora:
+        raise ValueError(f"familia_fora_do_formulario familias={','.join(fora)}")
+
+
 def _por_caso(
-    amostra: AnnotationSample, mapa: Mapping[str, str], avaliacoes: Iterable[AvaliacaoCaso]
+    amostra: AnnotationSample, mapa: Mapping[str, str], lote: LoteAvaliacoes
 ) -> dict[str, AvaliacaoCaso]:
+    _exigir_lote(amostra, lote)
     finais, treino = set(amostra.casos), set(amostra.casos_treino)
     respostas: dict[str, AvaliacaoCaso] = {}
-    for avaliacao in avaliacoes:
+    for avaliacao in lote.respostas:
         row_id = mapa.get(avaliacao.caso_id)
         if row_id in treino:
             raise ValueError(f"caso_de_treino_na_avaliacao_final caso={avaliacao.caso_id}")
@@ -102,27 +138,23 @@ def _por_caso(
 def _pareadas(
     amostra: AnnotationSample,
     mapa: Mapping[str, str],
-    avaliador_a: Iterable[AvaliacaoCaso],
-    avaliador_b: Iterable[AvaliacaoCaso],
+    avaliador_a: LoteAvaliacoes,
+    avaliador_b: LoteAvaliacoes,
 ) -> list[tuple[AvaliacaoCaso, AvaliacaoCaso]]:
     a = _por_caso(amostra, mapa, avaliador_a)
     b = _por_caso(amostra, mapa, avaliador_b)
     esperados = {caso for caso, row_id in mapa.items() if row_id in set(amostra.casos)}
     if set(a) != esperados or set(b) != esperados:
         raise ValueError(f"avaliacoes_incompletas esperados={len(esperados)} a={len(a)} b={len(b)}")
-    lado_a = {x.avaliador for x in a.values()}
-    lado_b = {x.avaliador for x in b.values()}
-    if len(lado_a) != 1 or len(lado_b) != 1:
-        raise ValueError(f"avaliador_unico_por_lado a={len(lado_a)} b={len(lado_b)}")
-    if lado_a == lado_b:
-        raise ValueError(f"avaliador_nos_dois_lados avaliador={sorted(lado_a)[0]}")
+    if avaliador_a.avaliador == avaliador_b.avaliador:
+        raise ValueError(f"avaliador_nos_dois_lados avaliador={avaliador_a.avaliador}")
     return [(a[caso], b[caso]) for caso in sorted(esperados)]
 
 
-def _categoria_familia(avaliacao: AvaliacaoCaso, familia: FamiliaRegra) -> str:
+def _categoria_familia(avaliacao: AvaliacaoCaso, familia: str) -> str:
     if avaliacao.conclusao in _NAO_DETERMINADAS:
         return "NAO_DETERMINADO"
-    return "PRESENTE" if familia in avaliacao.familias else "AUSENTE"
+    return "PRESENTE" if familia in {f.value for f in avaliacao.familias} else "AUSENTE"
 
 
 def _resposta(avaliacao: AvaliacaoCaso) -> str:
@@ -137,8 +169,8 @@ def _bruta(pares: Sequence[tuple[str, str]]) -> Fraction:
 def concordancia(
     amostra: AnnotationSample,
     mapa: Mapping[str, str],
-    avaliador_a: Iterable[AvaliacaoCaso],
-    avaliador_b: Iterable[AvaliacaoCaso],
+    avaliador_a: LoteAvaliacoes,
+    avaliador_b: LoteAvaliacoes,
 ) -> RelatorioConcordancia:
     """Concordância bruta e κ, global e por família, antes da adjudicação.
 
@@ -147,18 +179,19 @@ def concordancia(
     evidência insuficiente); nenhuma causa única é forçada.
 
     Raises:
+        FalhaOperacionalErro: lote de outra amostra ou formulário, ou versão desconhecida.
         ValueError: caso de treino, fora da amostra, repetido, avaliação incompleta ou mesmo
             avaliador dos dois lados.
     """
     pareadas = _pareadas(amostra, mapa, avaliador_a, avaliador_b)
     globais = [(_resposta(a), _resposta(b)) for a, b in pareadas]
-    familias = list(FamiliaRegra)
+    familias = familias_do_formulario(amostra)
     por_familia: dict[str, tuple[Fraction, Fraction | None]] = {}
     for familia in familias:
         pares = [
             (_categoria_familia(a, familia), _categoria_familia(b, familia)) for a, b in pareadas
         ]
-        por_familia[familia.value] = (_bruta(pares), kappa_cohen(pares))
+        por_familia[familia] = (_bruta(pares), kappa_cohen(pares))
     relatorio = RelatorioConcordancia(
         casos=len(pareadas),
         bruta=_bruta(globais),
@@ -182,9 +215,9 @@ def _mesma_resposta(a: AvaliacaoCaso, b: AvaliacaoCaso) -> bool:
 def fechar_referencia(
     amostra: AnnotationSample,
     mapa: Mapping[str, str],
-    avaliador_a: Iterable[AvaliacaoCaso],
-    avaliador_b: Iterable[AvaliacaoCaso],
-    adjudicacoes: Iterable[AvaliacaoCaso] = (),
+    avaliador_a: LoteAvaliacoes,
+    avaliador_b: LoteAvaliacoes,
+    adjudicacoes: LoteAvaliacoes | None = None,
 ) -> ReferenciaHumana:
     """Consenso ou adjudicação cega por caso; pendências deixam a referência ABERTA.
 
@@ -193,9 +226,11 @@ def fechar_referencia(
             divergência ou fora da amostra.
     """
     pareadas = _pareadas(amostra, mapa, avaliador_a, avaliador_b)
-    adjudicadas = _por_caso(amostra, mapa, adjudicacoes)
-    avaliadores = {x.avaliador for par in pareadas for x in par}
-    if any(adj.avaliador in avaliadores for adj in adjudicadas.values()):
+    adjudicadas = _por_caso(amostra, mapa, adjudicacoes) if adjudicacoes is not None else {}
+    if adjudicacoes is not None and adjudicacoes.avaliador in {
+        avaliador_a.avaliador,
+        avaliador_b.avaliador,
+    }:
         raise ValueError(f"adjudicador_nao_independente amostra={amostra.sample_id}")
     casos: dict[str, AvaliacaoCaso] = {}
     pendentes: list[str] = []

@@ -180,7 +180,11 @@ def gravar_saidas(
     for nome, casos in pacotes.items():
         _gravar_json(
             out / "pacote" / f"{nome}.json",
-            {"formulario_versao": amostra.formulario_versao, "casos": casos},
+            {
+                "sample_id": amostra.sample_id,
+                "formulario_versao": amostra.formulario_versao,
+                "casos": casos,
+            },
         )
     _gravar_json(out / "pacote" / "formulario.json", FORMULARIO)
     _gravar_json(out / "privado" / "mapa_casos.json", dict(mapa))

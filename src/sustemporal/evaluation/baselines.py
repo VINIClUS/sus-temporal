@@ -45,7 +45,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from sustemporal.contracts.config import RunConfig
-    from sustemporal.contracts.experiment import FeatureSpec, SplitManifest
+    from sustemporal.contracts.experiment import CodeVersion, FeatureSpec, SplitManifest
 
 __all__ = ["SCHEMA_PREDICOES", "fit_baseline"]
 
@@ -285,6 +285,7 @@ def fit_baseline(
     *,
     relogio: Callable[[], datetime] | None = None,
     decisoes: Path = DIR_DECISOES,
+    codigo: CodeVersion | None = None,
 ) -> RunResult:
     """Ajusta o baseline apenas com dados de treino e calibração.
 

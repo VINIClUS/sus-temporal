@@ -49,7 +49,7 @@ class ResultadoComparacao(StrEnum):
 @dataclass(frozen=True)
 class ComparacaoVersoes:
     anterior: str
-    nova: str
+    nova: str | None
     resultado: ResultadoComparacao
     linhas_removidas: int
     linhas_adicionadas: int

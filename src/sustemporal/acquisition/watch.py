@@ -33,8 +33,11 @@ if TYPE_CHECKING:
 __all__ = [
     "LEIAUTE_PA_PADRAO",
     "NOME_RELATORIO",
+    "RECORTE_FIM",
+    "RECORTE_INICIO",
     "carregar_leiaute_pa",
     "chave_de_comparacao",
+    "chaves_sumidas",
     "competencias_da_janela",
     "gravar_relatorio",
     "observe_updates",
@@ -47,6 +50,8 @@ logger = logging.getLogger(__name__)
 LEIAUTE_PA_PADRAO = Path(__file__).resolve().parents[3] / "catalog" / "layouts" / "sia_pa.yaml"
 NOME_RELATORIO = "vigilancia.jsonl"
 _MESES_PROCURADOS = 120
+RECORTE_INICIO = CompetenciaArquivo("201801")
+RECORTE_FIM = CompetenciaArquivo("202512")
 
 Chave = tuple[object, str | None, str | None, str | None]
 
@@ -83,24 +88,42 @@ def observe_updates(
 def competencias_da_janela(
     item: FonteCatalogo, uf: str, nomes: Iterable[str], janela: int, referencia: datetime
 ) -> list[CompetenciaArquivo]:
-    """As `janela` competências mais recentes, até o mês de `referencia`, com arquivo listado.
+    """As `janela` competências mais recentes com arquivo listado, dentro do recorte do estudo.
 
-    A vigilância é prospectiva (plano T13: janela móvel de seis competências recentes durante
-    doze meses) e estuda a publicação e a republicação; não é limitada ao recorte 2018–2025 da
-    coorte de validação, e suas observações não entram na coorte.
+    O recorte 2018–2025 é restrição do AGENTS.md: a busca parte do menor entre o mês de
+    `referencia` e `RECORTE_FIM` e nunca desce abaixo de `RECORTE_INICIO`. Depois de 2025-12 a
+    janela para de andar; observar além do recorte é decisão humana (pendência T13-6).
     """
     listados = sorted(set(nomes))
-    ano, mes = referencia.year, referencia.month
+    mes_da_referencia = CompetenciaArquivo(f"{referencia.year:04d}{referencia.month:02d}")
+    competencia = min(mes_da_referencia, RECORTE_FIM)
     achadas: list[CompetenciaArquivo] = []
     for _ in range(_MESES_PROCURADOS):
-        competencia = CompetenciaArquivo(f"{ano:04d}{mes:02d}")
+        if competencia < RECORTE_INICIO or len(achadas) == janela:
+            break
         expressao = item.expressao(uf, competencia)
         if any(expressao.fullmatch(nome) for nome in listados):
             achadas.append(competencia)
-        if len(achadas) == janela:
-            break
-        ano, mes = (ano, mes - 1) if mes > 1 else (ano - 1, 12)
-    return sorted(achadas, key=lambda c: c.valor)
+        competencia = competencia.deslocar(-1)
+    return sorted(achadas)
+
+
+def chaves_sumidas(
+    anteriores: Iterable[Chave],
+    atuais: set[Chave],
+    fonte: object,
+    janela: list[CompetenciaArquivo],
+) -> list[Chave]:
+    """Chaves já acompanhadas da fonte que não estão nas requisições da listagem atual.
+
+    Só contam as competências do início da janela atual em diante: as mais antigas saíram da
+    janela porque chegaram competências novas, não porque sumiram.
+    """
+    inicio = janela[0].valor if janela else RECORTE_INICIO.valor
+    return sorted(
+        (c for c in anteriores if c[0] is fonte and c not in atuais and (c[2] or "") >= inicio),
+        key=lambda c: (c[2] or "", c[3] or ""),
+    )
 
 
 def chave_de_comparacao(chave: ChaveArtefato) -> Chave:

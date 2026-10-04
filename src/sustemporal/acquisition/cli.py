@@ -27,6 +27,7 @@ from sustemporal.acquisition.watch import (
     NOME_RELATORIO,
     carregar_leiaute_pa,
     chave_de_comparacao,
+    chaves_sumidas,
     competencias_da_janela,
     gravar_relatorio,
     observe_updates,
@@ -239,13 +240,15 @@ def _vigilancia(config: RunConfig) -> VigilanciaSpec:
 
 
 def _planejar_vigilancia(
-    config: RunConfig, obter: Obter, referencia: datetime
-) -> tuple[list[SourceRequest], int]:
-    """Requisições dos arquivos da janela, por família; conta as listagens não obtidas."""
+    config: RunConfig, obter: Obter, referencia: datetime, anteriores: Iterable[Chave]
+) -> tuple[list[SourceRequest], int, list[Chave]]:
+    """Requisições da janela por família, listagens não obtidas e chaves que sumiram."""
     vigilancia = _vigilancia(config)
     catalogo = _catalogo(config)
     store, _ = _caminhos(config)
+    acompanhadas = [c for c in anteriores if c[1] in (vigilancia.uf, None)]
     requisicoes: list[SourceRequest] = []
+    sumidas: list[Chave] = []
     falhas = 0
     for fonte in vigilancia.familias_fontes:
         listagem = obter(requisicao_listagem(catalogo, fonte, motivo=MotivoRequisicao.VIGILANCIA))
@@ -257,49 +260,72 @@ def _planejar_vigilancia(
         janela = competencias_da_janela(
             catalogo.fonte(fonte), vigilancia.uf, nomes, vigilancia.janela_competencias, referencia
         )
-        requisicoes += requisicoes_da_listagem(
+        da_fonte = requisicoes_da_listagem(
             catalogo, fonte, vigilancia.uf, janela, nomes, motivo=MotivoRequisicao.VIGILANCIA
         )
-    return requisicoes, falhas
+        atuais = {chave_de_comparacao(r.chave) for r in da_fonte}
+        sumidas += chaves_sumidas(acompanhadas, atuais, fonte, janela)
+        requisicoes += da_fonte
+    return requisicoes, falhas, sumidas
+
+
+def _inconclusiva(anterior: str, nova: str | None, motivo: str) -> ComparacaoVersoes:
+    return ComparacaoVersoes(anterior, nova, ResultadoComparacao.INCONCLUSIVO, 0, 0, motivo)
+
+
+def _comparar_uma(
+    config: RunConfig,
+    anterior: ArtifactVersion,
+    obs: ArtifactObservation,
+    versoes: dict[str, ArtifactVersion],
+) -> ComparacaoVersoes | None:
+    """INCONCLUSIVO se a observação falhou ou a comparação não normaliza; None sem comparação."""
+    if obs.resultado is not ResultadoTentativa.OBTIDO:
+        motivo = f"observacao_sem_conteudo resultado={obs.resultado}"
+        return _inconclusiva(anterior.artifact_id, None, motivo)
+    nova = versoes.get(obs.artifact_id or "")
+    if nova is None:
+        return _inconclusiva(anterior.artifact_id, obs.artifact_id, "versao_nova_sem_registro")
+    if obs.chave.fonte is not FamiliaFonte.SIA_PA:
+        return None
+    store, _ = _caminhos(config)
+    try:
+        return comparar_versoes(
+            anterior,
+            nova,
+            layout=carregar_leiaute_pa(config),
+            runtime=config.runtime.model_copy(update={"raiz_dados": str(store)}),
+            destino=Path(config.runtime.raiz_dados) / "vigilancia",
+            origem_dados=_origem_dados(config),
+        )
+    except (FalhaOperacionalErro, ValueError) as erro:
+        logger.warning("comparacao_inconclusiva artefato=%s erro=%s", anterior.artifact_id, erro)
+        return _inconclusiva(
+            anterior.artifact_id, nova.artifact_id, f"comparacao_inconclusiva erro={erro}"
+        )
 
 
 def _comparar_com_anteriores(
     config: RunConfig,
     anteriores: dict[Chave, ArtifactVersion],
     observadas: list[ArtifactObservation],
+    sumidas: list[Chave],
 ) -> list[tuple[Chave, ComparacaoVersoes]]:
-    """Compara cada versão SIA-PA obtida com a versão obtida antes para a mesma chave."""
-    store, manifesto = _caminhos(config)
+    """Compara cada arquivo já acompanhado com a versão obtida antes para a mesma chave."""
+    _, manifesto = _caminhos(config)
     versoes = Manifesto(manifesto).ler().versoes
-    runtime = config.runtime.model_copy(update={"raiz_dados": str(store)})
-    destino = Path(config.runtime.raiz_dados) / "vigilancia"
-    layout = carregar_leiaute_pa(config)
     comparacoes: list[tuple[Chave, ComparacaoVersoes]] = []
     for obs in observadas:
         chave = chave_de_comparacao(obs.chave)
-        anterior, nova = anteriores.get(chave), versoes.get(obs.artifact_id or "")
-        if anterior is None or nova is None or obs.chave.fonte is not FamiliaFonte.SIA_PA:
-            continue
-        try:
-            comparacao = comparar_versoes(
-                anterior,
-                nova,
-                layout=layout,
-                runtime=runtime,
-                destino=destino,
-                origem_dados=_origem_dados(config),
-            )
-        except (FalhaOperacionalErro, ValueError) as erro:
-            logger.warning("comparacao_inconclusiva chave=%s erro=%s", chave, erro)
-            comparacao = ComparacaoVersoes(
-                anterior.artifact_id,
-                nova.artifact_id,
-                ResultadoComparacao.INCONCLUSIVO,
-                0,
-                0,
-                f"comparacao_inconclusiva erro={erro}",
-            )
-        comparacoes.append((chave, comparacao))
+        anterior = anteriores.get(chave)
+        comparacao = None if anterior is None else _comparar_uma(config, anterior, obs, versoes)
+        if comparacao is not None:
+            comparacoes.append((chave, comparacao))
+    for chave in sumidas:
+        logger.warning("arquivo_sumiu_da_listagem chave=%s", chave)
+        comparacoes.append(
+            (chave, _inconclusiva(anteriores[chave].artifact_id, None, "sumiu_da_listagem"))
+        )
     return comparacoes
 
 
@@ -336,11 +362,11 @@ def executar_watch(
         listagens.append(buscar(requisicao))
         return listagens[-1]
 
-    requisicoes, falhas = _planejar_vigilancia(config, obter, relogio())
+    requisicoes, falhas, sumidas = _planejar_vigilancia(config, obter, relogio(), anteriores)
     observadas = observe_updates(
         requisicoes, store, rede_permitida=rede, relogio=relogio, manifesto=manifesto
     )
-    comparacoes = _comparar_com_anteriores(config, anteriores, observadas)
+    comparacoes = _comparar_com_anteriores(config, anteriores, observadas, sumidas)
     resumo = resumir_vigilancia(observadas, [c for _, c in comparacoes])
     gravar_relatorio(Path(config.runtime.raiz_manifestos) / NOME_RELATORIO, comparacoes, resumo)
     falhas += sum(o.resultado is not ResultadoTentativa.OBTIDO for o in observadas)

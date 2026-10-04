@@ -12,12 +12,15 @@ import shutil
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
+import duckdb
+
+from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.experiment import EstadoExecucao
 from sustemporal.contracts.records import DatasetRef, TipoCanonico, calcular_dataset_id
 from sustemporal.duck import conectar, identificador_seguro
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.rules.catalog import carregar_esquema
-from sustemporal.rules.conteudo import verificar_conteudo
+from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
 from sustemporal.rules.engine import evaluate_rules
 
 if TYPE_CHECKING:
@@ -33,7 +36,16 @@ logger = logging.getLogger(__name__)
 _PF = "cnes_estab_cbo.v1"
 _ST = "cnes_estabelecimento.v1"
 _TABELAS = {_PF: "sobreposicao_pf", _ST: "sobreposicao_st"}
-_TIPO_FISICO = {TipoCanonico.TEXTO: "VARCHAR", TipoCanonico.INTEIRO: "BIGINT"}
+_INTEIROS_FISICOS = frozenset(
+    {"TINYINT", "SMALLINT", "INTEGER", "BIGINT", "UTINYINT", "USMALLINT", "UINTEGER", "UBIGINT"}
+)
+
+
+def _tipo_compativel(tipo: TipoCanonico, fisico: str | None) -> bool:
+    """Mesma regra do motor (`rules/preparo.py`): inteiro de qualquer largura; texto VARCHAR."""
+    if tipo is TipoCanonico.INTEIRO:
+        return fisico in _INTEIROS_FISICOS
+    return tipo is TipoCanonico.TEXTO and fisico == "VARCHAR"
 
 
 class InsumoCadastralInvalido(ValueError):
@@ -50,6 +62,7 @@ class _Editavel:
     tabela: str
     colunas: tuple[str, ...]
     artefato: str
+    integro: bool
 
 
 def _copiar(ref: DatasetRef, destino: Path) -> DatasetRef:
@@ -134,21 +147,35 @@ class Sobreposicao:
     def _editavel(
         self, ref: DatasetRef, tabela: str, selecionados: tuple[str, ...]
     ) -> _Editavel | None:
-        verificar_conteudo(self._con, ref)
+        fisicos = self._conferir(ref)
         esquema = carregar_esquema(ref.schema_id)
-        descricao = self._con.execute(
-            "DESCRIBE SELECT * FROM read_parquet($c)", {"c": ref.caminho}
-        ).fetchall()
-        fisicos = {str(linha[0]): str(linha[1]) for linha in descricao}
         colunas = tuple(c.nome for c in esquema.colunas)
-        if any(fisicos.get(c.nome) != _TIPO_FISICO.get(c.tipo) for c in esquema.colunas):
+        if not all(_tipo_compativel(c.tipo, fisicos.get(c.nome)) for c in esquema.colunas):
             logger.warning("sobreposicao_leiaute_incompativel schema=%s", ref.schema_id)
             return None
         artefato = self._artefato(ref, selecionados)
         if artefato is None:
             logger.warning("sobreposicao_sem_versao_unica schema=%s", ref.schema_id)
             return None
-        return _Editavel(original=ref, tabela=tabela, colunas=colunas, artefato=artefato)
+        estado = self._contexto.insumos.integridade.get(artefato, EstadoIntegridade.NAO_VERIFICADO)
+        if estado.value.startswith("QUARENTENA_"):
+            logger.warning("sobreposicao_versao_em_quarentena schema=%s", ref.schema_id)
+            return None
+        integro = estado is EstadoIntegridade.OK
+        return _Editavel(ref, tabela, colunas, artefato, integro)
+
+    def _conferir(self, ref: DatasetRef) -> dict[str, str]:
+        """Conteúdo contra o `DatasetRef` e tipos físicos; ilegível é falha operacional."""
+        try:
+            verificar_conteudo(self._con, ref)
+            descricao = self._con.execute(
+                "DESCRIBE SELECT * FROM read_parquet($c)", {"c": ref.caminho}
+            ).fetchall()
+        except (ConteudoDivergente, duckdb.Error) as erro:
+            raise InsumoCadastralInvalido(
+                f"contrafactual_cadastro_invalido schema={ref.schema_id} erro={erro}"
+            ) from erro
+        return {str(linha[0]): str(linha[1]) for linha in descricao}
 
     def _artefato(self, ref: DatasetRef, selecionados: tuple[str, ...]) -> str | None:
         candidatos = set(selecionados)
@@ -205,7 +232,7 @@ class Sobreposicao:
         return [str(linha[0]) for linha in linhas]
 
     def estabelecimento_no_st(self, cnes: str) -> bool | None:
-        """`None` quando o CNES ST da competência não está disponível para a sobreposição."""
+        """Presença observada; ausência só com versão `OK`; senão `None` (indeterminado)."""
         if not self.editavel(_ST):
             return None
         editavel, filtro = self._escopo(_ST)
@@ -215,26 +242,26 @@ class Sobreposicao:
             "AND cnes = $cnes",
             filtro | {"cnes": cnes},
         ).fetchall()
-        return int(linhas[0][0]) > 0
+        if int(linhas[0][0]) > 0:
+            return True
+        return False if editavel.integro else None
 
     def somar_pf(self, cnes: str, cbo: str, delta: int) -> None:
+        """Aplica `delta` ao total do par (linhas repetidas viram uma linha com o total)."""
         editavel, filtro = self._escopo(_PF)
         chave = filtro | {"cnes": cnes, "cbo": cbo}
-        onde = (
-            "WHERE competencia_arquivo = $competencia AND artifact_id = $artefato "
-            "AND cnes = $cnes AND cbo = $cbo"
+        total = self.contagem_pf(cnes, cbo) + delta
+        self._con.execute(
+            f"DELETE FROM {editavel.tabela} WHERE competencia_arquivo = $competencia "  # noqa: S608
+            "AND artifact_id = $artefato AND cnes = $cnes AND cbo = $cbo",
+            chave,
         )
-        if self.contagem_pf(cnes, cbo) == 0 and delta > 0:
+        if total > 0:
             self._con.execute(
                 f"INSERT INTO {editavel.tabela} (competencia_arquivo, cnes, cbo, artifact_id, "  # noqa: S608
-                "n_vinculos) VALUES ($competencia, $cnes, $cbo, $artefato, 0)",
-                chave,
+                "n_vinculos) VALUES ($competencia, $cnes, $cbo, $artefato, $total)",
+                chave | {"total": total},
             )
-        self._con.execute(
-            f"UPDATE {editavel.tabela} SET n_vinculos = n_vinculos + $delta {onde}",  # noqa: S608
-            chave | {"delta": delta},
-        )
-        self._con.execute(f"DELETE FROM {editavel.tabela} {onde} AND n_vinculos <= 0", chave)  # noqa: S608
         self._alterados.add(_PF)
 
     def incluir_st(self, cnes: str) -> None:

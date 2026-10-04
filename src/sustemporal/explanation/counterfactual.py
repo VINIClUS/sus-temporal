@@ -28,7 +28,9 @@ from sustemporal.contracts.counterfactual import (
 from sustemporal.contracts.rules import EstadoAvaliacao
 from sustemporal.contracts.temporal import CompetenciaArquivo, EstadoSelecao
 from sustemporal.explanation.counterfactual_executabilidade import (
+    aberta_coerente,
     classificar,
+    competencia_do_relogio,
     competencia_fechada,
     condicoes,
 )
@@ -37,6 +39,7 @@ from sustemporal.explanation.counterfactual_operacoes import (
     aplicar,
     carregar_operacoes,
     instancias,
+    ordem_de_aplicacao,
     ordenar_por_dependencia,
     validar_operacoes,
 )
@@ -44,6 +47,7 @@ from sustemporal.explanation.counterfactual_sobreposicao import Sobreposicao
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
     from sustemporal.contracts import (
         ExplanationBundle,
@@ -78,6 +82,7 @@ class _Busca:
     fechada: bool | None
     base: dict[tuple[str, str], str]
     orcamento: Orcamento
+    avisos: tuple[str, ...] = ()
     espaco: list[Instancia] = field(default_factory=list)
     fronteira: list[tuple[int, int, tuple[int, ...]]] = field(default_factory=list)
     solucoes: list[Candidato] = field(default_factory=list)
@@ -159,8 +164,7 @@ def _admissiveis(
 
 
 def _ordem(busca: _Busca, indices: tuple[int, ...]) -> list[Instancia]:
-    passos = [busca.espaco[i] for i in indices]
-    return sorted(passos, key=lambda inst: (busca.nivel[inst.op_id], inst))
+    return ordem_de_aplicacao([busca.espaco[i] for i in indices], busca.nivel)
 
 
 def _simular(busca: _Busca, passos: list[Instancia]) -> dict[tuple[str, str], str] | None:
@@ -209,6 +213,7 @@ def _candidato(
         condicoes_pendentes=(
             *condicoes(specs, executabilidade, competencia),
             *pioras(busca.base, estados),
+            *busca.avisos,
         ),
         executabilidade=executabilidade,
         regras_revalidadas=tuple(r.rule_id for r in busca.regras),
@@ -263,6 +268,18 @@ def _minimalidade(busca: _Busca, motivo: MotivoParada) -> tuple[Minimalidade, in
     return Minimalidade.SOLUCAO_SEM_PROVA_DE_MINIMALIDADE, menor
 
 
+def _avisos(contexto: ContextoContrafactual, agora: datetime) -> tuple[str, ...]:
+    """Limites que valem para todo candidato: revalidação restrita e evidência atual."""
+    avisos = [f"revalidacao_restrita dataset={contexto.dataset.dataset_id}"]
+    aberta = contexto.competencia_aberta_cnes
+    if aberta is not None and not aberta_coerente(aberta, agora):
+        avisos.append(
+            f"competencia_aberta_inconsistente aberta={aberta} "
+            f"relogio={competencia_do_relogio(agora)}"
+        )
+    return tuple(avisos)
+
+
 def _preparar(
     bundle: ExplanationBundle,
     contexto: ContextoContrafactual,
@@ -277,11 +294,9 @@ def _preparar(
     if any(base.get((bundle.row_id, alvo)) != _VIOLACAO for alvo in alvos):
         raise ValueError(f"contrafactual_baseline_incoerente bundle={bundle.bundle_id}")
     competencia = sob.competencia
-    fechada = (
-        competencia_fechada(competencia, contexto.competencia_aberta_cnes, contexto.relogio())
-        if competencia is not None
-        else None
-    )
+    agora = contexto.relogio()
+    aberta = contexto.competencia_aberta_cnes
+    fechada = competencia_fechada(competencia, aberta, agora) if competencia is not None else None
     admissiveis = _admissiveis(operacoes, fechada, sob)
     busca = _Busca(
         bundle=bundle,
@@ -293,6 +308,7 @@ def _preparar(
         fechada=fechada,
         base=base,
         orcamento=Orcamento(**config.contrafactual.model_dump()),
+        avisos=_avisos(contexto, agora),
     )
     registro = bundle.registro
     if competencia is not None and registro.cnes and registro.cbo:

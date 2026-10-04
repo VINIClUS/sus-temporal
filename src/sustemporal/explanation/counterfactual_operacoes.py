@@ -112,15 +112,53 @@ class _Efeito:
     schema_id: str
     parametros: Callable[[Sobreposicao, str, str], list[dict[str, str]]]
     aplicar: Callable[[Sobreposicao, dict[str, str]], None]
+    precondicoes: frozenset[str]
+    depende_de: frozenset[str] = frozenset()
 
 
+_CADASTRAR = "CADASTRAR_ESTABELECIMENTO_NO_CNES"
+_NO_ST = "ESTABELECIMENTO_NO_CNES_ST"
 _EFEITOS = {
-    "INCLUIR_CBO_NO_ESTABELECIMENTO": _Efeito(PF, _parametros_par, _efeito_incluir),
-    "RECLASSIFICAR_CBO_NO_ESTABELECIMENTO": _Efeito(
-        PF, _parametros_reclassificar, _efeito_reclassificar
+    "INCLUIR_CBO_NO_ESTABELECIMENTO": _Efeito(
+        PF, _parametros_par, _efeito_incluir, frozenset({_NO_ST}), frozenset({_CADASTRAR})
     ),
-    "CADASTRAR_ESTABELECIMENTO_NO_CNES": _Efeito(ST, _parametros_estab, _efeito_cadastrar),
+    "RECLASSIFICAR_CBO_NO_ESTABELECIMENTO": _Efeito(
+        PF,
+        _parametros_reclassificar,
+        _efeito_reclassificar,
+        frozenset({_NO_ST, "CBO_ORIGEM_COM_VINCULO"}),
+        frozenset({_CADASTRAR}),
+    ),
+    _CADASTRAR: _Efeito(
+        ST, _parametros_estab, _efeito_cadastrar, frozenset({"ESTABELECIMENTO_AUSENTE_NO_CNES_ST"})
+    ),
 }
+
+
+def _validar_operacao(op: OperationSpec) -> None:
+    """Efeito conhecido, mesmo alvo e precondições/dependências obrigatórias do `op_id`."""
+    efeito = _EFEITOS.get(op.op_id)
+    if efeito is None:
+        raise CatalogoOperacoesInvalido(f"operacao_sem_efeito op={op.op_id}")
+    if efeito.schema_id != op.alvo.schema_id:
+        raise CatalogoOperacoesInvalido(f"operacao_alvo_incoerente op={op.op_id}")
+    desconhecidas = set(op.precondicoes) - set(_PRECONDICOES)
+    if desconhecidas:
+        raise CatalogoOperacoesInvalido(
+            f"precondicao_desconhecida op={op.op_id} nomes={sorted(desconhecidas)}"
+        )
+    if set(op.depende_de) - set(_EFEITOS):
+        raise CatalogoOperacoesInvalido(f"dependencia_desconhecida op={op.op_id}")
+    if not efeito.precondicoes <= set(op.precondicoes):
+        faltando = sorted(efeito.precondicoes - set(op.precondicoes))
+        raise CatalogoOperacoesInvalido(
+            f"precondicao_obrigatoria_ausente op={op.op_id} nomes={faltando}"
+        )
+    if not efeito.depende_de <= set(op.depende_de):
+        faltando = sorted(efeito.depende_de - set(op.depende_de))
+        raise CatalogoOperacoesInvalido(
+            f"dependencia_obrigatoria_ausente op={op.op_id} ops={faltando}"
+        )
 
 
 def validar_operacoes(operacoes: Sequence[OperationSpec]) -> tuple[OperationSpec, ...]:
@@ -133,25 +171,14 @@ def validar_operacoes(operacoes: Sequence[OperationSpec]) -> tuple[OperationSpec
     if len(set(ids)) != len(ids):
         raise CatalogoOperacoesInvalido("operacao_repetida")
     for op in operacoes:
-        efeito = _EFEITOS.get(op.op_id)
-        if efeito is None:
-            raise CatalogoOperacoesInvalido(f"operacao_sem_efeito op={op.op_id}")
-        if efeito.schema_id != op.alvo.schema_id:
-            raise CatalogoOperacoesInvalido(f"operacao_alvo_incoerente op={op.op_id}")
-        desconhecidas = set(op.precondicoes) - set(_PRECONDICOES)
-        if desconhecidas:
-            raise CatalogoOperacoesInvalido(
-                f"precondicao_desconhecida op={op.op_id} nomes={sorted(desconhecidas)}"
-            )
-        if set(op.depende_de) - set(_EFEITOS):
-            raise CatalogoOperacoesInvalido(f"dependencia_desconhecida op={op.op_id}")
+        _validar_operacao(op)
     ordenar_por_dependencia(operacoes)
     return tuple(sorted(operacoes, key=lambda op: op.op_id))
 
 
 def ordem_de_aplicacao(passos: Sequence[Instancia], nivel: dict[str, int]) -> list[Instancia]:
     """Instâncias na ordem das dependências; empate pela própria instância."""
-    raise NotImplementedError
+    return sorted(passos, key=lambda inst: (nivel[inst.op_id], inst))
 
 
 def ordenar_por_dependencia(operacoes: Sequence[OperationSpec]) -> dict[str, int]:

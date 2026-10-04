@@ -6,12 +6,9 @@ import hashlib
 import platform
 import subprocess
 from importlib import metadata
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from sustemporal.contracts.experiment import Ambiente, CodeVersion
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 PACOTES_RELEVANTES = (
     "sus-temporal",
@@ -28,27 +25,63 @@ PACOTES_RELEVANTES = (
 )
 
 
-def _git(raiz: Path, *argumentos: str) -> str | None:
+def _git_bytes(raiz: Path, *argumentos: str) -> bytes | None:
     try:
         resultado = subprocess.run(  # noqa: S603
             ["git", *argumentos],  # noqa: S607
             cwd=raiz,
             check=True,
             capture_output=True,
-            text=True,
         )
     except (OSError, subprocess.CalledProcessError):
         return None
-    return resultado.stdout.strip()
+    return resultado.stdout
+
+
+def _git(raiz: Path, *argumentos: str) -> str | None:
+    saida = _git_bytes(raiz, *argumentos)
+    return None if saida is None else saida.decode("utf-8", errors="surrogateescape").strip()
+
+
+def _hash_arquivo(caminho: Path) -> bytes | None:
+    try:
+        with caminho.open("rb") as arquivo:
+            return hashlib.file_digest(arquivo, "sha256").hexdigest().encode("ascii")
+    except OSError:
+        return None
+
+
+def _hash_diferencas(raiz: Path) -> str | None:
+    """SHA-256 do diff binário contra o HEAD e do conteúdo dos arquivos não rastreados.
+
+    Tudo é lido a partir do topo do repositório, para o diff e a listagem terem o mesmo escopo.
+    """
+    topo = _git(raiz, "rev-parse", "--show-toplevel")
+    if not topo:
+        return None
+    base = Path(topo)
+    diff = _git_bytes(base, "diff", "--binary", "--no-color", "--no-ext-diff", "HEAD")
+    novos = _git_bytes(base, "ls-files", "--others", "--exclude-standard", "-z")
+    if diff is None or novos is None:
+        return None
+    resumo = hashlib.sha256(b"diff\0" + diff + b"\0nao_rastreados\0")
+    for caminho in sorted(nome for nome in novos.split(b"\0") if nome):
+        conteudo = _hash_arquivo(base / caminho.decode("utf-8", errors="surrogateescape"))
+        if conteudo is None:
+            return None
+        resumo.update(caminho + b"\0" + conteudo + b"\0")
+    return resumo.hexdigest()
 
 
 def versao_codigo(raiz: Path) -> CodeVersion:
     commit = _git(raiz, "rev-parse", "HEAD")
     estado = _git(raiz, "status", "--porcelain")
+    sujo = commit is None or estado is None or bool(estado)
     return CodeVersion(
         commit=commit or "desconhecido",
-        sujo=commit is None or estado is None or bool(estado),
+        sujo=sujo,
         versao_pacote=metadata.version("sus-temporal"),
+        diff_sha256=_hash_diferencas(raiz) if sujo and commit is not None else None,
     )
 
 

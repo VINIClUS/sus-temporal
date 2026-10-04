@@ -86,3 +86,20 @@ def test_arquivo_nao_rastreado_entra_no_hash_de_diferencas(tmp_path: Path) -> No
 
 def test_sem_git_nao_ha_hash_de_diferencas(tmp_path: Path) -> None:
     assert versao_codigo(tmp_path).diff_sha256 is None
+
+
+def test_subdiretorio_ve_as_diferencas_do_repositorio_inteiro(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    sub = raiz / "sub"
+    sub.mkdir()
+    (sub / "b.py").write_text("B = 1\n", encoding="utf-8")
+    _git_local(raiz, "add", "sub/b.py")
+    _git_local(raiz, "commit", "-q", "-m", "sub")
+    topo = raiz / "topo.py"
+    topo.write_text("T = 1\n", encoding="utf-8")
+    primeira = versao_codigo(sub)
+    topo.write_text("T = 2\n", encoding="utf-8")
+    segunda = versao_codigo(sub)
+    assert primeira.diff_sha256 is not None
+    assert primeira.diff_sha256 != segunda.diff_sha256
+    assert versao_codigo(sub) == versao_codigo(raiz)

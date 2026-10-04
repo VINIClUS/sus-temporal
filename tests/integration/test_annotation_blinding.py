@@ -6,6 +6,7 @@ import argparse
 import inspect
 import json
 from collections import Counter
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from fractions import Fraction
@@ -15,6 +16,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pytest
 from tests.fixtures.anotacao_cenario import CenarioAnotacao, montar_cenario, registro
+from tests.fixtures.regras_cenario import reemitir
 from tests.fixtures.sintetico.contratos import features_sinteticas
 
 from sustemporal.contracts import (
@@ -29,6 +31,7 @@ from sustemporal.contracts import (
     FamiliaRegra,
     FreezeManifest,
     Particao,
+    ReferenciaHumana,
     RuntimeConfig,
 )
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
@@ -277,9 +280,10 @@ def test_concordancia_global_e_por_familia_preserva_indeterminados(
     relatorio = concordancia(amostra, mapa, a, b)
     assert relatorio.casos == 10
     # conclusões: I/I x4, I/IND x1, IND/IND x3, FORA/FORA x1, FORA/I x1 -> po = 8/10
-    # A: I=5, IND=3, FORA=2; B: I=5, IND=4, FORA=1 -> pe = (25 + 12 + 2)/100 = 39/100
+    # (conclusão, famílias): A: I:P=4, I:PE=1, IND=3, FORA=2; B: I:P=3, I:PE=1, IND=4, FORA=1,
+    # I:E=1 -> pe = (12 + 1 + 12 + 2)/100 = 27/100
     assert relatorio.bruta == Fraction(8, 10)
-    assert relatorio.kappa == (Fraction(8, 10) - Fraction(39, 100)) / (1 - Fraction(39, 100))
+    assert relatorio.kappa == (Fraction(8, 10) - Fraction(27, 100)) / (1 - Fraction(27, 100))
     bruta_p, _ = relatorio.por_familia[P.value]
     # P: PRESENTE/PRESENTE x4, PRESENTE/NAO_DETERMINADO x1, ND/ND x3, AUSENTE/AUSENTE x1,
     # AUSENTE/AUSENTE (FORA vs I com E) x1 -> po = 9/10
@@ -387,3 +391,60 @@ def test_annotation_export_resolve_artefatos_exatos_do_congelamento(
     ausente = argparse.Namespace(comando="annotation-export", freeze=f"frz_{'0' * 64}")
     with pytest.raises(ConfigInvalida, match="congelamento_ausente"):
         executar_annotation_export(ausente, config)
+
+
+def test_particao_sem_rejeicoes_falha_em_vez_de_amostra_vazia(tmp_path: Path) -> None:
+    linhas = [registro(f"t{i:05d}", f"art_{'2' * 64}", i) for i in range(4)]
+    cenario = montar_cenario(tmp_path / "dados", linhas_teste=linhas)
+    tabela = pq.read_table(cenario.labels.caminho)
+    teste = {str(linha["row_id"]) for linha in linhas}
+    novos = [
+        {**r, "rotulo": "APROVADO_TOTAL"} if r["row_id"] in teste else r for r in tabela.to_pylist()
+    ]
+    pq.write_table(pa.Table.from_pylist(novos, tabela.schema), cenario.labels.caminho)
+    cenario = replace(cenario, labels=reemitir(cenario.labels))
+    with pytest.raises(ValueError, match="anotacao_sem_rejeicoes"):
+        _preparar(cenario, tmp_path / "x", dimensoes=("instrumento",))
+    assert not (tmp_path / "x" / "amostra.json").exists()
+
+
+def test_concordancia_global_considera_familias(cenario: CenarioAnotacao, tmp_path: Path) -> None:
+    out = tmp_path / "anotacao"
+    amostra = _preparar(cenario, out, tamanho=4, tamanho_treino=1, dimensoes=("instrumento",))
+    casos, mapa = _anotacoes(out, amostra)
+    a = [_avaliacao(c, "a", IDENT, P) for c in casos]
+    b = [_avaliacao(c, "b", IDENT, E) for c in casos]
+    assert concordancia(amostra, mapa, a, b).bruta == 0
+
+
+def test_adjudicador_nao_pode_ser_avaliador(cenario: CenarioAnotacao, tmp_path: Path) -> None:
+    out = tmp_path / "anotacao"
+    amostra = _preparar(cenario, out, tamanho=4, tamanho_treino=1, dimensoes=("instrumento",))
+    casos, mapa = _anotacoes(out, amostra)
+    a = [_avaliacao(c, "a", IDENT, P) for c in casos]
+    b = [_avaliacao(c, "b", IDENT, E) for c in casos]
+    with pytest.raises(ValueError, match="adjudicador_nao_independente"):
+        fechar_referencia(amostra, mapa, a, b, [_avaliacao(casos[0], "a", IDENT, P)])
+
+
+def test_referencia_fechada_exige_todos_os_casos_da_amostra() -> None:
+    caso = _avaliacao("caso_0001", "a", IND)
+    with pytest.raises(ValueError, match="referencia_fechada_incompleta"):
+        ReferenciaHumana(
+            sample_id="ann_x",
+            estado=EstadoReferencia.FECHADA,
+            casos={"r1": caso},
+            casos_amostra=("r1", "r2"),
+        )
+
+
+def test_reexportacao_divergente_nao_sobrescreve(cenario: CenarioAnotacao, tmp_path: Path) -> None:
+    out = tmp_path / "anotacao"
+    primeira = _preparar(cenario, out)
+    assert _preparar(cenario, out) == primeira
+    outra = cenario.config.model_copy(update={"semente": 7})
+    with pytest.raises(ConfigInvalida, match="pacote_ja_exportado"):
+        prepare_annotation_sample(
+            cenario.labels, cenario.split, outra, out, particoes=cenario.particoes
+        )
+    assert AnnotationSample.model_validate_json((out / "amostra.json").read_text()) == primeira

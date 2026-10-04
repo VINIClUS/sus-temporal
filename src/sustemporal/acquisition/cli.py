@@ -31,10 +31,11 @@ from sustemporal.acquisition.watch import (
     chaves_sumidas,
     classificar_chave,
     competencias_da_janela,
-    eh_falha,
     gravar_relatorio,
+    linhas_do_relatorio,
+    nao_conclusiva,
     observe_updates,
-    resumir_vigilancia,
+    resumir_linhas,
     sumida,
     versoes_anteriores,
 )
@@ -259,7 +260,8 @@ def _planejar_vigilancia(
         listagem = obter(requisicao_listagem(catalogo, fonte, motivo=MotivoRequisicao.VIGILANCIA))
         if listagem.resultado is not ResultadoTentativa.OBTIDO:
             motivo = f"listagem_nao_obtida resultado={listagem.resultado}"
-            incompletas.append(JanelaIncompleta(str(fonte), pedido, 0, (), motivo))
+            inconclusiva = ResultadoComparacao.INCONCLUSIVO.value
+            incompletas.append(JanelaIncompleta(str(fonte), pedido, 0, (), motivo, inconclusiva))
             continue
         nomes = nomes_listados(store, listagem)
         janela = competencias_da_janela(
@@ -358,13 +360,9 @@ def executar_watch(
         requisicoes, store, rede_permitida=rede, relogio=relogio, manifesto=manifesto
     )
     comparacoes = _classificar_todas(config, anteriores, observadas, sumidas)
-    resumo = resumir_vigilancia(
-        observadas, [c for _, c in comparacoes], janelas_incompletas=len(incompletas)
-    )
-    relatorio = Path(config.runtime.raiz_manifestos) / NOME_RELATORIO
-    gravar_relatorio(relatorio, comparacoes, resumo, janelas=incompletas)
-    falhas = len(incompletas)
-    falhas += sum(o.resultado is not ResultadoTentativa.OBTIDO for o in observadas)
-    falhas += sum(eh_falha(c) for _, c in comparacoes)
+    linhas = linhas_do_relatorio(comparacoes, incompletas)
+    resumo = resumir_linhas(linhas, observadas)
+    gravar_relatorio(Path(config.runtime.raiz_manifestos) / NOME_RELATORIO, linhas, resumo)
+    falhas = sum(nao_conclusiva(linha) for linha in linhas)
     logger.info("watch_concluido requisicoes=%d falhas=%d %s", len(requisicoes), falhas, resumo)
     return int(ExitCode.FALHA_OPERACIONAL if falhas else ExitCode.OK)

@@ -141,8 +141,10 @@ Também confere a coerência de uma tabela fornecida com a política da execuç�
    - Depois de 2025-12 a janela para de andar e fica nas 6 últimas competências de 2025.
    - Observar além do recorte é decisão humana (T13-6, recorte na `RunConfig`).
    - **Janela incompleta:** com menos competências listadas que `janela_competencias`
-     (inclusive listagem vazia, truncada ou não obtida), o relatório recebe uma linha
-     `janela_incompleta` com o pedido e o obtido. A execução conta isso como falha e sai 5.
+     (inclusive listagem vazia ou truncada), o relatório recebe uma linha `janela_incompleta`
+     com o pedido e o obtido. A execução conta isso como falha e sai 5.
+   - **Listagem que falha** (NAO_ENCONTRADO, INTERROMPIDO e outras): o relatório recebe uma
+     linha de família `INCONCLUSIVO`, com motivo `listagem_nao_obtida resultado=<…>`.
 3. Observa de novo cada arquivo (`observe_updates`), sem pular os já obtidos. Os mesmos bytes
    viram nova observação da mesma versão; bytes novos viram versão nova. O histórico não é
    substituído.
@@ -168,14 +170,18 @@ Também confere a coerência de uma tabela fornecida com a política da execuç�
      A transição de deleção nunca é inferida por casamento de valores: quando as contagens
      diferem, o motivo registra `transicao_de_delecao_ambigua`. Um registro que passa a
      deletado aparece como saída das ativas.
-5. Acrescenta a `<raiz_manifestos>/vigilancia.jsonl` as linhas de janela incompleta, uma linha
-   por chave e um resumo com a contagem por resultado. O resumo só fala das observações da
-   pesquisa (`… de=… ate=… alcance=somente_observacoes_da_pesquisa`), e o prefixo depende do
-   que houve:
+5. Acrescenta a `<raiz_manifestos>/vigilancia.jsonl` as linhas de família, uma linha por
+   tentativa de arquivo (e por chave sumida) e um resumo com a contagem por resultado.
+   - O resumo e o código de saída são calculados só a partir das linhas gravadas.
+   - A saída 5 ocorre se, e somente se, há linha não conclusiva: janela incompleta,
+     INCONCLUSIVO ou ARQUIVO_SUMIU. Um teste de propriedade confere isso.
+   - O resumo só fala das observações da pesquisa (`… de=… ate=…
+     alcance=somente_observacoes_da_pesquisa`), e o prefixo depende do que houve:
    - `vigilancia_inconclusiva`: alguma janela incompleta, INCONCLUSIVO ou ARQUIVO_SUMIU;
    - `revisao_observada`: REVISAO_REAL, CORRESPONDENCIA_AMBIGUA ou BYTES_ALTERADOS_SEM_COMPARACAO;
    - `arquivos_novos_observados`: só ARQUIVO_NOVO além de INALTERADA;
-   - `sem_revisao_observada`: só com janelas completas e todas as chaves INALTERADA.
+   - `sem_revisao_observada`: só com janelas completas e todas as chaves INALTERADA;
+   - `sem_observacao`: só com zero linhas.
 
    **Ausência de revisão observada não afirma que nunca houve revisão:** uma republicação entre
    duas observações, ou antes da primeira, pode ter escapado.

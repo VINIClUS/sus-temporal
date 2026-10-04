@@ -43,9 +43,11 @@ __all__ = [
     "chaves_sumidas",
     "classificar_chave",
     "competencias_da_janela",
-    "eh_falha",
     "gravar_relatorio",
+    "linhas_do_relatorio",
+    "nao_conclusiva",
     "observe_updates",
+    "resumir_linhas",
     "resumir_vigilancia",
     "sumida",
     "versoes_anteriores",
@@ -173,6 +175,7 @@ class JanelaIncompleta:
     obtido: int
     competencias: tuple[str, ...]
     motivo: str
+    resultado: str | None = None
 
 
 def _resultado(
@@ -220,53 +223,17 @@ def sumida(anterior: ArtifactVersion) -> ComparacaoVersoes:
     return _resultado(anterior, None, ResultadoComparacao.ARQUIVO_SUMIU, "sumiu_da_listagem")
 
 
-def eh_falha(comparacao: ComparacaoVersoes) -> bool:
-    return comparacao.resultado in _FALHAS
+Linha = dict[str, object]
 
 
-def _prefixo(comparacoes: Sequence[ComparacaoVersoes], janelas_incompletas: int) -> str:
-    resultados = {c.resultado for c in comparacoes}
-    if janelas_incompletas or resultados & set(_FALHAS):
-        return "vigilancia_inconclusiva"
-    if resultados & set(_REVISOES):
-        return "revisao_observada"
-    if ResultadoComparacao.ARQUIVO_NOVO in resultados:
-        return "arquivos_novos_observados"
-    return "sem_revisao_observada" if resultados else "sem_chave_acompanhada"
-
-
-def resumir_vigilancia(
-    observacoes: Sequence[ArtifactObservation],
-    comparacoes: Sequence[ComparacaoVersoes],
-    *,
-    janelas_incompletas: int = 0,
-) -> str:
-    """Resumo que só fala do que a pesquisa observou, com a contagem por resultado.
-
-    `sem_revisao_observada` só com janelas completas e todas as chaves INALTERADA; nunca afirma
-    nada fora das observações.
-    """
-    resultados = [c.resultado for c in comparacoes]
-    contagens = " ".join(f"{r.value.lower()}={resultados.count(r)}" for r in ResultadoComparacao)
-    instantes = sorted(o.observado_em for o in observacoes)
-    periodo = f"de={instantes[0].isoformat()} ate={instantes[-1].isoformat()} " if instantes else ""
-    return (
-        f"{_prefixo(comparacoes, janelas_incompletas)} {contagens} "
-        f"janelas_incompletas={janelas_incompletas} observacoes={len(observacoes)} "
-        f"{periodo}alcance=somente_observacoes_da_pesquisa"
-    )
-
-
-def gravar_relatorio(
-    caminho: Path,
+def linhas_do_relatorio(
     comparacoes: Iterable[tuple[Chave, ComparacaoVersoes]],
-    resumo: str,
-    *,
     janelas: Iterable[JanelaIncompleta] = (),
-) -> None:
-    """Acrescenta ao relatório as janelas incompletas, uma linha por chave e o resumo."""
-    linhas: list[dict[str, object]] = [
-        {"janela_incompleta": True, **asdict(janela)} for janela in janelas
+) -> list[Linha]:
+    """Linhas de família (janela incompleta ou listagem que falhou) e uma linha por chave."""
+    linhas: list[Linha] = [
+        {"janela_incompleta": True, **{k: v for k, v in asdict(j).items() if v is not None}}
+        for j in janelas
     ]
     linhas += [
         {
@@ -285,8 +252,54 @@ def gravar_relatorio(
         }
         for chave, c in comparacoes
     ]
-    linhas.append({"resumo": resumo})
+    return linhas
+
+
+def nao_conclusiva(linha: Linha) -> bool:
+    """Janela incompleta, INCONCLUSIVO ou ARQUIVO_SUMIU: a execução sai com falha (5)."""
+    return bool(linha.get("janela_incompleta")) or linha.get("resultado") in _FALHAS
+
+
+def _prefixo(linhas: Sequence[Linha]) -> str:
+    resultados = {linha.get("resultado") for linha in linhas} - {None}
+    if any(nao_conclusiva(linha) for linha in linhas):
+        return "vigilancia_inconclusiva"
+    if resultados & set(_REVISOES):
+        return "revisao_observada"
+    if ResultadoComparacao.ARQUIVO_NOVO in resultados:
+        return "arquivos_novos_observados"
+    return "sem_revisao_observada" if resultados else "sem_observacao"
+
+
+def resumir_linhas(linhas: Sequence[Linha], observacoes: Sequence[ArtifactObservation]) -> str:
+    """Resumo calculado só das linhas gravadas, com a contagem por resultado.
+
+    `sem_revisao_observada` só com janelas completas e todas as chaves INALTERADA;
+    `sem_observacao` só sem nenhuma linha. Nunca afirma nada fora das observações.
+    """
+    resultados = [linha.get("resultado") for linha in linhas]
+    contagens = " ".join(f"{r.value.lower()}={resultados.count(r)}" for r in ResultadoComparacao)
+    janelas = sum(bool(linha.get("janela_incompleta")) for linha in linhas)
+    instantes = sorted(o.observado_em for o in observacoes)
+    periodo = f"de={instantes[0].isoformat()} ate={instantes[-1].isoformat()} " if instantes else ""
+    return (
+        f"{_prefixo(linhas)} {contagens} janelas_incompletas={janelas} "
+        f"observacoes={len(observacoes)} {periodo}alcance=somente_observacoes_da_pesquisa"
+    )
+
+
+def resumir_vigilancia(
+    observacoes: Sequence[ArtifactObservation],
+    comparacoes: Sequence[ComparacaoVersoes],
+) -> str:
+    """Resumo de comparações avulsas (sem chave nem janela), pela mesma regra do relatório."""
+    linhas: list[Linha] = [{"resultado": str(c.resultado)} for c in comparacoes]
+    return resumir_linhas(linhas, observacoes)
+
+
+def gravar_relatorio(caminho: Path, linhas: Sequence[Linha], resumo: str) -> None:
+    """Acrescenta ao relatório as linhas da execução e o resumo."""
     caminho.parent.mkdir(parents=True, exist_ok=True)
     with caminho.open("a", encoding="utf-8") as saida:
-        for linha in linhas:
+        for linha in [*linhas, {"resumo": resumo}]:
             saida.write(json.dumps(linha, ensure_ascii=False, sort_keys=True) + "\n")

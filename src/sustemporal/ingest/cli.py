@@ -19,6 +19,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, cast
 
+import pyarrow.parquet as pq
+
 from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts import FamiliaFonte, LayoutSpec, OrigemDados
@@ -137,6 +139,26 @@ class _Execucao:
             self.sia_pa_incompleto[competencia.valor] = "versao_fora_do_corte"
         return False
 
+    def propagar_incompletude(self, versoes: Sequence[ArtifactVersion]) -> None:
+        """Competência de arquivo incompleta contamina as competências de processamento que
+        seus conjuntos trazem (PA_MVM pode diferir do nome do arquivo)."""
+        por_artefato = {v.artifact_id: v.chave.competencia_arquivo for v in versoes}
+        herdadas: dict[str, str] = {}
+        for dataset in self.datasets:
+            if dataset.schema_id != "sia_pa.v1":
+                continue
+            arquivos = {por_artefato.get(a) for a in dataset.artifact_ids} - {None}
+            origem = next(
+                (c.valor for c in arquivos if c is not None and c.valor in self.sia_pa_incompleto),
+                None,
+            )
+            if origem is None:
+                continue
+            for valor in _competencias_processamento(dataset):
+                if valor not in self.sia_pa_incompleto:
+                    herdadas[valor] = f"herdada competencia_arquivo={origem}"
+        self.sia_pa_incompleto.update(herdadas)
+
     def marcar_tentativas_sem_versao(
         self, versoes: Sequence[ArtifactVersion], observacoes: Sequence[ArtifactObservation]
     ) -> None:
@@ -187,6 +209,16 @@ class _Execucao:
         competencia = versao.chave.competencia_arquivo
         if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
             self.sia_pa_incompleto[competencia.valor] = estado
+
+
+def _competencias_processamento(dataset: DatasetRef) -> set[str]:
+    colunas = ["competencia_processamento", "deletado"]
+    tabela = pq.read_table(dataset.caminho, columns=colunas)
+    return {
+        str(linha["competencia_processamento"])
+        for linha in tabela.to_pylist()
+        if linha["competencia_processamento"] is not None and not linha["deletado"]
+    }
 
 
 def _republicacao(por_parte: dict[str | None, set[str]]) -> str | None:
@@ -290,6 +322,7 @@ def executar_ingest(args: argparse.Namespace, config: RunConfig) -> int:
             execucao.normalizar(versao)
     execucao.marcar_tentativas_sem_versao(versoes, observacoes)
     execucao.marcar_partes(versoes, config)
+    execucao.propagar_incompletude(versoes)
     competencias = [c.valor for c in piloto.competencias_processamento]
     sia_pa = [d for d in execucao.datasets if d.schema_id == "sia_pa.v1"]
     auxiliares = [d for d in execucao.datasets if d.schema_id != "sia_pa.v1"]

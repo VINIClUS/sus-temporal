@@ -6,9 +6,9 @@ from decimal import Decimal
 from pathlib import Path
 
 import pytest
-from tests.fixtures.cnes_dbc import dbc_cnes, registro_pf
+from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf
 from tests.fixtures.piloto_conjuntos import conjunto_sia_pa, registro
-from tests.fixtures.piloto_ingest import config_ingest, fontes_ingest
+from tests.fixtures.piloto_ingest import cobertura_ingest, config_ingest, fontes_ingest
 from tests.fixtures.piloto_manifesto import registrar_falha, registrar_versoes
 from tests.fixtures.piloto_relatorio import (
     coorte_piloto,
@@ -17,7 +17,7 @@ from tests.fixtures.piloto_relatorio import (
     relatorio_gravado,
 )
 from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa
-from tests.fixtures.sigtap_zip import pacote_padrao, zip_sigtap
+from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
 
 from sustemporal import cli
 from sustemporal.contracts import (
@@ -237,3 +237,49 @@ def test_modelo_g0_nao_libera_o_portao(tmp_path: Path) -> None:
     (decisoes / MODELO_G0.name).write_bytes(MODELO_G0.read_bytes())
     with pytest.raises(PortaoRecusado, match="portao_sem_decisao"):
         exigir_portao(decisoes, Portao.G0)
+
+
+def _manifesto_completo(pasta: Path, registros: list[dict[str, str]], *, truncar: bool) -> None:
+    store = pasta / "dados" / "raw"
+    (pasta / "manifestos").mkdir(parents=True)
+    versoes = [
+        artefato_pa(store, dbc_pa(registros)),
+        artefato_sigtap(store, zip_sigtap(pacote_padrao("201801"))),
+        artefato_cnes(store, dbc_cnes(PF, [registro_pf("0012345", "225125")]), PF),
+    ]
+    if truncar:
+        versoes.append(artefato_pa(store, dbc_pa(registros, truncar_bytes=30), parte="b"))
+    registrar_versoes(pasta / "manifestos" / "aquisicao.jsonl", versoes)
+
+
+def _estados_disponibilidade(pasta: Path, partes: list[str]) -> dict[tuple[str, str], str]:
+    config = config_ingest(pasta, fontes_ingest(pasta, partes))
+    assert cli.main(["ingest", "--config", str(config)]) == ExitCode.OK
+    assert cli.main(["pilot-report", "--config", str(config)]) == ExitCode.OK
+    linhas = linhas_tabela(relatorio_gravado(pasta), "piloto_disponibilidade.v1")
+    return {
+        (str(lin["familia_regra"]), str(lin["base_temporal"])): str(lin["estado"])
+        for lin in linhas
+        if lin["instrumento"] == "C"
+    }
+
+
+def test_disponibilidade_recalculada_so_com_a_populacao_do_territorio(tmp_path: Path) -> None:
+    registros = [
+        registro("C", "201801", "201801"),
+        registro("C", "201801", "", PA_UFMUN=FORA_DO_DRS_XI),
+    ]
+    _manifesto_completo(tmp_path, registros, truncar=False)
+    estados = _estados_disponibilidade(tmp_path, ["a"])
+    assert cobertura_ingest(tmp_path)[("VIGENCIA_PROCEDIMENTO", "ATENDIMENTO")] != "DISPONIVEL"
+    assert estados[("VIGENCIA_PROCEDIMENTO", "ATENDIMENTO")] == "DISPONIVEL"
+
+
+def test_marcas_de_sia_pa_incompleto_da_ingestao_continuam_no_relatorio(tmp_path: Path) -> None:
+    _manifesto_completo(tmp_path, [registro("C", "201801", "201801")], truncar=True)
+    estados = _estados_disponibilidade(tmp_path, ["a", "b"])
+    assert "DISPONIVEL" not in estados.values()
+    linhas = linhas_tabela(relatorio_gravado(tmp_path), "piloto_disponibilidade.v1")
+    assert all(
+        "sia_pa_incompleto competencia=201801 motivo=" in str(lin["motivo"]) for lin in linhas
+    )

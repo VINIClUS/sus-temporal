@@ -34,6 +34,7 @@ __all__ = [
     "ColunaSigtap",
     "artefato_sigtap",
     "colunas_com_valor",
+    "corromper",
     "membros_tabela",
     "pacote_padrao",
     "registro_procedimento",
@@ -186,6 +187,12 @@ def pacote_padrao(competencia: str = "201801", *, largura_valor: int = 12) -> di
     }
 
 
+def corromper(dados: bytes, posicao: int, mascara: int = 0xFF) -> bytes:
+    """Troca um byte do zip (posição módulo o tamanho) por XOR com a máscara."""
+    indice = posicao % len(dados)
+    return dados[:indice] + bytes([dados[indice] ^ mascara]) + dados[indice + 1 :]
+
+
 def zip_sigtap(membros: Mapping[str, bytes]) -> bytes:
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as arquivo:
@@ -199,16 +206,19 @@ def artefato_sigtap(
     pasta: Path,
     dados: bytes,
     *,
-    competencia: str = "201801",
+    competencia: str | None = "201801",
     geracao: str = "1801101010",
     integridade: EstadoIntegridade = EstadoIntegridade.OK,
+    declarado: bytes | None = None,
 ) -> ArtifactVersion:
+    """Artefato endereçado por conteúdo; `declarado` é o zip cujos membros a aquisição listou
+    (permite gravar bytes corrompidos depois da listagem)."""
     sha256 = hashlib.sha256(dados).hexdigest()
-    nome = f"TabelaUnificada_{competencia}_v{geracao}.zip"
+    nome = f"TabelaUnificada_{competencia or 'SEM'}_v{geracao}.zip"
     caminho = caminho_conteudo(pasta, sha256, "zip")
     caminho.parent.mkdir(parents=True, exist_ok=True)
     caminho.write_bytes(dados)
-    with zipfile.ZipFile(io.BytesIO(dados)) as arquivo:
+    with zipfile.ZipFile(io.BytesIO(declarado if declarado is not None else dados)) as arquivo:
         membros = tuple(
             MembroArquivo(nome=info.filename, tamanho_bytes=info.file_size, seguro=True)
             for info in arquivo.infolist()

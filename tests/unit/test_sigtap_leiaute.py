@@ -10,8 +10,9 @@ import pytest
 
 from sustemporal.contracts import EsquemaCanonico, EstadoIntegridade, LayoutSpec, PapelColuna
 from sustemporal.ingest.dbf import QuarentenaLeitura
-from sustemporal.ingest.sigtap import ESQUEMAS, TABELAS
+from sustemporal.ingest.sigtap import ESQUEMAS, TABELAS, conferir_anulaveis
 from sustemporal.ingest.sigtap_zip import (
+    acumular_limitado,
     carregar_leiautes_sigtap,
     conferir_leiaute,
     fatiar,
@@ -136,3 +137,36 @@ def test_membro_repetido_ou_com_caixa_diferente_vai_para_quarentena() -> None:
 def test_membro_le_bytes_dentro_do_limite() -> None:
     with _zip({"tb_registro.txt": b"abc"}) as arquivo:
         assert ler_membro(arquivo, "tb_registro.txt", 3) == b"abc"
+
+
+@pytest.mark.parametrize(
+    "texto",
+    ["{l}\r\n{c}\r\n{l}\r\n", "{l}\r\r\n{l}\r\n"],
+    ids=["linha_curta_no_meio", "cr_duplicado"],
+)
+def test_registro_irregular_fora_do_fim_e_leiaute_incompativel(texto: str) -> None:
+    colunas = ler_leiaute_zip(texto_leiaute(COLUNAS["tb_registro"]))
+    linha = "01" + "BPA".ljust(50) + "201801"
+    dados = texto.format(l=linha, c=linha[:-1]).encode("latin-1")
+    with pytest.raises(QuarentenaLeitura) as erro:
+        fatiar(dados, colunas)
+    assert erro.value.estado is EstadoIntegridade.QUARENTENA_LEIAUTE
+
+
+def test_leitura_para_no_limite_mesmo_com_tamanho_declarado_falso() -> None:
+    excesso = QuarentenaLeitura(EstadoIntegridade.QUARENTENA_CONTEUDO_INESPERADO, "x")
+    with pytest.raises(QuarentenaLeitura):
+        acumular_limitado(io.BytesIO(b"a" * 11), 10, excesso)
+    assert acumular_limitado(io.BytesIO(b"a" * 10), 10, excesso) == b"a" * 10
+
+
+def test_nulo_em_coluna_nao_anulavel_vai_para_quarentena() -> None:
+    esquema = EsquemaCanonico.de_yaml(ESQUEMAS / "sigtap_registro.yaml")
+    colunas: dict[str, list[object]] = {
+        "dt_competencia": ["201801"],
+        "co_registro": [None],
+        "artifact_id": ["art_x"],
+        "no_registro": [None],
+    }
+    with pytest.raises(QuarentenaLeitura, match="nulo_em_coluna_nao_anulavel"):
+        conferir_anulaveis(colunas, esquema)

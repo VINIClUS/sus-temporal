@@ -52,7 +52,7 @@ from sustemporal.store import caminho_conteudo
 if TYPE_CHECKING:
     from sustemporal.contracts import ArtifactVersion, CampoLeiaute, LayoutSpec
 
-__all__ = ["ESQUEMAS", "PADROES_CHAVE", "TABELAS", "normalize_sigtap"]
+__all__ = ["ESQUEMAS", "PADROES_CHAVE", "TABELAS", "conferir_anulaveis", "normalize_sigtap"]
 
 logger = logging.getLogger(__name__)
 
@@ -224,6 +224,11 @@ def _sem_duplicatas(
     return {n: [linha[i] for linha in unicas] for i, n in enumerate(nomes)}, len(linhas) - len(
         unicas
     )
+
+
+def conferir_anulaveis(colunas: dict[str, Valores], esquema: EsquemaCanonico) -> None:
+    """Recusa nulo em coluna que o esquema declara não anulável."""
+    raise NotImplementedError
 
 
 def _conferir_competencia(colunas: dict[str, Valores], artifact: ArtifactVersion) -> None:

@@ -27,6 +27,7 @@ __all__ = [
     "CATALOGO_LEIAUTES",
     "LIMITE_MEMBRO_PADRAO",
     "ColunaZip",
+    "acumular_limitado",
     "carregar_leiautes_sigtap",
     "conferir_leiaute",
     "fatiar",
@@ -111,14 +112,14 @@ def _ler_limitado(arquivo: zipfile.ZipFile, info: zipfile.ZipInfo, limite: int) 
         raise excesso
     try:
         with arquivo.open(info) as membro:
-            return _acumular(membro, limite, excesso)
+            return acumular_limitado(membro, limite, excesso)
     except (zipfile.BadZipFile, EOFError, NotImplementedError, RuntimeError) as erro:
         raise _inesperado(
             f"membro_ilegivel nome={info.filename} erro={type(erro).__name__}"
         ) from erro
 
 
-def _acumular(membro: IO[bytes], limite: int, excesso: QuarentenaLeitura) -> bytes:
+def acumular_limitado(membro: IO[bytes], limite: int, excesso: QuarentenaLeitura) -> bytes:
     """Lê por blocos e recusa ao passar do limite, mesmo que o tamanho declarado minta."""
     partes: list[bytes] = []
     lidos = 0

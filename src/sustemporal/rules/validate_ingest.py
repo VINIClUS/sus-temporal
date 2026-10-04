@@ -74,6 +74,7 @@ def _anexos(
         cobertura=insumos.cobertura,
         integridade=dict(insumos.integridade),
         politica=insumos.politica,
+        identidade_adicional=dict(insumos.identidade_adicional) or None,
     )
     conteudo_recorte = {
         "municipios": sorted(municipios),

@@ -7,7 +7,6 @@ from contextlib import closing
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import duckdb
 from pydantic import ValidationError
 
 from sustemporal.contracts.experiment import EstadoExecucao
@@ -102,10 +101,7 @@ def executar_validate(args: argparse.Namespace, config: RunConfig) -> int:
         return _concluir(validar_ingest(args.ingest, metodo, config, saida_runs), metodo)
     entrada = _ler_entrada(args.entrada)
     with closing(conectar(config.runtime)) as con:
-        try:
-            exigir_sem_deletados(con, entrada.dataset)
-        except duckdb.Error as erro:
-            raise ConfigInvalida(f"entrada_ilegivel detalhe={erro}") from erro
+        exigir_sem_deletados(con, entrada.dataset)
     try:
         regras = carregar_regras()
         politica = _politica(metodo, entrada, regras)
@@ -117,6 +113,7 @@ def executar_validate(args: argparse.Namespace, config: RunConfig) -> int:
         cobertura=entrada.cobertura,
         integridade=entrada.integridade,
         politica=politica,
+        identidade_adicional=entrada.identidade_adicional or {},
     )
     saida = args.saida or Path(config.runtime.raiz_saidas) / "validacao"
     try:

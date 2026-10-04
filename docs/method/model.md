@@ -236,7 +236,8 @@ vêm antes de gravar qualquer arquivo:
   porque a seleção decide quais versões valem e a avaliação junta por `artifact_id`;
 - cobertura: no máximo um `cobertura.v1` (mais de um → saída 2); nenhum → matriz não fornecida.
   Com um, a cobertura avaliada é recalculada por `ingest.coverage.build_coverage` sobre a
-  produção territorial e as relações auxiliares derivadas, nas competências de processamento do
+  produção territorial e os conjuntos auxiliares originais da ingestão (com `reconciliacao`, então
+  perda de linhas continua tornando a célula insuficiente), nas competências de processamento do
   piloto, preservando as marcas de incompletude da ingestão (motivos
   `sia_pa_incompleto competencia=AAAAMM motivo=…`, lidos por `incompletude_da_cobertura`): nunca
   sai `DISPONIVEL` onde a ingestão marcou arquivo incompleto. Assim um registro de fora do
@@ -250,9 +251,12 @@ vêm antes de gravar qualquer arquivo:
 
 Toda execução do `validate` (`--entrada` ou `--ingest`) grava `out/<run_id>/entrada_validacao.json`
 (`rules/entrada.py::EntradaValidacao`): conjunto SIA-PA, `SnapshotSet`, auxiliares, seleção,
-cobertura, integridade e a política resolvida, com os mesmos `DatasetRef` de `RunResult.entradas`.
+cobertura, integridade, a política resolvida e a `identidade_adicional` (hash do território), com os
+mesmos `DatasetRef` de `RunResult.entradas`; reexecutar com `--entrada` sobre esse arquivo reproduz o
+`run_id`.
 No caminho direto (`--entrada`) não há onde registrar exclusões: produção com `deletado`
-verdadeiro é recusada (`producao_com_registros_deletados`, saída 2). O motor grava esses anexos atomicamente (`evaluate_rules(..., anexos=)`) antes de qualquer saída, então
+verdadeiro é recusada (`producao_com_registros_deletados`, saída 2); erro de leitura do Parquet
+nessa pré-checagem segue para o motor e vira falha operacional (saída 5, `falhas.v1`). O motor grava esses anexos atomicamente (`evaluate_rules(..., anexos=)`) antes de qualquer saída, então
 `run_result.json` nunca existe sem eles. Uma entrada com `politica` reavalia com essa política.
 
 A política é a de `politica_da_execucao` com o método de `--policy`; a avaliação é

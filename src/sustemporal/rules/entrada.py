@@ -18,7 +18,8 @@ class EntradaValidacao(ContratoBase):
     """Insumos explícitos da validação; nenhum diretório "latest" é resolvido implicitamente.
 
     `politica` é a política resolvida da execução (gravada por toda execução do `validate`);
-    `politica_documentada` continua aceita na entrada para M_TEMP.
+    `politica_documentada` continua aceita na entrada para M_TEMP. `identidade_adicional` (ex.:
+    hash do território) volta a `InsumosAvaliacao`, assim a entrada gravada reproduz o `run_id`.
     """
 
     dataset: DatasetRef
@@ -29,3 +30,4 @@ class EntradaValidacao(ContratoBase):
     integridade: dict[str, EstadoIntegridade] = Field(default_factory=dict)
     politica_documentada: PoliticaTemporal | None = None
     politica: PoliticaTemporal | None = None
+    identidade_adicional: dict[str, str] | None = None

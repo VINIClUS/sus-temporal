@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import duckdb
 from pydantic import ValidationError
 
 from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
@@ -32,8 +33,6 @@ from sustemporal.temporal.selector import partes_esperadas_do_catalogo
 
 if TYPE_CHECKING:
     from datetime import datetime
-
-    import duckdb
 
     from sustemporal.contracts.artifacts import ArtifactVersion
     from sustemporal.contracts.config import RunConfig
@@ -279,20 +278,24 @@ def _gravar(
 def exigir_sem_deletados(con: duckdb.DuckDBPyConnection, producao: DatasetRef) -> None:
     """Caminho direto (`--entrada`): sem registro de exclusões, recusa produção com deletados.
 
+    Erro de leitura não é tratado aqui: segue para o motor, que o registra como falha operacional.
+
     Raises:
         ConfigInvalida: alguma linha com `deletado` verdadeiro.
     """
-    colunas = {
-        str(c[0])
-        for c in con.execute(
+    try:
+        descricao = con.execute(
             "DESCRIBE SELECT * FROM read_parquet($c)", {"c": producao.caminho}
         ).fetchall()
-    }
-    if "deletado" not in colunas:
+        if "deletado" not in {str(c[0]) for c in descricao}:
+            return
+        linhas = con.execute(
+            "SELECT count(*) FROM read_parquet($c) WHERE deletado IS TRUE",
+            {"c": producao.caminho},
+        ).fetchall()[0][0]
+    except duckdb.Error:
+        logger.info("pre_checagem_de_deletados_sem_leitura caminho=%s", producao.caminho)
         return
-    linhas = con.execute(
-        "SELECT count(*) FROM read_parquet($c) WHERE deletado IS TRUE", {"c": producao.caminho}
-    ).fetchall()[0][0]
     if linhas:
         raise ConfigInvalida(f"producao_com_registros_deletados linhas={linhas}")
 
@@ -381,7 +384,12 @@ def _recalcular_cobertura(
     config: RunConfig,
     destino: Path,
 ) -> DatasetRef:
-    """Cobertura sobre a produção territorial, com as marcas de incompletude da ingestão."""
+    """Cobertura sobre a produção territorial, com as marcas de incompletude da ingestão.
+
+    Os auxiliares são os conjuntos originais da ingestão (com `reconciliacao`, já conferidos):
+    não passam por recorte, e a perda de linhas declarada neles continua tornando a célula
+    insuficiente.
+    """
     producao, auxiliares = derivados
     piloto = config.piloto
     competencias = [str(c) for c in piloto.competencias_processamento] if piloto else []
@@ -428,8 +436,9 @@ def preparar_insumos_ingest(
     ]
     recalculada = None
     if cobertura is not None:
+        originais = [ref for refs in grupos[1:] for ref in refs]
         recalculada = _recalcular_cobertura(
-            con, cobertura, (ref_producao, derivados), config, destino
+            con, cobertura, (ref_producao, originais), config, destino
         )
     logger.info(
         "insumos_ingest_prontos producao=%s exclusoes=%s", ref_producao.dataset_id, exclusoes

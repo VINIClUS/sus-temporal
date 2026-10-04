@@ -28,7 +28,13 @@ if TYPE_CHECKING:
     from sustemporal.contracts.artifacts import ArtifactObservation, ArtifactVersion
     from sustemporal.contracts.records import DatasetRef
 
-__all__ = ["MUNICIPIOS", "MUNICIPIO_FORA", "MundoIngest", "montar_ingest"]
+__all__ = [
+    "MUNICIPIOS",
+    "MUNICIPIO_FORA",
+    "MundoIngest",
+    "gravar_territorio",
+    "montar_ingest",
+]
 
 JANEIRO, FEVEREIRO = "202301", "202302"
 _PROCEDIMENTO, _CBO, _CNES = "0301010072", "225125", "1234567"
@@ -55,10 +61,11 @@ def _digito(ibge6: str) -> str:
     return str((10 - soma % 10) % 10)
 
 
-def _territorio(destino: Path) -> Path:
+def gravar_territorio(destino: Path, extra: str | None = None) -> Path:
+    codigos = [*MUNICIPIOS, extra] if extra else list(MUNICIPIOS)
     municipios = [
         {"ibge7": f"{c}{_digito(c)}", "ibge6": c, "nome": f"SINTETICO {c}", "regiao": "R1"}
-        for c in MUNICIPIOS
+        for c in codigos
     ]
     conteudo = {
         "territorio_id": "sintetico",
@@ -182,6 +189,8 @@ def montar_ingest(
     corte: str | None = None,
     auxiliar_divergente: bool = False,
     cobertura_com_tipo_invalido: bool = False,
+    municipio_extra: str | None = None,
+    competencias_piloto: tuple[str, ...] = (JANEIRO, FEVEREIRO),
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -210,8 +219,8 @@ def montar_ingest(
         "runtime": {"raiz_manifestos": str(manifestos), "raiz_saidas": str(saidas)},
         "piloto": {
             "uf": "SP",
-            "competencias_processamento": [JANEIRO, FEVEREIRO],
-            "territorio": str(_territorio(raiz / "territorio.yaml")),
+            "competencias_processamento": list(competencias_piloto),
+            "territorio": str(gravar_territorio(raiz / "territorio.yaml", municipio_extra)),
             "familias_fontes": ["SIA_PA", "CNES_PF", "SIGTAP"],
         },
     }

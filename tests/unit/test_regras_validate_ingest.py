@@ -16,7 +16,7 @@ from sustemporal.contracts.experiment import EstadoExecucao, RunResult
 from sustemporal.errors import ExitCode
 from sustemporal.rules.ingest import integridade_do_registro
 from sustemporal.temporal.registry import registro_de
-from tests.fixtures.regras_ingest import MUNICIPIO_FORA, montar_ingest
+from tests.fixtures.regras_ingest import MUNICIPIO_FORA, gravar_territorio, montar_ingest
 from tests.fixtures.temporal_registro import observar
 
 if TYPE_CHECKING:
@@ -221,3 +221,29 @@ def test_cobertura_com_tipo_fisico_invalido_sai_sem_saidas(tmp_path: Path) -> No
     mundo = montar_ingest(tmp_path, cobertura_com_tipo_invalido=True)
     assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
     assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))
+
+
+def test_territorio_diferente_sem_registros_muda_a_identidade_da_execucao(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path)
+    assert _validar(mundo, "processamento") == ExitCode.OK
+    gravar_territorio(tmp_path / "territorio.yaml", "350030")
+    assert _validar(mundo, "processamento") == ExitCode.OK
+    resultados = _resultados(mundo)
+    assert len({r.run_id for r, _ in resultados}) == 2
+    recortes = [json.loads((p / "recorte_territorial.json").read_text()) for _, p in resultados]
+    assert sorted(len(r["municipios"]) for r in recortes) == [2, 3]
+
+
+def test_producao_fora_das_competencias_do_piloto_e_recusada(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, competencias_piloto=("202301",))
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+    assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))
+
+
+def test_integridade_omite_versoes_observadas_so_depois_do_corte() -> None:
+    obs, versao = observar(FamiliaFonte.CNES_PF, "202301", "tardia", 40)
+    assert versao is not None
+    registro = registro_de([obs], [versao])
+    corte = obs.observado_em - timedelta(days=1)
+    assert versao.artifact_id not in integridade_do_registro(registro, corte=corte)
+    assert versao.artifact_id in integridade_do_registro(registro)

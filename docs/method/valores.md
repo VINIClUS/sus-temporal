@@ -70,7 +70,9 @@ A governança vem do catálogo de operações do T09 (`Governanca`: `MUNICIPAL_D
 - `politica_id` e `metodo` das avaliações precisam coincidir com os do run.
 - A família de cada regra vem do catálogo usado no run: `catalogo_regras_sha256` do run precisa
   coincidir com o hash do catálogo (completo ou do subconjunto avaliado) e cada `versao` avaliada
-  com a do catálogo; run sem hash de catálogo é recusado.
+  com a do catálogo. Divergência é falha operacional
+  (`catalogo_regras_divergente run=… esperado=… lido=…`), nunca recarga silenciosa do catálogo
+  atual; run sem hash de catálogo é recusado.
 - Somas usam precisão decimal de 80 dígitos; valor com mais de 32 dígitos inteiros ou mais de 6
   casas decimais é recusado, nunca arredondado.
 

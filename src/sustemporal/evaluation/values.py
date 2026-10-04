@@ -229,16 +229,20 @@ def _familias_da_execucao(
     candidatas = list(regras) if regras is not None else carregar_regras()
     ids = {str(rule_id) for rule_id, _ in avaliadas}
     subconjunto = [r for r in candidatas if r.rule_id in ids]
-    if run.catalogo_regras_sha256 not in {
-        catalogo_sha256(candidatas),
-        catalogo_sha256(subconjunto),
-    }:
-        raise ValueError(f"catalogo_de_regras_divergente run={run.run_id}")
+    lido = catalogo_sha256(candidatas)
+    if run.catalogo_regras_sha256 not in {lido, catalogo_sha256(subconjunto)}:
+        raise FalhaOperacionalErro(
+            f"catalogo_regras_divergente run={run.run_id} "
+            f"esperado={run.catalogo_regras_sha256} lido={lido}"
+        )
     por_id = {r.rule_id: r for r in subconjunto}
     for rule_id, versao in avaliadas:
         regra = por_id.get(str(rule_id))
         if regra is None or regra.versao != str(versao):
-            raise ValueError(f"versao_de_regra_divergente run={run.run_id} regra={rule_id}")
+            raise FalhaOperacionalErro(
+                f"catalogo_regras_divergente run={run.run_id} regra={rule_id} "
+                f"versao_esperada={versao} versao_lida={regra.versao if regra else None}"
+            )
     return {rule_id: regra.familia for rule_id, regra in por_id.items()}
 
 
@@ -445,11 +449,12 @@ def summarize_values(
     Raises:
         FalhaOperacionalErro: saída ausente ou repetida, Parquet ilegível ou divergente, leiaute
             incompatível, rótulos que não cobrem a execução, ocorrência repetida ou agregado
-            incoerente com as violações.
+            incoerente com as violações, catálogo de regras ou versão de regra divergente do
+            run (`catalogo_regras_divergente`, nunca recarga silenciosa do catálogo atual).
         ValueError: execução não concluída, mais de uma seleção de versões ou divergente do run,
-            rótulos de outro dataset, execução sem catálogo de regras, catálogo ou versão de
-            regra divergente do run, regra fora do catálogo, família de atendimento com
-            governança municipal, origem de dados divergente ou valor fora da escala.
+            rótulos de outro dataset, execução sem catálogo de regras, regra fora do catálogo,
+            família de atendimento com governança municipal, origem de dados divergente ou
+            valor fora da escala.
     """
     _exigir_execucao(run, labels)
     agregados = _saida(run, "agregados_registro.v1")

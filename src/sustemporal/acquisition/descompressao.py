@@ -61,7 +61,8 @@ def descomprimir_limitado(
     """Descomprime `origem` em `destino` sem nunca gravar mais que `limite` bytes.
 
     Só aceita origem que seja arquivo regular (não link) e destino em diretório existente; o
-    filho recebe caminhos absolutos e roda em modo isolado (`-I`: sem PYTHONPATH nem `PYTHON*`).
+    filho recebe caminhos absolutos e roda em modo isolado (`-I`: sem PYTHONPATH nem `PYTHON*`)
+    e sem gravar bytecode (`-B`), que sob o teto de `RLIMIT_FSIZE` sairia truncado.
     """
     recusa = _recusa_de_caminhos(origem, destino)
     if recusa is not None:
@@ -71,7 +72,7 @@ def descomprimir_limitado(
         resource.setrlimit(resource.RLIMIT_FSIZE, (limite, limite))
 
     absolutos = [str(origem.resolve()), str(destino.parent.resolve() / destino.name)]
-    comando = [sys.executable, "-I", "-m", __name__, *absolutos]
+    comando = [sys.executable, "-I", "-B", "-m", __name__, *absolutos]
     try:
         processo = subprocess.run(  # noqa: S603
             comando,

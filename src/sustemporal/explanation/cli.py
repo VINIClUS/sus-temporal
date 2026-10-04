@@ -132,8 +132,16 @@ def _arquivos(explicacao: Explicacao) -> dict[str, bytes]:
     }
 
 
-def _json(falha: FalhaOperacional) -> bytes:
-    return falha.model_dump_json(indent=2).encode("utf-8")
+def _registrar_falha(destino: Path, falha: FalhaOperacional) -> None:
+    """Publica `falha.json`; se nem isso for possível, remove a explicação anterior."""
+    try:
+        _publicar(destino, {"falha.json": falha.model_dump_json(indent=2).encode("utf-8")})
+    except OSError as erro:
+        logger.error("explain_falha_nao_publicada tipo=%s", type(erro).__name__)
+        try:
+            _remover(destino)
+        except OSError:
+            logger.error("explain_destino_nao_removido destino=%s", destino)
 
 
 def _validar_argumentos(args: argparse.Namespace) -> tuple[str, str]:
@@ -182,8 +190,8 @@ def executar_explain(
             erro=str(erro)[:500],
             ocorrida_em=relogio(),
         )
-        _publicar(diretorio_explicacao(raiz, run_id, row_id), {"falha.json": _json(falha)})
         logger.error("explain_falhou erro=%s", erro)
+        _registrar_falha(diretorio_explicacao(raiz, run_id, row_id), falha)
         return int(ExitCode.FALHA_OPERACIONAL)
     except (OSError, duckdb.Error) as erro:
         logger.error("explain_falhou erro=falha_operacional tipo=%s", type(erro).__name__)

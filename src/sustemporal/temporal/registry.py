@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from sustemporal.acquisition.manifest import Manifesto
+from sustemporal.contracts.artifacts import ResultadoTentativa
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -85,12 +86,21 @@ class RegistroTemporal:
         *,
         parte: str | None = None,
     ) -> list[IntervaloObservado]:
-        """Intervalos de seleção derivados da coleta: A, B, A dá três intervalos."""
+        """Intervalos de seleção derivados da coleta: A, B, A dá três intervalos.
+
+        Uma observação NAO_ENCONTRADO da mesma parte encerra o intervalo corrente.
+        """
         intervalos: list[IntervaloObservado] = []
+        aberto = False
         for obs in self.observacoes_de(fonte, uf, competencia):
-            if obs.artifact_id is None or obs.chave.parte != parte:
+            if obs.chave.parte != parte:
                 continue
-            ultimo = intervalos[-1] if intervalos else None
+            if obs.resultado is ResultadoTentativa.NAO_ENCONTRADO:
+                aberto = False
+            if obs.artifact_id is None:
+                continue
+            ultimo = intervalos[-1] if intervalos and aberto else None
+            aberto = True
             if ultimo is not None and ultimo.artifact_id == obs.artifact_id:
                 intervalos[-1] = IntervaloObservado(
                     obs.artifact_id,

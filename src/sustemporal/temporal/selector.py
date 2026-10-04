@@ -20,6 +20,7 @@ from sustemporal.contracts.temporal import (
     BaseTemporal,
     CompetenciaArquivo,
     EstadoSelecao,
+    MetodoId,
     SelecaoVersao,
     SnapshotSet,
     TipoPolitica,
@@ -35,7 +36,8 @@ if TYPE_CHECKING:
     from sustemporal.contracts.temporal import CriterioTemporal, PoliticaTemporal
 
 __all__ = [
-    "criterio_da_fonte",
+    "MOTIVO_POLITICA_AUSENTE",
+    "criterio_da_regra",
     "fontes_auxiliares",
     "motivo_pendencia",
     "motivo_sem_criterio",
@@ -43,9 +45,11 @@ __all__ = [
     "partes_esperadas_do_catalogo",
     "selecionar_versao",
     "select_snapshots",
+    "uf_da_execucao",
     "unir_snapshots",
 ]
 
+MOTIVO_POLITICA_AUSENTE = "politica_da_execucao_ausente"
 _INTEGRAS = {EstadoIntegridade.OK, EstadoIntegridade.NAO_VERIFICADO}
 _COM_CONTEUDO_INTEGRO = {EstadoSelecao.SELECIONADA, EstadoSelecao.INCOMPLETA, EstadoSelecao.AMBIGUA}
 
@@ -57,6 +61,7 @@ class _Parte:
     observacoes: tuple[str, ...]
     descartadas: tuple[str, ...] = ()
     sem_versao: bool = False
+    falha_de_coleta: bool = False
 
 
 def nao_resolvida(fonte: FamiliaFonte, motivo: str) -> SelecaoVersao:
@@ -74,6 +79,15 @@ def _integridade(registro: RegistroTemporal, obs: ArtifactObservation) -> Estado
         return obs.integridade
     versao = registro.versoes.get(obs.artifact_id or "")
     return None if versao is None else versao.integridade
+
+
+def _com_bytes(obs: ArtifactObservation) -> bool:
+    """Houve bytes: conteúdo com hash, recusado antes do hash ou transferência interrompida."""
+    return (
+        obs.sha256_obtido is not None
+        or obs.resultado is ResultadoTentativa.CONTEUDO_INVALIDO
+        or obs.bytes_recebidos > 0
+    )
 
 
 def _integra(registro: RegistroTemporal, obs: ArtifactObservation) -> bool:
@@ -95,7 +109,7 @@ def _avaliar_parte(
     integras = [
         o for o in observacoes if _integra(registro, o) and o.artifact_id in registro.versoes
     ]
-    invalidas = [o for o in observacoes if o.sha256_obtido is not None and o not in integras]
+    invalidas = [o for o in observacoes if _com_bytes(o) and o not in integras]
     distintos = frozenset(o.artifact_id for o in integras if o.artifact_id is not None)
     if distintos:
         estado = EstadoSelecao.AMBIGUA if len(distintos) > 1 else EstadoSelecao.SELECIONADA
@@ -105,7 +119,14 @@ def _avaliar_parte(
         artefatos = frozenset(o.artifact_id for o in invalidas if o.artifact_id is not None)
         ids = tuple(o.observation_id for o in invalidas)
         sem_versao = any(_integra(registro, o) for o in invalidas)
-        return _Parte(EstadoSelecao.EM_QUARENTENA, artefatos, ids, sem_versao=sem_versao)
+        falha = all(o.sha256_obtido is None for o in invalidas)
+        return _Parte(
+            EstadoSelecao.EM_QUARENTENA,
+            artefatos,
+            ids,
+            sem_versao=sem_versao,
+            falha_de_coleta=falha,
+        )
     return _Parte(EstadoSelecao.AUSENTE, frozenset(), tuple(o.observation_id for o in observacoes))
 
 
@@ -128,6 +149,15 @@ def _estado_multipartes(
     return EstadoSelecao.SELECIONADA, f"partes_completas partes={listadas}"
 
 
+def _motivo_quarentena(partes: dict[str | None, _Parte]) -> str:
+    em_quarentena = [p for p in partes.values() if p.estado is EstadoSelecao.EM_QUARENTENA]
+    if any(p.sem_versao for p in em_quarentena):
+        return "observacao_integra_sem_versao"
+    if all(p.falha_de_coleta for p in em_quarentena):
+        return "falha_de_coleta_com_bytes"
+    return "conteudo_em_quarentena"
+
+
 def _estado_combinado(
     partes: dict[str | None, _Parte], esperadas: frozenset[str] | None
 ) -> tuple[EstadoSelecao, str]:
@@ -135,9 +165,7 @@ def _estado_combinado(
     if EstadoSelecao.AMBIGUA in estados:
         return EstadoSelecao.AMBIGUA, "republicacao_com_conteudo_divergente"
     if EstadoSelecao.EM_QUARENTENA in estados:
-        sem_versao = any(p.sem_versao for p in partes.values())
-        motivo = "observacao_integra_sem_versao" if sem_versao else "conteudo_em_quarentena"
-        return EstadoSelecao.EM_QUARENTENA, motivo
+        return EstadoSelecao.EM_QUARENTENA, _motivo_quarentena(partes)
     if estados == {EstadoSelecao.AUSENTE}:
         return EstadoSelecao.AUSENTE, "sem_conteudo_obtido"
     if esperadas is not None or any(parte is not None for parte in partes):
@@ -217,11 +245,31 @@ def selecionar_versao(
     return selecao
 
 
-def criterio_da_fonte(politica: PoliticaTemporal, fonte: FamiliaFonte) -> CriterioTemporal | None:
-    """Critério da política para a fonte; None em política NAO_RESOLVIDA ou sem critério."""
+def _criterio_da_fonte(politica: PoliticaTemporal, fonte: FamiliaFonte) -> CriterioTemporal | None:
     if politica.tipo is TipoPolitica.NAO_RESOLVIDA:
         return None
     return next((c for c in politica.criterios if c.fonte is fonte), None)
+
+
+def criterio_da_regra(
+    politica: PoliticaTemporal, regra: RuleSpec, fonte: FamiliaFonte
+) -> CriterioTemporal | None:
+    """Critério da política para a fonte da regra; None quando a regra fica sem critério.
+
+    Política NAO_RESOLVIDA ou sem critério para a fonte: None. Em M_TEMP, o critério só vale se
+    fonte, base e deslocamento coincidirem com um critério documental da regra
+    (`RuleSpec.criterios_temporais`), como no motor.
+    """
+    criterio = _criterio_da_fonte(politica, fonte)
+    if criterio is None or politica.metodo is not MetodoId.M_TEMP:
+        return criterio
+    coincide = any(
+        documental.fonte is criterio.fonte
+        and documental.base is criterio.base
+        and documental.deslocamento_meses == criterio.deslocamento_meses
+        for documental in regra.criterios_temporais
+    )
+    return criterio if coincide else None
 
 
 def motivo_sem_criterio(fonte: FamiliaFonte) -> str:
@@ -253,12 +301,13 @@ def _competencia_base(record: ProductionRecord, base: BaseTemporal) -> str | Non
 
 def _selecao_do_registro(
     record: ProductionRecord,
+    rule: RuleSpec,
     fonte: FamiliaFonte,
     politica: PoliticaTemporal,
     contexto: tuple[RegistroTemporal, str | None, datetime | None],
 ) -> SelecaoVersao:
     registro, uf, corte = contexto
-    criterio = criterio_da_fonte(politica, fonte)
+    criterio = criterio_da_regra(politica, rule, fonte)
     if criterio is None:
         return nao_resolvida(fonte, motivo_sem_criterio(fonte))
     base = _competencia_base(record, criterio.base)
@@ -287,7 +336,7 @@ def partes_esperadas_do_catalogo(
     }
 
 
-def _uf_da_execucao(config: RunConfig) -> str | None:
+def uf_da_execucao(config: RunConfig) -> str | None:
     """UF do piloto ou da vigilância; sem nenhuma, só fontes nacionais são consultadas."""
     if config.piloto is not None:
         return config.piloto.uf
@@ -310,7 +359,9 @@ def select_snapshots(
 ) -> SnapshotSet:
     """Seleciona as versões exigidas pela regra ou registra a abstenção.
 
-    A política é a da execução (`config.politica_id`, senão a da regra). Com corte de observação
+    A política é uma só por execução: `politica`, senão `config.politica_id`. A da regra nunca
+    escolhe; sem nenhuma das duas, a seleção é NAO_RESOLVIDA (`politica_da_execucao_ausente`).
+    Com corte de observação
     já passado no `relogio`, o conjunto é congelado: observações posteriores ao corte não o
     alteram. Corte no futuro não congela.
 
@@ -318,19 +369,21 @@ def select_snapshots(
         ConfigInvalida: política inexistente ou inválida.
         ManifestoCorrompido: manifesto padrão não passa na verificação.
     """
+    corte = config.corte_observacao
+    if politica is None and config.politica_id is None:
+        ausentes = (nao_resolvida(f, MOTIVO_POLITICA_AUSENTE) for f in fontes_auxiliares(rule))
+        return _conjunto(ausentes, corte, relogio)
     if politica is None:
-        politica_id = config.politica_id or rule.politica_id
-        politica = carregar_politica(politica_id, politicas or DIRETORIO_POLITICAS)
+        politica = carregar_politica(str(config.politica_id), politicas or DIRETORIO_POLITICAS)
     if registro is None:
         caminho = Path(config.runtime.raiz_manifestos) / NOME_MANIFESTO_AQUISICAO
         registro = RegistroTemporal.de_manifesto(
             caminho, partes_esperadas=partes_esperadas_do_catalogo(config)
         )
-    uf = _uf_da_execucao(config)
-    corte = config.corte_observacao
-    contexto = (registro, uf, corte)
+    contexto = (registro, uf_da_execucao(config), corte)
     selecoes = tuple(
-        _selecao_do_registro(record, fonte, politica, contexto) for fonte in fontes_auxiliares(rule)
+        _selecao_do_registro(record, rule, fonte, politica, contexto)
+        for fonte in fontes_auxiliares(rule)
     )
     return _conjunto(selecoes, corte, relogio)
 

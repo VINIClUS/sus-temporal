@@ -49,6 +49,14 @@ def _config(
     return RunConfig.model_validate(campos)
 
 
+def _regra_m_temp(deslocamento: int = 0):
+    """Regra com o critério documental que a política M_TEMP de teste precisa coincidir."""
+    criterio = CriterioTemporal(
+        fonte=PF, base=BaseTemporal.ATENDIMENTO, deslocamento_meses=deslocamento
+    )
+    return regra(criterios_temporais=(criterio,))
+
+
 def _politica(
     deslocamento: int = 0, canal: CanalPublicacao | None = None, *, pendente: bool = False
 ) -> PoliticaTemporal:
@@ -82,7 +90,7 @@ def test_politica_com_deslocamento_explicito_usa_o_mes_declarado() -> None:
     registro = _registro(observar(PF, "201712", "dez", 1), observar(PF, "201801", "jan", 1))
     linha = registro_producao("201801", "201801")
     (sel,) = select_snapshots(
-        linha, regra(), _config(), registro=registro, politica=_politica(-1)
+        linha, _regra_m_temp(-1), _config(), registro=registro, politica=_politica(-1)
     ).selecoes
     assert str(sel.competencia_requerida) == "201712"
     assert sel.estado is EstadoSelecao.SELECIONADA
@@ -115,7 +123,11 @@ def test_documento_pendente_traz_base_e_competencia_como_o_motor_espera() -> Non
     )
     linha = registro_producao("201801", "201801")
     (sel,) = select_snapshots(
-        linha, regra(), _config(), registro=_registro(), politica=pendente
+        linha,
+        regra(criterios_temporais=(_ATEND,)),
+        _config(),
+        registro=_registro(),
+        politica=pendente,
     ).selecoes
     assert sel.estado is EstadoSelecao.NAO_RESOLVIDA
     assert sel.base is BaseTemporal.ATENDIMENTO
@@ -138,30 +150,23 @@ def test_lote_trata_competencia_invalida_como_nao_resolvida() -> None:
     )
     linha = registro_producao(None, None)
     con.execute("INSERT INTO registros VALUES (?, '201813', NULL)", [linha.row_id])
-    selecionar_lote(con, "registros", [regra()], _politica(-1), _registro(), run_id="r", uf="SP")
+    selecionar_lote(
+        con,
+        "registros",
+        [_regra_m_temp(-1)],
+        _politica(-1),
+        _registro(),
+        run_id="r",
+        config=_config(),
+    )
     ((estado, motivo),) = con.execute("SELECT estado, motivo FROM selecao_versoes").fetchall()
     assert estado == "NAO_RESOLVIDA"
     assert motivo.startswith("competencia_base_ausente")
 
 
-def test_lote_recusa_corte_sem_fuso() -> None:
-    from datetime import datetime
-
-    con = duckdb.connect()
-    con.execute(
-        "CREATE TABLE registros (row_id VARCHAR, competencia_atendimento VARCHAR, "
-        "competencia_processamento VARCHAR)"
-    )
-    with pytest.raises(ValueError, match="corte_sem_fuso"):
-        selecionar_lote(
-            con,
-            "registros",
-            [regra()],
-            _politica(),
-            _registro(),
-            run_id="r",
-            corte=datetime(2026, 1, 1),  # noqa: DTZ001
-        )
+def test_corte_do_lote_vem_da_config_que_recusa_corte_sem_fuso() -> None:
+    with pytest.raises(ValueError, match="corte_observacao"):
+        _config(corte="2026-01-01T00:00:00")
 
 
 def test_observacao_integra_sem_versao_no_registro_nao_aborta() -> None:
@@ -270,7 +275,11 @@ def _estados_do_cenario(cenario) -> set[EstadoSelecao]:
         s.estado
         for a, p in linhas
         for s in select_snapshots(
-            registro_producao(a, p), regra(), _config(), registro=registro, politica=politica
+            registro_producao(a, p),
+            _regra_m_temp(deslocamento),
+            _config(),
+            registro=registro,
+            politica=politica,
         ).selecoes
     }
 
@@ -340,12 +349,11 @@ def test_lote_equivale_ao_registro_com_deslocamento_uf_e_quarentena(cenario) -> 
     selecionar_lote(
         con,
         "registros",
-        [regra()],
+        [_regra_m_temp(deslocamento)],
         politica,
         registro,
         run_id="r",
-        uf="SP",
-        corte=config.corte_observacao,
+        config=config,
     )
     lote = {
         linha[0]: linha[1:]
@@ -356,7 +364,7 @@ def test_lote_equivale_ao_registro_com_deslocamento_uf_e_quarentena(cenario) -> 
     }
     for linha in registros:
         (sel,) = select_snapshots(
-            linha, regra(), config, registro=registro, politica=politica
+            linha, _regra_m_temp(deslocamento), config, registro=registro, politica=politica
         ).selecoes
         esperado = (
             None if sel.base is None else str(sel.base),
@@ -433,6 +441,6 @@ def test_fonte_repetida_na_regra_gera_uma_selecao_por_fonte() -> None:
         _politica(),
         _registro(),
         run_id="r",
-        uf="SP",
+        config=_config(),
     )
     assert con.execute("SELECT count(*) FROM selecao_versoes").fetchall() == [(1,)]

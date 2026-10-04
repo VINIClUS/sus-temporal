@@ -357,3 +357,18 @@ def test_competencia_incompleta_na_ingestao_continua_insuficiente(tmp_path: Path
             assert celula["estado"] != "DISPONIVEL"
             assert str(celula["motivo"]).startswith("sia_pa_incompleto competencia=202302")
     assert any(c["competencia"] == "202302" for c in avaliada.values())
+
+
+def test_registro_deletado_nao_e_avaliado_e_e_contado(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, deletado_no_territorio=True)
+    assert _validar(mundo, "processamento") == ExitCode.OK
+    resultado, pasta = _unico(mundo)
+    assert not any(k[0].endswith("#4") for k in _estados(resultado))
+    recorte = json.loads((pasta / "recorte_territorial.json").read_text(encoding="utf-8"))
+    assert recorte["exclusoes"] == {"fora_do_territorio": 1, "registro_deletado": 1}
+
+
+def test_auxiliares_com_linhagem_trocada_sao_recusados(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, auxiliares_trocados=True)
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+    assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))

@@ -18,17 +18,17 @@ from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts.artifacts import ResultadoTentativa
 from sustemporal.contracts.base import FamiliaFonte, OrigemDados
-from sustemporal.contracts.records import TipoCanonico
+from sustemporal.contracts.records import DatasetRef, TipoCanonico, calcular_dataset_id
+from sustemporal.hashing import hash_logico_linhas
 from sustemporal.ingest.coverage import build_coverage
 from sustemporal.rules.catalog import carregar_esquema
-from tests.fixtures.regras_cenario import gravar_dataset, reemitir
+from tests.fixtures.regras_cenario import reemitir
 from tests.fixtures.temporal_registro import observar
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from sustemporal.contracts.artifacts import ArtifactObservation, ArtifactVersion
-    from sustemporal.contracts.records import DatasetRef
 
 __all__ = [
     "MUNICIPIOS",
@@ -106,7 +106,7 @@ def _itens(*, sigtap_fev_ausente: bool, concorrente: bool) -> dict[str, _Item]:
     return itens
 
 
-def _linha(artefato: str, indice: int, **campos: str | None) -> dict[str, object]:
+def _linha(artefato: str, indice: int, **campos: object) -> dict[str, object]:
     base: dict[str, object] = {
         "row_id": f"{artefato}#{indice}",
         "artifact_id": artefato,
@@ -135,6 +135,8 @@ def _producao(artefato: str, parte: str, opcoes: dict[str, bool]) -> list[dict[s
                 competencia_atendimento=atendimento,
             )
         )
+        if opcoes["deletado_no_territorio"]:
+            linhas.append(_linha(artefato, 4, deletado=True))
         if opcoes["municipio_nulo"]:
             linhas.append(_linha(artefato, 3, municipio_estabelecimento=None))
     return linhas
@@ -175,17 +177,25 @@ def _gravar_completo(
     sem: frozenset[str] = frozenset(),
 ) -> DatasetRef:
     """Todas as colunas do esquema canônico, com os tipos físicos do ingest (como o T04 grava)."""
-    campos = [
-        (c.nome, _TIPOS_ARROW[c.tipo])
-        for c in carregar_esquema(schema_id).colunas
-        if c.nome not in sem
-    ]
-    ref = gravar_dataset(caminho, schema_id, linhas, artefatos, colunas=tuple(n for n, _ in campos))
+    colunas = [c for c in carregar_esquema(schema_id).colunas if c.nome not in sem]
+    campos = [(c.nome, _TIPOS_ARROW[c.tipo]) for c in colunas]
     tabela = pa.Table.from_pylist(
         [{nome: linha.get(nome) for nome, _ in campos} for linha in linhas], pa.schema(campos)
     )
     pq.write_table(tabela, caminho)
-    return reemitir(ref)
+    nomes = [nome for nome, _ in campos]
+    valores = [tabela.column(nome).to_pylist() for nome in nomes]
+    hash_logico = hash_logico_linhas(nomes, zip(*valores, strict=True))
+    return DatasetRef(
+        dataset_id=calcular_dataset_id(schema_id, hash_logico, artefatos),
+        schema_id=schema_id,
+        caminho=str(caminho),
+        hash_logico=hash_logico,
+        linhas=tabela.num_rows,
+        artifact_ids=artefatos,
+        origem_dados=OrigemDados.SINTETICO,
+        produzido_por="fixture_ingest_sintetica",
+    )
 
 
 def _datasets(pasta: Path, itens: dict[str, _Item], opcoes: dict[str, bool]) -> list[DatasetRef]:
@@ -232,6 +242,19 @@ def _competencia_inteira(ref: DatasetRef) -> DatasetRef:
     return reemitir(ref)
 
 
+def _trocar_artefatos(refs: list[DatasetRef], schema_id: str) -> list[DatasetRef]:
+    """Dois conjuntos do esquema declaram cada um o artefato do outro (linhagem trocada)."""
+    indices = [i for i, ref in enumerate(refs) if ref.schema_id == schema_id]
+    primeiro, segundo = (refs[i] for i in indices[:2])
+    trocados = list(refs)
+    for indice, ref, outro in ((indices[0], primeiro, segundo), (indices[1], segundo, primeiro)):
+        dataset_id = calcular_dataset_id(schema_id, ref.hash_logico, outro.artifact_ids)
+        trocados[indice] = ref.model_copy(
+            update={"artifact_ids": outro.artifact_ids, "dataset_id": dataset_id}
+        )
+    return trocados
+
+
 def _gravar_config(
     raiz: Path, territorio: Path, competencias: tuple[str, ...], corte: str | None
 ) -> Path:
@@ -272,6 +295,8 @@ def montar_ingest(
     municipio_nulo: bool = False,
     fora_com_atendimento_nulo: bool = False,
     sia_pa_incompleto: dict[str, str] | None = None,
+    deletado_no_territorio: bool = False,
+    auxiliares_trocados: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -288,6 +313,7 @@ def montar_ingest(
         "municipio_nulo": municipio_nulo,
         "sem_coluna_municipio": sem_coluna_municipio,
         "fora_com_atendimento_nulo": fora_com_atendimento_nulo,
+        "deletado_no_territorio": deletado_no_territorio,
     }
     refs = _datasets(pasta, itens, opcoes)
     if not (sem_cobertura or sem_coluna_municipio):
@@ -297,6 +323,8 @@ def montar_ingest(
     if cobertura_com_tipo_invalido:
         indice = next(i for i, ref in enumerate(refs) if ref.schema_id == "cobertura.v1")
         refs[indice] = _competencia_inteira(refs[indice])
+    if auxiliares_trocados:
+        refs = _trocar_artefatos(refs, "cnes_estab_cbo.v1")
     if auxiliar_divergente:
         indice = max(i for i, ref in enumerate(refs) if ref.schema_id == "sigtap_procedimento.v1")
         refs[indice] = refs[indice].model_copy(update={"linhas": refs[indice].linhas + 1})

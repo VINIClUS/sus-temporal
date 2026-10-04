@@ -79,11 +79,20 @@ def _config(pasta: Path, fontes: Path) -> Path:
     return caminho
 
 
-def _executar(pasta: Path, partes_obtidas: list[str], declaradas: list[str] | None) -> Path:
+def _executar(
+    pasta: Path,
+    partes_obtidas: list[str],
+    declaradas: list[str] | None,
+    *,
+    republicar: bool = False,
+) -> Path:
     store = pasta / "dados" / "raw"
     registros = [registro("C", "201801", "201801")]
     pf = [registro_pf("0012345", "225125")]
     versoes = [artefato_pa(store, dbc_pa(registros), parte=p) for p in partes_obtidas]
+    if republicar:
+        outro = [*registros, registro("C", "201801", "201801", PA_QTDPRO="2")]
+        versoes.append(artefato_pa(store, dbc_pa(outro), parte=partes_obtidas[0]))
     versoes += [
         artefato_sigtap(store, zip_sigtap(pacote_padrao())),
         artefato_cnes(store, dbc_cnes(PF, pf), PF),
@@ -95,7 +104,7 @@ def _executar(pasta: Path, partes_obtidas: list[str], declaradas: list[str] | No
     return config
 
 
-def _cobertura(pasta: Path) -> list[tuple[str, str, str, str | None]]:
+def _cobertura(pasta: Path, instrumento: str = "C") -> list[tuple[str, str, str, str | None]]:
     (execucao,) = sorted(p for p in (pasta / "saidas" / "ingest").iterdir() if p.is_dir())
     linhas = (execucao / "datasets.jsonl").read_text(encoding="utf-8").splitlines()
     datasets = [DatasetRef.model_validate(json.loads(linha)) for linha in linhas]
@@ -105,8 +114,8 @@ def _cobertura(pasta: Path) -> list[tuple[str, str, str, str | None]]:
             (str(f), str(b), str(e), m)
             for f, b, e, m in con.execute(
                 "SELECT familia_regra, base_temporal, estado, motivo FROM read_parquet($c) "
-                "WHERE competencia = '201801' AND instrumento = 'C'",
-                {"c": cobertura.caminho},
+                "WHERE competencia = '201801' AND instrumento = $i",
+                {"c": cobertura.caminho, "i": instrumento},
             ).fetchall()
         ]
 
@@ -135,8 +144,11 @@ def _fonte_auxiliar(familia: str) -> FamiliaFonte:
     return next(r.fonte for r in entrada.requisitos_fonte if r.fonte is not FamiliaFonte.SIA_PA)
 
 
-def test_cobertura_disponivel_implica_selecao_selecionada_no_seletor(tmp_path: Path) -> None:
-    config_caminho = _executar(tmp_path, ["a"], ["a"])
+@pytest.mark.parametrize("republicar", [False, True], ids=["completo", "republicacao_divergente"])
+def test_cobertura_disponivel_implica_selecao_selecionada_no_seletor(
+    tmp_path: Path, republicar: bool
+) -> None:
+    config_caminho = _executar(tmp_path, ["a"], ["a"], republicar=republicar)
     config = load_config(config_caminho)
     registro_temporal = RegistroTemporal.de_manifesto(
         tmp_path / "manifestos" / "aquisicao.jsonl",
@@ -144,7 +156,7 @@ def test_cobertura_disponivel_implica_selecao_selecionada_no_seletor(tmp_path: P
     )
     competencia = CompetenciaArquivo("201801")
     disponiveis = [(f, b) for f, b, estado, _ in _cobertura(tmp_path) if estado == "DISPONIVEL"]
-    assert disponiveis
+    assert bool(disponiveis) is not republicar
     for familia, base in disponiveis:
         if base != BaseTemporal.PROCESSAMENTO.value:
             continue
@@ -165,19 +177,34 @@ def test_versoes_de_outra_uf_nao_entram_na_ingestao_nem_na_cobertura(tmp_path: P
     store = tmp_path / "dados" / "raw"
     registros = [registro("C", "201801", "201801")]
     pf = [registro_pf("0012345", "225125")]
+    pa_mg = artefato_pa(store, dbc_pa([registro("I", "201801", "201712")]), parte="b")
+    pa_mg = _em_outra_uf(pa_mg, "MG")
     versoes = [
         artefato_pa(store, dbc_pa(registros)),
         artefato_sigtap(store, zip_sigtap(pacote_padrao())),
         artefato_cnes(store, dbc_cnes(PF, pf), PF, uf="MG"),
+        pa_mg,
     ]
     (tmp_path / "manifestos").mkdir(parents=True)
     registrar_versoes(tmp_path / "manifestos" / "aquisicao.jsonl", versoes)
     config = _config(tmp_path, _fontes(tmp_path, ["a"]))
     assert cli.main(["ingest", "--config", str(config)]) == ExitCode.OK
-    assert "CNES_PF" not in {r["fonte"] for r in _resultados(tmp_path)}
+    fora = {
+        (r["fonte"], r.get("uf")) for r in _resultados(tmp_path) if r["estado"] == "FORA_DO_RECORTE"
+    }
+    assert fora == {("CNES_PF", "MG"), ("SIA_PA", "MG")}
     estados = {(f, b): e for f, b, e, _ in _cobertura(tmp_path)}
     assert estados[("ESTABELECIMENTO_CBO", "PROCESSAMENTO")] == "AUSENTE"
     assert estados[("VIGENCIA_PROCEDIMENTO", "PROCESSAMENTO")] == "DISPONIVEL"
+    instrumento_i = {(f, b): m for f, b, _, m in _cobertura(tmp_path, "I")}
+    assert "sem_registros" in (instrumento_i[("PROCEDIMENTO_CBO", "ATENDIMENTO")] or "")
+
+
+def _em_outra_uf(versao: ArtifactVersion, uf: str) -> ArtifactVersion:
+    chave = versao.chave.model_copy(update={"uf": uf})
+    return versao.model_copy(
+        update={"chave": chave, "artifact_id": calcular_artifact_id(chave, versao.sha256)}
+    )
 
 
 def test_listagem_de_diretorio_nao_passa_pelos_normalizadores(tmp_path: Path) -> None:

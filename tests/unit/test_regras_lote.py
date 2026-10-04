@@ -235,11 +235,9 @@ def test_m_temp_com_criterio_diferente_do_da_regra_nunca_avalia_com_ele(tmp_path
         tmp_path / "saida",
         insumos=replace(cenario.insumos, politica=politica),
     )
-    if resultado.estado is EstadoExecucao.FALHOU:
-        (falha,) = tabela(resultado, "falhas.v1")
-        assert falha["etapa"] == "conferir_selecao"
-    else:
-        assert set(_estados(resultado).values()) <= {"INCONCLUSIVO", "NAO_APLICAVEL"}
+    assert resultado.estado is EstadoExecucao.CONCLUIDA
+    assert set(_estados(resultado).values()) <= {"INCONCLUSIVO", "NAO_APLICAVEL"}
+    assert {s["estado"] for s in tabela(resultado, "selecao_versoes.v1")} == {"NAO_RESOLVIDA"}
 
 
 def test_corte_da_config_deixa_fevereiro_fora_do_corte(tmp_path: Path) -> None:

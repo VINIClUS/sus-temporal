@@ -20,7 +20,7 @@ from sustemporal.rules.engine import evaluate_rules
 from sustemporal.rules.insumos import InsumosAvaliacao, politica_da_execucao
 from sustemporal.rules.preparo import carregar_registros
 from sustemporal.temporal.lote import gravar_selecoes, selecionar_lote
-from sustemporal.temporal.selector import unir_snapshots
+from sustemporal.temporal.selector import uf_da_execucao, unir_snapshots
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -60,13 +60,6 @@ def _agora() -> datetime:
     return datetime.now(UTC)
 
 
-def _uf(config: RunConfig) -> str | None:
-    """UF do piloto ou da vigilância (T06-10); sem nenhuma, só fontes nacionais."""
-    if config.piloto is not None:
-        return config.piloto.uf
-    return config.vigilancia.uf if config.vigilancia is not None else None
-
-
 def _id_da_selecao(
     dataset: DatasetRef,
     regras: list[RuleSpec],
@@ -86,7 +79,7 @@ def _id_da_selecao(
         "observacoes": [o.model_dump(mode="json") for o in observacoes],
         "versoes": [registro.versoes[a].model_dump(mode="json") for a in sorted(registro.versoes)],
         "partes": dict(sorted(partes.items())),
-        "uf": _uf(config),
+        "uf": uf_da_execucao(config),
         "corte": config.corte_observacao.isoformat() if config.corte_observacao else None,
     }
     return f"sel_{hash_canonico(conteudo)[:40]}"
@@ -145,8 +138,7 @@ def selecionar_em_lote(
             politica,
             registro,
             run_id=selecao_id,
-            uf=_uf(config),
-            corte=corte,
+            config=config,
         )
         caminho = destino / selecao_id / "selecao_versoes.parquet"
         ref = gravar_selecoes(con, caminho, run_id=selecao_id, origem=dataset.origem_dados)

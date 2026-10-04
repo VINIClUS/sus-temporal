@@ -185,7 +185,8 @@ resolvida é repassada à seleção temporal e ao motor.
 
 **Seleção em lote (T06).** `avaliar_com_registro` (`rules/lote.py`) recebe o `RegistroTemporal` e
 roda `selecionar_lote` sobre a tabela `registros` já conferida (conteúdo, tipos, domínio, chave e
-linhagem), com `uf` do piloto ou da vigilância e `corte` = `RunConfig.corte_observacao`;
+linhagem), com `uf` (`uf_da_execucao`: piloto ou vigilância) e `corte`
+(`RunConfig.corte_observacao`) tirados da própria `RunConfig`;
 `gravar_selecoes` grava `selecao_versoes.v1` em `out/selecoes/<sel_id>/` e devolve o `DatasetRef`
 (hash lógico sobre as colunas do esquema). O `SnapshotSet` da execução é `unir_snapshots` das
 seleções distintas do lote (uma por chave fonte, base, competência requerida). `sel_id` deriva da
@@ -207,11 +208,9 @@ base e competência; nenhuma → `AUSENTE`; competência base nula ou política 
 Em `M_TEMP`, o critério da política para a fonte `f` só vale quando coincide (base e deslocamento)
 com o critério documental da regra para `f` (`RuleSpec.criterios_temporais`); senão, a regra não
 tem critério para `f` e a seleção é `NAO_RESOLVIDA` (abstenção). Assim, uma política
-`DOCUMENTADA` não impõe critério a regras cujo critério documental não está resolvido. O
-`selecionar_lote` do T06 ainda aplica o critério da política por fonte, sem essa coincidência; até
-a função única `criterio_da_regra` (S1) entrar, uma política `M_TEMP` com critério que não coincide
-com o da regra produz no lote uma seleção resolvida que a conferência recusa (falha operacional
-`conferir_selecao`, execução `FALHOU`), nunca avaliação com o critério errado.
+`DOCUMENTADA` não impõe critério a regras cujo critério documental não está resolvido. A regra
+vive numa única função, `temporal.selector.criterio_da_regra(politica, regra, fonte)`, usada pela
+seleção (por registro e em lote) e pela conferência do motor (`criar_regras_fontes`).
 
 Uma tabela de seleção fornecida precisa ser coerente com a política da execução: toda linha com
 estado diferente de `NAO_RESOLVIDA` tem `base` igual à base do critério de `p` para a fonte e

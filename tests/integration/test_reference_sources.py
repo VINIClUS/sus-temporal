@@ -28,6 +28,7 @@ from sustemporal.contracts import (
     DatasetRef,
     EsquemaCanonico,
     EstadoIntegridade,
+    FamiliaFonte,
     LayoutSpec,
     OrigemDados,
     RuntimeConfig,
@@ -36,9 +37,13 @@ from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.dbf import ArquivoAusente, QuarentenaLeitura
 from sustemporal.ingest.sigtap import ESQUEMAS, TABELAS, normalize_sigtap
 from sustemporal.ingest.sigtap_zip import carregar_leiautes_sigtap
+from sustemporal.rules.auxiliares import preparar_auxiliar
+from sustemporal.rules.catalog import carregar_regras, requisito_auxiliar
+from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
 
 if TYPE_CHECKING:
     from sustemporal.contracts import ArtifactVersion
+    from sustemporal.contracts.rules import RuleSpec
 
 
 @functools.cache
@@ -460,3 +465,41 @@ def test_campo_opcional_ausente_do_zip_vira_nulo(tmp_path: Path) -> None:
     saida = tmp_path / "saida"
     dataset = normalize_sigtap(artefato, opcional, saida, runtime=_runtime(tmp_path))
     assert [(x["co_registro"], x["no_registro"]) for x in _linhas(dataset)] == [("01", None)]
+
+
+def _regras_sigtap() -> list[RuleSpec]:
+    return [r for r in carregar_regras() if requisito_auxiliar(r).fonte is FamiliaFonte.SIGTAP]
+
+
+def test_motor_real_aceita_os_conjuntos_sigtap_de_cada_regra(tmp_path: Path) -> None:
+    regras = _regras_sigtap()
+    assert {requisito_auxiliar(r).schema_id for r in regras} >= {
+        "sigtap_procedimento.v1",
+        "sigtap_proc_ocupacao.v1",
+        "sigtap_proc_registro.v1",
+    }
+    artefato = _pacote(tmp_path, pacote_padrao())
+    por_schema = {
+        f"{esquema}.v1": _normalizar(tmp_path, artefato, tabela)
+        for tabela, esquema in TABELAS.items()
+    }
+    for regra in regras:
+        dataset = por_schema[requisito_auxiliar(regra).schema_id]
+        with closing(duckdb.connect()) as con:
+            verificar_conteudo(con, dataset)
+            auxiliar = preparar_auxiliar(con, regra, (dataset,))
+        assert auxiliar.leiaute == "OK", regra.rule_id
+
+
+def test_motor_real_recusa_conjunto_sigtap_com_hash_adulterado(tmp_path: Path) -> None:
+    dataset = _normalizar(tmp_path, _pacote(tmp_path, pacote_padrao()), "tb_registro")
+    adulterado = dataset.model_copy(update={"linhas": dataset.linhas + 1})
+    with closing(duckdb.connect()) as con, pytest.raises(ConteudoDivergente):
+        verificar_conteudo(con, adulterado)
+
+
+def test_caminho_relativo_a_raiz_de_dados_e_aceito(tmp_path: Path) -> None:
+    artefato = _pacote(tmp_path, pacote_padrao())
+    relativo = Path(artefato.caminho_conteudo).relative_to(tmp_path)
+    copia = artefato.model_copy(update={"caminho_conteudo": str(relativo)})
+    assert _normalizar(tmp_path, copia, "tb_registro").linhas == 3

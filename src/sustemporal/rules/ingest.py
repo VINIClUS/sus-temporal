@@ -77,7 +77,7 @@ def ler_datasets(pasta: Path) -> list[DatasetRef]:
     try:
         linhas = caminho.read_text(encoding="utf-8").splitlines()
         return [DatasetRef.model_validate_json(linha) for linha in linhas if linha.strip()]
-    except (OSError, ValidationError) as erro:
+    except (OSError, ValueError, ValidationError) as erro:
         raise ConfigInvalida(f"ingest_datasets_invalido caminho={caminho}") from erro
 
 
@@ -110,10 +110,13 @@ def integridade_do_registro(
     """Integridade por versão: a da versão, piorada pelas observações dela.
 
     Quarentena observada prevalece; tentativa com bytes que não terminou em `OBTIDO` (falha de
-    coleta) deixa a versão `NAO_VERIFICADO`, nunca `OK`.
+    coleta) deixa a versão `NAO_VERIFICADO`, nunca `OK`. Com `corte`, só contam as observações
+    até ele (as posteriores não alteram uma execução histórica).
     """
     estados = {artefato: versao.integridade for artefato, versao in registro.versoes.items()}
     for obs in registro.observacoes:
+        if corte is not None and obs.observado_em > corte:
+            continue
         atual = estados.get(obs.artifact_id or "")
         if atual is None:
             continue
@@ -175,12 +178,18 @@ def _classificar(
     return producao, auxiliares, coberturas[0] if coberturas else None
 
 
-def _unir(con: duckdb.DuckDBPyConnection, refs: list[DatasetRef], schema_id: str) -> list[str]:
-    """Tabela `_UNIAO` com todas as linhas físicas dos conjuntos conferidos (sem deduplicar)."""
+def _conferir(con: duckdb.DuckDBPyConnection, refs: list[DatasetRef]) -> set[str]:
+    """Conteúdo e tipo físico de cada conjunto; devolve as colunas físicas presentes."""
     fisicas: set[str] = set()
     for ref in refs:
         verificar_conteudo(con, ref)
         fisicas |= conferir_tipos_fisicos(con, ref)
+    return fisicas
+
+
+def _unir(con: duckdb.DuckDBPyConnection, refs: list[DatasetRef], fisicas: set[str]) -> list[str]:
+    """Tabela `_UNIAO` com todas as linhas físicas dos conjuntos já conferidos (sem deduplicar)."""
+    schema_id = refs[0].schema_id
     colunas = [c.nome for c in carregar_esquema(schema_id).colunas if c.nome in fisicas]
     projecao = ", ".join(identificador_seguro(nome, colunas) for nome in colunas)
     con.execute(
@@ -255,7 +264,7 @@ def preparar_insumos_ingest(
     contexto: tuple[RunConfig, RegistroTemporal, frozenset[str]],
     destino: Path,
 ) -> InsumosIngest:
-    """Confere os conjuntos do ingest e grava as relações derivadas em `destino`.
+    """Confere todos os conjuntos do ingest e só então grava as relações derivadas em `destino`.
 
     Raises:
         ConfigInvalida: origens diferentes, sem produção, várias coberturas, versões concorrentes,
@@ -266,17 +275,18 @@ def preparar_insumos_ingest(
     config, registro, municipios = contexto
     producao, auxiliares, cobertura = _classificar(datasets, regras)
     _exigir_producao_coerente(producao, registro, config)
-    colunas = _unir(con, producao, PRODUCAO)
+    grupos = [producao, *(refs for refs in auxiliares.values() if refs)]
+    fisicas = [_conferir(con, refs) for refs in grupos]
+    if cobertura is not None:
+        verificar_conteudo(con, cobertura)
+    colunas = _unir(con, producao, fisicas[0])
     _exigir_row_id_unico(con)
     exclusoes = _recortar_territorio(con, colunas, municipios)
     ref_producao = _gravar(con, colunas, producao, destino)
     derivados = [
-        _gravar(con, _unir(con, refs, refs[0].schema_id), refs, destino)
-        for refs in auxiliares.values()
-        if refs
+        _gravar(con, _unir(con, refs, presentes), refs, destino)
+        for refs, presentes in zip(grupos[1:], fisicas[1:], strict=True)
     ]
-    if cobertura is not None:
-        verificar_conteudo(con, cobertura)
     logger.info(
         "insumos_ingest_prontos producao=%s exclusoes=%s", ref_producao.dataset_id, exclusoes
     )

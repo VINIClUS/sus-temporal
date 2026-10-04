@@ -200,7 +200,8 @@ quarentena no registro temporal chega como seleção diferente de `SELECIONADA` 
 
 **Validação a partir do ingest.** `sustemporal validate --policy P --ingest DIR` (`rules/ingest.py`,
 `rules/validate_ingest.py`) monta os insumos de uma pasta `execucao_*` do `sustemporal ingest` e do
-registro temporal, sem gravar nada antes de todas as conferências:
+registro temporal; todas as conferências (inclusive conteúdo e tipo físico de todo conjunto)
+vêm antes de gravar qualquer arquivo:
 
 - registro: `RegistroTemporal.de_manifesto` do manifesto de aquisição em `raiz_manifestos`, com as
   partes esperadas do catálogo; manifesto ausente, ilegível ou corrompido → saída 2;
@@ -221,7 +222,8 @@ registro temporal, sem gravar nada antes de todas as conferências:
 - cobertura: no máximo um `cobertura.v1` (mais de um → saída 2); nenhum → matriz não fornecida;
 - integridade por versão, derivada do registro: a da versão, piorada pelas observações dela —
   integridade observada `QUARENTENA_*` prevalece; tentativa com o artefato que não terminou em
-  `OBTIDO` (falha de coleta com bytes) deixa a versão `NAO_VERIFICADO`, nunca `OK`.
+  `OBTIDO` (falha de coleta com bytes) deixa a versão `NAO_VERIFICADO`, nunca `OK`. Com
+  `corte_observacao`, só contam as observações até o corte.
 
 A política é a de `politica_da_execucao` com o método de `--policy`; a avaliação é
 `avaliar_com_registro`, e as saídas ficam em `<raiz_saidas>/runs/<run_id>/` (relações derivadas em

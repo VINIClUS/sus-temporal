@@ -100,7 +100,7 @@ def validar_ingest(pasta: Path, metodo: MetodoId, config: RunConfig, saida: Path
     avaliacao = InsumosAvaliacao(
         auxiliares=insumos.auxiliares,
         cobertura=insumos.cobertura,
-        integridade=integridade_do_registro(registro),
+        integridade=integridade_do_registro(registro, corte=config.corte_observacao),
         politica=politica,
     )
     try:

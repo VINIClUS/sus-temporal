@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pyarrow as pa
+import pyarrow.parquet as pq
 
 from sustemporal.contracts import (
     BaseTemporal,
@@ -33,7 +34,7 @@ from sustemporal.contracts import (
     RuntimeConfig,
 )
 from sustemporal.contracts.rules import FamiliaRegra
-from sustemporal.duck import conectar, identificador_seguro
+from sustemporal.duck import conectar
 from sustemporal.ingest.cnes_leitura import gravar_relacao
 from sustemporal.ingest.sia_pa import carregar_conferido
 from sustemporal.yamlio import carregar_yaml
@@ -62,6 +63,9 @@ CORRESPONDENCIA_DOCORIG_REGISTRO = {
 }
 _COLUNAS_COMPETENCIA = ("dt_competencia", "competencia_arquivo")
 _BASES = (BaseTemporal.ATENDIMENTO, BaseTemporal.PROCESSAMENTO)
+_COLUNAS_SIA_PA = ("competencia_processamento", "instrumento", "competencia_atendimento")
+_CONFERENCIA = "conferencia"
+_DESCARTAR_CONFERENCIA = "DROP TABLE conferencia"
 
 
 @dataclass
@@ -83,61 +87,60 @@ class _Fonte:
     por_registro: dict[str, frozenset[str]]
 
 
-def _carregar(
+def _conferidos(
     con: duckdb.DuckDBPyConnection, datasets: Iterable[DatasetRef], schema_id: str
-) -> list[str]:
+) -> list[DatasetRef]:
+    """Conjuntos do esquema, cada um conferido (estrutura, contagem e hash) antes do uso."""
     esquema = EsquemaCanonico.de_yaml(ESQUEMAS / f"{schema_id.rsplit('.', 1)[0]}.yaml")
-    tabelas = []
-    for indice, dataset in enumerate(d for d in datasets if d.schema_id == schema_id):
-        tabela = f"{schema_id.split('.', maxsplit=1)[0]}_{indice}"
-        carregar_conferido(con, dataset, esquema, tabela)
-        tabelas.append(tabela)
-    return tabelas
+    conferidos = [d for d in datasets if d.schema_id == schema_id]
+    for dataset in conferidos:
+        carregar_conferido(con, dataset, esquema, _CONFERENCIA)
+        con.execute(_DESCARTAR_CONFERENCIA)
+    return conferidos
 
 
-def _registros(con: duckdb.DuckDBPyConnection, tabelas: list[str]) -> _Registros:
+def _distintos(dataset: DatasetRef, colunas: Sequence[str]) -> list[dict[str, str | None]]:
+    tabela = pq.read_table(dataset.caminho, columns=list(colunas))
+    agrupada = tabela.group_by(list(colunas)).aggregate([])
+    linhas: list[dict[str, str | None]] = agrupada.to_pylist()
+    return linhas
+
+
+def _registros(datasets: Sequence[DatasetRef]) -> _Registros:
     resultado = _Registros()
-    for tabela in tabelas:
-        citada = identificador_seguro(tabela, tabelas)
-        linhas = con.execute(
-            "SELECT DISTINCT competencia_processamento, instrumento, competencia_atendimento "  # noqa: S608
-            f"FROM {citada} WHERE competencia_processamento IS NOT NULL"
-        ).fetchall()
-        for processamento, instrumento, atendimento in linhas:
-            resultado.competencias.add(str(processamento))
+    for dataset in datasets:
+        for linha in _distintos(dataset, _COLUNAS_SIA_PA):
+            processamento, instrumento = linha["competencia_processamento"], linha["instrumento"]
+            if processamento is None:
+                continue
+            resultado.competencias.add(processamento)
             if instrumento is None:
                 continue
-            grupo = resultado.grupos[(str(processamento), str(instrumento))]
+            grupo = resultado.grupos[(processamento, instrumento)]
+            atendimento = linha["competencia_atendimento"]
             if atendimento is None:
                 grupo.atendimento_nulo = True
             else:
-                grupo.atendimentos.add(str(atendimento))
+                grupo.atendimentos.add(atendimento)
     return resultado
 
 
-def _fonte(
-    con: duckdb.DuckDBPyConnection, tabelas: list[str], schema_id: str, campos: Sequence[str]
-) -> _Fonte:
+def _fonte(datasets: Sequence[DatasetRef], schema_id: str, campos: Sequence[str]) -> _Fonte:
+    esquema = EsquemaCanonico.de_yaml(ESQUEMAS / f"{schema_id.rsplit('.', 1)[0]}.yaml")
+    nomes = [c.nome for c in esquema.colunas]
+    competencia = next(c for c in _COLUNAS_COMPETENCIA if c in nomes)
+    exigidas = list(dict.fromkeys([competencia, *campos]))
+    lidas = [*exigidas, "co_registro"] if "co_registro" in nomes else exigidas
     disponiveis: set[str] = set()
     por_registro: dict[str, set[str]] = defaultdict(set)
-    for tabela in tabelas:
-        citada = identificador_seguro(tabela, tabelas)
-        colunas = [str(linha[0]) for linha in con.execute(f"DESCRIBE {citada}").fetchall()]
-        competencia = next(c for c in _COLUNAS_COMPETENCIA if c in colunas)
-        nomes = dict.fromkeys([competencia, *campos])
-        citadas = [identificador_seguro(c, colunas) for c in nomes]
-        filtro = " AND ".join(f"{c} IS NOT NULL" for c in citadas)
-        registro = "NULL"
-        if "co_registro" in colunas:
-            registro = identificador_seguro("co_registro", colunas)
-        linhas = con.execute(
-            f"SELECT DISTINCT {citadas[0]}, {registro} "  # noqa: S608
-            f"FROM {citada} WHERE {filtro}"
-        ).fetchall()
-        for valor, codigo in linhas:
-            disponiveis.add(str(valor))
-            if codigo is not None:
-                por_registro[str(codigo)].add(str(valor))
+    for dataset in datasets:
+        for linha in _distintos(dataset, list(dict.fromkeys(lidas))):
+            if any(linha[c] is None for c in exigidas):
+                continue
+            valor = str(linha[competencia])
+            disponiveis.add(valor)
+            if linha.get("co_registro") is not None:
+                por_registro[str(linha["co_registro"])].add(valor)
     return _Fonte(
         schema_id,
         frozenset(disponiveis),
@@ -200,14 +203,14 @@ def _linhas(
     competencias: Sequence[str],
 ) -> list[dict[str, str | None]]:
     sia_pa, auxiliares = entradas
-    registros = _registros(con, _carregar(con, sia_pa, "sia_pa.v1"))
-    tabelas: dict[str, list[str]] = {}
+    registros = _registros(_conferidos(con, sia_pa, "sia_pa.v1"))
+    conferidos: dict[str, list[DatasetRef]] = {}
     linhas: list[dict[str, str | None]] = []
     for familia in catalogo.familias:
         schema_id, campos = _auxiliar(familia)
-        if schema_id not in tabelas:
-            tabelas[schema_id] = _carregar(con, auxiliares, schema_id)
-        fonte = _fonte(con, tabelas[schema_id], schema_id, campos)
+        if schema_id not in conferidos:
+            conferidos[schema_id] = _conferidos(con, auxiliares, schema_id)
+        fonte = _fonte(conferidos[schema_id], schema_id, campos)
         celulas = itertools.product(familia.instrumentos, competencias, _BASES)
         for instrumento, competencia, base in celulas:
             chave = (familia.familia, str(instrumento), competencia, base)

@@ -4,7 +4,8 @@ A cobertura da ingestão é estadual: um registro de outro município com atendi
 a célula INSUFICIENTE para todo o DRS XI. O relatório publica um `sia_pa.v1` só com as linhas
 incluídas (a mesma população dos denominadores) e chama `build_coverage` sobre ele, com os mesmos
 auxiliares e as competências da cobertura da ingestão no intervalo da coorte. As marcas
-`sia_pa_incompleto` da ingestão continuam valendo.
+`sia_pa_incompleto` da ingestão continuam valendo. Competência com SIA-PA na ingestão e nenhuma
+linha incluída fica `populacao_vazia_no_recorte` (limitação amostral), nunca `sia_pa_ausente`.
 """
 
 from __future__ import annotations
@@ -60,7 +61,7 @@ def _publicar_recorte(
 
 def _marcas_e_competencias(
     con: duckdb.DuckDBPyConnection, cobertura: DatasetRef, cohort: CohortSpec
-) -> tuple[dict[str, str], list[str]]:
+) -> tuple[dict[str, str], list[str], list[str]]:
     carregar_conferido(con, cobertura, carregar_esquema("cobertura.v1"), "cobertura_ingest")
     motivos = con.execute("SELECT DISTINCT motivo FROM cobertura_ingest").fetchall()
     competencias = con.execute(
@@ -68,8 +69,12 @@ def _marcas_e_competencias(
         "WHERE competencia BETWEEN $inicio AND $fim ORDER BY competencia",
         {"inicio": cohort.inicio.valor, "fim": cohort.fim.valor},
     ).fetchall()
+    presentes = con.execute(
+        "SELECT DISTINCT competencia FROM cobertura_ingest "
+        "WHERE coalesce(motivo, '') NOT LIKE 'sia_pa_ausente%' ORDER BY competencia"
+    ).fetchall()
     marcas = marcas_sia_pa_incompleto(str(m) for (m,) in motivos if m is not None)
-    return marcas, [str(c) for (c,) in competencias]
+    return marcas, [str(c) for (c,) in competencias], [str(c) for (c,) in presentes]
 
 
 def recalcular_cobertura(
@@ -85,7 +90,7 @@ def recalcular_cobertura(
     ingest = next((d for d in datasets if d.schema_id == "cobertura.v1"), None)
     if ingest is None:
         return None
-    marcas, competencias = _marcas_e_competencias(con, ingest, cohort)
+    marcas, competencias, presentes = _marcas_e_competencias(con, ingest, cohort)
     sia_pa = [d for d in datasets if d.schema_id == "sia_pa.v1"]
     recortes = [_publicar_recorte(con, sia_pa, out / "recorte", origem)] if sia_pa else []
     auxiliares = [d for d in datasets if d.schema_id not in _FORA_DOS_AUXILIARES]
@@ -99,4 +104,5 @@ def recalcular_cobertura(
         runtime=runtime,
         origem_dados=origem,
         sia_pa_incompleto=marcas,
+        sia_pa_presente_em=presentes,
     )

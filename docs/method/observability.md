@@ -69,6 +69,21 @@ intervalo da coorte. As marcas `sia_pa_incompleto competencia=… motivo=…` da
 `marcas_sia_pa_incompleto`) continuam valendo. A cobertura recalculada entra nas tabelas do
 relatório. É o mesmo recálculo que o `validate --ingest` (#27) faz.
 
+Competência com SIA-PA na ingestão e nenhuma linha incluída (todas fora do território, do
+intervalo ou dos instrumentos) não vira fonte ausente: a célula fica INSUFICIENTE com
+`populacao_vazia_no_recorte competencia=…` (`build_coverage(..., sia_pa_presente_em=...)`). É
+limitação amostral do recorte, não ausência estrutural; as exclusões ficam em
+`piloto_exclusoes.v1`.
+
+## Instantâneo do manifesto
+
+O `ingest` grava `manifesto_lido.json` (número de linhas e hash encadeado da última linha do
+manifesto que leu). O `pilot-report` monta o registro temporal só com esse prefixo e confere o
+hash: versão obtida depois da ingestão não entra na seleção, então seleção e disponibilidade
+descrevem o mesmo retrato. Posição ausente (pasta de ingestão antiga), além do manifesto atual ou
+com hash divergente (manifesto reescrito) recusa a execução (saída 2), nunca cai no manifesto
+atual.
+
 ## Inconclusivos
 
 A seleção temporal em lote (`selecao_versoes.v1`) roda para as políticas `B_PROC` e `B_ATEND`

@@ -5,7 +5,8 @@ com os leiautes do catálogo. Quarentena, arquivo ausente e família reservada v
 registrados, nunca tabela vazia; falha inesperada de uma versão vira FALHA_NORMALIZACAO e a
 execução segue. Cada execução grava numa pasta nova,
 `<raiz_saidas>/ingest/execucao_<instante>_<id>/`: os Parquet canônicos, `datasets.jsonl` (um
-`DatasetRef` por linha, inclusive a cobertura) e `resultados.jsonl`.
+`DatasetRef` por linha, inclusive a cobertura), `resultados.jsonl` e `manifesto_lido.json` (a
+posição do manifesto lida).
 """
 
 from __future__ import annotations
@@ -48,12 +49,15 @@ if TYPE_CHECKING:
     )
     from sustemporal.contracts.config import PilotSpec, RunConfig
 
-__all__ = ["executar_ingest"]
+__all__ = ["NOME_POSICAO_MANIFESTO", "executar_ingest"]
 
 logger = logging.getLogger(__name__)
 
 # Mesmo endereçamento da aquisição (acquisition/cli.py): conteúdo em <raiz_dados>/raw.
 SUBPASTA_ARMAZENAMENTO = "raw"
+# Posição do manifesto lida pela ingestão (linhas e hash encadeado da última); o relatório do
+# piloto seleciona só com esse prefixo.
+NOME_POSICAO_MANIFESTO = "manifesto_lido.json"
 FONTES_NACIONAIS = frozenset({FamiliaFonte.SIGTAP})
 # Mesma noção de conteúdo selecionável do seletor (temporal/selector.py, `_INTEGRAS`).
 INTEGRIDADES_SELECIONAVEIS = frozenset({EstadoIntegridade.OK, EstadoIntegridade.NAO_VERIFICADO})
@@ -360,6 +364,8 @@ def executar_ingest(args: argparse.Namespace, config: RunConfig) -> int:
     saida = _pasta_execucao(Path(config.runtime.raiz_saidas) / "ingest")
     execucao = _Execucao(config, saida)
     manifesto = Manifesto(Path(config.runtime.raiz_manifestos) / NOME_MANIFESTO_AQUISICAO).ler()
+    posicao = {"linhas": len(manifesto.linhas), "cabeca_sha256": manifesto.cabeca_sha256}
+    _gravar_jsonl(saida / NOME_POSICAO_MANIFESTO, [json.dumps(posicao)])
     recorte = _Recorte(
         frozenset(piloto.familias_fontes), uf_da_execucao(config), config.corte_observacao
     )

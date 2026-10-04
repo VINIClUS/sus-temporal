@@ -272,13 +272,19 @@ def evaluate_rules(
     logger.info(
         "validacao_iniciada run=%s metodo=%s regras=%d", run_id, politica.metodo, len(regras)
     )
+    saidas, preparado = _avaliar_e_gravar(contexto, snapshots, config)
+    return _resultado(contexto, snapshots, config, saidas, iniciado=iniciado, preparado=preparado)
+
+
+def _avaliar_e_gravar(
+    contexto: ContextoSaida, snapshots: SnapshotSet, config: RunConfig
+) -> tuple[tuple[DatasetRef, ...], bool]:
     con = conectar(config.runtime)
     try:
         preparado = _executar(con, contexto, snapshots)
-        saidas = gravar_saidas(con, contexto, avaliadas=preparado)
+        return gravar_saidas(con, contexto, avaliadas=preparado), preparado
     finally:
         con.close()
-    return _resultado(contexto, snapshots, config, saidas, iniciado=iniciado, preparado=preparado)
 
 
 def _resultado(

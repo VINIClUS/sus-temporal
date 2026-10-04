@@ -18,6 +18,7 @@ from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
 from sustemporal.rules.engine import evaluate_rules
 from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
 from sustemporal.rules.ingest import (
+    InsumosIngest,
     carregar_registro,
     integridade_do_registro,
     ler_datasets,
@@ -32,6 +33,7 @@ if TYPE_CHECKING:
     from sustemporal.contracts.records import DatasetRef
     from sustemporal.contracts.rules import RuleSpec
     from sustemporal.contracts.temporal import MetodoId, PoliticaTemporal
+    from sustemporal.temporal.registry import RegistroTemporal
 
 __all__ = ["municipios_do_piloto", "validar_ingest"]
 
@@ -87,6 +89,21 @@ def _anexos(
     }
 
 
+def _preparar(
+    datasets: list[DatasetRef],
+    regras: list[RuleSpec],
+    contexto: tuple[RunConfig, RegistroTemporal, frozenset[str]],
+    destino: Path,
+) -> InsumosIngest:
+    con = conectar(contexto[0].runtime)
+    try:
+        return preparar_insumos_ingest(con, datasets, regras, contexto, destino)
+    except (ValueError, duckdb.Error) as erro:
+        raise ConfigInvalida(f"ingest_semanticamente_invalido detalhe={erro}") from erro
+    finally:
+        con.close()
+
+
 def validar_ingest(pasta: Path, metodo: MetodoId, config: RunConfig, saida: Path) -> RunResult:
     """Confere a pasta e o registro antes de gravar qualquer coisa; depois avalia em lote.
 
@@ -102,15 +119,7 @@ def validar_ingest(pasta: Path, metodo: MetodoId, config: RunConfig, saida: Path
     registro = carregar_registro(config)
     datasets = ler_datasets(pasta)
     municipios = municipios_do_piloto(config)
-    con = conectar(config.runtime)
-    try:
-        insumos = preparar_insumos_ingest(
-            con, datasets, regras, (config, registro, municipios), saida / "entradas"
-        )
-    except (ValueError, duckdb.Error) as erro:
-        raise ConfigInvalida(f"ingest_semanticamente_invalido detalhe={erro}") from erro
-    finally:
-        con.close()
+    insumos = _preparar(datasets, regras, (config, registro, municipios), saida / "entradas")
     avaliacao = InsumosAvaliacao(
         auxiliares=insumos.auxiliares,
         cobertura=insumos.cobertura,

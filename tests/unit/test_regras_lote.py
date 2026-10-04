@@ -216,3 +216,27 @@ def test_arquivo_ausente_ou_em_quarentena_e_inconclusivo(
         assert estados[chave] == "INCONCLUSIVO"
     esperado = "EM_QUARENTENA" if fonte == "CNES_PF" else "AUSENTE"
     assert {s["estado"] for s in selecoes if (s["row_id"], s["rule_id"]) in afetadas} == {esperado}
+
+
+def test_m_temp_com_criterio_diferente_do_da_regra_nunca_avalia_com_ele(tmp_path: Path) -> None:
+    politica = PoliticaTemporal(
+        politica_id="m_temp_sintetica",
+        tipo=TipoPolitica.DOCUMENTADA,
+        metodo=MetodoId.M_TEMP,
+        criterios=(CriterioTemporal(fonte=FamiliaFonte.CNES_PF, base=BaseTemporal.ATENDIMENTO),),
+        documento=docref(pendente=False),
+    )
+    cenario = mundo_lote(tmp_path / "entrada")
+    resultado = avaliar_com_registro(
+        cenario.dataset,
+        carregar_regras(),
+        config_lote(None),
+        cenario.registro,
+        tmp_path / "saida",
+        insumos=replace(cenario.insumos, politica=politica),
+    )
+    if resultado.estado is EstadoExecucao.FALHOU:
+        (falha,) = tabela(resultado, "falhas.v1")
+        assert falha["etapa"] == "conferir_selecao"
+    else:
+        assert set(_estados(resultado).values()) <= {"INCONCLUSIVO", "NAO_APLICAVEL"}

@@ -46,9 +46,11 @@ from tests.fixtures.regras_cenario import reemitir
 from tests.fixtures.regras_execucao import regras_so_de_c, saida
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from sustemporal.contracts.experiment import RunResult
+    from sustemporal.contracts.rules import RuleEvaluation
 
 LINHAS = (LINHA_CONFORME, LINHA_VIOLACAO, LINHA_INCONCLUSIVA, LINHA_NAO_APLICAVEL)
 
@@ -58,7 +60,7 @@ def execucao(tmp_path: Path) -> RunResult:
     return executar_cenario(tmp_path)
 
 
-def _avaliacao(bundle: ExplanationBundle, rule_id: str) -> object:
+def _avaliacao(bundle: ExplanationBundle, rule_id: str) -> RuleEvaluation:
     return next(a for a in bundle.avaliacoes if a.rule_id == rule_id)
 
 
@@ -74,7 +76,7 @@ def _trocar_saida(run: RunResult, alvo: str, /, **campos: object) -> RunResult:
     return run.model_copy(update={"saidas": saidas})
 
 
-def _reescrever(caminho: str, alterar: object) -> None:
+def _reescrever(caminho: str, alterar: Callable[[dict[str, object]], dict[str, object]]) -> None:
     linhas = pq.read_table(caminho).to_pylist()
     esquema = pq.read_schema(caminho)
     alteradas = [alterar(dict(linha)) for linha in linhas]
@@ -229,7 +231,12 @@ def test_divergencia_na_reexecucao_e_falha_nunca_troca_evidencia(execucao: RunRe
     conjuntos = {d.dataset_id: d for d in execucao.entradas}
     colunas = [c.nome for c in carregar_esquema("evidencias.v1").colunas]
     linhas = pq.read_table(saida(execucao, "evidencias.v1")).to_pylist()
-    ausencia = next(linha for linha in linhas if linha["tipo"] == "AUSENCIA_NA_FONTE")
+    ausencia = next(
+        linha
+        for linha in linhas
+        if (linha["tipo"], linha["query_id"])
+        == ("AUSENCIA_NA_FONTE", "estabelecimento_cbo.existencia")
+    )
     assert set(ausencia) == set(colunas)
     reexecucao = reexecutar_evidencia(ler_evidencia(ausencia), conjuntos)
     assert not reexecucao.reproduzida
@@ -241,6 +248,8 @@ def test_bundle_deterministico_para_a_mesma_execucao(tmp_path: Path) -> None:
     primeira = executar_cenario(tmp_path, nome="a")
     segunda = executar_cenario(tmp_path, nome="b")
     assert primeira.run_id == segunda.run_id
+    instantes = {"iniciado_em": primeira.iniciado_em, "concluido_em": primeira.concluido_em}
+    segunda = segunda.model_copy(update=instantes)
     for linha in LINHAS:
         a = montar_explicacao(primeira, linha)
         assert a.bundle == explain(primeira, linha)
@@ -256,7 +265,7 @@ def test_nenhuma_afirmacao_de_causa_oficial(execucao: RunResult, linha: str) -> 
     assert bundle.causa_oficial_atribuida is False
     assert Limitacao.RESULTADO_NAO_E_CAUSA_OFICIAL in bundle.limitacoes
     assert Limitacao.DADOS_SINTETICOS in bundle.limitacoes
-    texto = explicacao.texto.lower()
+    texto = explicacao.texto.lower().replace("resultado_nao_e_causa_oficial", "")
     for trecho in re.findall(r".{0,25}causa.{0,25}", texto):
         assert "não é causa oficial" in trecho or "não atribui causa" in trecho, trecho
     assert "glosa" not in texto

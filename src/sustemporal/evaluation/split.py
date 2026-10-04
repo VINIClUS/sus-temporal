@@ -158,6 +158,10 @@ def _exigir_fontes_numa_particao(
     fonte_por_artefato: Mapping[str, str],
     inspecionados: tuple[str, ...],
 ) -> int:
+    if sem_fonte := [a for a in inspecionados if a not in fonte_por_artefato]:
+        raise ValueError(
+            f"split_sem_fonte_para_artefato inspecionados={len(sem_fonte)} primeiro={sem_fonte[0]}"
+        )
     por_fonte = _fontes_da_populacao(con, fonte_por_artefato)
     for fonte, particoes in sorted(por_fonte.items()):
         if len(particoes) > 1:
@@ -165,7 +169,7 @@ def _exigir_fontes_numa_particao(
                 f"republicacao_em_particoes_distintas fonte={fonte} "
                 f"particoes={','.join(sorted(particoes))}"
             )
-    vistas = {fonte_por_artefato.get(a, a) for a in inspecionados}
+    vistas = {fonte_por_artefato[a] for a in inspecionados}
     teste = {
         fonte: versoes
         for fonte, particoes in por_fonte.items()

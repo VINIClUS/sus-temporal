@@ -77,7 +77,7 @@ def test_solucao_de_uma_operacao(tmp_path: Path) -> None:
     assert str(solucao.operacoes[0].competencia) == "202001"
     assert "ESTAB_CBO_CNES" in solucao.regras_revalidadas
     assert resultado.minimalidade is Minimalidade.MINIMO_NO_CATALOGO
-    assert resultado.motivo_parada is MotivoParada("MINIMO_ENCONTRADO")
+    assert resultado.motivo_parada is MotivoParada.MINIMO_ENCONTRADO
     assert resultado.custo_max_explorado_completo == 1
     assert resultado.aprovacao_garantida is False
 

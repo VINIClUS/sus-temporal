@@ -210,6 +210,7 @@
    },
    "MotivoParada": {
     "enum": [
+     "MINIMO_ENCONTRADO",
      "ESPACO_ESGOTADO",
      "ORCAMENTO_ESGOTADO",
      "SEM_OPERACAO_ADMISSIVEL"

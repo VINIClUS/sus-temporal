@@ -96,3 +96,16 @@ def test_validate_com_entrada_recusa_producao_com_registro_deletado(tmp_path: Pa
     argumentos += ["--entrada", str(caminho), "--saida", str(tmp_path / "saida")]
     assert cli.main(argumentos) == ExitCode.CONFIG_INVALIDA
     assert not (tmp_path / "saida").exists()
+
+
+def test_validate_com_entrada_de_producao_truncada_e_falha_operacional(tmp_path: Path) -> None:
+    caminho = _entrada(tmp_path / "in")
+    conteudo = json.loads(caminho.read_text(encoding="utf-8"))
+    Path(conteudo["dataset"]["caminho"]).write_bytes(b"PAR1truncado")
+    config = tmp_path / "config.yaml"
+    config.write_text('versao: "1"\n', encoding="utf-8")
+    saida = tmp_path / "saida"
+    argumentos = ["validate", "--config", str(config), "--policy", "atendimento"]
+    argumentos += ["--entrada", str(caminho), "--saida", str(saida)]
+    assert cli.main(argumentos) == ExitCode.FALHA_OPERACIONAL
+    assert any(saida.rglob("falhas*.parquet"))

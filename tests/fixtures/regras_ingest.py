@@ -18,7 +18,12 @@ from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts.artifacts import ResultadoTentativa
 from sustemporal.contracts.base import FamiliaFonte, OrigemDados
-from sustemporal.contracts.records import DatasetRef, TipoCanonico, calcular_dataset_id
+from sustemporal.contracts.records import (
+    DatasetRef,
+    Reconciliacao,
+    TipoCanonico,
+    calcular_dataset_id,
+)
 from sustemporal.hashing import hash_logico_linhas
 from sustemporal.ingest.coverage import build_coverage
 from sustemporal.rules.catalog import carregar_esquema
@@ -246,6 +251,18 @@ def _competencia_inteira(ref: DatasetRef) -> DatasetRef:
     return reemitir(ref)
 
 
+def _com_perda(refs: list[DatasetRef], versao: ArtifactVersion | None) -> list[DatasetRef]:
+    """O conjunto da versão declara linhas descartadas com motivo de perda (fora de _SEM_PERDA)."""
+    assert versao is not None
+    perda = Reconciliacao(fisicos=2, canonicas=1, excluidas_por_motivo={"cnes_invalido": 1})
+    return [
+        ref.model_copy(update={"reconciliacao": perda})
+        if ref.artifact_ids == (versao.artifact_id,)
+        else ref
+        for ref in refs
+    ]
+
+
 def _trocar_artefatos(refs: list[DatasetRef], schema_id: str) -> list[DatasetRef]:
     """Dois conjuntos do esquema declaram cada um o artefato do outro (linhagem trocada)."""
     indices = [i for i, ref in enumerate(refs) if ref.schema_id == schema_id]
@@ -302,6 +319,7 @@ def montar_ingest(
     deletado_no_territorio: bool = False,
     auxiliares_trocados: bool = False,
     deletado_fora: bool = False,
+    cnes_fev_com_perda: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -322,6 +340,8 @@ def montar_ingest(
         "deletado_fora": deletado_fora,
     }
     refs = _datasets(pasta, itens, opcoes)
+    if cnes_fev_com_perda:
+        refs = _com_perda(refs, itens["cnes_fev"][1])
     if not (sem_cobertura or sem_coluna_municipio):
         refs.append(_cobertura(pasta, refs, sia_pa_incompleto))
     if producao_repetida:

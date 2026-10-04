@@ -398,3 +398,29 @@ def test_linhagem_trocada_e_conteudo_divergente_antes_de_gravar(tmp_path: Path) 
             con, ler_datasets(mundo.pasta), carregar_regras(), contexto, destino
         )
     assert not destino.exists()
+
+
+def test_perda_de_linhas_do_auxiliar_mantem_a_celula_insuficiente(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, cnes_fev_com_perda=True)
+    assert _validar(mundo, "processamento") == ExitCode.OK
+    resultado, pasta = _unico(mundo)
+    chave = ("ESTABELECIMENTO_CBO", "C", "202302", "PROCESSAMENTO")
+    assert _celulas(_cobertura_avaliada(pasta))[chave]["estado"] == "INSUFICIENTE"
+    estados = _estados(resultado)
+    cnes = [k for k in estados if k[1] == "ESTAB_CBO_CNES" and k[0].endswith("#0")]
+    assert cnes
+    assert {estados[k] for k in cnes} == {"INCONCLUSIVO"}
+
+
+def test_entrada_gravada_reproduz_o_run_id_pelo_caminho_direto(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path)
+    assert _validar(mundo, "processamento") == ExitCode.OK
+    original, pasta = _unico(mundo)
+    outra = tmp_path / "reexecucao"
+    argumentos = ["validate", "--config", str(mundo.config), "--policy", "processamento"]
+    argumentos += ["--entrada", str(pasta / "entrada_validacao.json"), "--saida", str(outra)]
+    assert cli.main(argumentos) == ExitCode.OK
+    (gravado,) = outra.glob("*/run_result.json")
+    reexecutado = RunResult.model_validate_json(gravado.read_text(encoding="utf-8"))
+    assert reexecutado.run_id == original.run_id
+    assert [s.dataset_id for s in reexecutado.saidas] == [s.dataset_id for s in original.saidas]

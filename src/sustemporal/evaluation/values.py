@@ -25,6 +25,7 @@ from sustemporal.contracts import (
     DatasetRef,
     EstadoExecucao,
     Governanca,
+    ResultadoRegistro,
     RuntimeConfig,
     calcular_dataset_id,
 )
@@ -75,6 +76,7 @@ _ESCALA_RAZAO = Decimal("1e-12")
 _DIGITOS_INTEIROS = 32
 _PRECISAO = 80
 FAMILIAS_DE_ATENDIMENTO = frozenset({"CID", "IDADE", "SEXO"})
+_RESULTADOS = frozenset(r.value for r in ResultadoRegistro)
 _EXIGIDAS = {
     "sia_pa_rotulos.v1": (
         "row_id",
@@ -284,7 +286,12 @@ def _familias(registro: _Registro, familia_da_regra: Mapping[str, FamiliaRegra])
 
 
 def _categoria(registro: _Registro, familias: set[str], municipais: set[str]) -> str:
-    if (registro.resultado == "ALERTA") != bool(registro.violacoes):
+    if registro.resultado not in _RESULTADOS:
+        raise FalhaOperacionalErro(
+            f"valores_resultado_desconhecido row_id={registro.row_id} "
+            f"resultado={registro.resultado}"
+        )
+    if (registro.resultado == ResultadoRegistro.ALERTA) != bool(registro.violacoes):
         raise FalhaOperacionalErro(
             f"valores_agregado_incoerente row_id={registro.row_id} resultado={registro.resultado}"
         )
@@ -294,7 +301,7 @@ def _categoria(registro: _Registro, familias: set[str], municipais: set[str]) ->
         return "DIFERENCA_NEGATIVA"
     if familias:
         return IDENTIFICADA if familias & municipais else SEM_GOVERNANCA
-    if registro.resultado == "ABSTENCAO":
+    if registro.resultado == ResultadoRegistro.ABSTENCAO:
         return "INCONCLUSIVO"
     return "SEM_VIOLACAO_VERIFICADA"
 
@@ -449,8 +456,9 @@ def summarize_values(
     Raises:
         FalhaOperacionalErro: saída ausente ou repetida, Parquet ilegível ou divergente, leiaute
             incompatível, rótulos que não cobrem a execução, ocorrência repetida ou agregado
-            incoerente com as violações, catálogo de regras ou versão de regra divergente do
-            run (`catalogo_regras_divergente`, nunca recarga silenciosa do catálogo atual).
+            incoerente com as violações, resultado fora de `ResultadoRegistro`, catálogo de
+            regras ou versão de regra divergente do run (`catalogo_regras_divergente`, nunca
+            recarga silenciosa do catálogo atual).
         ValueError: execução não concluída, mais de uma seleção de versões ou divergente do run,
             rótulos de outro dataset, execução sem catálogo de regras, regra fora do catálogo,
             família de atendimento com governança municipal, origem de dados divergente ou

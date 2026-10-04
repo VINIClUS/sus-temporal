@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import platform
 import subprocess
 from importlib import metadata
@@ -43,39 +44,46 @@ def _git(raiz: Path, *argumentos: str) -> str | None:
     return None if saida is None else saida.decode("utf-8", errors="surrogateescape").strip()
 
 
-def _hash_arquivo(caminho: Path) -> bytes | None:
+def _estado_do_caminho(caminho: Path) -> bytes | None:
+    """Tipo e conteúdo como o git os registraria: alvo do link, hash do arquivo ou ausência."""
     try:
+        if caminho.is_symlink():
+            return b"link\0" + os.fsencode(os.readlink(caminho))
+        if not caminho.exists():
+            return b"ausente"
         with caminho.open("rb") as arquivo:
-            return hashlib.file_digest(arquivo, "sha256").hexdigest().encode("ascii")
+            digest = hashlib.file_digest(arquivo, "sha256").hexdigest()
     except OSError:
         return None
+    return b"arquivo\0" + digest.encode("ascii")
 
 
 def _hash_diferencas(raiz: Path) -> str | None:
-    """SHA-256 do diff binário contra o HEAD e do conteúdo dos arquivos não rastreados.
+    """SHA-256 do estado de cada caminho alterado em relação ao HEAD ou não rastreado.
 
-    Tudo é lido a partir do topo do repositório, para o diff e a listagem terem o mesmo escopo.
+    Hash do conteúdo, nunca do texto do diff (que depende da configuração do git). Tudo é lido a
+    partir do topo do repositório; falha em qualquer caminho resulta em None, nunca hash parcial.
     """
     topo = _git(raiz, "rev-parse", "--show-toplevel")
     if not topo:
         return None
     base = Path(topo)
-    diff = _git_bytes(base, "diff", "--binary", "--no-color", "--no-ext-diff", "HEAD")
+    alterados = _git_bytes(base, "diff", "--name-only", "--no-renames", "-z", "HEAD")
     novos = _git_bytes(base, "ls-files", "--others", "--exclude-standard", "-z")
-    if diff is None or novos is None:
+    if alterados is None or novos is None:
         return None
-    resumo = hashlib.sha256(b"diff\0" + diff + b"\0nao_rastreados\0")
-    for caminho in sorted(nome for nome in novos.split(b"\0") if nome):
-        conteudo = _hash_arquivo(base / caminho.decode("utf-8", errors="surrogateescape"))
-        if conteudo is None:
+    resumo = hashlib.sha256()
+    for caminho in sorted({nome for nome in (alterados + novos).split(b"\0") if nome}):
+        estado = _estado_do_caminho(base / os.fsdecode(caminho))
+        if estado is None:
             return None
-        resumo.update(caminho + b"\0" + conteudo + b"\0")
+        resumo.update(caminho + b"\0" + estado + b"\0")
     return resumo.hexdigest()
 
 
 def versao_codigo(raiz: Path) -> CodeVersion:
     commit = _git(raiz, "rev-parse", "HEAD")
-    estado = _git(raiz, "status", "--porcelain")
+    estado = _git(raiz, "status", "--porcelain", "--untracked-files=all")
     sujo = commit is None or estado is None or bool(estado)
     return CodeVersion(
         commit=commit or "desconhecido",

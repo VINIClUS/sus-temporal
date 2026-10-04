@@ -1,0 +1,203 @@
+"""T04: `sustemporal ingest` sobre manifesto e armazenamento locais sintéticos (SINTETICO)."""
+
+from __future__ import annotations
+
+import json
+from contextlib import closing
+from pathlib import Path
+from typing import Any
+
+import duckdb
+import pytest
+from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf, registro_st
+from tests.fixtures.piloto_conjuntos import registro
+from tests.fixtures.piloto_manifesto import registrar_falha, registrar_versoes
+from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa
+from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
+
+from sustemporal import cli
+from sustemporal.contracts import (
+    ArtifactVersion,
+    DatasetRef,
+    FamiliaFonte,
+    OrigemDados,
+    ResultadoTentativa,
+)
+from sustemporal.errors import ExitCode
+from sustemporal.ingest.registry import NORMALIZADORES
+
+DRS_XI = Path(__file__).resolve().parents[2] / "catalog" / "territorio" / "drs_xi.yaml"
+FONTES = Path(__file__).resolve().parents[2] / "catalog" / "sources.yaml"
+PF = FamiliaFonte.CNES_PF
+
+
+def _versoes(store: Path) -> list[ArtifactVersion]:
+    registros = [registro("C", "201801", "201801"), registro("I", "201801", "201712")]
+    pf = [registro_pf("0012345", "225125"), registro_pf("0012345", "2231F9")]
+    return [
+        artefato_pa(store, dbc_pa(registros)),
+        artefato_pa(store, dbc_pa(registros, truncar_bytes=30), parte="b"),
+        artefato_sigtap(store, zip_sigtap(pacote_padrao())),
+        artefato_cnes(store, dbc_cnes(PF, pf), PF),
+        artefato_cnes(store, dbc_cnes(PF, pf), FamiliaFonte.CNES_SR),
+        artefato_cnes(
+            store,
+            dbc_cnes(FamiliaFonte.CNES_ST, [registro_st("0012345")], truncar_bytes=10),
+            FamiliaFonte.CNES_ST,
+        ),
+    ]
+
+
+def _config(
+    pasta: Path,
+    *,
+    territorio: Path = DRS_XI,
+    piloto: bool = True,
+    origem: str | None = "SINTETICO",
+    fontes: Path | None = None,
+) -> Path:
+    linhas = [
+        'versao: "1"',
+        *([f"origem_dados: {origem}"] if origem else []),
+        *([f"catalogos:\n  fontes: {fontes}"] if fontes else []),
+        "runtime:",
+        f"  raiz_dados: {pasta / 'dados'}",
+        f"  raiz_manifestos: {pasta / 'manifestos'}",
+        f"  raiz_saidas: {pasta / 'saidas'}",
+        "  duckdb_memoria: 256MB",
+        '  duckdb_threads: "1"',
+    ]
+    if piloto:
+        linhas += [
+            "piloto:",
+            "  uf: SP",
+            '  competencias_processamento: ["201801"]',
+            f"  territorio: {territorio}",
+            "  familias_fontes: [SIA_PA, CNES_PF, CNES_ST, CNES_SR, SIGTAP]",
+        ]
+    caminho = pasta / "ingest.yaml"
+    caminho.write_text("\n".join(linhas) + "\n", encoding="utf-8")
+    return caminho
+
+
+def _preparar(pasta: Path, *, origem: str | None = "SINTETICO") -> Path:
+    versoes = _versoes(pasta / "dados" / "raw")
+    (pasta / "manifestos").mkdir(parents=True)
+    registrar_versoes(pasta / "manifestos" / "aquisicao.jsonl", versoes)
+    return _config(pasta, origem=origem)
+
+
+def _execucoes(pasta: Path) -> list[Path]:
+    return sorted(p for p in (pasta / "saidas" / "ingest").iterdir() if p.is_dir())
+
+
+def _jsonl(caminho: Path) -> list[dict[str, Any]]:
+    return [json.loads(linha) for linha in caminho.read_text(encoding="utf-8").splitlines()]
+
+
+@pytest.fixture
+def executado(tmp_path: Path) -> Path:
+    assert cli.main(["ingest", "--config", str(_preparar(tmp_path))]) == ExitCode.OK
+    (execucao,) = _execucoes(tmp_path)
+    return execucao
+
+
+def test_ingest_produz_conjuntos_canonicos_e_cobertura(executado: Path) -> None:
+    datasets = [DatasetRef.model_validate(x) for x in _jsonl(executado / "datasets.jsonl")]
+    assert sorted(d.schema_id for d in datasets) == [
+        "cnes_estab_cbo.v1",
+        "cobertura.v1",
+        "sia_pa.v1",
+        "sigtap_proc_ocupacao.v1",
+        "sigtap_proc_registro.v1",
+        "sigtap_procedimento.v1",
+        "sigtap_registro.v1",
+    ]
+    assert {d.origem_dados for d in datasets} == {OrigemDados.SINTETICO}
+    assert all(Path(d.caminho).is_file() for d in datasets)
+
+
+def test_ingest_registra_reservada_e_quarentena_sem_tabela(executado: Path) -> None:
+    resultados = {(x["fonte"], x["estado"]) for x in _jsonl(executado / "resultados.jsonl")}
+    assert ("CNES_SR", "FAMILIA_RESERVADA") in resultados
+    assert any(
+        fonte == "CNES_ST" and estado.startswith("QUARENTENA_") for fonte, estado in resultados
+    )
+    assert ("SIA_PA", "NORMALIZADO") in resultados
+
+
+def test_ingest_sem_piloto_e_config_invalida(tmp_path: Path) -> None:
+    assert cli.main(["ingest", "--config", str(_config(tmp_path, piloto=False))]) == (
+        ExitCode.CONFIG_INVALIDA
+    )
+
+
+def test_ingest_com_territorio_invalido_e_config_invalida(tmp_path: Path) -> None:
+    ruim = tmp_path / "territorio.yaml"
+    ruim.write_text(DRS_XI.read_text(encoding="utf-8").replace("ibge7: 3514403", "ibge7: 3514404"))
+    assert cli.main(["ingest", "--config", str(_config(tmp_path, territorio=ruim))]) == (
+        ExitCode.CONFIG_INVALIDA
+    )
+
+
+def test_parte_do_sia_pa_em_quarentena_impede_cobertura_disponivel(executado: Path) -> None:
+    datasets = [DatasetRef.model_validate(x) for x in _jsonl(executado / "datasets.jsonl")]
+    (cobertura,) = [d for d in datasets if d.schema_id == "cobertura.v1"]
+    with closing(duckdb.connect()) as con:
+        estados = con.execute(
+            "SELECT DISTINCT estado FROM read_parquet($c) WHERE competencia = '201801'",
+            {"c": cobertura.caminho},
+        ).fetchall()
+    assert ("DISPONIVEL",) not in estados
+
+
+def test_falha_fora_da_quarentena_e_registrada_e_a_execucao_segue(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    falha = "tests.fixtures.piloto_falhas:normalizar_com_erro"
+    monkeypatch.setitem(NORMALIZADORES, FamiliaFonte.SIGTAP, falha)
+    assert cli.main(["ingest", "--config", str(_preparar(tmp_path))]) == ExitCode.OK
+    (execucao,) = _execucoes(tmp_path)
+    resultados = _jsonl(execucao / "resultados.jsonl")
+    assert {x["estado"] for x in resultados if x["fonte"] == "SIGTAP"} == {"FALHA_NORMALIZACAO"}
+    assert ("SIA_PA", "NORMALIZADO") in {(x["fonte"], x["estado"]) for x in resultados}
+
+
+def test_origem_omitida_na_config_vira_sintetico(tmp_path: Path) -> None:
+    assert cli.main(["ingest", "--config", str(_preparar(tmp_path, origem=None))]) == ExitCode.OK
+    (execucao,) = _execucoes(tmp_path)
+    origens = {x["origem_dados"] for x in _jsonl(execucao / "datasets.jsonl")}
+    assert origens == {"SINTETICO"}
+
+
+def test_duas_execucoes_nao_sobrescrevem_a_anterior(tmp_path: Path) -> None:
+    config = str(_preparar(tmp_path))
+    assert cli.main(["ingest", "--config", config]) == ExitCode.OK
+    assert cli.main(["ingest", "--config", config]) == ExitCode.OK
+    primeira, segunda = _execucoes(tmp_path)
+    assert (primeira / "datasets.jsonl").is_file()
+    assert (segunda / "datasets.jsonl").is_file()
+
+
+def test_parte_do_sia_pa_nao_encontrada_impede_cobertura_disponivel(tmp_path: Path) -> None:
+    store = tmp_path / "dados" / "raw"
+    registros = [registro("C", "201801", "201801")]
+    versoes = [
+        artefato_pa(store, dbc_pa(registros)),
+        artefato_sigtap(store, zip_sigtap(pacote_padrao())),
+    ]
+    (tmp_path / "manifestos").mkdir(parents=True)
+    manifesto = tmp_path / "manifestos" / "aquisicao.jsonl"
+    registrar_versoes(manifesto, versoes)
+    chave = versoes[0].chave.model_copy(update={"parte": "b", "nome_original": "PASP1801b.dbc"})
+    registrar_falha(manifesto, chave, ResultadoTentativa.NAO_ENCONTRADO, "sintetico://PASP1801b")
+    assert cli.main(["ingest", "--config", str(_config(tmp_path))]) == ExitCode.OK
+    (execucao,) = _execucoes(tmp_path)
+    datasets = [DatasetRef.model_validate(x) for x in _jsonl(execucao / "datasets.jsonl")]
+    (cobertura,) = [d for d in datasets if d.schema_id == "cobertura.v1"]
+    with closing(duckdb.connect()) as con:
+        estados = con.execute(
+            "SELECT DISTINCT estado FROM read_parquet($c) WHERE competencia = '201801'",
+            {"c": cobertura.caminho},
+        ).fetchall()
+    assert ("DISPONIVEL",) not in estados

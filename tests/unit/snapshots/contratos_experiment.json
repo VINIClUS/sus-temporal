@@ -763,10 +763,39 @@
       "title": "Artefatos Teste",
       "type": "array"
      },
+     "cohort_id": {
+      "anyOf": [
+       {
+        "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Cohort Id"
+     },
      "dataset_hash": {
       "pattern": "^lh1:[0-9a-f]{64}$",
       "title": "Dataset Hash",
       "type": "string"
+     },
+     "exclusoes": {
+      "anyOf": [
+       {
+        "additionalProperties": {
+         "ge": 0,
+         "type": "integer"
+        },
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Exclusoes"
      },
      "hash_por_particao": {
       "additionalProperties": {
@@ -779,6 +808,21 @@
       "title": "Hash Por Particao",
       "type": "object"
      },
+     "limites": {
+      "anyOf": [
+       {
+        "items": {
+         "type": "string"
+        },
+        "type": "array"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Limites"
+     },
      "linhas_por_particao": {
       "additionalProperties": {
        "ge": 0,
@@ -789,6 +833,42 @@
       },
       "title": "Linhas Por Particao",
       "type": "object"
+     },
+     "particoes": {
+      "anyOf": [
+       {
+        "additionalProperties": {
+         "$ref": "#/$defs/DatasetRef"
+        },
+        "propertyNames": {
+         "$ref": "#/$defs/Particao"
+        },
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Particoes"
+     },
+     "rotulos_por_particao": {
+      "anyOf": [
+       {
+        "additionalProperties": {
+         "$ref": "#/$defs/DatasetRef"
+        },
+        "propertyNames": {
+         "$ref": "#/$defs/Particao"
+        },
+        "type": "object"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Rotulos Por Particao"
      },
      "spec": {
       "$ref": "#/$defs/SplitSpec"
@@ -1424,6 +1504,84 @@
  },
  "SplitManifest": {
   "$defs": {
+   "DatasetRef": {
+    "additionalProperties": false,
+    "properties": {
+     "artifact_ids": {
+      "items": {
+       "pattern": "^art_[0-9a-f]{64}$",
+       "type": "string"
+      },
+      "title": "Artifact Ids",
+      "type": "array"
+     },
+     "caminho": {
+      "title": "Caminho",
+      "type": "string"
+     },
+     "dataset_id": {
+      "pattern": "^ds_[0-9a-f]{64}$",
+      "title": "Dataset Id",
+      "type": "string"
+     },
+     "hash_logico": {
+      "pattern": "^lh1:[0-9a-f]{64}$",
+      "title": "Hash Logico",
+      "type": "string"
+     },
+     "linhas": {
+      "ge": 0,
+      "title": "Linhas",
+      "type": "integer"
+     },
+     "multiplicidade": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/Multiplicidade"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "origem_dados": {
+      "$ref": "#/$defs/OrigemDados"
+     },
+     "produzido_por": {
+      "title": "Produzido Por",
+      "type": "string"
+     },
+     "reconciliacao": {
+      "anyOf": [
+       {
+        "$ref": "#/$defs/Reconciliacao"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null
+     },
+     "schema_id": {
+      "pattern": "^[a-z0-9_]+\\.v[0-9]+$",
+      "title": "Schema Id",
+      "type": "string"
+     }
+    },
+    "required": [
+     "dataset_id",
+     "schema_id",
+     "caminho",
+     "hash_logico",
+     "linhas",
+     "artifact_ids",
+     "origem_dados",
+     "produzido_por"
+    ],
+    "title": "DatasetRef",
+    "type": "object"
+   },
    "IntervaloParticao": {
     "additionalProperties": false,
     "properties": {
@@ -1449,6 +1607,41 @@
     "title": "IntervaloParticao",
     "type": "object"
    },
+   "Multiplicidade": {
+    "additionalProperties": false,
+    "properties": {
+     "combinacoes_distintas": {
+      "ge": 0,
+      "title": "Combinacoes Distintas",
+      "type": "integer"
+     },
+     "linhas_totais": {
+      "ge": 0,
+      "title": "Linhas Totais",
+      "type": "integer"
+     },
+     "max_repeticoes": {
+      "ge": 0,
+      "title": "Max Repeticoes",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "linhas_totais",
+     "combinacoes_distintas",
+     "max_repeticoes"
+    ],
+    "title": "Multiplicidade",
+    "type": "object"
+   },
+   "OrigemDados": {
+    "enum": [
+     "SINTETICO",
+     "REAL"
+    ],
+    "title": "OrigemDados",
+    "type": "string"
+   },
    "Particao": {
     "enum": [
      "DESENVOLVIMENTO",
@@ -1457,6 +1650,47 @@
     ],
     "title": "Particao",
     "type": "string"
+   },
+   "Reconciliacao": {
+    "additionalProperties": false,
+    "properties": {
+     "canonicas": {
+      "ge": 0,
+      "title": "Canonicas",
+      "type": "integer"
+     },
+     "deletados": {
+      "default": 0,
+      "ge": 0,
+      "title": "Deletados",
+      "type": "integer"
+     },
+     "excluidas_por_motivo": {
+      "additionalProperties": {
+       "ge": 0,
+       "type": "integer"
+      },
+      "title": "Excluidas Por Motivo",
+      "type": "object"
+     },
+     "fisicos": {
+      "ge": 0,
+      "title": "Fisicos",
+      "type": "integer"
+     },
+     "quarentena": {
+      "default": 0,
+      "ge": 0,
+      "title": "Quarentena",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "fisicos",
+     "canonicas"
+    ],
+    "title": "Reconciliacao",
+    "type": "object"
    },
    "SplitSpec": {
     "additionalProperties": false,
@@ -1502,10 +1736,39 @@
     "title": "Artefatos Teste",
     "type": "array"
    },
+   "cohort_id": {
+    "anyOf": [
+     {
+      "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Cohort Id"
+   },
    "dataset_hash": {
     "pattern": "^lh1:[0-9a-f]{64}$",
     "title": "Dataset Hash",
     "type": "string"
+   },
+   "exclusoes": {
+    "anyOf": [
+     {
+      "additionalProperties": {
+       "ge": 0,
+       "type": "integer"
+      },
+      "type": "object"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Exclusoes"
    },
    "hash_por_particao": {
     "additionalProperties": {
@@ -1518,6 +1781,21 @@
     "title": "Hash Por Particao",
     "type": "object"
    },
+   "limites": {
+    "anyOf": [
+     {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Limites"
+   },
    "linhas_por_particao": {
     "additionalProperties": {
      "ge": 0,
@@ -1528,6 +1806,42 @@
     },
     "title": "Linhas Por Particao",
     "type": "object"
+   },
+   "particoes": {
+    "anyOf": [
+     {
+      "additionalProperties": {
+       "$ref": "#/$defs/DatasetRef"
+      },
+      "propertyNames": {
+       "$ref": "#/$defs/Particao"
+      },
+      "type": "object"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Particoes"
+   },
+   "rotulos_por_particao": {
+    "anyOf": [
+     {
+      "additionalProperties": {
+       "$ref": "#/$defs/DatasetRef"
+      },
+      "propertyNames": {
+       "$ref": "#/$defs/Particao"
+      },
+      "type": "object"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Rotulos Por Particao"
    },
    "spec": {
     "$ref": "#/$defs/SplitSpec"

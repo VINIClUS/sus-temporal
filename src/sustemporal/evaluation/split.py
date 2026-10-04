@@ -132,26 +132,50 @@ def _classificar(
     return {str(motivo): int(n) for motivo, n in linhas}
 
 
-def _exigir_fontes_numa_particao(
+def _fontes_da_populacao(
     con: duckdb.DuckDBPyConnection, fonte_por_artefato: Mapping[str, str]
-) -> int:
+) -> dict[str, dict[str, set[str]]]:
+    todos = con.execute(
+        f"SELECT DISTINCT artifact_id FROM {_TABELA} ORDER BY 1"  # noqa: S608
+    ).fetchall()
+    if sem_fonte := [str(a) for (a,) in todos if str(a) not in fonte_por_artefato]:
+        raise ValueError(
+            f"split_sem_fonte_para_artefato n={len(sem_fonte)} primeiro={sem_fonte[0]}"
+        )
     pares = con.execute(
         f"SELECT DISTINCT artifact_id, _particao FROM {_TABELA} "  # noqa: S608
         "WHERE _motivo IS NULL ORDER BY artifact_id, _particao"
     ).fetchall()
-    particoes: dict[str, set[str]] = {}
-    artefatos: dict[str, set[str]] = {}
+    por_fonte: dict[str, dict[str, set[str]]] = {}
     for artifact_id, particao in pares:
-        fonte = fonte_por_artefato.get(str(artifact_id), str(artifact_id))
-        particoes.setdefault(fonte, set()).add(str(particao))
-        artefatos.setdefault(fonte, set()).add(str(artifact_id))
-    for fonte, encontradas in sorted(particoes.items()):
-        if len(encontradas) > 1:
+        fonte = fonte_por_artefato[str(artifact_id)]
+        por_fonte.setdefault(fonte, {}).setdefault(str(particao), set()).add(str(artifact_id))
+    return por_fonte
+
+
+def _exigir_fontes_numa_particao(
+    con: duckdb.DuckDBPyConnection,
+    fonte_por_artefato: Mapping[str, str],
+    inspecionados: tuple[str, ...],
+) -> int:
+    por_fonte = _fontes_da_populacao(con, fonte_por_artefato)
+    for fonte, particoes in sorted(por_fonte.items()):
+        if len(particoes) > 1:
             raise ValueError(
                 f"republicacao_em_particoes_distintas fonte={fonte} "
-                f"particoes={','.join(sorted(encontradas))}"
+                f"particoes={','.join(sorted(particoes))}"
             )
-    return sum(1 for versoes in artefatos.values() if len(versoes) > 1)
+    vistas = {fonte_por_artefato.get(a, a) for a in inspecionados}
+    teste = {
+        fonte: versoes
+        for fonte, particoes in por_fonte.items()
+        for particao, versoes in particoes.items()
+        if particao == Particao.TESTE.value
+    }
+    for fonte, versoes in sorted(teste.items()):
+        if fonte in vistas and not versoes & set(inspecionados):
+            raise ValueError(f"teste_contem_fonte_inspecionada fonte={fonte}")
+    return sum(1 for p in por_fonte.values() if len(set().union(*p.values())) > 1)
 
 
 def _gravar_particao(
@@ -188,18 +212,13 @@ def _gravar_particao(
     )
 
 
-def _limites(cohort: CohortSpec, agrupadas: int | None) -> tuple[str, ...]:
-    extras = []
-    if agrupadas is None:
-        extras.append(
-            "republicacoes_sem_chave_de_fonte: cada artefato tratado como fonte propria; versoes "
-            "de uma mesma fonte nao sao reconhecidas como tal"
-        )
-    else:
-        extras.append(
+def _limites(cohort: CohortSpec, agrupadas: int) -> tuple[str, ...]:
+    extras = [
+        (
             f"republicacoes_agrupadas_por_fonte fontes_com_mais_de_uma_versao={agrupadas}: "
-            "versoes da mesma fonte ficam na mesma particao e nao sao observacoes independentes"
+            "versoes da mesma fonte ficam na mesma particao, mas suas linhas nao sao deduplicadas"
         )
+    ]
     if cohort.pertenca is PertencaGeografica.A_DEFINIR:
         extras.append("pertenca_a_definir: aplicada a lista versionada do territorio como fixa")
     return (*_LIMITES_FIXOS, *extras)
@@ -244,12 +263,13 @@ def _particionar(
     fontes: Mapping[str, str],
     *,
     out: Path,
+    inspecionados: tuple[str, ...],
 ) -> tuple[dict[str, int], int, dict[Particao, DatasetRef]]:
     con = conectar(RuntimeConfig(duckdb_threads=1))
     try:
         _verificar_entrada(con, dataset)
         exclusoes = _classificar(con, dataset, spec, cohort, municipios)
-        agrupadas = _exigir_fontes_numa_particao(con, fontes)
+        agrupadas = _exigir_fontes_numa_particao(con, fontes, inspecionados)
         particoes = {
             p.particao: _gravar_particao(con, p.particao, dataset, out) for p in spec.intervalos
         }
@@ -269,21 +289,21 @@ def build_splits(
 ) -> SplitManifest:
     """Separa desenvolvimento, calibração e teste por competência de processamento.
 
-    Registros fora da coorte, do território ou dos intervalos não entram na população, e a
-    exclusão é contada por motivo. Versões de uma mesma fonte (`fonte_por_artefato`) ficam na
-    mesma partição.
+    Exclusões (coorte, território, intervalos) são contadas por motivo. `fonte_por_artefato`
+    cobre todo artefato; versões de uma fonte ficam na mesma partição, e uma fonte inspecionada
+    não volta ao teste por outra versão.
 
     Raises:
         FalhaOperacionalErro: entrada ilegível ou diferente do `DatasetRef`.
-        ValueError: esquema inesperado, pertença histórica, republicação em partições
-            distintas ou artefato de teste já inspecionado.
+        ValueError: esquema inesperado, pertença histórica, artefato sem fonte, republicação
+            em partições distintas ou artefato ou fonte de teste já inspecionados.
     """
     spec = spec if spec is not None else carregar_spec()
     vistos = tuple(sorted(set(inspecionados)))
     municipios = _municipios(cohort)
     out.mkdir(parents=True, exist_ok=True)
     exclusoes, agrupadas, particoes = _particionar(
-        dataset, spec, cohort, municipios, fonte_por_artefato or {}, out=out
+        dataset, spec, cohort, municipios, fonte_por_artefato or {}, out=out, inspecionados=vistos
     )
     manifesto = SplitManifest(
         split_id=_split_id(
@@ -298,7 +318,7 @@ def build_splits(
         cohort_id=cohort.cohort_id,
         particoes=particoes,
         exclusoes=exclusoes,
-        limites=_limites(cohort, agrupadas if fonte_por_artefato is not None else None),
+        limites=_limites(cohort, agrupadas),
     )
     (out / f"{manifesto.split_id}.json").write_text(manifesto.model_dump_json(indent=2))
     logger.info(

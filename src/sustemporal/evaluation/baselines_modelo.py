@@ -56,7 +56,7 @@ def _token(valor: object, vocabulario: Sequence[str]) -> str:
 def _vocabulario(valores: list[object]) -> tuple[str, ...]:
     contagem = Counter(AUSENTE if v is None else str(v) for v in valores)
     frequentes = {texto for texto, n in contagem.items() if n >= FREQUENCIA_MINIMA}
-    return tuple(sorted(frequentes | {DESCONHECIDA}))
+    return tuple(sorted(frequentes | {AUSENTE, DESCONHECIDA}))
 
 
 def _numero(valor: object) -> float | None:
@@ -180,8 +180,8 @@ def ajustar(dados: dict[Particao, list[Linha]], features: FeatureSpec, semente: 
         ValueError: desenvolvimento sem as duas classes binárias.
     """
     treino = dados[Particao.DESENVOLVIMENTO]
-    codificador = Codificador.ajustar(treino, features)
     usadas, alvo = _binarias(treino)
+    codificador = Codificador.ajustar(usadas, features)
     if len(set(alvo.tolist())) < 2:
         raise ValueError(f"treino_sem_ambas_as_classes linhas_binarias={len(usadas)}")
     modelo = LogisticRegression(

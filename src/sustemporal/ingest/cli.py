@@ -23,7 +23,8 @@ import pyarrow.parquet as pq
 
 from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import Manifesto
-from sustemporal.contracts import FamiliaFonte, LayoutSpec, OrigemDados
+from sustemporal.acquisition.watch import carregar_leiaute_pa
+from sustemporal.contracts import EstadoIntegridade, FamiliaFonte, LayoutSpec, OrigemDados
 from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro
 from sustemporal.ingest.cnes import RESERVADAS, FamiliaReservada, carregar_leiautes_cnes
 from sustemporal.ingest.coverage import build_coverage
@@ -32,7 +33,6 @@ from sustemporal.ingest.registry import normalizador
 from sustemporal.ingest.sigtap_zip import carregar_leiautes_sigtap
 from sustemporal.ingest.territorio import carregar_territorio
 from sustemporal.temporal.selector import partes_esperadas_do_catalogo, uf_da_execucao
-from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
     import argparse
@@ -52,10 +52,11 @@ __all__ = ["executar_ingest"]
 
 logger = logging.getLogger(__name__)
 
-LEIAUTE_SIA_PA = Path(__file__).resolve().parents[3] / "catalog" / "layouts" / "sia_pa.yaml"
 # Mesmo endereçamento da aquisição (acquisition/cli.py): conteúdo em <raiz_dados>/raw.
 SUBPASTA_ARMAZENAMENTO = "raw"
 FONTES_NACIONAIS = frozenset({FamiliaFonte.SIGTAP})
+# Mesma noção de conteúdo selecionável do seletor (temporal/selector.py, `_INTEGRAS`).
+INTEGRIDADES_SELECIONAVEIS = frozenset({EstadoIntegridade.OK, EstadoIntegridade.NAO_VERIFICADO})
 _NORMALIZAVEIS = frozenset(
     {FamiliaFonte.SIA_PA, FamiliaFonte.SIGTAP, FamiliaFonte.CNES_PF, FamiliaFonte.CNES_ST}
 )
@@ -73,9 +74,9 @@ class _Normalizar(Protocol):
     ) -> DatasetRef: ...
 
 
-def _leiautes(fonte: FamiliaFonte) -> list[LayoutSpec]:
+def _leiautes(fonte: FamiliaFonte, config: RunConfig) -> list[LayoutSpec]:
     if fonte is FamiliaFonte.SIA_PA:
-        return [LayoutSpec.model_validate(carregar_yaml(LEIAUTE_SIA_PA))]
+        return [carregar_leiaute_pa(config)]
     if fonte is FamiliaFonte.SIGTAP:
         return list(carregar_leiautes_sigtap().values())
     leiautes = carregar_leiautes_cnes()
@@ -105,11 +106,14 @@ class _Execucao:
     def __init__(self, config: RunConfig, saida: Path) -> None:
         raiz = Path(config.runtime.raiz_dados) / SUBPASTA_ARMAZENAMENTO
         self.runtime = config.runtime.model_copy(update={"raiz_dados": str(raiz)})
+        self.config = config
         self.origem = config.origem_dados or OrigemDados.SINTETICO
         self.saida = saida
         self.datasets: list[DatasetRef] = []
         self.resultados: list[dict[str, str | None]] = []
         self.sia_pa_incompleto: dict[str, str] = {}
+        self.falhas: dict[str, str] = {}
+        self.fora_do_corte: set[tuple[str, str | None]] = set()
 
     def normalizar(self, versao: ArtifactVersion) -> None:
         fonte = versao.chave.fonte
@@ -118,7 +122,7 @@ class _Execucao:
             self.resultados.append(_resultado(versao, None, "FAMILIA_RESERVADA", motivo=motivo))
             return
         funcao = cast("_Normalizar", normalizador(fonte))
-        for layout in _leiautes(fonte):
+        for layout in _leiautes(fonte, self.config):
             self._uma(funcao, versao, layout)
 
     def admitir(
@@ -136,7 +140,7 @@ class _Execucao:
         )
         competencia = versao.chave.competencia_arquivo
         if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
-            self.sia_pa_incompleto[competencia.valor] = "versao_fora_do_corte"
+            self.fora_do_corte.add((competencia.valor, versao.chave.parte))
         return False
 
     def propagar_incompletude(self, versoes: Sequence[ArtifactVersion]) -> None:
@@ -172,21 +176,37 @@ class _Execucao:
                 self.sia_pa_incompleto[competencia.valor] = observacao.resultado.value
 
     def marcar_partes(self, versoes: Sequence[ArtifactVersion], config: RunConfig) -> None:
-        """Completude das partes do SIA-PA com a mesma semântica do seletor (T06): parte
-        declarada sem versão, parte não declarada ou partes sem declaração no catálogo tornam a
-        competência incompleta (a aquisição não grava observação de parte ausente da listagem)."""
+        """Completude das partes do SIA-PA com a mesma semântica do seletor (T06), contando só
+        versões íntegras selecionáveis: parte vista sem versão íntegra (em quarentena ou fora do
+        corte), versão íntegra que não normalizou, republicação divergente, parte declarada sem
+        versão, parte não declarada ou partes sem declaração no catálogo tornam a competência
+        incompleta (a aquisição não grava observação de parte ausente da listagem)."""
         esperadas_por = partes_esperadas_do_catalogo(config)
-        artefatos: dict[str, dict[str | None, set[str]]] = defaultdict(lambda: defaultdict(set))
+        vistas: dict[str, set[str | None]] = defaultdict(set)
+        for valor, parte in self.fora_do_corte:
+            vistas[valor].add(parte)
+        integras: dict[str, dict[str | None, set[str]]] = defaultdict(lambda: defaultdict(set))
         for versao in versoes:
             competencia = versao.chave.competencia_arquivo
-            if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
-                artefatos[competencia.valor][versao.chave.parte].add(versao.artifact_id)
-        for valor, por_parte in artefatos.items():
-            motivo = _republicacao(por_parte) or _incompletude(
-                set(por_parte), esperadas_por.get((FamiliaFonte.SIA_PA, valor))
+            if versao.chave.fonte is not FamiliaFonte.SIA_PA or competencia is None:
+                continue
+            vistas[competencia.valor].add(versao.chave.parte)
+            if versao.integridade in INTEGRIDADES_SELECIONAVEIS:
+                integras[competencia.valor][versao.chave.parte].add(versao.artifact_id)
+        for valor, partes in vistas.items():
+            por_parte = integras[valor]
+            motivo = (
+                _republicacao(por_parte)
+                or _sem_integra(partes, por_parte)
+                or self._falha_integra(por_parte)
+                or _incompletude(set(por_parte), esperadas_por.get((FamiliaFonte.SIA_PA, valor)))
             )
             if motivo is not None:
                 self.sia_pa_incompleto[valor] = motivo
+
+    def _falha_integra(self, por_parte: dict[str | None, set[str]]) -> str | None:
+        ids = sorted(i for conjunto in por_parte.values() for i in conjunto if i in self.falhas)
+        return self.falhas[ids[0]] if ids else None
 
     def _uma(self, funcao: _Normalizar, versao: ArtifactVersion, layout: LayoutSpec) -> None:
         try:
@@ -207,9 +227,7 @@ class _Execucao:
             return
         logger.warning("ingest_sem_tabela id=%s estado=%s", versao.artifact_id, estado)
         self.resultados.append(_resultado(versao, layout.layout_id, estado, motivo=motivo))
-        competencia = versao.chave.competencia_arquivo
-        if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
-            self.sia_pa_incompleto[competencia.valor] = estado
+        self.falhas[versao.artifact_id] = estado
 
 
 def _diagnostico(versao: ArtifactVersion, dataset: DatasetRef) -> dict[str, str]:
@@ -248,6 +266,14 @@ def _republicacao(por_parte: dict[str | None, set[str]]) -> str | None:
     return f"republicacao_com_conteudo_divergente partes={','.join(divergentes)}"
 
 
+def _sem_integra(vistas: set[str | None], por_parte: dict[str | None, set[str]]) -> str | None:
+    """Parte vista só em quarentena ou fora do corte: o seletor não tem o que selecionar."""
+    sem = sorted(parte or "" for parte in vistas if not por_parte.get(parte))
+    if not sem:
+        return None
+    return f"parte_sem_versao_integra_selecionavel partes={','.join(sem)}"
+
+
 def _incompletude(obtidas: set[str | None], esperadas: frozenset[str] | None) -> str | None:
     nomeadas = {parte for parte in obtidas if parte is not None}
     if esperadas is None:
@@ -274,9 +300,11 @@ class _Recorte:
     def fora(self, chave: ChaveArtefato) -> dict[str, str] | None:
         """Detalhe do motivo quando a chave fica fora; None quando entra."""
         if chave.fonte not in self.familias:
-            return {"familia": chave.fonte.value}
+            return {"motivo": "familia_nao_configurada", "familia": chave.fonte.value}
         if chave.fonte in FONTES_NACIONAIS:
-            return None
+            return (
+                None if chave.uf is None else {"motivo": "uf_em_familia_nacional", "uf": chave.uf}
+            )
         if chave.uf is None:
             return {"motivo": "uf_ausente_em_familia_regional"}
         return None if chave.uf == self.uf else {"uf": chave.uf}

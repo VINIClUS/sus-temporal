@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from enum import StrEnum
+from typing import Annotated
 
-from pydantic import model_validator
+from pydantic import StringConstraints, model_validator
 
 from sustemporal.contracts.base import (
     ContratoBase,
@@ -15,8 +17,19 @@ from sustemporal.contracts.base import (
     razao_confere,
 )
 from sustemporal.contracts.experiment import FreezeId
+from sustemporal.contracts.rules import FamiliaRegra
 
-__all__ = ["AnnotationSample", "Estrato"]
+__all__ = [
+    "AnnotationSample",
+    "AvaliacaoCaso",
+    "CasoId",
+    "ConclusaoCaso",
+    "EstadoReferencia",
+    "Estrato",
+    "ReferenciaHumana",
+]
+
+CasoId = Annotated[str, StringConstraints(pattern=r"^(caso|treino)_[0-9]{4,}$")]
 
 
 class Estrato(ContratoBase):
@@ -47,6 +60,7 @@ class AnnotationSample(ContratoBase):
     casos_treino: tuple[str, ...] = ()
     colunas_excluidas: tuple[str, ...] = ()
     formulario_versao: str
+    dimensoes_estrato: tuple[str, ...] | None = None
 
     @model_validator(mode="after")
     def _treino_separado(self) -> AnnotationSample:
@@ -63,4 +77,55 @@ class AnnotationSample(ContratoBase):
                 f"amostra_estratos_divergem_dos_casos amostra={self.sample_id} "
                 f"estratos={total} casos={len(self.casos)}"
             )
+        return self
+
+
+class ConclusaoCaso(StrEnum):
+    INCOMPATIBILIDADE_IDENTIFICADA = "INCOMPATIBILIDADE_IDENTIFICADA"
+    CAUSA_FORA_DE_ESCOPO_DOCUMENTADA = "CAUSA_FORA_DE_ESCOPO_DOCUMENTADA"
+    CAUSA_INDETERMINADA = "CAUSA_INDETERMINADA"
+    EVIDENCIA_INSUFICIENTE = "EVIDENCIA_INSUFICIENTE"
+
+
+class AvaliacaoCaso(ContratoBase):
+    """Uma resposta do formulário: várias famílias só com incompatibilidade identificada."""
+
+    caso_id: CasoId
+    avaliador: Identificador
+    conclusao: ConclusaoCaso
+    familias: tuple[FamiliaRegra, ...] = ()
+    evidencias: str = ""
+    minutos: DecimalExato | None = None
+
+    @model_validator(mode="after")
+    def _familias_coerentes(self) -> AvaliacaoCaso:
+        identificada = self.conclusao is ConclusaoCaso.INCOMPATIBILIDADE_IDENTIFICADA
+        if identificada != bool(self.familias):
+            raise ValueError(
+                f"avaliacao_familias_incoerentes caso={self.caso_id} conclusao={self.conclusao}"
+            )
+        if len(set(self.familias)) != len(self.familias):
+            raise ValueError(f"avaliacao_familia_repetida caso={self.caso_id}")
+        if self.minutos is not None and self.minutos < 0:
+            raise ValueError(f"avaliacao_minutos_negativos caso={self.caso_id}")
+        return self
+
+
+class EstadoReferencia(StrEnum):
+    ABERTA = "ABERTA"
+    FECHADA = "FECHADA"
+
+
+class ReferenciaHumana(ContratoBase):
+    """Referência adjudicada por row_id; só FECHADA pode ser comparada ao motor."""
+
+    sample_id: Identificador
+    estado: EstadoReferencia
+    casos: dict[str, AvaliacaoCaso]
+    pendentes: tuple[CasoId, ...] = ()
+
+    @model_validator(mode="after")
+    def _fechamento(self) -> ReferenciaHumana:
+        if self.estado is EstadoReferencia.FECHADA and self.pendentes:
+            raise ValueError(f"referencia_fechada_com_pendencias amostra={self.sample_id}")
         return self

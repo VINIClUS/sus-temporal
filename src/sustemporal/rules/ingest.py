@@ -278,7 +278,7 @@ def preparar_insumos_ingest(
     grupos = [producao, *(refs for refs in auxiliares.values() if refs)]
     fisicas = [_conferir(con, refs) for refs in grupos]
     if cobertura is not None:
-        verificar_conteudo(con, cobertura)
+        _conferir(con, [cobertura])
     colunas = _unir(con, producao, fisicas[0])
     _exigir_row_id_unico(con)
     exclusoes = _recortar_territorio(con, colunas, municipios)

@@ -1,0 +1,8 @@
+# Política do método M_TEMP (plano §7). Nenhum documento disponível define, por regra e fonte,
+# qual competência consultar: W3 (OFICIAL_VISTO_EM_BUSCA, paráfrase) só distingue apresentação e
+# atendimento. Sem documento, a política fica NAO_RESOLVIDA e a avaliação se abstém
+# (INCONCLUSIVO) até que critérios documentados sejam registrados antes do teste.
+politica_id: M_TEMP_PADRAO
+tipo: NAO_RESOLVIDA
+metodo: M_TEMP
+criterios: []

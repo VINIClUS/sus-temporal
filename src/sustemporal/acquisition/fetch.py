@@ -215,6 +215,7 @@ def _versao(
         caminho_conteudo=destino.relative_to(tentativa.store).as_posix(),
         integridade=veredito.integridade,
         membros=veredito.membros,
+        dbc_bytes_pos_cabecalho=veredito.dbc_bytes_pos_cabecalho,
     )
 
 

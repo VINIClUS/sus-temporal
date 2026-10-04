@@ -1,0 +1,21 @@
+# Baseline do plano §7 (B_PROC): todas as fontes auxiliares pela competência de
+# processamento, sem deslocamento. Proposta do plano, não regra documental: ALTERNATIVA_EXPLORATORIA.
+politica_id: B_PROC
+tipo: ALTERNATIVA_EXPLORATORIA
+metodo: B_PROC
+criterios:
+  - fonte: CNES_ST
+    base: PROCESSAMENTO
+    deslocamento_meses: "0"
+  - fonte: CNES_PF
+    base: PROCESSAMENTO
+    deslocamento_meses: "0"
+  - fonte: CNES_SR
+    base: PROCESSAMENTO
+    deslocamento_meses: "0"
+  - fonte: CNES_HB
+    base: PROCESSAMENTO
+    deslocamento_meses: "0"
+  - fonte: SIGTAP
+    base: PROCESSAMENTO
+    deslocamento_meses: "0"

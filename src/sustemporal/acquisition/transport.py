@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import ftplib
+import http.client
 import os
 import time
 import urllib.error
@@ -267,7 +268,12 @@ class TransporteHTTPS:
             if erro.code in _HTTP_AUSENTE:
                 raise RecursoNaoEncontrado(f"http_ausente codigo={erro.code}") from erro
             raise _falha(erro, gravador.recebidos) from erro
-        except (OSError, EOFError) as erro:
+        except http.client.IncompleteRead as erro:
+            gravador(erro.partial)
+            raise TransferenciaInterrompida(
+                f"http_resposta_incompleta erro={erro!r}", gravador.recebidos
+            ) from erro
+        except (OSError, EOFError, http.client.HTTPException) as erro:
             raise _falha(erro, gravador.recebidos) from erro
         anunciado = metadados.get("Content-Length")
         tamanho = int(anunciado) if anunciado and anunciado.isdigit() else None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import re
 import stat
 import struct
@@ -62,6 +63,7 @@ class Veredito:
     integridade: EstadoIntegridade
     membros: tuple[MembroArquivo, ...] = ()
     motivo: str | None = None
+    dbc_bytes_pos_cabecalho: str | None = None
 
     @property
     def em_quarentena(self) -> bool:
@@ -117,9 +119,25 @@ def _cabecalho_dbf(amostra: _Amostra) -> tuple[int, int, int] | Veredito:
         return _inesperado(f"cabecalho_dbf_invalido cabecalho={cabecalho} registro={registro}")
     if tamanho < cabecalho:
         return _truncado(f"cabecalho_dbf_truncado cabecalho={cabecalho} tamanho={tamanho}")
-    if _byte_do_terminador(amostra, cabecalho) != _TERMINADOR_DBF:
-        return _inesperado("cabecalho_dbf_sem_terminador")
+    divergencia = (
+        "cabecalho_dbf_sem_terminador"
+        if _byte_do_terminador(amostra, cabecalho) != _TERMINADOR_DBF
+        else _larguras_divergentes(amostra.caminho, cabecalho, registro)
+    )
+    if divergencia is not None:
+        return _inesperado(divergencia)
     return registros, cabecalho, registro
+
+
+def _larguras_divergentes(caminho: Path, cabecalho: int, registro: int) -> str | None:
+    """A soma das larguras dos descritores de campo precisa ser R − 1 (byte de deleção)."""
+    with caminho.open("rb") as arquivo:
+        bytes_cabecalho = arquivo.read(cabecalho)
+    campos = (cabecalho - _CABECALHO_DBF_MINIMO) // _DESCRITOR_DBF
+    soma = sum(bytes_cabecalho[_DESCRITOR_DBF * (i + 1) + 16] for i in range(campos))
+    if soma + 1 != registro:
+        return f"dbf_larguras_divergentes soma={soma} registro={registro}"
+    return None
 
 
 def _validar_dbf(amostra: _Amostra) -> Veredito:
@@ -173,7 +191,8 @@ def _validar_dbc(amostra: _Amostra) -> Veredito:
     if tamanho < fluxo + 2:
         return _truncado(f"dbc_sem_fluxo cabecalho={cabecalho[1]} tamanho={tamanho}")
     with amostra.caminho.open("rb") as arquivo:
-        arquivo.seek(fluxo)
+        arquivo.seek(cabecalho[1])
+        pos_cabecalho = arquivo.read(4).hex()
         literais, dicionario = arquivo.read(2)
     if literais not in {0, 1} or dicionario not in {4, 5, 6}:
         return _inesperado(f"dbc_fluxo_invalido bytes={literais:#04x}{dicionario:02x}")
@@ -183,7 +202,8 @@ def _validar_dbc(amostra: _Amostra) -> Veredito:
         return _inesperado(
             f"dbc_declarado_excede declarado={declarado} limite={amostra.limite_dbf}"
         )
-    return _descomprimir_dbc(amostra.caminho, cabecalho, declarado)
+    veredito = _descomprimir_dbc(amostra.caminho, cabecalho, declarado)
+    return dataclasses.replace(veredito, dbc_bytes_pos_cabecalho=pos_cabecalho)
 
 
 def _nome_inseguro(nome: str) -> bool:

@@ -135,6 +135,26 @@ _EFEITOS = {
 }
 
 
+def _validar_precondicoes(op: OperationSpec, efeito: _Efeito) -> None:
+    """Precondições conhecidas, todas as obrigatórias e só as que o `op_id` admite."""
+    declaradas = set(op.precondicoes)
+    desconhecidas = declaradas - set(_PRECONDICOES)
+    if desconhecidas:
+        raise CatalogoOperacoesInvalido(
+            f"precondicao_desconhecida op={op.op_id} nomes={sorted(desconhecidas)}"
+        )
+    if not efeito.precondicoes <= declaradas:
+        faltando = sorted(efeito.precondicoes - declaradas)
+        raise CatalogoOperacoesInvalido(
+            f"precondicao_obrigatoria_ausente op={op.op_id} nomes={faltando}"
+        )
+    incompativeis = declaradas - efeito.precondicoes
+    if incompativeis:
+        raise CatalogoOperacoesInvalido(
+            f"precondicao_incompativel_com_operacao op={op.op_id} nomes={sorted(incompativeis)}"
+        )
+
+
 def _validar_operacao(op: OperationSpec) -> None:
     """Efeito conhecido, mesmo alvo e precondições/dependências obrigatórias do `op_id`."""
     efeito = _EFEITOS.get(op.op_id)
@@ -142,18 +162,9 @@ def _validar_operacao(op: OperationSpec) -> None:
         raise CatalogoOperacoesInvalido(f"operacao_sem_efeito op={op.op_id}")
     if efeito.schema_id != op.alvo.schema_id:
         raise CatalogoOperacoesInvalido(f"operacao_alvo_incoerente op={op.op_id}")
-    desconhecidas = set(op.precondicoes) - set(_PRECONDICOES)
-    if desconhecidas:
-        raise CatalogoOperacoesInvalido(
-            f"precondicao_desconhecida op={op.op_id} nomes={sorted(desconhecidas)}"
-        )
+    _validar_precondicoes(op, efeito)
     if set(op.depende_de) - set(_EFEITOS):
         raise CatalogoOperacoesInvalido(f"dependencia_desconhecida op={op.op_id}")
-    if not efeito.precondicoes <= set(op.precondicoes):
-        faltando = sorted(efeito.precondicoes - set(op.precondicoes))
-        raise CatalogoOperacoesInvalido(
-            f"precondicao_obrigatoria_ausente op={op.op_id} nomes={faltando}"
-        )
     if not efeito.depende_de <= set(op.depende_de):
         faltando = sorted(efeito.depende_de - set(op.depende_de))
         raise CatalogoOperacoesInvalido(

@@ -349,6 +349,13 @@
     "title": "Casos",
     "type": "object"
    },
+   "casos_amostra": {
+    "items": {
+     "type": "string"
+    },
+    "title": "Casos Amostra",
+    "type": "array"
+   },
    "estado": {
     "$ref": "#/$defs/EstadoReferencia"
    },
@@ -370,7 +377,8 @@
   "required": [
    "sample_id",
    "estado",
-   "casos"
+   "casos",
+   "casos_amostra"
   ],
   "title": "ReferenciaHumana",
   "type": "object"

@@ -164,11 +164,13 @@ def _sortear_final(
     return contagens, alocacao, sorted(r for ids in sorteados.values() for r in ids)
 
 
-def _colunas_excluidas(con: duckdb.DuckDBPyConnection, registros: DatasetRef) -> tuple[str, ...]:
-    descricao = con.execute(
-        "DESCRIBE SELECT * FROM read_parquet($c)", {"c": registros.caminho}
-    ).fetchall()
-    fisicas = {str(linha[0]) for linha in descricao}
+def _colunas_excluidas(con: duckdb.DuckDBPyConnection, *registros: DatasetRef) -> tuple[str, ...]:
+    fisicas: set[str] = set()
+    for dataset in registros:
+        descricao = con.execute(
+            "DESCRIBE SELECT * FROM read_parquet($c)", {"c": dataset.caminho}
+        ).fetchall()
+        fisicas |= {str(linha[0]) for linha in descricao}
     canonicas = {c.nome for c in carregar_esquema(SCHEMA_REGISTROS).colunas}
     rotulos = {c.nome for c in carregar_esquema(SCHEMA_ROTULOS).colunas} - {"row_id", "rotulo"}
     return tuple(sorted((fisicas | canonicas | rotulos) - set(COLUNAS_PACOTE)))
@@ -176,6 +178,8 @@ def _colunas_excluidas(con: duckdb.DuckDBPyConnection, registros: DatasetRef) ->
 
 def _treino(populacao: Mapping[str, str], tamanho: int, semente: int) -> list[str]:
     candidatos = embaralhar(list(populacao), semente, "treino")
+    if len(candidatos) < tamanho:
+        logger.warning("treino_menor_que_pedido pedido=%d disponiveis=%d", tamanho, len(candidatos))
     return sorted(candidatos[:tamanho])
 
 
@@ -209,6 +213,8 @@ def _sortear(
     for dataset in (labels, teste, desenvolvimento):
         _unicidade(con, dataset)
     populacao = _rejeicoes(con, teste, labels, dimensoes)
+    if not populacao:
+        raise ValueError(f"anotacao_sem_rejeicoes dataset={teste.dataset_id}")
     contagens, alocacao, casos = _sortear_final(populacao, tamanho, semente)
     treino = _treino(_rejeicoes(con, desenvolvimento, labels, dimensoes), tamanho_treino, semente)
     ordem_casos = _ordem(casos, semente, "caso")
@@ -223,7 +229,7 @@ def _sortear(
             "treino": casos_do_pacote(con, desenvolvimento, labels, ordem_treino),
         },
         mapa=dict(ordem_casos + ordem_treino),
-        excluidas=_colunas_excluidas(con, teste),
+        excluidas=_colunas_excluidas(con, teste, desenvolvimento),
     )
 
 

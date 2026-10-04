@@ -12,8 +12,9 @@ import logging
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sustemporal.contracts import ConclusaoCaso, FamiliaRegra
+from sustemporal.contracts import AnnotationSample, ConclusaoCaso, FamiliaRegra
 from sustemporal.duck import identificador_seguro
+from sustemporal.errors import ConfigInvalida
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
 
     import duckdb
 
-    from sustemporal.contracts import AnnotationSample, DatasetRef
+    from sustemporal.contracts import DatasetRef
 
 __all__ = [
     "COLUNAS_PACOTE",
@@ -126,6 +127,18 @@ def _gravar_json(caminho: Path, conteudo: object) -> None:
     temporario.replace(caminho)
 
 
+def _exigir_destino_livre(out: Path, amostra: AnnotationSample) -> None:
+    existente = out / "amostra.json"
+    if not existente.exists():
+        return
+    anterior = AnnotationSample.model_validate_json(existente.read_text(encoding="utf-8"))
+    if anterior != amostra:
+        raise ConfigInvalida(
+            f"pacote_ja_exportado destino={out} existente={anterior.sample_id} "
+            f"novo={amostra.sample_id}"
+        )
+
+
 def gravar_saidas(
     out: Path,
     amostra: AnnotationSample,
@@ -133,7 +146,12 @@ def gravar_saidas(
     mapa: Mapping[str, str],
     estrato_por_row: Mapping[str, str],
 ) -> None:
-    """Grava pacote cego (casos, treino, formulário), mapa privado e o AnnotationSample."""
+    """Grava pacote cego (casos, treino, formulário), mapa privado e o AnnotationSample.
+
+    Raises:
+        ConfigInvalida: já existe amostra diferente em `out` (nunca é sobrescrita).
+    """
+    _exigir_destino_livre(out, amostra)
     for nome, casos in pacotes.items():
         _gravar_json(
             out / "pacote" / f"{nome}.json",
@@ -142,7 +160,7 @@ def gravar_saidas(
     _gravar_json(out / "pacote" / "formulario.json", FORMULARIO)
     _gravar_json(out / "privado" / "mapa_casos.json", dict(mapa))
     _gravar_json(out / "privado" / "estratos.json", dict(estrato_por_row))
-    (out / "amostra.json").write_text(amostra.model_dump_json(indent=2), encoding="utf-8")
+    _gravar_json(out / "amostra.json", amostra.model_dump(mode="json"))
     logger.info(
         "pacote_anotacao_gravado amostra=%s casos=%d treino=%d destino=%s",
         amostra.sample_id,

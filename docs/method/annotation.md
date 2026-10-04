@@ -58,6 +58,21 @@ antes de congelá-lo.
   que porventura estejam no Parquet). A lista fica em `AnnotationSample.colunas_excluidas`;
 - `privado/mapa_casos.json` (caso → row_id) fica com a coordenação, fora do pacote.
 
+Por que cada grupo de colunas é necessário: CNES, município, tipo de unidade, gestão e
+habilitações/incentivos permitem consultar o cadastro do estabelecimento (CNES); competências
+permitem escolher a versão de referência; procedimento, instrumento, CBO, CID, caráter, idade e
+sexo são os insumos das famílias de compatibilidade do SIGTAP; quantidades e valores, código de
+ocorrência e indicadores de erro do processamento (`pa_codoco`, `pa_flqt`, `pa_fler`,
+`pa_flidade`) são evidência oficial que o plano admite na anotação (nunca atributo de predição).
+Idade, sexo e CID são quase-identificadores: o pacote fica em ambiente controlado, sem
+identificador de paciente nem município de residência, e não sai da máquina do pesquisador.
+Não há proteção de privacidade formal (ex.: k-anonimato); isso é limitação declarada.
+
+Uma exportação existente em `out/` nunca é sobrescrita por amostra diferente
+(`pacote_ja_exportado`); repetir a mesma exportação é idempotente. Partição de teste sem
+rejeições interrompe a exportação (`anotacao_sem_rejeicoes`) em vez de gerar pacote vazio;
+treino menor que o pedido é registrado em log.
+
 ## Formulário `anotacao_formulario.v1`
 `AvaliacaoCaso`: `conclusao` ∈ {`INCOMPATIBILIDADE_IDENTIFICADA`,
 `CAUSA_FORA_DE_ESCOPO_DOCUMENTADA`, `CAUSA_INDETERMINADA`, `EVIDENCIA_INSUFICIENTE`}; `familias`
@@ -65,11 +80,13 @@ múltiplas (obrigatórias só com incompatibilidade identificada); `evidencias` 
 avaliador); `minutos`. Causa indeterminada e evidência insuficiente são categorias próprias.
 
 ## Concordância e adjudicação
-- Antes da adjudicação: concordância bruta e κ de Cohen (exatos, em `Fraction`) sobre a
-  conclusão e, por família, sobre PRESENTE/AUSENTE/NAO_DETERMINADO; κ indefinido (`None`) quando
+- Antes da adjudicação: concordância bruta e κ de Cohen (exatos, em `Fraction`) sobre a resposta
+  inteira (conclusão e conjunto de famílias) e, por família, sobre PRESENTE/AUSENTE/NAO_DETERMINADO; κ indefinido (`None`) quando
   a concordância esperada é 1. Cada avaliador responde todos os casos, uma vez.
-- Adjudicação cega: recebe só as duas respostas; casos iguais viram consenso, divergentes exigem
-  adjudicação. Com pendências a referência fica `ABERTA`.
+- Adjudicação cega: recebe só as duas respostas e o adjudicador não pode ser um dos avaliadores;
+  casos iguais viram consenso, divergentes exigem
+  adjudicação. Com pendências a referência fica `ABERTA`; `FECHADA` exige todos os casos da
+  amostra (`casos_amostra`).
 - `comparar_com_motor` recusa referência `ABERTA` (`ReferenciaNaoFechada`). Categorias:
   `IGUAL`, `PARCIAL`, `DIVERGENTE`, `MOTOR_SEM_FAMILIA`, `MOTOR_SEM_RESULTADO`,
   `CONCORDA_FORA_DE_ESCOPO`, `MOTOR_ATRIBUI_FAMILIA_FORA_DE_ESCOPO`, `CAUSA_INDETERMINADA`,

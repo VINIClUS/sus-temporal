@@ -122,10 +122,17 @@ class ReferenciaHumana(ContratoBase):
     sample_id: Identificador
     estado: EstadoReferencia
     casos: dict[str, AvaliacaoCaso]
+    casos_amostra: tuple[str, ...]
     pendentes: tuple[CasoId, ...] = ()
 
     @model_validator(mode="after")
     def _fechamento(self) -> ReferenciaHumana:
-        if self.estado is EstadoReferencia.FECHADA and self.pendentes:
+        if not set(self.casos) <= set(self.casos_amostra):
+            raise ValueError(f"referencia_com_caso_fora_da_amostra amostra={self.sample_id}")
+        if self.estado is not EstadoReferencia.FECHADA:
+            return self
+        if self.pendentes:
             raise ValueError(f"referencia_fechada_com_pendencias amostra={self.sample_id}")
+        if set(self.casos) != set(self.casos_amostra):
+            raise ValueError(f"referencia_fechada_incompleta amostra={self.sample_id}")
         return self

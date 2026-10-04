@@ -122,6 +122,11 @@ def _categoria_familia(avaliacao: AvaliacaoCaso, familia: FamiliaRegra) -> str:
     return "PRESENTE" if familia in avaliacao.familias else "AUSENTE"
 
 
+def _resposta(avaliacao: AvaliacaoCaso) -> str:
+    familias = ",".join(sorted(f.value for f in avaliacao.familias))
+    return f"{avaliacao.conclusao.value}:{familias}"
+
+
 def _bruta(pares: Sequence[tuple[str, str]]) -> Fraction:
     return Fraction(sum(1 for a, b in pares if a == b), len(pares))
 
@@ -134,7 +139,8 @@ def concordancia(
 ) -> RelatorioConcordancia:
     """Concordância bruta e κ, global e por família, antes da adjudicação.
 
-    Por família, cada resposta é PRESENTE, AUSENTE ou NAO_DETERMINADO (indeterminada ou com
+    A concordância global compara a resposta inteira (conclusão e conjunto de famílias). Por
+    família, cada resposta é PRESENTE, AUSENTE ou NAO_DETERMINADO (indeterminada ou com
     evidência insuficiente); nenhuma causa única é forçada.
 
     Raises:
@@ -142,7 +148,7 @@ def concordancia(
             avaliador dos dois lados.
     """
     pareadas = _pareadas(amostra, mapa, avaliador_a, avaliador_b)
-    globais = [(a.conclusao.value, b.conclusao.value) for a, b in pareadas]
+    globais = [(_resposta(a), _resposta(b)) for a, b in pareadas]
     familias = sorted({f for a, b in pareadas for f in (*a.familias, *b.familias)})
     por_familia: dict[str, tuple[Fraction, Fraction | None]] = {}
     for familia in familias:
@@ -185,6 +191,9 @@ def fechar_referencia(
     """
     pareadas = _pareadas(amostra, mapa, avaliador_a, avaliador_b)
     adjudicadas = _por_caso(amostra, mapa, adjudicacoes)
+    avaliadores = {x.avaliador for par in pareadas for x in par}
+    if any(adj.avaliador in avaliadores for adj in adjudicadas.values()):
+        raise ValueError(f"adjudicador_nao_independente amostra={amostra.sample_id}")
     casos: dict[str, AvaliacaoCaso] = {}
     pendentes: list[str] = []
     for a, b in pareadas:
@@ -205,7 +214,11 @@ def fechar_referencia(
         len(pendentes),
     )
     return ReferenciaHumana(
-        sample_id=amostra.sample_id, estado=estado, casos=casos, pendentes=tuple(pendentes)
+        sample_id=amostra.sample_id,
+        estado=estado,
+        casos=casos,
+        casos_amostra=amostra.casos,
+        pendentes=tuple(pendentes),
     )
 
 

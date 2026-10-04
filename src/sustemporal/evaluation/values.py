@@ -4,11 +4,11 @@ Uma única execução do motor (uma seleção de versões) define a população:
 uma ocorrência, sem deduplicação (reapresentações não vinculáveis continuam distintas), e cai em
 exatamente uma categoria do seu estrato de resultado oficial. `d(r) = valor_apresentado(r) -
 valor_aprovado(r)` é somado em `Decimal`. O denominador soma `d(r)` das ocorrências com os dois
-valores conhecidos, `d(r) >= 0` e rótulo sem contradição; o numerador, o subconjunto com ao menos
-uma VIOLACAO numa família cuja governança municipal está documentada. Inconclusivos, campos
-insuficientes, diferenças negativas e rótulos contraditórios saem em categorias próprias, com
-contagem e valor. Totais por família se sobrepõem e saem marcados como não aditivos. A razão não é
-perda financeira nem parcela de todas as perdas municipais.
+valores conhecidos e `d(r) >= 0`; o numerador, o subconjunto com ao menos uma VIOLACAO numa família
+cuja governança municipal está documentada. Inconclusivos, campos insuficientes e diferenças
+negativas saem em categorias próprias, com contagem e valor. Rótulos contraditórios e totais por
+família são recortes sobrepostos, marcados como não aditivos. A razão não é perda financeira nem
+parcela de todas as perdas municipais.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from sustemporal.duck import conectar
 from sustemporal.errors import FalhaOperacionalErro
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.sia_pa import gravar_parquet, produtor
-from sustemporal.rules.catalog import carregar_regras
+from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
 from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
 
 if TYPE_CHECKING:
@@ -68,7 +68,8 @@ ESTRATOS_COM_RAZAO = ("NAO_APROVADO", "APROVADO_PARCIAL")
 IDENTIFICADA = "IDENTIFICADA_GOVERNANCA_MUNICIPAL"
 SEM_GOVERNANCA = "INCOMPATIBILIDADE_SEM_GOVERNANCA_DOCUMENTADA"
 ELEGIVEIS = (IDENTIFICADA, SEM_GOVERNANCA, "INCONCLUSIVO", "SEM_VIOLACAO_VERIFICADA")
-CATEGORIAS = (*ELEGIVEIS, "DIFERENCA_NEGATIVA", "CAMPOS_INSUFICIENTES", "ROTULO_CONTRADITORIO")
+CATEGORIAS = (*ELEGIVEIS, "DIFERENCA_NEGATIVA", "CAMPOS_INSUFICIENTES")
+CONTRADITORIO = "ROTULO_CONTRADITORIO"
 _ESCALA_VALOR = Decimal("1e-6")
 _ESCALA_RAZAO = Decimal("1e-12")
 _DIGITOS_INTEIROS = 32
@@ -212,6 +213,35 @@ def _exigir_selecao_unica(
         )
 
 
+def _familias_da_execucao(
+    con: duckdb.DuckDBPyConnection,
+    avaliacoes: DatasetRef,
+    run: RunResult,
+    regras: Sequence[RuleSpec] | None,
+) -> dict[str, FamiliaRegra]:
+    """Famílias pelo catálogo usado no run: hash do catálogo e versões avaliadas conferidos."""
+    if run.catalogo_regras_sha256 is None:
+        raise ValueError(f"execucao_sem_catalogo_de_regras run={run.run_id}")
+    avaliadas = con.execute(
+        "SELECT DISTINCT rule_id, versao FROM read_parquet($c) WHERE run_id = $r",
+        {"c": avaliacoes.caminho, "r": run.run_id},
+    ).fetchall()
+    candidatas = list(regras) if regras is not None else carregar_regras()
+    ids = {str(rule_id) for rule_id, _ in avaliadas}
+    subconjunto = [r for r in candidatas if r.rule_id in ids]
+    if run.catalogo_regras_sha256 not in {
+        catalogo_sha256(candidatas),
+        catalogo_sha256(subconjunto),
+    }:
+        raise ValueError(f"catalogo_de_regras_divergente run={run.run_id}")
+    por_id = {r.rule_id: r for r in subconjunto}
+    for rule_id, versao in avaliadas:
+        regra = por_id.get(str(rule_id))
+        if regra is None or regra.versao != str(versao):
+            raise ValueError(f"versao_de_regra_divergente run={run.run_id} regra={rule_id}")
+    return {rule_id: regra.familia for rule_id, regra in por_id.items()}
+
+
 def _registros(
     con: duckdb.DuckDBPyConnection, agregados: DatasetRef, labels: DatasetRef, run_id: str
 ) -> list[_Registro]:
@@ -254,8 +284,6 @@ def _categoria(registro: _Registro, familias: set[str], municipais: set[str]) ->
         raise FalhaOperacionalErro(
             f"valores_agregado_incoerente row_id={registro.row_id} resultado={registro.resultado}"
         )
-    if registro.contradicoes:
-        return "ROTULO_CONTRADITORIO"
     if registro.apresentado is None or registro.aprovado is None:
         return "CAMPOS_INSUFICIENTES"
     if registro.apresentado - registro.aprovado < 0:
@@ -279,6 +307,8 @@ def _acumular(
         chaves = [categoria]
         if categoria in (IDENTIFICADA, SEM_GOVERNANCA):
             chaves += [f"FAMILIA_{familia}" for familia in sorted(familias)]
+        if registro.contradicoes:
+            chaves.append(CONTRADITORIO)
         for chave in chaves:
             alvo = acumulados.setdefault((registro.rotulo, chave), _Acumulado())
             alvo.somar(registro.apresentado, registro.aprovado)
@@ -328,6 +358,8 @@ def _linhas_do_estrato(
         linhas.append(_linha(run_id, estrato, "NUMERADOR", numerador))
     else:
         linhas.append((run_id, estrato, "NUMERADOR", True, None, None, None, None, None))
+    contraditorio = acumulados.get((estrato, CONTRADITORIO), _Acumulado())
+    linhas.append(_linha(run_id, estrato, CONTRADITORIO, contraditorio, aditiva=False))
     familias = sorted(c for e, c in acumulados if e == estrato and c.startswith("FAMILIA_"))
     linhas += [
         _linha(run_id, estrato, f, acumulados[(estrato, f)], aditiva=False) for f in familias
@@ -336,6 +368,17 @@ def _linhas_do_estrato(
         razao = _razao(numerador, denominador) if determinado else None
         linhas.append((run_id, estrato, "RAZAO", False, None, None, None, None, razao))
     return linhas
+
+
+def _linhas(
+    run_id: str, acumulados: Mapping[tuple[str, str], _Acumulado], *, determinado: bool
+) -> list[tuple[object, ...]]:
+    estratos = sorted({e for e, _ in acumulados} | set(ESTRATOS_COM_RAZAO))
+    return [
+        linha
+        for estrato in estratos
+        for linha in _linhas_do_estrato(run_id, estrato, acumulados, determinado=determinado)
+    ]
 
 
 def _escala(valor: object) -> object:
@@ -404,27 +447,22 @@ def summarize_values(
             incompatível, rótulos que não cobrem a execução, ocorrência repetida ou agregado
             incoerente com as violações.
         ValueError: execução não concluída, mais de uma seleção de versões ou divergente do run,
-            rótulos de outro dataset, regra fora do catálogo, família de atendimento com
+            rótulos de outro dataset, execução sem catálogo de regras, catálogo ou versão de
+            regra divergente do run, regra fora do catálogo, família de atendimento com
             governança municipal, origem de dados divergente ou valor fora da escala.
     """
     _exigir_execucao(run, labels)
     agregados = _saida(run, "agregados_registro.v1")
     avaliacoes = _saida(run, "avaliacoes.v1")
-    familia_da_regra = {r.rule_id: r.familia for r in (regras or carregar_regras())}
     municipais = _municipais(governanca_por_familia)
     with closing(conectar(RuntimeConfig(duckdb_threads=1))) as con, localcontext() as contexto:
         contexto.prec = _PRECISAO
         _conferir(con, labels, agregados, avaliacoes)
         _exigir_selecao_unica(con, avaliacoes, run)
+        familia_da_regra = _familias_da_execucao(con, avaliacoes, run, regras)
         registros = _registros(con, agregados, labels, run.run_id)
         acumulados = _acumular(registros, familia_da_regra, municipais or set())
-        estratos = sorted({e for e, _ in acumulados} | set(ESTRATOS_COM_RAZAO))
-        determinado = municipais is not None
-        linhas = [
-            x
-            for e in estratos
-            for x in _linhas_do_estrato(run.run_id, e, acumulados, determinado=determinado)
-        ]
+        linhas = _linhas(run.run_id, acumulados, determinado=municipais is not None)
         ref = _gravar(con, linhas, out, (labels, agregados))
     logger.info(
         "valores_p3 run=%s ocorrencias=%d linhas=%d dataset=%s",

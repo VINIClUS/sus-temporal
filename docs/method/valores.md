@@ -30,7 +30,6 @@ Ausência de revisão observada (T13a) não significa que nunca houve revisão.
 
 | Categoria | Condição | No denominador? |
 |---|---|---|
-| `ROTULO_CONTRADITORIO` | `contradicoes` não vazio no rótulo | não |
 | `CAMPOS_INSUFICIENTES` | valor apresentado ou aprovado desconhecido | não |
 | `DIFERENCA_NEGATIVA` | `d(r) < 0` (valor mantido negativo, nunca truncado) | não |
 | `IDENTIFICADA_GOVERNANCA_MUNICIPAL` | VIOLACAO em ao menos uma família com governança `MUNICIPAL_DOCUMENTADA` | sim (numerador) |
@@ -38,11 +37,15 @@ Ausência de revisão observada (T13a) não significa que nunca houve revisão.
 | `INCONCLUSIVO` | sem violação e resultado `ABSTENCAO` | sim |
 | `SEM_VIOLACAO_VERIFICADA` | demais | sim |
 
-- **Denominador**: soma de `d(r)` nas quatro categorias elegíveis (valores conhecidos, `d ≥ 0`,
-  rótulo sem contradição). **Numerador**: `IDENTIFICADA_GOVERNANCA_MUNICIPAL`. Cada ocorrência
-  entra uma vez, mesmo com várias violações.
+- **Denominador**: soma de `d(r)` nas quatro categorias elegíveis (valores conhecidos e `d ≥ 0`),
+  como define o plano; rótulo contraditório não tira a ocorrência do denominador.
+- **Numerador**: `IDENTIFICADA_GOVERNANCA_MUNICIPAL`. Cada ocorrência entra uma vez, mesmo com
+  várias violações.
 - **Razão** (`RAZAO`, só em `NAO_APROVADO` e `APROVADO_PARCIAL`): numerador ÷ denominador com 12
   casas (meio-par), apenas com denominador positivo; senão nula.
+- **Rótulo contraditório** (`ROTULO_CONTRADITORIO`, `aditiva = false`): ocorrências com
+  `contradicoes` não vazio, em qualquer categoria, reportadas à parte com contagem e valor; o
+  recorte se sobrepõe às categorias e não se soma a elas.
 - **Totais por família** (`FAMILIA_<F>`, `aditiva = false`): ocorrências elegíveis com VIOLACAO na
   família F. Uma ocorrência com duas famílias aparece nas duas; esses totais não se somam.
 - Toda categoria sai em todo estrato, mesmo com zero ocorrências; nenhuma é omitida.
@@ -65,6 +68,9 @@ A governança vem do catálogo de operações do T09 (`Governanca`: `MUNICIPAL_D
 - `agregados_registro.v1` incoerente (ALERTA sem violação ou violação sem ALERTA) é falha
   operacional.
 - `politica_id` e `metodo` das avaliações precisam coincidir com os do run.
+- A família de cada regra vem do catálogo usado no run: `catalogo_regras_sha256` do run precisa
+  coincidir com o hash do catálogo (completo ou do subconjunto avaliado) e cada `versao` avaliada
+  com a do catálogo; run sem hash de catálogo é recusado.
 - Somas usam precisão decimal de 80 dígitos; valor com mais de 32 dígitos inteiros ou mais de 6
   casas decimais é recusado, nunca arredondado.
 

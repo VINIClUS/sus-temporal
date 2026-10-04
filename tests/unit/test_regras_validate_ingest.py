@@ -9,9 +9,14 @@ import pyarrow.parquet as pq
 import pytest
 
 from sustemporal import cli
+from sustemporal.contracts.artifacts import EstadoIntegridade, ResultadoTentativa
+from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.experiment import EstadoExecucao, RunResult
 from sustemporal.errors import ExitCode
+from sustemporal.rules.ingest import integridade_do_registro
+from sustemporal.temporal.registry import registro_de
 from tests.fixtures.regras_ingest import MUNICIPIO_FORA, montar_ingest
+from tests.fixtures.temporal_registro import observar
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -139,3 +144,41 @@ def test_entrada_e_ingest_sao_mutuamente_exclusivos(tmp_path: Path) -> None:
     with pytest.raises(SystemExit) as erro:
         cli.main(argumentos)
     assert erro.value.code == 2
+
+
+def test_producao_observada_so_depois_do_corte_e_recusada(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, corte="2026-01-01T12:00:00+00:00")
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+    assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))
+
+
+def test_row_id_repetido_na_producao_e_falha_operacional(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, producao_repetida=True)
+    assert _validar(mundo, "processamento") == ExitCode.FALHA_OPERACIONAL
+
+
+def test_integridade_do_registro_nunca_trata_quarentena_ou_falha_como_integra() -> None:
+    itens = [
+        observar(FamiliaFonte.CNES_PF, "202301", "ok", 1),
+        observar(
+            FamiliaFonte.CNES_PF,
+            "202302",
+            "quarentena",
+            1,
+            integridade_observada=EstadoIntegridade.QUARENTENA_CHECKSUM,
+        ),
+        observar(FamiliaFonte.SIGTAP, "202301", "falha", 1, uf=None),
+    ]
+    falha_obs, falha_versao = itens[2]
+    assert falha_versao is not None
+    interrompida = falha_obs.model_copy(
+        update={"observation_id": "obs_" + "f" * 32, "resultado": ResultadoTentativa.INTERROMPIDO}
+    )
+    registro = registro_de(
+        [o for o, _ in itens] + [interrompida], [v for _, v in itens if v is not None]
+    )
+    estados = integridade_do_registro(registro)
+    ok, quarentena = (v.artifact_id for _, v in itens[:2] if v is not None)
+    assert estados[ok] is EstadoIntegridade.OK
+    assert estados[quarentena] is EstadoIntegridade.QUARENTENA_CHECKSUM
+    assert estados[falha_versao.artifact_id] is EstadoIntegridade.NAO_VERIFICADO

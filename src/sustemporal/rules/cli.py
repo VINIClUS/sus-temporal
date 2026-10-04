@@ -17,11 +17,13 @@ from sustemporal.errors import ConfigInvalida, ExitCode
 from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
 from sustemporal.rules.engine import evaluate_rules
 from sustemporal.rules.insumos import InsumosAvaliacao, MetodoInvalido, politica_padrao
+from sustemporal.rules.validate_ingest import validar_ingest
 
 if TYPE_CHECKING:
     import argparse
 
     from sustemporal.contracts.config import RunConfig
+    from sustemporal.contracts.experiment import RunResult
     from sustemporal.contracts.rules import RuleSpec
 
 __all__ = [
@@ -79,15 +81,29 @@ def _ler_entrada(caminho: Path) -> EntradaValidacao:
         raise ConfigInvalida(f"entrada_de_validacao_invalida caminho={caminho}") from erro
 
 
+def _concluir(resultado: RunResult, metodo: MetodoId) -> int:
+    logger.info(
+        "validate_concluido run=%s metodo=%s estado=%s", resultado.run_id, metodo, resultado.estado
+    )
+    return (
+        ExitCode.OK if resultado.estado is EstadoExecucao.CONCLUIDA else ExitCode.FALHA_OPERACIONAL
+    )
+
+
 def executar_validate(args: argparse.Namespace, config: RunConfig) -> int:
     """`--policy documented|atendimento|processamento` → M_TEMP|B_ATEND|B_PROC.
 
+    `--ingest DIR` lê a pasta do `sustemporal ingest` e o registro temporal; saídas em
+    `<raiz_saidas>/runs/<run_id>/`. `--entrada JSON` mantém os insumos explícitos.
+
     Raises:
-        ConfigInvalida: entrada, catálogo ou política inválidos.
+        ConfigInvalida: entrada, catálogo, política, manifesto ou pasta do ingest inválidos.
+        FalhaOperacionalErro: `row_id` repetido na produção do ingest.
     """
     metodo = METODO_DA_POLITICA[args.policy]
     if args.ingest is not None:
-        raise NotImplementedError
+        saida_runs = args.saida or Path(config.runtime.raiz_saidas) / "runs"
+        return _concluir(validar_ingest(args.ingest, metodo, config, saida_runs), metodo)
     entrada = _ler_entrada(args.entrada)
     try:
         regras = carregar_regras()
@@ -108,9 +124,4 @@ def executar_validate(args: argparse.Namespace, config: RunConfig) -> int:
         )
     except ValueError as erro:
         raise ConfigInvalida(f"entrada_semanticamente_invalida detalhe={erro}") from erro
-    logger.info(
-        "validate_concluido run=%s metodo=%s estado=%s", resultado.run_id, metodo, resultado.estado
-    )
-    return (
-        ExitCode.OK if resultado.estado is EstadoExecucao.CONCLUIDA else ExitCode.FALHA_OPERACIONAL
-    )
+    return _concluir(resultado, metodo)

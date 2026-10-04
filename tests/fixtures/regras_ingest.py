@@ -166,6 +166,8 @@ def montar_ingest(
     concorrente: bool = False,
     sem_cobertura: bool = False,
     sem_manifesto: bool = False,
+    producao_repetida: bool = False,
+    corte: str | None = None,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -179,9 +181,11 @@ def montar_ingest(
         for observacao, versao in itens.values():
             registro.registrar(observacao, versao)
     refs = _datasets(pasta, itens, sem_cobertura=sem_cobertura)
+    if producao_repetida:
+        refs.append(next(ref for ref in refs if ref.schema_id == "sia_pa.v1"))
     linhas = "".join(f"{ref.model_dump_json()}\n" for ref in refs)
     (pasta / "datasets.jsonl").write_text(linhas, encoding="utf-8")
-    config = {
+    config: dict[str, object] = {
         "versao": "1",
         "runtime": {"raiz_manifestos": str(manifestos), "raiz_saidas": str(saidas)},
         "piloto": {
@@ -191,6 +195,8 @@ def montar_ingest(
             "familias_fontes": ["SIA_PA", "CNES_PF", "SIGTAP"],
         },
     }
+    if corte is not None:
+        config["corte_observacao"] = corte
     caminho_config = raiz / "config.yaml"
     caminho_config.write_text(json.dumps(config), encoding="utf-8")
     return MundoIngest(pasta, caminho_config, manifesto, saidas / "runs")

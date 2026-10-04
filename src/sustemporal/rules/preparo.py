@@ -32,6 +32,7 @@ __all__ = [
     "carregar_integridade",
     "carregar_registros",
     "carregar_selecoes",
+    "conferir_tipos_fisicos",
     "derivar_selecoes",
 ]
 
@@ -112,6 +113,21 @@ def _conferir_tipos(
     """
     fisicos = _tipos_do_parquet(con, caminho)
     return set(fisicos), _incompativeis(colunas, fisicos, _tipos(schema_id))
+
+
+def conferir_tipos_fisicos(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> set[str]:
+    """Mesmo verificador do motor sobre todas as colunas do esquema; devolve as presentes.
+
+    Raises:
+        ValueError: coluna do esquema com tipo físico incompatível.
+    """
+    tipos = _tipos(dataset.schema_id)
+    presentes, incompativeis = _conferir_tipos(con, dataset.caminho, dataset.schema_id, tipos)
+    if incompativeis:
+        raise ValueError(
+            f"tipo_fisico_incompativel schema={dataset.schema_id} colunas={incompativeis}"
+        )
+    return presentes
 
 
 def _tipos(schema_id: str) -> dict[str, str]:

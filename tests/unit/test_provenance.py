@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import re
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -42,7 +43,7 @@ from sustemporal.explanation.explain_texto import (
     carregar_templates,
     exigir_referencias_completas,
 )
-from sustemporal.explanation.prov import ProvIncompleto, exigir_relacoes
+from sustemporal.explanation.prov import ProvIncompleto, arestas_exigidas, exigir_relacoes
 from sustemporal.rules.catalog import carregar_esquema
 from tests.fixtures.explicacao_cenario import (
     LINHA_CONFORME,
@@ -696,3 +697,50 @@ def test_cli_diretorio_derivado_do_run_e_da_linha(tmp_path: Path) -> None:
     destino = diretorio_explicacao(tmp_path, "val_x", LINHA_CONFORME)
     sufixo = hashlib.sha256(LINHA_CONFORME.encode()).hexdigest()[:32]
     assert destino == tmp_path / "explicacoes" / "val_x" / f"row_{sufixo}"
+
+
+def test_cli_falha_ao_publicar_falha_sai_com_5_sem_explicacao_anterior(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    execucao = _publicar(tmp_path)
+    args, config = _args(execucao.run_id, LINHA_VIOLACAO), _config(tmp_path)
+    assert executar_explain(args, config) == ExitCode.OK
+    destino = diretorio_explicacao(tmp_path, execucao.run_id, LINHA_VIOLACAO)
+    cnes = next(d for d in execucao.entradas if d.schema_id == "cnes_estab_cbo.v1")
+    _reescrever(cnes.caminho, lambda linha: linha | {"cbo": "223505"})
+    original = Path.write_bytes
+
+    def falhar(caminho: Path, dados: bytes) -> int:
+        if caminho.name == "falha.json":
+            raise OSError("destino_sem_escrita_sintetico")
+        return original(caminho, dados)
+
+    monkeypatch.setattr(Path, "write_bytes", falhar)
+    assert executar_explain(args, config) == ExitCode.FALHA_OPERACIONAL
+    assert not destino.exists()
+
+
+def _sem_registro_no_conjunto(run: RunResult) -> RunResult:
+    entradas = tuple(
+        d.model_copy(update={"artifact_ids": ()}) if d.schema_id == "sia_pa.v1" else d
+        for d in run.entradas
+    )
+    return run.model_copy(update={"entradas": entradas})
+
+
+def test_registro_fora_do_conjunto_de_entrada_e_recusado(tmp_path: Path) -> None:
+    execucao = _publicar(tmp_path)
+    with pytest.raises(ExplicacaoIndisponivel, match="registro_fora_do_conjunto"):
+        explain(_sem_registro_no_conjunto(execucao), LINHA_CONFORME)
+    gravado = tmp_path / "validacao" / "saida" / execucao.run_id / "run_result.json"
+    gravado.write_text(_sem_registro_no_conjunto(execucao).model_dump_json(), encoding="utf-8")
+    codigo = executar_explain(_args(execucao.run_id, LINHA_CONFORME), _config(tmp_path))
+    assert codigo == ExitCode.CONFIG_INVALIDA
+
+
+def test_arestas_exigidas_sempre_ligam_registro_ao_sia_pa(execucao: RunResult) -> None:
+    elementos = montar_explicacao(execucao, LINHA_CONFORME).elementos
+    sia = next(d for d in execucao.entradas if d.schema_id == "sia_pa.v1")
+    inconsistentes = replace(elementos, run=_sem_registro_no_conjunto(execucao))
+    usadas = {usada for _gerada, usada in arestas_exigidas(inconsistentes)}
+    assert f"sus:{sia.dataset_id}" in usadas

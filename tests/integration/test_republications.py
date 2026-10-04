@@ -92,9 +92,10 @@ def _comparar(
     depois: list[dict[str, str]],
     *,
     deletados_depois: tuple[int, ...] = (),
+    deletados_antes: tuple[int, ...] = (),
 ) -> ComparacaoVersoes:
     raiz = tmp_path / "dados"
-    anterior = artefato_pa(raiz, dbc_pa(antes))
+    anterior = artefato_pa(raiz, dbc_pa(antes, deletados=deletados_antes))
     nova = artefato_pa(raiz, dbc_pa(depois, deletados=deletados_depois))
     return comparar_versoes(
         anterior,
@@ -523,3 +524,16 @@ def test_resumo_conta_listagens_e_arquivos(tmp_path: Path) -> None:
     resumo = str(linhas[-1]["resumo"])
     assert f"observacoes={len(estado.observacoes)}" in resumo
     assert f"de={estado.observacoes[0].observado_em.isoformat()}" in resumo
+
+
+def test_mudanca_so_em_linhas_deletadas_e_revisao_real(tmp_path: Path) -> None:
+    conteudo = _comparar(
+        tmp_path / "conteudo", [_R1, _R2], [_R1, _R3], deletados_antes=(1,), deletados_depois=(1,)
+    )
+    contagem = _comparar(tmp_path / "contagem", [_R1, _R2], [_R1], deletados_antes=(1,))
+    for comparacao in (conteudo, contagem):
+        assert comparacao.resultado is ResultadoComparacao.REVISAO_REAL
+        assert (comparacao.linhas_removidas, comparacao.linhas_adicionadas) == (0, 0)
+        assert "so_em_deletadas" in comparacao.motivo
+    resumo = resumir_vigilancia([], [conteudo])
+    assert resumo.startswith("revisao_observada")

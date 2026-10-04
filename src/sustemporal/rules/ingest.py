@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 __all__ = [
     "InsumosIngest",
     "carregar_registro",
+    "incompletude_da_cobertura",
     "integridade_do_registro",
     "ler_datasets",
     "preparar_insumos_ingest",
@@ -286,6 +287,12 @@ def _exigir_row_id_unico(con: duckdb.DuckDBPyConnection) -> None:
     ).fetchall()[0][0]
     if repetidos:
         raise FalhaOperacionalErro(f"producao_com_row_id_repetido chaves={repetidos}")
+
+
+def incompletude_da_cobertura(
+    con: duckdb.DuckDBPyConnection, cobertura: DatasetRef
+) -> dict[str, str]:
+    raise NotImplementedError
 
 
 def preparar_insumos_ingest(

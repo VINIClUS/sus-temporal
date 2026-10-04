@@ -6,6 +6,7 @@ import json
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
+import duckdb
 import pyarrow.parquet as pq
 import pytest
 
@@ -15,7 +16,11 @@ from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.experiment import EstadoExecucao, RunResult
 from sustemporal.errors import ExitCode
 from sustemporal.rules.cli import EntradaValidacao
-from sustemporal.rules.ingest import integridade_do_registro
+from sustemporal.rules.ingest import (
+    incompletude_da_cobertura,
+    integridade_do_registro,
+    ler_datasets,
+)
 from sustemporal.temporal.registry import registro_de
 from tests.fixtures.regras_ingest import MUNICIPIO_FORA, gravar_territorio, montar_ingest
 from tests.fixtures.temporal_registro import observar
@@ -301,3 +306,54 @@ def test_entrada_da_validacao_e_gravada_e_confere_com_o_run_result(tmp_path: Pat
     assert entrada.snapshots.snapshot_id == resultado.snapshot_set_id
     assert entrada.politica is not None
     assert entrada.politica.politica_id == resultado.politica_id
+
+
+def _celulas(caminho: str) -> dict[tuple[str, str, str, str], dict[str, Any]]:
+    return {
+        (c["familia_regra"], c["instrumento"], c["competencia"], c["base_temporal"]): c
+        for c in pq.read_table(caminho).to_pylist()
+    }
+
+
+def _cobertura_da_ingestao(mundo: MundoIngest) -> str:
+    refs = ler_datasets(mundo.pasta)
+    return next(r.caminho for r in refs if r.schema_id == "cobertura.v1")
+
+
+def _cobertura_avaliada(pasta: Path) -> str:
+    entrada = EntradaValidacao.model_validate_json(
+        (pasta / "entrada_validacao.json").read_text(encoding="utf-8")
+    )
+    assert entrada.cobertura is not None
+    return entrada.cobertura.caminho
+
+
+def test_incompletude_da_cobertura_le_o_formato_do_build_coverage(tmp_path: Path) -> None:
+    incompleto = {"202302": "parte_c_ausente"}
+    mundo = montar_ingest(tmp_path, sia_pa_incompleto=incompleto)
+    ref = next(r for r in ler_datasets(mundo.pasta) if r.schema_id == "cobertura.v1")
+    with duckdb.connect() as con:
+        assert incompletude_da_cobertura(con, ref) == incompleto
+
+
+def test_registro_fora_do_territorio_nao_torna_a_celula_insuficiente(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, fora_com_atendimento_nulo=True)
+    chave = ("ESTABELECIMENTO_CBO", "C", "202302", "ATENDIMENTO")
+    assert _celulas(_cobertura_da_ingestao(mundo))[chave]["estado"] == "INSUFICIENTE"
+    assert _validar(mundo, "atendimento") == ExitCode.OK
+    _, pasta = _unico(mundo)
+    assert _celulas(_cobertura_avaliada(pasta))[chave]["estado"] == "DISPONIVEL"
+
+
+def test_competencia_incompleta_na_ingestao_continua_insuficiente(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, sia_pa_incompleto={"202302": "parte_c_ausente"})
+    assert _validar(mundo, "processamento") == ExitCode.OK
+    _, pasta = _unico(mundo)
+    ingestao = _celulas(_cobertura_da_ingestao(mundo))
+    avaliada = _celulas(_cobertura_avaliada(pasta))
+    assert ingestao.keys() == avaliada.keys()
+    for chave, celula in avaliada.items():
+        if str(ingestao[chave]["motivo"] or "").startswith("sia_pa_incompleto "):
+            assert celula["estado"] != "DISPONIVEL"
+            assert str(celula["motivo"]).startswith("sia_pa_incompleto competencia=202302")
+    assert any(c["competencia"] == "202302" for c in avaliada.values())

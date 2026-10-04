@@ -288,7 +288,8 @@ def test_concordancia_global_e_por_familia_preserva_indeterminados(
     # P: PRESENTE/PRESENTE x4, PRESENTE/NAO_DETERMINADO x1, ND/ND x3, AUSENTE/AUSENTE x1,
     # AUSENTE/AUSENTE (FORA vs I com E) x1 -> po = 9/10
     assert bruta_p == Fraction(9, 10)
-    assert set(relatorio.por_familia) == {P.value, E.value}
+    assert set(relatorio.por_familia) == {f.value for f in FamiliaRegra}
+    assert relatorio.por_familia[FamiliaRegra.SEXO.value][0] == 1
 
 
 def test_comparacao_bloqueada_antes_do_fechamento(cenario: CenarioAnotacao, tmp_path: Path) -> None:
@@ -448,3 +449,45 @@ def test_reexportacao_divergente_nao_sobrescreve(cenario: CenarioAnotacao, tmp_p
             cenario.labels, cenario.split, outra, out, particoes=cenario.particoes
         )
     assert AnnotationSample.model_validate_json((out / "amostra.json").read_text()) == primeira
+
+
+def test_cada_lado_tem_um_unico_avaliador(cenario: CenarioAnotacao, tmp_path: Path) -> None:
+    out = tmp_path / "anotacao"
+    amostra = _preparar(cenario, out, tamanho=4, tamanho_treino=1, dimensoes=("instrumento",))
+    casos, mapa = _anotacoes(out, amostra)
+    a = [_avaliacao(c, f"a{i}", IND) for i, c in enumerate(casos)]
+    b = [_avaliacao(c, "b", IND) for c in casos]
+    with pytest.raises(ValueError, match="avaliador_unico_por_lado"):
+        concordancia(amostra, mapa, a, b)
+
+
+def test_leiaute_sem_coluna_do_pacote_e_falha_operacional(tmp_path: Path) -> None:
+    linhas = [
+        registro(f"t{i:05d}", f"art_{'2' * 64}", i, competencia_processamento="202405")
+        for i in range(40)
+    ]
+    cenario = montar_cenario(tmp_path / "dados", linhas_teste=linhas)
+    particao = cenario.particoes[Particao.TESTE]
+    tabela = pq.read_table(particao.caminho)
+    pq.write_table(tabela.drop_columns(["cbo"]), particao.caminho)
+    nova = reemitir(particao)
+    particoes = {**cenario.particoes, Particao.TESTE: nova}
+    split = cenario.split.model_copy(
+        update={
+            "hash_por_particao": {
+                **cenario.split.hash_por_particao,
+                Particao.TESTE: nova.hash_logico,
+            }
+        }
+    )
+    with pytest.raises(FalhaOperacionalErro, match="anotacao_leiaute_incompativel"):
+        prepare_annotation_sample(
+            cenario.labels,
+            split,
+            cenario.config,
+            tmp_path / "x",
+            particoes=particoes,
+            tamanho=10,
+            tamanho_treino=2,
+            dimensoes=("instrumento",),
+        )

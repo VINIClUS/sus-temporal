@@ -338,3 +338,17 @@ def test_config_de_vigilancia_e_valida() -> None:
     assert config.vigilancia.janela_competencias == 6
     assert (config.vigilancia.cadencia_dias, config.vigilancia.duracao_meses) == (7, 12)
     assert config.origem_dados is OrigemDados.REAL
+
+
+def test_listagem_sem_arquivo_da_fonte_nao_vira_arquivo_sumiu(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path, cnes=("2511", "2512"))
+    _executar(tmp_path)
+    pf = tmp_path / "origem" / "CNES" / "200508_" / "Dados" / "PF"
+    for arquivo in pf.iterdir():
+        arquivo.unlink()
+    (pf / "LEIAME.txt").write_text("sem arquivos de competencia", encoding="utf-8")
+    codigo, linhas = _executar(tmp_path)
+    assert codigo == ExitCode.FALHA_OPERACIONAL
+    cnes = [d for d in linhas if d.get("fonte") == "CNES_PF"]
+    assert [d.get("obtido") for d in cnes if d.get("janela_incompleta")] == [0]
+    assert not [d for d in cnes if d.get("resultado") == "ARQUIVO_SUMIU"]

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import tempfile
 from datetime import UTC, datetime
 from pathlib import Path
 
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from tests.fixtures.aquisicao_dados import Relogio, servidor_ftp
 from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa, leiaute_pa, registro_pa
 
@@ -352,3 +355,77 @@ def test_listagem_sem_arquivo_da_fonte_nao_vira_arquivo_sumiu(tmp_path: Path) ->
     cnes = [d for d in linhas if d.get("fonte") == "CNES_PF"]
     assert [d.get("obtido") for d in cnes if d.get("janela_incompleta")] == [0]
     assert not [d for d in cnes if d.get("resultado") == "ARQUIVO_SUMIU"]
+
+
+def test_listagem_que_falha_vira_linha_de_familia_inconclusiva(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path, cnes=("2511", "2512"))
+    _executar(tmp_path)
+    pf = tmp_path / "origem" / "CNES" / "200508_" / "Dados" / "PF"
+    for arquivo in pf.iterdir():
+        arquivo.unlink()
+    pf.rmdir()
+    codigo, linhas = _executar(tmp_path)
+    assert codigo == ExitCode.FALHA_OPERACIONAL
+    (familia,) = [d for d in linhas if d.get("fonte") == "CNES_PF"]
+    assert familia.get("resultado") == "INCONCLUSIVO"
+    assert str(familia["motivo"]).startswith("listagem_nao_obtida")
+    assert "inconclusivo=1" in str(linhas[-1]["resumo"])
+
+
+def test_primeira_observacao_que_falha_e_inconclusiva(tmp_path: Path) -> None:
+    _ambiente_watch(tmp_path)
+    (_dados(tmp_path) / "PASP2512a.dbc").unlink()
+    (_dados(tmp_path) / "PASP2512a.dbc").mkdir()
+    codigo, linhas = _executar(tmp_path)
+    assert codigo == ExitCode.FALHA_OPERACIONAL
+    assert _por_chave(linhas)[("202512", "a")][0] == "INCONCLUSIVO"
+    assert str(linhas[-1]["resumo"]).startswith("vigilancia_inconclusiva")
+
+
+_NAO_CONCLUSIVOS = {"INCONCLUSIVO", "ARQUIVO_SUMIU"}
+_ACOES = ("manter", "alterar", "apagar", "diretorio")
+
+
+def _aplicar(dados: Path, aamm: str, acao: str) -> None:
+    arquivo = dados / f"PASP{aamm}a.dbc"
+    if acao == "manter" or not arquivo.exists():
+        return
+    arquivo.unlink()
+    registro = registro_pa(PA_MVM=f"20{aamm}", PA_CMP=f"20{aamm}")
+    if acao == "alterar":
+        arquivo.write_bytes(dbc_pa([registro, registro]))
+    elif acao == "diretorio":
+        arquivo.mkdir()
+
+
+def _conferir_execucao(raiz: Path) -> None:
+    codigo, linhas = _executar(raiz)
+    nao_conclusivas = [
+        d for d in linhas if d.get("janela_incompleta") or d.get("resultado") in _NAO_CONCLUSIVOS
+    ]
+    assert (codigo == ExitCode.FALHA_OPERACIONAL) == bool(nao_conclusivas)
+    resumo = str(linhas[-1]["resumo"])
+    assert resumo.startswith("vigilancia_inconclusiva") == bool(nao_conclusivas)
+
+
+@settings(max_examples=6, deadline=None)
+@given(
+    presentes=st.sets(st.sampled_from(["2510", "2511", "2512"]), min_size=1),
+    acoes=st.tuples(*[st.sampled_from(_ACOES)] * 3),
+    sem_cnes=st.booleans(),
+)
+def test_saida_5_se_e_somente_se_ha_linha_nao_conclusiva(
+    presentes: set[str], acoes: tuple[str, str, str], sem_cnes: bool
+) -> None:
+    with tempfile.TemporaryDirectory() as pasta:
+        raiz = Path(pasta)
+        _ambiente_watch(raiz, competencias=tuple(sorted(presentes)), cnes=("2512",))
+        _conferir_execucao(raiz)
+        for aamm, acao in zip(("2510", "2511", "2512"), acoes, strict=True):
+            _aplicar(_dados(raiz), aamm, acao)
+        if sem_cnes:
+            pf = raiz / "origem" / "CNES" / "200508_" / "Dados" / "PF"
+            for arquivo in pf.iterdir():
+                arquivo.unlink()
+            pf.rmdir()
+        _conferir_execucao(raiz)

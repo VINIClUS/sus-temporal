@@ -32,7 +32,10 @@ from sustemporal.explanation.counterfactual_contexto import (
     ContextoIndisponivel,
     contexto_da_execucao,
 )
-from sustemporal.explanation.counterfactual_operacoes import CatalogoOperacoesInvalido
+from sustemporal.explanation.counterfactual_operacoes import (
+    CATALOGO_OPERACOES,
+    CatalogoOperacoesInvalido,
+)
 from sustemporal.explanation.counterfactual_sobreposicao import (
     InsumoCadastralInvalido,
     RevalidacaoFalhou,
@@ -46,7 +49,12 @@ if TYPE_CHECKING:
 
     from sustemporal.contracts.config import RunConfig
 
-__all__ = ["ARQUIVO_RESULTADO", "diretorio_contrafactual", "executar_counterfactual"]
+__all__ = [
+    "ARQUIVO_RESULTADO",
+    "diretorio_contrafactual",
+    "executar_counterfactual",
+    "identidade_contrafactual",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -74,8 +82,13 @@ def _agora() -> datetime:
     return datetime.now(UTC)
 
 
-def diretorio_contrafactual(raiz: Path, run_id: str, row_id: str) -> Path:
-    """Diretório derivado só do `run_id` e do `row_id`."""
+def identidade_contrafactual(catalogo: Path = CATALOGO_OPERACOES) -> str:
+    """Identidade do catálogo de operações e do código que produzem o resultado."""
+    raise NotImplementedError
+
+
+def diretorio_contrafactual(raiz: Path, run_id: str, row_id: str, identidade: str) -> Path:
+    """Diretório derivado do `run_id`, da identidade do catálogo e código, e do `row_id`."""
     sufixo = hashlib.sha256(row_id.encode("utf-8")).hexdigest()[:32]
     return Path(raiz) / "contrafactuais" / run_id / f"row_{sufixo}"
 
@@ -135,6 +148,7 @@ def executar_counterfactual(
     config: RunConfig,
     *,
     relogio: Callable[[], datetime] = _agora,
+    catalogo: Path = CATALOGO_OPERACOES,
 ) -> int:
     """Publica `contrafactual.json` do registro; hipótese, nunca aprovação garantida.
 
@@ -147,7 +161,7 @@ def executar_counterfactual(
     destino: Path | None = None
     try:
         run_id, row_id = _validar_argumentos(args)
-        destino = diretorio_contrafactual(raiz, run_id, row_id)
+        destino = diretorio_contrafactual(raiz, run_id, row_id, "stub")
         _publicar(destino, ARQUIVO_RESULTADO, _buscar(raiz, run_id, row_id, config))
     except _RECUSAS as erro:
         _remover(destino)

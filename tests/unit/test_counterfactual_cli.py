@@ -5,17 +5,26 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.counterfactual import CounterfactualSearchResult, Executabilidade
+from sustemporal.contracts.experiment import EstadoExecucao
+from sustemporal.explanation import counterfactual_sobreposicao
 from sustemporal.explanation.cli import localizar_execucao
 from sustemporal.explanation.counterfactual import search_counterfactuals
 from sustemporal.explanation.counterfactual_cli import (
     diretorio_contrafactual,
     executar_counterfactual,
+    identidade_contrafactual,
 )
+from sustemporal.explanation.counterfactual_contexto import (
+    ContextoIndisponivel,
+    contexto_da_execucao,
+)
+from sustemporal.explanation.counterfactual_operacoes import CATALOGO_OPERACOES
 from sustemporal.explanation.explain import montar_explicacao
 from sustemporal.rules.cli import EntradaValidacao
 from tests.fixtures.contrafactual_execucao import (
@@ -23,6 +32,9 @@ from tests.fixtures.contrafactual_execucao import (
     Execucao,
     executar_validacao_sintetica,
 )
+
+if TYPE_CHECKING:
+    from sustemporal.contracts.experiment import RunResult
 
 _INCLUIR = "INCLUIR_CBO_NO_ESTABELECIMENTO"
 
@@ -42,7 +54,8 @@ def _saidas(execucao: Execucao) -> Path:
 
 
 def _destino(execucao: Execucao, row: str) -> Path:
-    return diretorio_contrafactual(_saidas(execucao), execucao.run_id, row)
+    identidade = identidade_contrafactual()
+    return diretorio_contrafactual(_saidas(execucao), execucao.run_id, row, identidade)
 
 
 def _resultado(execucao: Execucao, row: str) -> CounterfactualSearchResult:
@@ -66,7 +79,10 @@ def test_saida_e_imutavel_e_derivada_de_run_e_row(execucao: Execucao) -> None:
     antes = {p.name: p.read_bytes() for p in destino.iterdir()}
     assert _rodar(execucao, execucao.ausencia) == 0
     assert {p.name: p.read_bytes() for p in destino.iterdir()} == antes
-    assert destino.parent == _saidas(execucao) / "contrafactuais" / execucao.run_id
+    assert destino.parent.parent == _saidas(execucao) / "contrafactuais" / execucao.run_id
+    assert destino.parent.name == f"id_{identidade_contrafactual()}"
+    identidade = json.loads((destino / "identidade.json").read_text(encoding="utf-8"))
+    assert set(identidade) == {"catalogo_operacoes_sha256", "codigo", "identidade"}
     assert not list(destino.parent.glob(".*parcial*"))
 
 
@@ -123,3 +139,57 @@ def test_busca_de_dois_argumentos_resolve_pela_execucao(execucao: Execucao) -> N
     resultado = search_counterfactuals(bundle, execucao.config)
     assert [[o.op_id for o in s.operacoes] for s in resultado.solucoes] == [[_INCLUIR]]
     assert resultado.aprovacao_garantida is False
+
+
+def test_execucao_sem_entrada_gravada_tem_contexto_ausente(tmp_path: Path) -> None:
+    execucao = executar_validacao_sintetica(tmp_path)
+    (_pasta_da_execucao(execucao) / ARQUIVO_ENTRADA).unlink()
+    with pytest.raises(ContextoIndisponivel, match="contexto_da_execucao_ausente run="):
+        contexto_da_execucao(_saidas(execucao), execucao.run_id, execucao.config)
+
+
+def test_catalogo_de_operacoes_diferente_gera_outro_destino(
+    execucao: Execucao, tmp_path: Path
+) -> None:
+    catalogo = tmp_path / "operations.yaml"
+    texto = CATALOGO_OPERACOES.read_text(encoding="utf-8")
+    catalogo.write_text(texto.replace('custo: "1"', 'custo: "2"', 1), encoding="utf-8")
+    assert identidade_contrafactual(catalogo) != identidade_contrafactual()
+    assert _rodar(execucao, execucao.ausencia) == 0
+    original = (_destino(execucao, execucao.ausencia) / "contrafactual.json").read_bytes()
+    args = argparse.Namespace(run=execucao.run_id, row=execucao.ausencia)
+    assert executar_counterfactual(args, execucao.config, catalogo=catalogo) == 0
+    outro = diretorio_contrafactual(
+        _saidas(execucao), execucao.run_id, execucao.ausencia, identidade_contrafactual(catalogo)
+    )
+    assert outro != _destino(execucao, execucao.ausencia)
+    resultado = CounterfactualSearchResult.model_validate_json(
+        (outro / "contrafactual.json").read_text(encoding="utf-8")
+    )
+    assert resultado.solucoes[0].custo == 2
+    assert (_destino(execucao, execucao.ausencia) / "contrafactual.json").read_bytes() == original
+
+
+def test_falha_sem_gravacao_nao_deixa_resultado_antigo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    execucao = executar_validacao_sintetica(tmp_path)
+    assert _rodar(execucao, execucao.ausencia) == 0
+    destino = _destino(execucao, execucao.ausencia)
+    assert (destino / "contrafactual.json").exists()
+    real = counterfactual_sobreposicao.evaluate_rules
+
+    def parcial(*args: Any, **kwargs: Any) -> RunResult:
+        return real(*args, **kwargs).model_copy(update={"estado": EstadoExecucao.PARCIAL})
+
+    escrever = Path.write_bytes
+
+    def disco_cheio(caminho: Path, dados: bytes) -> int:
+        if caminho.name == "falha.json":
+            raise OSError("disco_cheio_sintetico")
+        return escrever(caminho, dados)
+
+    monkeypatch.setattr(counterfactual_sobreposicao, "evaluate_rules", parcial)
+    monkeypatch.setattr(Path, "write_bytes", disco_cheio)
+    assert _rodar(execucao, execucao.ausencia) == 5
+    assert not destino.exists()

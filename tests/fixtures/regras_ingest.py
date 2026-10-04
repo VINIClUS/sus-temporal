@@ -11,11 +11,14 @@ import json
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+import pyarrow as pa
+import pyarrow.parquet as pq
+
 from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts.artifacts import ResultadoTentativa
 from sustemporal.contracts.base import FamiliaFonte
-from tests.fixtures.regras_cenario import COLUNAS_REGISTRO, gravar_dataset
+from tests.fixtures.regras_cenario import COLUNAS_REGISTRO, gravar_dataset, reemitir
 from tests.fixtures.regras_lote import cobertura_lote
 from tests.fixtures.temporal_registro import observar
 
@@ -159,6 +162,15 @@ def _datasets(pasta: Path, itens: dict[str, _Item], *, sem_cobertura: bool) -> l
     return refs
 
 
+def _competencia_inteira(ref: DatasetRef) -> DatasetRef:
+    """Cobertura com `competencia` física BIGINT e `DatasetRef` coerente com esse conteúdo."""
+    tabela = pq.read_table(ref.caminho)
+    posicao = tabela.column_names.index("competencia")
+    inteira = pa.array([int(v) for v in tabela.column("competencia").to_pylist()], pa.int64())
+    pq.write_table(tabela.set_column(posicao, "competencia", inteira), ref.caminho)
+    return reemitir(ref)
+
+
 def montar_ingest(
     raiz: Path,
     *,
@@ -169,6 +181,7 @@ def montar_ingest(
     producao_repetida: bool = False,
     corte: str | None = None,
     auxiliar_divergente: bool = False,
+    cobertura_com_tipo_invalido: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -184,6 +197,9 @@ def montar_ingest(
     refs = _datasets(pasta, itens, sem_cobertura=sem_cobertura)
     if producao_repetida:
         refs.append(next(ref for ref in refs if ref.schema_id == "sia_pa.v1"))
+    if cobertura_com_tipo_invalido:
+        indice = next(i for i, ref in enumerate(refs) if ref.schema_id == "cobertura.v1")
+        refs[indice] = _competencia_inteira(refs[indice])
     if auxiliar_divergente:
         indice = max(i for i, ref in enumerate(refs) if ref.schema_id == "sigtap_procedimento.v1")
         refs[indice] = refs[indice].model_copy(update={"linhas": refs[indice].linhas + 1})

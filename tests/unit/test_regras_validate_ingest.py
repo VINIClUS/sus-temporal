@@ -215,3 +215,9 @@ def test_integridade_ignora_observacoes_posteriores_ao_corte() -> None:
     assert integridade_do_registro(registro)[versao.artifact_id] is (
         EstadoIntegridade.QUARENTENA_CHECKSUM
     )
+
+
+def test_cobertura_com_tipo_fisico_invalido_sai_sem_saidas(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, cobertura_com_tipo_invalido=True)
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+    assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))

@@ -12,6 +12,7 @@ from sustemporal.contracts.experiment import (
     FeatureSpec,
     validar_features,
 )
+from sustemporal.contracts.records import TipoCanonico
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
@@ -34,6 +35,7 @@ CATEGORICA = "CATEGORICA"
 NUMERICA = "NUMERICA"
 TRANSFORMACOES = frozenset({CATEGORICA, NUMERICA})
 COLUNAS_DE_PARTICAO = frozenset({"competencia_processamento"})
+_TIPOS_NUMERICOS = frozenset({TipoCanonico.INTEIRO, TipoCanonico.DECIMAL})
 
 
 def _atributo(coluna: str, transformacao: str = CATEGORICA) -> Atributo:
@@ -87,6 +89,11 @@ def auditar_features(
     origens = []
     for atributo in features.atributos:
         coluna = next(c for c in por_id[atributo.schema_id].colunas if c.nome == atributo.coluna)
+        if atributo.transformacao == NUMERICA and coluna.tipo not in _TIPOS_NUMERICOS:
+            raise ValueError(
+                f"transformacao_incompativel_com_coluna atributo={atributo.nome} "
+                f"coluna={coluna.nome} tipo={coluna.tipo}"
+            )
         origens.append(
             OrigemAtributo(
                 nome=atributo.nome,

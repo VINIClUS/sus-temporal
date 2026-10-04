@@ -143,7 +143,24 @@ def _carregar(
     linhas = [dict(zip(nomes, valores, strict=True)) for valores in cursor.fetchall()]
     if len({linha["row_id"] for linha in linhas}) != len(linhas):
         raise ValueError(f"rotulos_com_row_id_repetido dataset={rotulos.dataset_id}")
+    _exigir_mesmos_row_ids(con, dataset, rotulos)
     return linhas
+
+
+def _exigir_mesmos_row_ids(
+    con: duckdb.DuckDBPyConnection, dataset: DatasetRef, rotulos: DatasetRef
+) -> None:
+    fora = con.execute(
+        "SELECT count(*) FROM ((SELECT row_id FROM read_parquet($r) "
+        "EXCEPT SELECT row_id FROM read_parquet($p)) UNION ALL (SELECT row_id FROM "
+        "read_parquet($p) EXCEPT SELECT row_id FROM read_parquet($r)))",
+        {"p": dataset.caminho, "r": rotulos.caminho},
+    ).fetchall()[0][0]
+    if int(fora) > 0:
+        raise FalhaOperacionalErro(
+            f"rotulos_fora_da_particao dataset={dataset.dataset_id} "
+            f"rotulos={rotulos.dataset_id} divergentes={fora}"
+        )
 
 
 def _gravar_predicoes(

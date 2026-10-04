@@ -332,7 +332,7 @@ def test_rotulos_de_outra_particao_sao_recusados_na_leitura(tmp_path: Path) -> N
     assert cenario.split.rotulos_por_particao is not None
     teste = [linha for linha in cenario.linhas if linha.competencia_processamento == "202401"]
     trocado = gravar_rotulos(
-        {linha.row_id: cenario.rotulo_por_row[linha.row_id] for linha in teste},
+        {linha.row_id: "APROVADO_TOTAL" for linha in teste},
         tmp_path / "trocado" / "rotulos.parquet",
     )
     rotulos = {p: r.model_dump(mode="json") for p, r in cenario.split.rotulos_por_particao.items()}

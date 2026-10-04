@@ -33,8 +33,6 @@ if TYPE_CHECKING:
 __all__ = [
     "LEIAUTE_PA_PADRAO",
     "NOME_RELATORIO",
-    "RECORTE_FIM",
-    "RECORTE_INICIO",
     "carregar_leiaute_pa",
     "chave_de_comparacao",
     "competencias_da_janela",
@@ -49,8 +47,6 @@ logger = logging.getLogger(__name__)
 LEIAUTE_PA_PADRAO = Path(__file__).resolve().parents[3] / "catalog" / "layouts" / "sia_pa.yaml"
 NOME_RELATORIO = "vigilancia.jsonl"
 _MESES_PROCURADOS = 120
-RECORTE_INICIO = CompetenciaArquivo("201801")
-RECORTE_FIM = CompetenciaArquivo("202512")
 
 Chave = tuple[object, str | None, str | None, str | None]
 
@@ -87,19 +83,17 @@ def observe_updates(
 def competencias_da_janela(
     item: FonteCatalogo, uf: str, nomes: Iterable[str], janela: int, referencia: datetime
 ) -> list[CompetenciaArquivo]:
-    """As `janela` competências mais recentes com arquivo listado, dentro do recorte do estudo.
+    """As `janela` competências mais recentes, até o mês de `referencia`, com arquivo listado.
 
-    O recorte é 2018–2025 (AGENTS.md): a busca parte do menor entre o mês de `referencia` e
-    `RECORTE_FIM` e nunca desce abaixo de `RECORTE_INICIO`.
+    A vigilância é prospectiva (plano T13: janela móvel de seis competências recentes durante
+    doze meses) e estuda a publicação e a republicação; não é limitada ao recorte 2018–2025 da
+    coorte de validação, e suas observações não entram na coorte.
     """
     listados = sorted(set(nomes))
-    teto = min(f"{referencia.year:04d}{referencia.month:02d}", RECORTE_FIM.valor)
-    ano, mes = int(teto[:4]), int(teto[4:])
+    ano, mes = referencia.year, referencia.month
     achadas: list[CompetenciaArquivo] = []
     for _ in range(_MESES_PROCURADOS):
         competencia = CompetenciaArquivo(f"{ano:04d}{mes:02d}")
-        if competencia.valor < RECORTE_INICIO.valor:
-            break
         expressao = item.expressao(uf, competencia)
         if any(expressao.fullmatch(nome) for nome in listados):
             achadas.append(competencia)
@@ -168,6 +162,7 @@ def gravar_relatorio(
             "resultado": str(c.resultado),
             "linhas_removidas": c.linhas_removidas,
             "linhas_adicionadas": c.linhas_adicionadas,
+            "mudancas_de_delecao": c.mudancas_de_delecao,
             "motivo": c.motivo,
         }
         for chave, c in comparacoes

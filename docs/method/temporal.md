@@ -135,17 +135,20 @@ Também confere a coerência de uma tabela fornecida com a política da execuç�
 1. Para cada família de `vigilancia.familias_fontes`, lista o diretório. A listagem é ela mesma
    uma observação.
 2. Toma as `janela_competencias` (6) competências mais recentes com arquivo listado para a UF,
-   dentro do recorte do estudo (201801–202512) e nunca depois do mês do relógio. A janela vem dos
-   nomes listados, nunca da data de coleta. Competências publicadas depois de 2025 não são
-   observadas.
+   até o mês do relógio. A janela vem dos nomes listados, nunca da data de coleta.
 3. Observa de novo cada arquivo (`observe_updates`), sem pular os já obtidos. Os mesmos bytes
    viram nova observação da mesma versão; bytes novos viram versão nova. O histórico não é
    substituído.
 4. Compara cada arquivo SIA-PA com a versão obtida antes para a mesma chave (fonte, UF,
    competência, parte), em `acquisition/comparacao.py`. As duas versões passam pelo
-   `normalize_pa` e são comparadas como multiconjuntos de linhas canônicas. Ficam de fora as
-   colunas de linhagem física (`row_id`, `artifact_id`, `membro`, `indice_registro`). Linhas
-   nunca são casadas por posição.
+   `normalize_pa` e são comparadas como multiconjuntos de linhas **ativas**, isto é, não
+   deletadas.
+   - Ficam de fora as colunas de papel CHAVE e LINHAGEM do esquema `sia_pa.v1` (`row_id`,
+     `artifact_id`, `membro`, `indice_registro`, `deletado`). A lista é derivada do esquema.
+   - Linhas nunca são casadas por posição.
+   - Registros que mudaram de estado de deleção são contados à parte (`mudancas_de_delecao`). Um
+     registro que passa a deletado conta como saída das ativas, e portanto como REVISAO_REAL; um
+     que deixa de ser deletado conta como entrada.
    - **INALTERADA:** mesmos bytes, ou as mesmas linhas com as mesmas multiplicidades (inclusive
      em outra ordem).
    - **REVISAO_REAL:** só entraram linhas, ou só saíram.
@@ -164,6 +167,13 @@ Também confere a coerência de uma tabela fornecida com a política da execuç�
 
 Famílias sem normalizador (CNES, SIGTAP) são observadas, e versões novas aparecem no manifesto,
 mas não são comparadas linha a linha.
+
+**Vigilância não é coorte.** A vigilância segue o plano (T13: "A partir do piloto, acompanhar
+semanalmente uma janela móvel de seis competências recentes durante doze meses"). Ela estuda de
+forma prospectiva o processo de publicação e republicação, e por isso não fica presa ao recorte
+2018–2025 da coorte de validação. As observações dela não entram na coorte, que é escolhida pela
+própria config (piloto, coorte e partições). Mesmo uma republicação observada de uma competência
+da coorte só pesa nela pela seleção do T06, com o corte de observação congelado da execução.
 
 **Agendamento (máquina do pesquisador).** A cadência de 7 dias e a duração de 12 meses
 (`cadencia_dias`, `duracao_meses`) são cumpridas pelo agendador, não pela CLI. Exemplo de cron,

@@ -243,3 +243,30 @@ def test_listagem_de_diretorio_nao_passa_pelos_normalizadores(tmp_path: Path) ->
     resultados = _resultados(tmp_path)
     assert listagem.artifact_id not in {r["artifact_id"] for r in resultados}
     assert [r["estado"] for r in resultados] == ["NORMALIZADO"]
+
+
+def test_artefato_regional_sem_uf_fica_fora_do_recorte(tmp_path: Path) -> None:
+    store = tmp_path / "dados" / "raw"
+    registros = [registro("C", "201801", "201801")]
+    pf = [registro_pf("0012345", "225125")]
+    pf_sem_uf = _sem_uf(artefato_cnes(store, dbc_cnes(PF, pf), PF))
+    versoes = [
+        artefato_pa(store, dbc_pa(registros)),
+        artefato_sigtap(store, zip_sigtap(pacote_padrao())),
+        pf_sem_uf,
+    ]
+    (tmp_path / "manifestos").mkdir(parents=True)
+    registrar_versoes(tmp_path / "manifestos" / "aquisicao.jsonl", versoes)
+    config = _config(tmp_path, _fontes(tmp_path, ["a"]))
+    assert cli.main(["ingest", "--config", str(config)]) == ExitCode.OK
+    estados_pf = {r["estado"] for r in _resultados(tmp_path) if r["fonte"] == "CNES_PF"}
+    assert estados_pf == {"FORA_DO_RECORTE"}
+    estados = {(f, b): e for f, b, e, _ in _cobertura(tmp_path)}
+    assert estados[("ESTABELECIMENTO_CBO", "PROCESSAMENTO")] == "AUSENTE"
+
+
+def _sem_uf(versao: ArtifactVersion) -> ArtifactVersion:
+    chave = versao.chave.model_copy(update={"uf": None})
+    return versao.model_copy(
+        update={"chave": chave, "artifact_id": calcular_artifact_id(chave, versao.sha256)}
+    )

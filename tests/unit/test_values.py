@@ -28,6 +28,7 @@ from sustemporal.evaluation.values import (
 from sustemporal.hashing import hash_logico_linhas
 from sustemporal.rules.catalog import carregar_regras
 from tests.fixtures.anotacao_valores import CenarioValores, Linha, montar_valores
+from tests.fixtures.regras_cenario import reemitir
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -341,3 +342,16 @@ def test_dataset_ref_confere_com_conteudo(tmp_path: Path) -> None:
     assert ref.schema_id == SCHEMA_VALORES
     assert ref.linhas == tabela.num_rows
     assert ref.hash_logico == hash_logico_linhas(COLUNAS_VALORES, conteudo)
+
+
+@pytest.mark.parametrize("coluna", ["rule_id", "versao"])
+def test_avaliacoes_sem_coluna_de_regra_e_falha_operacional(tmp_path: Path, coluna: str) -> None:
+    cenario = montar_valores(tmp_path / "dados", [Linha("r1", REJ, D("5.00"), D("0.00"))])
+    avaliacoes = next(d for d in cenario.run.saidas if d.schema_id == "avaliacoes.v1")
+    tabela = pq.read_table(avaliacoes.caminho)
+    pq.write_table(tabela.drop_columns([coluna]), avaliacoes.caminho)
+    nova = reemitir(avaliacoes)
+    saidas = tuple(nova if d.schema_id == "avaliacoes.v1" else d for d in cenario.run.saidas)
+    run = cenario.run.model_copy(update={"saidas": saidas})
+    with pytest.raises(FalhaOperacionalErro, match=f"valores_leiaute_incompativel .*{coluna}"):
+        _executar(replace(cenario, run=run), tmp_path)

@@ -128,10 +128,9 @@ def test_ausencia_de_revisao_observada_nao_afirma_que_nunca_houve(tmp_path: Path
 def _ambiente_watch(tmp_path: Path) -> Path:
     dados = tmp_path / "origem" / "SIASUS" / "200801_" / "Dados"
     dados.mkdir(parents=True)
-    for aamm in ("2607", "2608"):
+    for aamm in ("2510", "2511", "2512", "2601", "2607"):
         registro = registro_pa(PA_MVM=f"20{aamm}", PA_CMP=f"20{aamm}")
         (dados / f"PASP{aamm}a.dbc").write_bytes(dbc_pa([registro]))
-    (dados / "PASP2508a.dbc").write_bytes(dbc_pa([registro_pa()]))
     texto = CATALOGO.read_text(encoding="utf-8").replace(
         "ftp://ftp.datasus.gov.br/dissemin/publicos", (tmp_path / "origem").as_uri()
     )
@@ -155,23 +154,52 @@ def _ambiente_watch(tmp_path: Path) -> Path:
     return config
 
 
-def test_watch_observa_a_janela_e_registra_revisao(tmp_path: Path) -> None:
+def _relatorio(tmp_path: Path) -> list[dict[str, object]]:
+    relatorio = tmp_path / "manifests" / "vigilancia.jsonl"
+    return [json.loads(linha) for linha in relatorio.read_text(encoding="utf-8").splitlines()]
+
+
+def _alterar_dezembro(tmp_path: Path) -> None:
+    alterado = tmp_path / "origem" / "SIASUS" / "200801_" / "Dados" / "PASP2512a.dbc"
+    registro = registro_pa(PA_MVM="202512", PA_CMP="202512")
+    alterado.write_bytes(dbc_pa([registro, registro]))
+
+
+def test_watch_observa_a_janela_do_recorte_e_registra_revisao(tmp_path: Path) -> None:
     config = load_config(_ambiente_watch(tmp_path))
     relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
     args = argparse.Namespace()
     assert executar_watch(args, config, relogio=relogio) == ExitCode.OK
-    alterado = tmp_path / "origem" / "SIASUS" / "200801_" / "Dados" / "PASP2608a.dbc"
-    registro = registro_pa(PA_MVM="202608", PA_CMP="202608")
-    alterado.write_bytes(dbc_pa([registro, registro]))
+    _alterar_dezembro(tmp_path)
     assert executar_watch(args, config, relogio=relogio) == ExitCode.OK
     estado = Manifesto(tmp_path / "manifests" / "aquisicao.jsonl").ler()
     arquivos = [o for o in estado.observacoes if o.chave.tipo_conteudo is None]
-    assert sorted({o.chave.competencia_arquivo.valor for o in arquivos}) == ["202607", "202608"]
+    assert sorted({o.chave.competencia_arquivo.valor for o in arquivos}) == ["202511", "202512"]
     assert len(arquivos) == 4
-    relatorio = tmp_path / "manifests" / "vigilancia.jsonl"
-    linhas = [json.loads(linha) for linha in relatorio.read_text(encoding="utf-8").splitlines()]
+    resultados = {
+        (d["competencia"], d["resultado"]) for d in _relatorio(tmp_path) if "resultado" in d
+    }
+    assert resultados == {("202511", "INALTERADA"), ("202512", "REVISAO_REAL")}
+
+
+def test_comparacao_que_falha_fica_inconclusiva_no_relatorio_e_na_saida(tmp_path: Path) -> None:
+    config = load_config(_ambiente_watch(tmp_path))
+    relogio = Relogio(atual=datetime(2026, 9, 15, tzinfo=UTC))
+    args = argparse.Namespace()
+    assert executar_watch(args, config, relogio=relogio) == ExitCode.OK
+    estado = Manifesto(tmp_path / "manifests" / "aquisicao.jsonl").ler()
+    for versao in estado.versoes.values():
+        competencia = versao.chave.competencia_arquivo
+        if competencia is not None and competencia.valor == "202512":
+            (tmp_path / "data" / "raw" / versao.caminho_conteudo).unlink()
+    _alterar_dezembro(tmp_path)
+    assert executar_watch(args, config, relogio=relogio) == ExitCode.FALHA_OPERACIONAL
+    linhas = _relatorio(tmp_path)
     resultados = {(d["competencia"], d["resultado"]) for d in linhas if "resultado" in d}
-    assert resultados == {("202607", "INALTERADA"), ("202608", "REVISAO_REAL")}
+    assert ("202512", "INCONCLUSIVO") in resultados
+    resumo = str(linhas[-1]["resumo"])
+    assert not resumo.startswith("sem_revisao_observada")
+    assert "inconclusivas=1" in resumo
 
 
 def test_config_de_vigilancia_e_valida() -> None:

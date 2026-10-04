@@ -210,14 +210,15 @@ class SplitManifest(ContratoBase):
     ) -> None:
         if set(rotulos) != declaradas:
             raise ValueError(f"split_rotulos_particoes_divergentes split={self.split_id}")
-        refs = list(rotulos.values())
-        distintos = len({r.dataset_id for r in refs}) == len(refs) and len(
-            {r.caminho for r in refs}
-        ) == len(refs)
-        linhas_iguais = self.particoes is not None and all(
-            rotulos[p].linhas == self.particoes[p].linhas for p in declaradas
+        distintos = len(rotulos) == len({r.dataset_id for r in rotulos.values()})
+        distintos &= len(rotulos) == len({r.caminho for r in rotulos.values()})
+        populacao = self.particoes or {}
+        presos = bool(populacao) and all(
+            (rotulos[p].linhas, set(rotulos[p].artifact_ids))
+            == (populacao[p].linhas, set(populacao[p].artifact_ids))
+            for p in declaradas
         )
-        if not (distintos and linhas_iguais):
+        if not (distintos and presos):
             raise ValueError(f"split_rotulos_nao_presos_as_particoes split={self.split_id}")
 
     def _particoes_coerentes(

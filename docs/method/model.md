@@ -206,7 +206,9 @@ vêm antes de gravar qualquer arquivo:
 - registro: `RegistroTemporal.de_manifesto` do manifesto de aquisição em `raiz_manifestos`, com as
   partes esperadas do catálogo; manifesto ausente, ilegível ou corrompido → saída 2;
 - `datasets.jsonl`: cada `DatasetRef` conferido como no motor (linhas, hash lógico, tipo físico de
-  todas as colunas do esquema, `DECIMAL` e `DATA` inclusive);
+  todas as colunas do esquema, `DECIMAL` e `DATA` inclusive) e pela linhagem: toda linha tem
+  `artifact_id` declarado pelo próprio conjunto, senão saída 2 (`linhagem_divergente`), o que impede
+  trocar uma versão por outra na união;
   `origem_dados` igual em todos;
 - produção: união de todos os `sia_pa.v1`, cada linha física preservada (sem deduplicar; uma linha
   repetida em duas partes conta duas vezes), `artifact_ids` = união ordenada, hash por
@@ -217,7 +219,8 @@ vêm antes de gravar qualquer arquivo:
   saída 2; `row_id` repetido → falha operacional (saída 5);
 - território: carregado por `ingest.territorio.carregar_territorio` (contrato, UF e dígito
   verificador) e `municipios_ibge6`. Produção sem a coluna `municipio_estabelecimento` → saída 2
-  (`territorio_sem_coluna`). Só linhas com município no território entram; as demais nunca são
+  (`territorio_sem_coluna`). Registros com `deletado` verdadeiro (deletados no DBF) saem antes
+  (`registro_deletado`). Só linhas com município no território entram; as demais nunca são
   avaliadas e são contadas por motivo em `out/<run_id>/recorte_territorial.json`:
   `fora_do_territorio` (município de fora) e `territorio_indeterminado` (município nulo). Recorte
   que deixa a população vazia → saída 2 (`populacao_vazia_apos_recorte`), nunca execução

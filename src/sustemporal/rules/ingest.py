@@ -208,12 +208,29 @@ def _classificar(
     return producao, auxiliares, coberturas[0] if coberturas else None
 
 
+def _exigir_linhagem(con: duckdb.DuckDBPyConnection, ref: DatasetRef) -> None:
+    """Cada linha pertence a um artefato declarado pelo próprio conjunto (nunca a outro)."""
+    divergentes = con.execute(
+        "SELECT count(*) FROM read_parquet($c) "
+        "WHERE artifact_id IS NULL OR NOT list_contains($a, artifact_id)",
+        {"c": ref.caminho, "a": list(ref.artifact_ids)},
+    ).fetchall()[0][0]
+    if divergentes:
+        raise ConfigInvalida(
+            f"linhagem_divergente schema={ref.schema_id} dataset={ref.dataset_id} "
+            f"linhas={divergentes}"
+        )
+
+
 def _conferir(con: duckdb.DuckDBPyConnection, refs: list[DatasetRef]) -> set[str]:
-    """Conteúdo e tipo físico de cada conjunto; devolve as colunas físicas presentes."""
+    """Conteúdo, tipo físico e linhagem de cada conjunto; devolve as colunas físicas presentes."""
     fisicas: set[str] = set()
     for ref in refs:
         verificar_conteudo(con, ref)
-        fisicas |= conferir_tipos_fisicos(con, ref)
+        presentes = conferir_tipos_fisicos(con, ref)
+        if "artifact_id" in presentes:
+            _exigir_linhagem(con, ref)
+        fisicas |= presentes
     return fisicas
 
 
@@ -258,6 +275,17 @@ def _gravar(
     )
 
 
+def _remover_deletados(con: duckdb.DuckDBPyConnection, colunas: list[str]) -> int:
+    """Registros marcados como deletados no DBF nunca entram na população avaliada."""
+    if "deletado" not in colunas:
+        return 0
+    contagem = con.execute(
+        f"SELECT count(*) FROM {_UNIAO} WHERE deletado IS TRUE"  # noqa: S608
+    ).fetchall()[0][0]
+    con.execute(f"DELETE FROM {_UNIAO} WHERE deletado IS TRUE")  # noqa: S608
+    return int(contagem)
+
+
 def _recortar_territorio(
     con: duckdb.DuckDBPyConnection, colunas: list[str], municipios: frozenset[str]
 ) -> dict[str, int]:
@@ -268,6 +296,7 @@ def _recortar_territorio(
     """
     if "municipio_estabelecimento" not in colunas:
         raise ConfigInvalida("territorio_sem_coluna coluna=municipio_estabelecimento")
+    deletados = _remover_deletados(con, colunas)
     parametros = {"m": sorted(municipios)}
     contagem = (
         "count(*) FILTER (WHERE municipio_estabelecimento IS NULL), "
@@ -276,7 +305,11 @@ def _recortar_territorio(
     )
     consulta = f"SELECT {contagem} FROM {_UNIAO}"  # noqa: S608
     nulas, fora, dentro = con.execute(consulta, parametros).fetchall()[0]
-    motivos = {"territorio_indeterminado": int(nulas), "fora_do_territorio": int(fora)}
+    motivos = {
+        "registro_deletado": deletados,
+        "territorio_indeterminado": int(nulas),
+        "fora_do_territorio": int(fora),
+    }
     exclusoes = {motivo: n for motivo, n in motivos.items() if n}
     if not dentro:
         raise ConfigInvalida(f"populacao_vazia_apos_recorte exclusoes={exclusoes}")

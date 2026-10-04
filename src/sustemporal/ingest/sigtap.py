@@ -83,7 +83,8 @@ def _inesperado(motivo: str) -> QuarentenaLeitura:
 def _caminho_seguro(artifact: ArtifactVersion, raiz_dados: Path) -> Path:
     raiz = raiz_dados.resolve()
     esperado = caminho_conteudo(raiz, artifact.sha256, "zip")
-    resolvido = Path(artifact.caminho_conteudo).resolve()
+    informado = Path(artifact.caminho_conteudo)
+    resolvido = (informado if informado.is_absolute() else raiz / informado).resolve()
     if resolvido != esperado or not resolvido.is_relative_to(raiz):
         raise QuarentenaLeitura(
             EstadoIntegridade.QUARENTENA_CAMINHO_INSEGURO,

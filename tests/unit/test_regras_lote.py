@@ -252,3 +252,11 @@ def test_corte_da_config_deixa_fevereiro_fora_do_corte(tmp_path: Path) -> None:
     }
     assert estados == {("202301", "SELECIONADA"), ("202302", "FORA_DO_CORTE")}
     assert selecao.snapshots.corte_observacao == config.corte_observacao
+
+
+def test_selecao_vazia_preserva_o_corte_da_config(tmp_path: Path) -> None:
+    cenario = mundo_lote(tmp_path / "entrada")
+    config = config_lote("B_PROC", corte_observacao="2026-01-02T12:00:00+00:00")
+    selecao = selecionar_em_lote(cenario.dataset, [], config, cenario.registro, tmp_path / "sel")
+    assert selecao.selecoes.linhas == 0
+    assert selecao.snapshots.corte_observacao == config.corte_observacao

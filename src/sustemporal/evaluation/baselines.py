@@ -102,7 +102,9 @@ def _particoes_permitidas(split: SplitManifest, modo: ModoExecucao) -> dict[Part
 def _origem_unica(datasets: list[DatasetRef]) -> OrigemDados:
     origens = {dataset.origem_dados for dataset in datasets}
     if len(origens) != 1:
-        raise ValueError("baseline_entradas_de_origens_distintas")
+        raise ValueError(
+            f"baseline_entradas_de_origens_distintas origens={','.join(sorted(origens))}"
+        )
     return origens.pop()
 
 
@@ -280,7 +282,7 @@ def fit_baseline(
     esquemas = [carregar_esquema(_SCHEMA_ENTRADA), carregar_esquema(_SCHEMA_ROTULOS)]
     origens = auditar_features(features, esquemas)
     if any(o.schema_id != _SCHEMA_ENTRADA for o in origens):
-        raise ValueError(f"baseline_atributo_fora_de_{_SCHEMA_ENTRADA}")
+        raise ValueError(f"baseline_atributo_fora_do_esquema esperado={_SCHEMA_ENTRADA}")
     dados = _ler_particoes(particoes, rotulos, [o.coluna for o in origens])
     ajuste = ajustar(dados, features, config.semente)
     run_id = _run_id(config, split, features, entradas)

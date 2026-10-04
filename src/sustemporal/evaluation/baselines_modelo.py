@@ -24,6 +24,7 @@ __all__ = [
     "DESCONHECIDA",
     "NEGATIVO",
     "POSITIVO",
+    "SEM_ROTULO",
     "Ajuste",
     "Codificador",
     "Linha",
@@ -40,6 +41,7 @@ MAX_ITERACOES = 1000
 LIMIAR_PADRAO = 0.5
 POSITIVO = "NAO_APROVADO"
 NEGATIVO = "APROVADO_TOTAL"
+SEM_ROTULO = "SEM_ROTULO"
 _CASAS_ESCORE = Decimal("1e-9")
 
 Linha = dict[str, Any]
@@ -186,7 +188,7 @@ def ajustar(dados: dict[Particao, list[Linha]], features: FeatureSpec, semente: 
         C=C_REGULARIZACAO, class_weight="balanced", max_iter=MAX_ITERACOES, random_state=semente
     )
     modelo.fit(codificador.transformar(usadas)[0], alvo)
-    contagens = Counter(str(linha["rotulo"]) for linha in treino)
+    contagens = Counter(str(linha["rotulo"] or SEM_ROTULO) for linha in treino)
     positivos = int(alvo.sum())
     ajuste = Ajuste(
         codificador=codificador,

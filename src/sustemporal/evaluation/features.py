@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CATEGORICA",
+    "COLUNAS_DE_PARTICAO",
     "FEATURES_PADRAO",
     "NUMERICA",
     "TRANSFORMACOES",
@@ -32,6 +33,7 @@ logger = logging.getLogger(__name__)
 CATEGORICA = "CATEGORICA"
 NUMERICA = "NUMERICA"
 TRANSFORMACOES = frozenset({CATEGORICA, NUMERICA})
+COLUNAS_DE_PARTICAO = frozenset({"competencia_processamento"})
 
 
 def _atributo(coluna: str, transformacao: str = CATEGORICA) -> Atributo:
@@ -105,6 +107,10 @@ def _exigir_permitido(atributo: Atributo) -> None:
     ):
         raise ValueError(
             f"feature_derivada_de_campo_proibido atributo={atributo.nome} coluna={atributo.coluna}"
+        )
+    if coluna in COLUNAS_DE_PARTICAO:
+        raise ValueError(
+            f"feature_coluna_de_particao atributo={atributo.nome} coluna={atributo.coluna}"
         )
     if atributo.transformacao not in TRANSFORMACOES:
         raise ValueError(

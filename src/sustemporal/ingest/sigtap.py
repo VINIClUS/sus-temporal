@@ -40,6 +40,7 @@ from sustemporal.duck import conectar
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.dbf import ArquivoAusente, QuarentenaLeitura
 from sustemporal.ingest.sigtap_zip import (
+    ERROS_ZIP,
     LIMITE_MEMBRO_PADRAO,
     conferir_leiaute,
     fatiar,
@@ -139,6 +140,10 @@ def _ler_tabela(
         raise QuarentenaLeitura(
             EstadoIntegridade.QUARENTENA_TRUNCADO, f"zip_ilegivel id={artifact.artifact_id}"
         ) from erro
+    except ERROS_ZIP as erro:
+        raise _inesperado(
+            f"zip_ilegivel id={artifact.artifact_id} erro={type(erro).__name__}"
+        ) from erro
 
 
 def _chave(brutos: list[str], campo: CampoLeiaute) -> Valores:
@@ -227,8 +232,30 @@ def _sem_duplicatas(
 
 
 def conferir_anulaveis(colunas: dict[str, Valores], esquema: EsquemaCanonico) -> None:
-    """Recusa nulo em coluna que o esquema declara não anulável."""
-    raise NotImplementedError
+    """Recusa nulo em coluna que o esquema declara não anulável.
+
+    Raises:
+        QuarentenaLeitura: nulo em coluna `anulavel: false`.
+    """
+    for coluna in esquema.colunas:
+        if not coluna.anulavel and any(valor is None for valor in colunas[coluna.nome]):
+            raise _inesperado(f"nulo_em_coluna_nao_anulavel coluna={coluna.nome}")
+
+
+def _ausentes(
+    layout: LayoutSpec, presentes: set[str], esquema: EsquemaCanonico, linhas: int
+) -> dict[str, Valores]:
+    """Campos opcionais do catálogo ausentes no zip: nulos, com motivo DESCONHECIDO."""
+    colunas: dict[str, Valores] = {}
+    for campo in layout.campos:
+        nome = campo.nome_canonico
+        if campo.nome_fisico in presentes:
+            continue
+        colunas[nome] = [None] * linhas
+        if esquema.papel_de(f"{nome}_motivo") is PapelColuna.MOTIVO:
+            colunas[f"{nome}_bruto"] = [None] * linhas
+            colunas[f"{nome}_motivo"] = [MotivoAusencia.DESCONHECIDO.value] * linhas
+    return colunas
 
 
 def _conferir_competencia(colunas: dict[str, Valores], artifact: ArtifactVersion) -> None:
@@ -253,6 +280,9 @@ def _canonicas(
     colunas: dict[str, Valores] = {"artifact_id": [artifact.artifact_id] * len(recortes[0])}
     for (_, campo), valores in zip(pares, recortes, strict=True):
         colunas.update(_colunas_do_campo(valores, campo, esquema))
+    presentes = {coluna.nome for coluna, _ in pares}
+    colunas.update(_ausentes(layout, presentes, esquema, len(recortes[0])))
+    conferir_anulaveis(colunas, esquema)
     _conferir_competencia(colunas, artifact)
     decimais = {campo.nome_canonico: campo.decimais for campo in layout.campos}
     return colunas, decimais

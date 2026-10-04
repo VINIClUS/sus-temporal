@@ -7,8 +7,10 @@ contra o catálogo: divergência vai para quarentena, nunca para leitura aproxim
 
 from __future__ import annotations
 
+import lzma
 import re
 import zipfile
+import zlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -25,6 +27,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "CATALOGO_LEIAUTES",
+    "ERROS_ZIP",
     "LIMITE_MEMBRO_PADRAO",
     "ColunaZip",
     "acumular_limitado",
@@ -39,6 +42,18 @@ __all__ = [
 CATALOGO_LEIAUTES = Path(__file__).resolve().parents[3] / "catalog" / "layouts" / "sigtap.yaml"
 LIMITE_MEMBRO_PADRAO = 256 * 1024 * 1024
 _BLOCO = 1024 * 1024
+# Erros que o zipfile da biblioteca padrão deixa escapar com bytes corrompidos (fuzz na revisão):
+# diretório central ou cabeçalho local inválido, fluxo comprimido inválido, nome mal codificado.
+ERROS_ZIP: tuple[type[Exception], ...] = (
+    zipfile.BadZipFile,
+    zlib.error,
+    lzma.LZMAError,
+    EOFError,
+    NotImplementedError,
+    RuntimeError,
+    ValueError,
+    OSError,
+)
 _NOME_MEMBRO = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}")
 _LAYOUT_ID = re.compile(r"sigtap\.([a-z_]+)")
 _CABECALHO = ("Coluna", "Tamanho", "Inicio", "Fim", "Tipo")
@@ -113,7 +128,7 @@ def _ler_limitado(arquivo: zipfile.ZipFile, info: zipfile.ZipInfo, limite: int) 
     try:
         with arquivo.open(info) as membro:
             return acumular_limitado(membro, limite, excesso)
-    except (zipfile.BadZipFile, EOFError, NotImplementedError, RuntimeError) as erro:
+    except ERROS_ZIP as erro:
         raise _inesperado(
             f"membro_ilegivel nome={info.filename} erro={type(erro).__name__}"
         ) from erro

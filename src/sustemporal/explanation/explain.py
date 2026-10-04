@@ -33,6 +33,7 @@ from sustemporal.explanation.explain_leitura import (
 from sustemporal.explanation.explain_texto import (
     Contexto,
     afirmacoes_do_registro,
+    exigir_referencias_completas,
     renderizar_texto,
 )
 from sustemporal.explanation.prov import ElementosProv, exportar, montar_documento
@@ -213,6 +214,7 @@ def montar_explicacao(
     )
     prov = exportar(montar_documento(elementos))
     bundle = _bundle(run, row_id, registro, saidas, prov=prov, afirmacoes=afirmacoes)
+    exigir_referencias_completas(bundle)
     logger.info("explicacao_montada run=%s bundle=%s", run.run_id, bundle.bundle_id)
     return Explicacao(
         bundle=bundle,

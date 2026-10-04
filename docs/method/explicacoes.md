@@ -23,8 +23,11 @@ nenhum, dois diferentes ou `run_id` gravado diferente dão saída 2. Nunca há d
 A saída vai para `<raiz_saidas>/explicacoes/<run_id>/row_<sha256(row_id)[:32]>/`: `bundle.json`,
 `prov.provn`, `prov.json` (os bytes cujo SHA-256 está em `prov_json_sha256`), `explicacao.txt` e
 `reexecucoes.json`. Execução ou linha inexistente ou incoerente: saída 2 com mensagem
-`chave=valor`. Evidência divergente: saída 5, só `falha.json` (`FalhaOperacional`, relógio injetado)
-no diretório; arquivos de tentativas anteriores são removidos. Falha de leitura ou gravação: 5.
+`chave=valor`, inclusive saída ilegível ou divergente (`saida_ilegivel`, `conteudo_divergente`),
+e a explicação anterior do mesmo diretório é removida. Evidência divergente: saída 5 e só
+`falha.json` (`FalhaOperacional`, relógio injetado). Falha de gravação: 5. A publicação é atômica:
+os arquivos vão para um diretório temporário irmão, renomeado para o destino só no fim; nunca fica
+explicação parcial.
 Execução `FALHOU`, ou falha operacional registrada para o registro ou para a execução inteira
 (`falhas.v1` com `row_id` nulo), recusa a explicação: nunca "nenhuma violação verificada" sobre
 avaliação incompleta.
@@ -74,12 +77,12 @@ trocada pela recalculada. O SHA-256 da consulta de reexecução fica no PROV
 | `agent` | o software (`prov:SoftwareAgent`, versão do pacote e commit) |
 | `wasGeneratedBy` | versão ← aquisição; conjunto ← transformação; saídas, evidências e avaliações ← execução |
 | `used` | transformação → versões; execução → conjuntos de entrada, regras e versões selecionadas |
-| `wasDerivedFrom` | conjunto → versões; registro → `sia_pa.v1`; evidência → conjunto consultado; avaliação → registro, regra e evidências |
+| `wasDerivedFrom` | conjunto → versões; registro → `sia_pa.v1`; evidência → conjunto e versões consultadas; avaliação → registro, regra e evidências |
 | `wasAssociatedWith` | cada atividade → software |
 
-Avaliações e evidências declaram em `sus:derivada_de` as origens exigidas (registro, regra e cada
-evidência; conjunto consultado). `exigir_relacoes` recusa documento sem qualquer das quatro
-relações ou sem alguma dessas arestas `wasDerivedFrom`. Evidência de ausência ou de fonte incompleta carrega `sus:limitacao`: o
+As arestas `wasDerivedFrom` exigidas vêm dos elementos da explicação (`arestas_exigidas`), não do
+que o documento declara; avaliações e evidências também as declaram em `sus:derivada_de`.
+`exigir_relacoes` recusa documento sem qualquer das quatro relações ou sem alguma aresta exigida. Evidência de ausência ou de fonte incompleta carrega `sus:limitacao`: o
 resultado vazio não prova inexistência no mundo real; a relação PROV só registra a consulta e o
 conjunto consultado. Aquisição e transformação não têm instantes: a execução não os declara.
 
@@ -111,10 +114,13 @@ e com ela as seleções (`tests/integration/test_baselines.py`).
 - `VERSAO_CNES` / `VERSAO_SIGTAP`: `trocar_versao_fonte` reescreve só as versões da fonte na
   `selecao_versoes.v1` (base, competência e estado fixos; observações antigas descartadas e motivo
   marcado); catálogo, política, configuração, código, ambiente, snapshot e demais entradas
-  idênticos; seleções das outras fontes iguais em todos os campos. Versão substituta de outra
-  competência é recusada pelo motor (competência divergente), nunca usada como mês vizinho.
+  idênticos; seleções das outras fontes iguais em todos os campos; avaliações das regras de
+  outras fontes idênticas (estado, motivos e evidências). Versão substituta de outra competência
+  vira competência divergente no motor e a ablação é recusada, nunca medida como sensibilidade.
 
-Diferença em qualquer outro fator levanta `AblacaoNaoIsolada`. O relatório traz
+As duas execuções precisam estar `CONCLUIDA` e sem falhas, e o fator precisa mudar de fato
+(versão de regra alterada ou versão de fonte trocada); senão, e em diferença em qualquer outro
+fator, `AblacaoNaoIsolada`. O relatório traz
 `INTERPRETACAO_ABLACAO`: a ablação mede sensibilidade do modelo; não identifica causalmente a
 origem da decisão oficial. A leitura de "congelar a versão da regra" é A_CONFIRMAR
 (`docs/pendencias/T08.md`).

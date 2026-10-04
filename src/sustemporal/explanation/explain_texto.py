@@ -252,9 +252,30 @@ def afirmacoes_do_registro(
     return tuple(afirmacoes)
 
 
+def _incompleta(afirmacao: Afirmacao, bundle: ExplanationBundle) -> bool:
+    modelo = _modelo(afirmacao.template_id)
+    referencias = set(afirmacao.referencias)
+    avaliacoes = [a for a in bundle.avaliacoes if a.rule_id in referencias]
+    if "evidencias" in modelo.referencias:
+        return not any(set(a.evidence_ids) <= referencias for a in avaliacoes if a.evidence_ids)
+    if "artefatos" in modelo.referencias:
+        selecoes = [s for a in avaliacoes for s in a.selecoes if s.artifact_ids]
+        return not any(set(s.artifact_ids) <= referencias for s in selecoes)
+    return False
+
+
 def exigir_referencias_completas(bundle: ExplanationBundle) -> None:
-    """Afirmação de regra cita as evidências da avaliação; seleção escolhida, suas versões."""
-    raise NotImplementedError
+    """Afirmação de regra cita as evidências da avaliação; seleção escolhida, suas versões.
+
+    Raises:
+        TemplateInvalido: afirmação que cita a regra sem a evidência ou as versões exigidas.
+    """
+    for afirmacao in bundle.afirmacoes:
+        if _incompleta(afirmacao, bundle):
+            raise TemplateInvalido(
+                f"afirmacao_incompleta template={afirmacao.template_id} "
+                f"referencias={list(afirmacao.referencias)}"
+            )
 
 
 def renderizar_texto(

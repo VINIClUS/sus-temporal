@@ -38,6 +38,7 @@ __all__ = [
     "DocumentoProv",
     "ElementosProv",
     "ProvIncompleto",
+    "arestas_exigidas",
     "exigir_relacoes",
     "exportar",
     "montar_documento",
@@ -207,17 +208,49 @@ def _evidencias(doc: ProvDocument, elementos: ElementosProv, execucao: str) -> N
             atributos["sus:sql_reexecucao_sha256"] = sql
         if evidencia.tipo in _SEM_PROVA:
             atributos["sus:limitacao"] = AVISO_AUSENCIA
-        atributos["sus:derivada_de"] = f"sus:{evidencia.dataset_id}"
+        origens = _origens_da_evidencia(evidencia)
+        atributos["sus:versoes_consultadas"] = ";".join(evidencia.artifact_ids)
+        atributos["sus:derivada_de"] = ";".join(origens)
         doc.entity(f"sus:{evidencia.evidence_id}", atributos)
         doc.wasGeneratedBy(f"sus:{evidencia.evidence_id}", execucao)
-        doc.wasDerivedFrom(f"sus:{evidencia.evidence_id}", f"sus:{evidencia.dataset_id}")
+        for origem in origens:
+            doc.wasDerivedFrom(f"sus:{evidencia.evidence_id}", origem)
+
+
+def _origens_da_evidencia(evidencia: Evidence) -> list[str]:
+    return [f"sus:{evidencia.dataset_id}", *(f"sus:{a}" for a in sorted(evidencia.artifact_ids))]
+
+
+def _origens_da_avaliacao(
+    avaliacao: RuleEvaluation, elementos: ElementosProv, registro: str
+) -> list[str]:
+    regra = _id_regra(elementos.regras[avaliacao.rule_id])
+    return [registro, regra, *(f"sus:{e}" for e in avaliacao.evidence_ids)]
+
+
+def arestas_exigidas(elementos: ElementosProv) -> list[tuple[str, str]]:
+    """`wasDerivedFrom` que o documento precisa ter, derivadas dos elementos (não do documento)."""
+    registro = _id_registro(elementos.registro.row_id)
+    arestas = [
+        (f"sus:{d.dataset_id}", f"sus:{a}") for d in elementos.run.entradas for a in d.artifact_ids
+    ]
+    arestas += [
+        (registro, f"sus:{d.dataset_id}")
+        for d in elementos.run.entradas
+        if d.schema_id == "sia_pa.v1" and elementos.registro.origem.artifact_id in d.artifact_ids
+    ]
+    for evidencia in elementos.evidencias:
+        arestas += [(f"sus:{evidencia.evidence_id}", o) for o in _origens_da_evidencia(evidencia)]
+    for avaliacao in elementos.avaliacoes:
+        origens = _origens_da_avaliacao(avaliacao, elementos, registro)
+        arestas += [(_id_avaliacao(avaliacao), o) for o in origens]
+    return arestas
 
 
 def _avaliacoes(doc: ProvDocument, elementos: ElementosProv, execucao: str, registro: str) -> None:
     for avaliacao in elementos.avaliacoes:
         identificador = _id_avaliacao(avaliacao)
-        regra = _id_regra(elementos.regras[avaliacao.rule_id])
-        origens = [registro, regra, *(f"sus:{e}" for e in avaliacao.evidence_ids)]
+        origens = _origens_da_avaliacao(avaliacao, elementos, registro)
         doc.entity(
             identificador,
             {
@@ -251,16 +284,20 @@ def montar_documento(elementos: ElementosProv) -> ProvDocument:
     registro = _registro(doc, elementos)
     _evidencias(doc, elementos, execucao)
     _avaliacoes(doc, elementos, execucao, registro)
-    exigir_relacoes(doc)
+    exigir_relacoes(doc, elementos)
     return doc
+
+
+def _arestas(doc: ProvDocument) -> set[tuple[str, str]]:
+    return {
+        (str(r.formal_attributes[0][1]), str(r.formal_attributes[1][1]))
+        for r in doc.get_records(ProvDerivation)
+    }
 
 
 def _derivacoes_ausentes(doc: ProvDocument) -> Iterable[str]:
     """Entidade que declara `sus:derivada_de` sem a aresta `wasDerivedFrom` correspondente."""
-    arestas = {
-        (str(r.formal_attributes[0][1]), str(r.formal_attributes[1][1]))
-        for r in doc.get_records(ProvDerivation)
-    }
+    arestas = _arestas(doc)
     for registro in doc.get_records():
         atributos = {str(c): str(v) for c, v in registro.attributes}
         exigidas = [o for o in atributos.get("sus:derivada_de", "").split(";") if o]
@@ -272,9 +309,11 @@ def _derivacoes_ausentes(doc: ProvDocument) -> Iterable[str]:
 
 
 def exigir_relacoes(documento: ProvDocument, elementos: ElementosProv | None = None) -> None:
-    """Exige as quatro relações e cada `wasDerivedFrom` declarado em `sus:derivada_de`.
+    """Exige as quatro relações, as derivações dos `elementos` e as declaradas no documento.
 
-    Avaliação deriva do registro, da regra e de cada evidência; evidência, do conjunto consultado.
+    Avaliação deriva do registro, da regra e de cada evidência; evidência, do conjunto e das
+    versões consultadas; conjunto, das versões; registro, do `sia_pa.v1`. Com `elementos`, as
+    arestas exigidas vêm deles e não do que o documento declara.
 
     Raises:
         ProvIncompleto: relação ausente ou derivação declarada sem aresta.
@@ -282,6 +321,11 @@ def exigir_relacoes(documento: ProvDocument, elementos: ElementosProv | None = N
     for nome, classe in _RELACOES:
         if not list(documento.get_records(classe)):
             raise ProvIncompleto(f"prov_sem_relacao relacao={nome}")
+    if elementos is not None:
+        presentes = _arestas(documento)
+        for gerada, usada in arestas_exigidas(elementos):
+            if (gerada, usada) not in presentes:
+                raise ProvIncompleto(f"prov_derivacao_ausente entidade={gerada} origem={usada}")
     for ausente in _derivacoes_ausentes(documento):
         raise ProvIncompleto(f"prov_derivacao_ausente entidade={ausente}")
 

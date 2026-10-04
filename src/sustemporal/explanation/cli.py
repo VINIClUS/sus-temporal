@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import shutil
 from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
@@ -42,14 +43,6 @@ logger = logging.getLogger(__name__)
 _ROW_ID: TypeAdapter[str] = TypeAdapter(RowId)
 _IDENTIFICADOR: TypeAdapter[str] = TypeAdapter(Identificador)
 _DIRETORIOS_DE_EXECUCAO = ("runs", "validacao")
-_ARQUIVOS = (
-    "bundle.json",
-    "prov.provn",
-    "prov.json",
-    "explicacao.txt",
-    "reexecucoes.json",
-    "falha.json",
-)
 
 
 def _agora() -> datetime:
@@ -107,27 +100,40 @@ def _reexecucoes(explicacao: Explicacao) -> str:
     return json.dumps(entradas, ensure_ascii=False, indent=2, sort_keys=True)
 
 
-def _limpar(destino: Path) -> None:
-    """Tira os arquivos de uma tentativa anterior: explicação e falha nunca convivem."""
-    for nome in _ARQUIVOS:
-        (destino / nome).unlink(missing_ok=True)
+def _remover(destino: Path | None) -> None:
+    """Remove a explicação anterior: nunca convivem explicação, falha e recusa."""
+    if destino is not None and destino.exists():
+        shutil.rmtree(destino)
 
 
-def _gravar(destino: Path, explicacao: Explicacao) -> None:
-    destino.mkdir(parents=True, exist_ok=True)
-    _limpar(destino)
+def _publicar(destino: Path, arquivos: dict[str, bytes]) -> None:
+    """Grava num diretório temporário irmão e só então o renomeia para `destino`."""
+    temporario = destino.parent / f".{destino.name}.parcial"
+    _remover(temporario)
+    temporario.mkdir(parents=True)
+    try:
+        for nome in sorted(arquivos):
+            (temporario / nome).write_bytes(arquivos[nome])
+        _remover(destino)
+        temporario.rename(destino)
+    except OSError:
+        _remover(temporario)
+        raise
+
+
+def _arquivos(explicacao: Explicacao) -> dict[str, bytes]:
     bundle = explicacao.bundle
-    (destino / "bundle.json").write_text(bundle.model_dump_json(indent=2), encoding="utf-8")
-    (destino / "prov.provn").write_text(bundle.prov_n, encoding="utf-8")
-    (destino / "prov.json").write_bytes(explicacao.prov_json.encode("utf-8"))
-    (destino / "explicacao.txt").write_text(explicacao.texto, encoding="utf-8")
-    (destino / "reexecucoes.json").write_text(_reexecucoes(explicacao), encoding="utf-8")
+    return {
+        "bundle.json": bundle.model_dump_json(indent=2).encode("utf-8"),
+        "prov.provn": bundle.prov_n.encode("utf-8"),
+        "prov.json": explicacao.prov_json.encode("utf-8"),
+        "explicacao.txt": explicacao.texto.encode("utf-8"),
+        "reexecucoes.json": _reexecucoes(explicacao).encode("utf-8"),
+    }
 
 
-def _registrar_falha(destino: Path, falha: FalhaOperacional) -> None:
-    destino.mkdir(parents=True, exist_ok=True)
-    _limpar(destino)
-    (destino / "falha.json").write_text(falha.model_dump_json(indent=2), encoding="utf-8")
+def _json(falha: FalhaOperacional) -> bytes:
+    return falha.model_dump_json(indent=2).encode("utf-8")
 
 
 def _validar_argumentos(args: argparse.Namespace) -> tuple[str, str]:
@@ -154,15 +160,18 @@ def executar_explain(
 
     Returns:
         0; 2 para argumento, execução ou linha inexistente ou incoerente; 5 para evidência
-        divergente (só `falha.json`, nenhuma explicação) ou falha de leitura/gravação.
+        divergente (só `falha.json`, nenhuma explicação) ou falha de gravação. A publicação é
+        atômica (diretório temporário renomeado); recusa remove a explicação anterior.
     """
     raiz = Path(config.runtime.raiz_saidas)
+    destino: Path | None = None
     try:
         run_id, row_id = _validar_argumentos(args)
         destino = diretorio_explicacao(raiz, run_id, row_id)
         run = localizar_execucao(raiz, run_id)
-        _gravar(destino, montar_explicacao(run, row_id, runtime=config.runtime))
+        _publicar(destino, _arquivos(montar_explicacao(run, row_id, runtime=config.runtime)))
     except _RECUSAS as erro:
+        _remover(destino)
         logger.error("explain_recusado erro=%s", erro)
         return int(ExitCode.CONFIG_INVALIDA)
     except EvidenciaDivergente as erro:
@@ -173,7 +182,7 @@ def executar_explain(
             erro=str(erro)[:500],
             ocorrida_em=relogio(),
         )
-        _registrar_falha(destino, falha)
+        _publicar(diretorio_explicacao(raiz, run_id, row_id), {"falha.json": _json(falha)})
         logger.error("explain_falhou erro=%s", erro)
         return int(ExitCode.FALHA_OPERACIONAL)
     except (OSError, duckdb.Error) as erro:

@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.config import RuntimeConfig
-from sustemporal.contracts.experiment import TipoExecucao
+from sustemporal.contracts.experiment import EstadoExecucao, TipoExecucao
 from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.contracts.rules import EstadoAvaliacao
 from sustemporal.duck import conectar
@@ -50,6 +50,7 @@ INTERPRETACAO_ABLACAO = (
 )
 _SELECOES = "selecao_versoes.v1"
 _TABELA = "ablacao_selecoes"
+_MOTIVO_COMPETENCIA = "VIGENCIA_NAO_RESOLVIDA"
 _MOTIVO_TROCA = "ablacao_troca_de_versao observacao_original_descartada"
 _CAMPOS_ALVO = ("base", "competencia_requerida", "estado")
 _CAMPOS_SELECAO = (*_CAMPOS_ALVO, "artifact_ids", "observation_ids", "motivo")
@@ -191,6 +192,8 @@ def _entradas(run: RunResult, *, sem_selecoes: bool) -> set[str]:
 def _exigir_fixos(base: RunResult, variante: RunResult, tipo: TipoAblacao) -> None:
     for run in (base, variante):
         _exigir(run.tipo is TipoExecucao.VALIDACAO, f"ablacao_exige_validacao run={run.run_id}")
+        completa = run.estado is EstadoExecucao.CONCLUIDA and run.falhas == 0
+        _exigir(completa, f"ablacao_execucao_incompleta run={run.run_id} estado={run.estado}")
     mesma_politica = (base.metodo, base.politica_id) == (variante.metodo, variante.politica_id)
     _exigir(mesma_politica, f"ablacao_politica_diferente tipo={tipo}")
     _exigir(base.config_hash == variante.config_hash, f"ablacao_config_diferente tipo={tipo}")
@@ -235,17 +238,53 @@ def _exigir_selecoes_isoladas(
     base: Mapping[tuple[str, ...], dict[str, Any]],
     variante: Mapping[tuple[str, ...], dict[str, Any]],
     tipo: TipoAblacao,
-) -> None:
+) -> set[str]:
+    """Só as versões das fontes do tipo mudam; devolve as regras dessas fontes.
+
+    Raises:
+        AblacaoNaoIsolada: outra fonte, base, competência ou estado mudou, ou nenhuma troca real.
+    """
     _exigir(base.keys() == variante.keys(), f"ablacao_selecoes_diferentes tipo={tipo}")
     alvo = {str(f) for f in _FONTES_DO_TIPO[tipo]}
+    regras_alvo: set[str] = set()
+    trocou = False
     for chave, linha in base.items():
         outra = variante[chave]
         if linha["fonte"] in alvo:
             mesmas = all(linha[c] == outra[c] for c in _CAMPOS_ALVO)
             _exigir(mesmas, f"ablacao_competencia_alterada fonte={linha['fonte']}")
+            regras_alvo.add(str(linha["rule_id"]))
+            trocou = trocou or linha["artifact_ids"] != outra["artifact_ids"]
             continue
         iguais = all(linha[c] == outra[c] for c in _CAMPOS_SELECAO)
         _exigir(iguais, f"ablacao_fonte_nao_isolada tipo={tipo} fonte={linha['fonte']}")
+    _exigir(trocou, f"ablacao_sem_troca tipo={tipo}")
+    return regras_alvo
+
+
+def _exigir_avaliacoes_isoladas(
+    base: Mapping[tuple[str, ...], dict[str, Any]],
+    variante: Mapping[tuple[str, ...], dict[str, Any]],
+    regras_alvo: set[str],
+    tipo: TipoAblacao,
+) -> None:
+    """Regra de outra fonte fica idêntica (estado, motivos e evidências); substituta de outra
+    competência (competência divergente) é recusada, nunca tomada como sensibilidade."""
+    for chave, linha in base.items():
+        outra = variante.get(chave, {})
+        if chave[1] not in regras_alvo:
+            iguais = all(linha[c] == outra.get(c) for c in linha if c != "run_id")
+            _exigir(iguais, f"ablacao_fonte_nao_isolada tipo={tipo} regra={chave[1]}")
+            continue
+        novos = set(_lista(outra.get("motivos"))) - set(_lista(linha["motivos"]))
+        _exigir(
+            _MOTIVO_COMPETENCIA not in novos,
+            f"ablacao_substituta_de_outra_competencia tipo={tipo} regra={chave[1]}",
+        )
+
+
+def _lista(texto: object) -> list[str]:
+    return [parte for parte in str(texto or "").split(";") if parte]
 
 
 def _mudancas(
@@ -272,6 +311,31 @@ def _regras_alteradas(
     return tuple(sorted({c[1] for c in base if base[c]["versao"] != variante[c]["versao"]}))
 
 
+Linhas = dict[tuple[str, ...], dict[str, Any]]
+
+
+def _ler_par(
+    base: RunResult, variante: RunResult, tipo: TipoAblacao, runtime: RuntimeConfig | None
+) -> tuple[set[str], Linhas, Linhas]:
+    con = conectar(runtime or RuntimeConfig())
+    try:
+        regras_alvo: set[str] = set()
+        if tipo is not TipoAblacao.VERSAO_REGRA:
+            chave_selecao = ("row_id", "rule_id", "fonte")
+            regras_alvo = _exigir_selecoes_isoladas(
+                _ler(con, base, _SELECOES, chave_selecao),
+                _ler(con, variante, _SELECOES, chave_selecao),
+                tipo,
+            )
+        return (
+            regras_alvo,
+            _ler(con, base, "avaliacoes.v1", ("row_id", "rule_id")),
+            _ler(con, variante, "avaliacoes.v1", ("row_id", "rule_id")),
+        )
+    finally:
+        con.close()
+
+
 def comparar_ablacao(
     base: RunResult,
     variante: RunResult,
@@ -282,28 +346,22 @@ def comparar_ablacao(
     """Compara as avaliações das duas execuções após exigir que só o fator de `tipo` mude.
 
     Raises:
-        AblacaoNaoIsolada: política, configuração, entradas, catálogo ou outras fontes diferem.
+        AblacaoNaoIsolada: execução incompleta; política, configuração, código, snapshot,
+            entradas, catálogo ou outras fontes diferem; nenhuma troca real; substituta de
+            outra competência.
     """
     _exigir_fixos(base, variante, tipo)
-    con = conectar(runtime or RuntimeConfig())
-    try:
-        if tipo is not TipoAblacao.VERSAO_REGRA:
-            chave_selecao = ("row_id", "rule_id", "fonte")
-            _exigir_selecoes_isoladas(
-                _ler(con, base, _SELECOES, chave_selecao),
-                _ler(con, variante, _SELECOES, chave_selecao),
-                tipo,
-            )
-        avaliacoes_base = _ler(con, base, "avaliacoes.v1", ("row_id", "rule_id"))
-        avaliacoes_variante = _ler(con, variante, "avaliacoes.v1", ("row_id", "rule_id"))
-    finally:
-        con.close()
+    regras_alvo, avaliacoes_base, avaliacoes_variante = _ler_par(base, variante, tipo, runtime)
+    _exigir(avaliacoes_base.keys() == avaliacoes_variante.keys(), "ablacao_avaliacoes_diferentes")
     mudancas = _mudancas(avaliacoes_base, avaliacoes_variante)
     alteradas: tuple[str, ...] = ()
     if tipo is TipoAblacao.VERSAO_REGRA:
         alteradas = _regras_alteradas(avaliacoes_base, avaliacoes_variante)
+        _exigir(bool(alteradas), f"ablacao_sem_troca tipo={tipo}")
         fora = sorted({m.rule_id for m in mudancas} - set(alteradas))
         _exigir(not fora, f"ablacao_regra_nao_isolada regras={fora}")
+    else:
+        _exigir_avaliacoes_isoladas(avaliacoes_base, avaliacoes_variante, regras_alvo, tipo)
     por_regra: dict[str, int] = {}
     for mudanca in mudancas:
         por_regra[mudanca.rule_id] = por_regra.get(mudanca.rule_id, 0) + 1

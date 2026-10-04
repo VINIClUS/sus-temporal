@@ -14,6 +14,7 @@ from sustemporal.contracts.base import (
     Identificador,
     Inteiro,
     InteiroNaoNegativo,
+    Sha256Hex,
     razao_confere,
 )
 from sustemporal.contracts.experiment import FreezeId
@@ -27,6 +28,7 @@ __all__ = [
     "EstadoReferencia",
     "Estrato",
     "LoteAvaliacoes",
+    "MapaCasos",
     "ReferenciaHumana",
 ]
 
@@ -127,6 +129,14 @@ class LoteAvaliacoes(ContratoBase):
                 f"avaliador_unico_por_lado amostra={self.sample_id} avaliador={self.avaliador}"
             )
         return self
+
+
+class MapaCasos(ContratoBase):
+    """Mapa privado caso_id → row_id preso à amostra pelo sample_id e pelo sha256 do conteúdo."""
+
+    sample_id: Identificador
+    sha256: Sha256Hex
+    casos: dict[str, str]
 
 
 class EstadoReferencia(StrEnum):

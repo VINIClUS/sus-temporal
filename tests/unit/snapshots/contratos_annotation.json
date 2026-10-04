@@ -365,6 +365,36 @@
   "title": "LoteAvaliacoes",
   "type": "object"
  },
+ "MapaCasos": {
+  "additionalProperties": false,
+  "description": "Mapa privado caso_id → row_id preso à amostra pelo sample_id e pelo sha256 do conteúdo.",
+  "properties": {
+   "casos": {
+    "additionalProperties": {
+     "type": "string"
+    },
+    "title": "Casos",
+    "type": "object"
+   },
+   "sample_id": {
+    "pattern": "^[A-Za-z0-9_.:-]{1,128}$",
+    "title": "Sample Id",
+    "type": "string"
+   },
+   "sha256": {
+    "pattern": "^[0-9a-f]{64}$",
+    "title": "Sha256",
+    "type": "string"
+   }
+  },
+  "required": [
+   "sample_id",
+   "sha256",
+   "casos"
+  ],
+  "title": "MapaCasos",
+  "type": "object"
+ },
  "ReferenciaHumana": {
   "$defs": {
    "AvaliacaoCaso": {

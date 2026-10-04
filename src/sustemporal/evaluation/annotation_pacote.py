@@ -26,6 +26,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "COLUNAS_PACOTE",
+    "CONCLUSOES_POR_FORMULARIO",
     "FAMILIAS_POR_FORMULARIO",
     "FORMULARIO",
     "FORMULARIO_VERSAO",
@@ -71,6 +72,14 @@ COLUNAS_PACOTE = (
     "pa_fler",
     "pa_flidade",
 )
+CONCLUSOES_POR_FORMULARIO: dict[str, tuple[str, ...]] = {
+    FORMULARIO_VERSAO: (
+        "INCOMPATIBILIDADE_IDENTIFICADA",
+        "CAUSA_FORA_DE_ESCOPO_DOCUMENTADA",
+        "CAUSA_INDETERMINADA",
+        "EVIDENCIA_INSUFICIENTE",
+    ),
+}
 FAMILIAS_POR_FORMULARIO: dict[str, tuple[str, ...]] = {
     FORMULARIO_VERSAO: (
         "PROCEDIMENTO_CBO",

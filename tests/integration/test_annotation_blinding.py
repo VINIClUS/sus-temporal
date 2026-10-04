@@ -31,6 +31,7 @@ from sustemporal.contracts import (
     FamiliaRegra,
     FreezeManifest,
     LoteAvaliacoes,
+    MapaCasos,
     Particao,
     ReferenciaHumana,
     RuntimeConfig,
@@ -52,7 +53,10 @@ from sustemporal.evaluation.annotation_concordancia import (
     fechar_referencia,
     kappa_cohen,
 )
-from sustemporal.evaluation.annotation_pacote import FAMILIAS_POR_FORMULARIO
+from sustemporal.evaluation.annotation_pacote import (
+    CONCLUSOES_POR_FORMULARIO,
+    FAMILIAS_POR_FORMULARIO,
+)
 from sustemporal.rules.catalog import carregar_esquema
 
 if TYPE_CHECKING:
@@ -234,10 +238,10 @@ def test_treino_excluido_da_amostra_final(cenario: CenarioAnotacao, tmp_path: Pa
     assert not set(amostra.casos) & set(amostra.casos_treino)
     assert all(row_id.startswith("d") for row_id in amostra.casos_treino)
     mapa = carregar_mapa(out)
-    treino = [c for c, r in mapa.items() if r in amostra.casos_treino]
+    treino = [c for c, r in mapa.casos.items() if r in amostra.casos_treino]
     assert treino
     assert all(c.startswith("treino_") for c in treino)
-    finais = sorted(c for c in mapa if c.startswith("caso_"))
+    finais = sorted(c for c in mapa.casos if c.startswith("caso_"))
     a = [_avaliacao(c, "a", ConclusaoCaso.CAUSA_INDETERMINADA) for c in finais]
     b = [_avaliacao(c, "b", ConclusaoCaso.CAUSA_INDETERMINADA) for c in finais]
     a.append(_avaliacao(treino[0], "a", ConclusaoCaso.CAUSA_INDETERMINADA))
@@ -270,9 +274,9 @@ def test_kappa_conferido_a_mao() -> None:
     assert kappa_cohen([("S", "N"), ("N", "S")]) == Fraction(-1)
 
 
-def _anotacoes(out: Path, amostra: AnnotationSample) -> tuple[list[str], dict[str, str]]:
+def _anotacoes(out: Path, amostra: AnnotationSample) -> tuple[list[str], MapaCasos]:
     mapa = carregar_mapa(out)
-    finais = sorted(c for c, r in mapa.items() if r in amostra.casos)
+    finais = sorted(c for c, r in mapa.casos.items() if r in amostra.casos)
     return finais, mapa
 
 
@@ -315,7 +319,7 @@ def test_comparacao_bloqueada_antes_do_fechamento(cenario: CenarioAnotacao, tmp_
     aberta = fechar_referencia(amostra, mapa, _lote(amostra, a), _lote(amostra, b))
     assert aberta.estado is EstadoReferencia.ABERTA
     assert aberta.pendentes == (casos[3],)
-    motor = {mapa[c]: frozenset({P}) for c in casos}
+    motor = {mapa.casos[c]: frozenset({P}) for c in casos}
     with pytest.raises(ReferenciaNaoFechada):
         comparar_com_motor(aberta, motor)
     adjudicada = _avaliacao(casos[3], "adj", IDENT, P, E)
@@ -323,7 +327,7 @@ def test_comparacao_bloqueada_antes_do_fechamento(cenario: CenarioAnotacao, tmp_
         amostra, mapa, _lote(amostra, a), _lote(amostra, b), _lote(amostra, [adjudicada])
     )
     assert fechada.estado is EstadoReferencia.FECHADA
-    assert fechada.casos[mapa[casos[1]]].conclusao is IND
+    assert fechada.casos[mapa.casos[casos[1]]].conclusao is IND
     contagens = comparar_com_motor(fechada, motor)
     assert contagens["IGUAL"] == 1
     assert contagens["PARCIAL"] == 1
@@ -591,3 +595,58 @@ def test_familias_saem_da_versao_congelada_do_formulario(
         concordancia(
             desconhecida, mapa, _lote(desconhecida, respostas_a), _lote(desconhecida, respostas_b)
         )
+
+
+def test_mapa_de_outra_amostra_ou_adulterado_e_recusado(
+    cenario: CenarioAnotacao, tmp_path: Path
+) -> None:
+    out_a, out_b = tmp_path / "a", tmp_path / "b"
+    amostra_a = _preparar(cenario, out_a, tamanho=5000, tamanho_treino=1)
+    outra = cenario.config.model_copy(update={"semente": 11})
+    amostra_b = prepare_annotation_sample(
+        cenario.labels,
+        cenario.split,
+        outra,
+        out_b,
+        particoes=cenario.particoes,
+        tamanho=5000,
+        tamanho_treino=1,
+    )
+    assert set(amostra_a.casos) == set(amostra_b.casos)
+    casos_b, mapa_b = _anotacoes(out_b, amostra_b)
+    mapa_a = carregar_mapa(out_a)
+    assert set(mapa_a.casos) == set(mapa_b.casos)
+    assert mapa_a.casos != mapa_b.casos
+    a = _lote(amostra_b, [_avaliacao(c, "a", IND) for c in casos_b])
+    b = _lote(amostra_b, [_avaliacao(c, "b", IND) for c in casos_b])
+    with pytest.raises(FalhaOperacionalErro, match="mapa_de_outra_amostra"):
+        fechar_referencia(amostra_b, mapa_a, a, b)
+    with pytest.raises(FalhaOperacionalErro, match="mapa_de_outra_amostra"):
+        concordancia(amostra_b, mapa_a, a, b)
+    trocado = dict(mapa_b.casos)
+    trocado[casos_b[0]], trocado[casos_b[1]] = trocado[casos_b[1]], trocado[casos_b[0]]
+    adulterado = mapa_b.model_copy(update={"casos": trocado})
+    with pytest.raises(FalhaOperacionalErro, match="mapa_casos_divergente"):
+        fechar_referencia(amostra_b, adulterado, a, b)
+
+
+def test_formulario_v1_exportado_vem_dos_dados_congelados(
+    cenario: CenarioAnotacao, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path / "anotacao"
+    amostra = _preparar(cenario, out, tamanho=4, tamanho_treino=1, dimensoes=("instrumento",))
+    formulario = json.loads((out / "pacote" / "formulario.json").read_text(encoding="utf-8"))
+    assert formulario["conclusoes"] == list(CONCLUSOES_POR_FORMULARIO[FORMULARIO_VERSAO])
+    assert formulario["familias"] == list(FAMILIAS_POR_FORMULARIO[FORMULARIO_VERSAO])
+    monkeypatch.setitem(CONCLUSOES_POR_FORMULARIO, FORMULARIO_VERSAO, (IDENT.value, FORA.value))
+    formulario_reduzido = tmp_path / "reduzido"
+    _preparar(cenario, formulario_reduzido, tamanho=4, tamanho_treino=1, dimensoes=("instrumento",))
+    reduzido = json.loads(
+        (formulario_reduzido / "pacote" / "formulario.json").read_text(encoding="utf-8")
+    )
+    assert reduzido["conclusoes"] == [IDENT.value, FORA.value]
+    casos, mapa = _anotacoes(out, amostra)
+    a = _lote(amostra, [_avaliacao(c, "a", IND) for c in casos])
+    b = _lote(amostra, [_avaliacao(c, "b", IND) for c in casos])
+    with pytest.raises(ValueError, match="conclusao_fora_do_formulario"):
+        concordancia(amostra, mapa, a, b)

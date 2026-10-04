@@ -1,0 +1,17 @@
+# Vigilância de republicações (plano T13): a cada execução, observa de novo as 6 competências
+# mais recentes publicadas, por família, e compara cada arquivo SIA-PA com a versão observada
+# antes (multiconjunto de linhas). Toda tentativa vira observação, inclusive sem mudança.
+# A cadência (7 dias) e a duração (12 meses) são cumpridas pelo agendador da máquina do
+# pesquisador (cron/systemd; exemplo em docs/method/temporal.md); a CLI roda uma vez por chamada.
+# Ausência de revisão observada não afirma que nunca houve revisão.
+base: runtime.yaml
+modo: EXPLORATORIO
+origem_dados: REAL
+runtime:
+  rede_permitida: true
+vigilancia:
+  janela_competencias: 6
+  familias_fontes: [SIA_PA, CNES_ST, CNES_PF, CNES_SR, CNES_HB, SIGTAP]
+  uf: SP
+  cadencia_dias: 7
+  duracao_meses: 12

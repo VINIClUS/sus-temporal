@@ -129,7 +129,67 @@ real.
 O motor (T07) pode derivar a mesma seleção do `SnapshotSet` pela chave (fonte, base, competência).
 Também confere a coerência de uma tabela fornecida com a política da execução.
 
-## 6. Limites declarados
+## 6. Vigilância de republicações (T13, `acquisition/watch.py`)
+`sustemporal watch --config config/watch.yaml` roda uma passada por chamada:
+
+1. Para cada família de `vigilancia.familias_fontes`, lista o diretório. A listagem é ela mesma
+   uma observação.
+2. Toma as `janela_competencias` (6) competências mais recentes com arquivo listado para a UF,
+   até o mês do relógio. A janela vem dos nomes listados, nunca da data de coleta.
+3. Observa de novo cada arquivo (`observe_updates`), sem pular os já obtidos. Os mesmos bytes
+   viram nova observação da mesma versão; bytes novos viram versão nova. O histórico não é
+   substituído.
+4. Compara cada arquivo SIA-PA com a versão obtida antes para a mesma chave (fonte, UF,
+   competência, parte), em `acquisition/comparacao.py`. As duas versões passam pelo
+   `normalize_pa` e são comparadas como multiconjuntos de linhas canônicas. Ficam de fora as
+   colunas de linhagem física (`row_id`, `artifact_id`, `membro`, `indice_registro`). Linhas
+   nunca são casadas por posição.
+   - **INALTERADA:** mesmos bytes, ou as mesmas linhas com as mesmas multiplicidades (inclusive
+     em outra ordem).
+   - **REVISAO_REAL:** só entraram linhas, ou só saíram.
+   - **CORRESPONDENCIA_AMBIGUA:** saíram e entraram linhas. O conteúdo mudou, mas sem
+     identificador longitudinal não se sabe que linha antiga virou qual nova. Só as contagens
+     são registradas, sem pareamento.
+   - Uma comparação que não normaliza (quarentena, arquivo ausente) fica fora do relatório, com
+     aviso `comparacao_inconclusiva` no log.
+5. Acrescenta a `<raiz_manifestos>/vigilancia.jsonl` uma linha por comparação e um resumo. O
+   resumo só fala das observações da pesquisa (`sem_revisao_observada … de=… ate=…
+   alcance=somente_observacoes_da_pesquisa`). **Ausência de revisão observada não afirma que
+   nunca houve revisão:** uma republicação entre duas observações, ou antes da primeira, pode
+   ter escapado.
+
+Famílias sem normalizador (CNES, SIGTAP) são observadas, e versões novas aparecem no manifesto,
+mas não são comparadas linha a linha.
+
+**Agendamento (máquina do pesquisador).** A cadência de 7 dias e a duração de 12 meses
+(`cadencia_dias`, `duracao_meses`) são cumpridas pelo agendador, não pela CLI. Exemplo de cron,
+toda segunda às 03:17:
+
+```cron
+17 3 * * 1  cd /caminho/sus-temporal && uv run sustemporal watch --config config/watch.yaml >> logs/watch.log 2>&1
+```
+
+Ou com systemd (`~/.config/systemd/user/sustemporal-watch.service` e `.timer`):
+
+```ini
+# sustemporal-watch.service
+[Service]
+Type=oneshot
+WorkingDirectory=/caminho/sus-temporal
+ExecStart=/usr/bin/env uv run sustemporal watch --config config/watch.yaml
+
+# sustemporal-watch.timer
+[Timer]
+OnCalendar=Mon *-*-* 03:17:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
+Depois de 12 meses, desative o timer (`systemctl --user disable --now sustemporal-watch.timer`)
+ou remova a linha do cron.
+
+## 7. Limites declarados
 - A retrospectiva não simula o conhecimento do gestor na data original. Ela usa as versões que a
   pesquisa conseguiu observar até o corte.
 - **Ausência de observação não é ausência de publicação.** AUSENTE quer dizer que a pesquisa não

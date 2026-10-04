@@ -8,6 +8,7 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from sustemporal.acquisition.comparacao import comparar_versoes
 from sustemporal.acquisition.fetch import agora_utc, fetch_source, nomes_listados
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.acquisition.sources import (
@@ -18,6 +19,16 @@ from sustemporal.acquisition.sources import (
     requisicoes_da_listagem,
     requisicoes_documentos,
 )
+from sustemporal.acquisition.watch import (
+    NOME_RELATORIO,
+    carregar_leiaute_pa,
+    chave_de_comparacao,
+    competencias_da_janela,
+    gravar_relatorio,
+    observe_updates,
+    resumir_vigilancia,
+    versoes_anteriores,
+)
 from sustemporal.contracts.artifacts import MotivoRequisicao, ResultadoTentativa
 from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.temporal import (
@@ -25,7 +36,7 @@ from sustemporal.contracts.temporal import (
     CompetenciaAtendimento,
     CompetenciaProcessamento,
 )
-from sustemporal.errors import ConfigInvalida, ExitCode
+from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro
 from sustemporal.hashing import sha256_arquivo
 
 if TYPE_CHECKING:
@@ -33,13 +44,16 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Iterable
     from datetime import datetime
 
+    from sustemporal.acquisition.comparacao import ComparacaoVersoes
     from sustemporal.acquisition.sources import CatalogoFontes
+    from sustemporal.acquisition.watch import Chave
     from sustemporal.contracts.artifacts import (
         ArtifactObservation,
         ArtifactVersion,
         SourceRequest,
     )
-    from sustemporal.contracts.config import PilotSpec, RunConfig
+    from sustemporal.contracts.base import OrigemDados
+    from sustemporal.contracts.config import PilotSpec, RunConfig, VigilanciaSpec
 
     Obter = Callable[[SourceRequest], ArtifactObservation]
 
@@ -215,7 +229,110 @@ def executar_acquire(args: argparse.Namespace, config: RunConfig) -> int:
     return int(ExitCode.FALHA_OPERACIONAL if incompleta else ExitCode.OK)
 
 
+def _vigilancia(config: RunConfig) -> VigilanciaSpec:
+    if config.vigilancia is None:
+        raise ConfigInvalida("watch_exige_secao_vigilancia")
+    return config.vigilancia
+
+
+def _planejar_vigilancia(
+    config: RunConfig, obter: Obter, referencia: datetime
+) -> tuple[list[SourceRequest], int]:
+    """Requisições dos arquivos da janela, por família; conta as listagens não obtidas."""
+    vigilancia = _vigilancia(config)
+    catalogo = _catalogo(config)
+    store, _ = _caminhos(config)
+    requisicoes: list[SourceRequest] = []
+    falhas = 0
+    for fonte in vigilancia.familias_fontes:
+        listagem = obter(requisicao_listagem(catalogo, fonte, motivo=MotivoRequisicao.VIGILANCIA))
+        if listagem.resultado is not ResultadoTentativa.OBTIDO:
+            logger.error("listagem_nao_obtida fonte=%s resultado=%s", fonte, listagem.resultado)
+            falhas += 1
+            continue
+        nomes = nomes_listados(store, listagem)
+        janela = competencias_da_janela(
+            catalogo.fonte(fonte), vigilancia.uf, nomes, vigilancia.janela_competencias, referencia
+        )
+        requisicoes += requisicoes_da_listagem(
+            catalogo, fonte, vigilancia.uf, janela, nomes, motivo=MotivoRequisicao.VIGILANCIA
+        )
+    return requisicoes, falhas
+
+
+def _comparar_com_anteriores(
+    config: RunConfig,
+    anteriores: dict[Chave, ArtifactVersion],
+    observadas: list[ArtifactObservation],
+) -> list[tuple[Chave, ComparacaoVersoes]]:
+    """Compara cada versão SIA-PA obtida com a versão obtida antes para a mesma chave."""
+    store, manifesto = _caminhos(config)
+    versoes = Manifesto(manifesto).ler().versoes
+    runtime = config.runtime.model_copy(update={"raiz_dados": str(store)})
+    destino = Path(config.runtime.raiz_dados) / "vigilancia"
+    layout = carregar_leiaute_pa(config)
+    comparacoes: list[tuple[Chave, ComparacaoVersoes]] = []
+    for obs in observadas:
+        chave = chave_de_comparacao(obs.chave)
+        anterior, nova = anteriores.get(chave), versoes.get(obs.artifact_id or "")
+        if anterior is None or nova is None or obs.chave.fonte is not FamiliaFonte.SIA_PA:
+            continue
+        try:
+            comparacao = comparar_versoes(
+                anterior,
+                nova,
+                layout=layout,
+                runtime=runtime,
+                destino=destino,
+                origem_dados=_origem_dados(config),
+            )
+        except (FalhaOperacionalErro, ValueError) as erro:
+            logger.warning("comparacao_inconclusiva chave=%s erro=%s", chave, erro)
+            continue
+        comparacoes.append((chave, comparacao))
+    return comparacoes
+
+
+def _origem_dados(config: RunConfig) -> OrigemDados:
+    if config.origem_dados is None:
+        raise ConfigInvalida("watch_exige_origem_dados")
+    return config.origem_dados
+
+
 def executar_watch(
-    args: argparse.Namespace, config: RunConfig, *, relogio: Callable[[], datetime] = agora_utc
+    _args: argparse.Namespace, config: RunConfig, *, relogio: Callable[[], datetime] = agora_utc
 ) -> int:
-    raise NotImplementedError("executar_watch")
+    """Observa de novo a janela de competências e compara com as versões observadas antes.
+
+    Toda tentativa vira observação, inclusive sem mudança. O relatório
+    (`<raiz_manifestos>/vigilancia.jsonl`) recebe uma linha por comparação e um resumo que só
+    fala das observações da pesquisa. A cadência é do agendador externo (cron/systemd).
+
+    Raises:
+        ConfigInvalida: sem seção `vigilancia`, sem `origem_dados` ou catálogo inválido.
+        RedeProibida: fonte remota com `rede_permitida` falso (a recusa fica no manifesto).
+    """
+    _vigilancia(config)
+    _origem_dados(config)
+    store, manifesto = _caminhos(config)
+    anteriores = versoes_anteriores(manifesto)
+    rede = config.runtime.rede_permitida
+    buscar = partial(
+        fetch_source, store=store, rede_permitida=rede, relogio=relogio, manifesto=manifesto
+    )
+    listagens: list[ArtifactObservation] = []
+
+    def obter(requisicao: SourceRequest) -> ArtifactObservation:
+        listagens.append(buscar(requisicao))
+        return listagens[-1]
+
+    requisicoes, falhas = _planejar_vigilancia(config, obter, relogio())
+    observadas = observe_updates(
+        requisicoes, store, rede_permitida=rede, relogio=relogio, manifesto=manifesto
+    )
+    comparacoes = _comparar_com_anteriores(config, anteriores, observadas)
+    resumo = resumir_vigilancia(observadas, [c for _, c in comparacoes])
+    gravar_relatorio(Path(config.runtime.raiz_manifestos) / NOME_RELATORIO, comparacoes, resumo)
+    falhas += sum(o.resultado is not ResultadoTentativa.OBTIDO for o in observadas)
+    logger.info("watch_concluido requisicoes=%d falhas=%d %s", len(requisicoes), falhas, resumo)
+    return int(ExitCode.FALHA_OPERACIONAL if falhas else ExitCode.OK)

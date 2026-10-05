@@ -107,7 +107,7 @@ def executar_validacao_sintetica(raiz: Path) -> Execucao:
     caminho.write_text(entrada.model_dump_json(), encoding="utf-8")
     config = RunConfig(versao="1", runtime=RuntimeConfig(raiz_saidas=str(raiz / "saidas")))
     runs = raiz / "saidas" / "runs"
-    args = argparse.Namespace(policy="atendimento", entrada=caminho, saida=runs)
+    args = argparse.Namespace(policy="atendimento", entrada=caminho, ingest=None, saida=runs)
     assert executar_validate(args, config) == 0
     (pasta,) = list(runs.iterdir())
     return Execucao(

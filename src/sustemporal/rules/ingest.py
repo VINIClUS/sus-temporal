@@ -3,6 +3,11 @@
 A produção é a união de todos os `sia_pa.v1` (cada linha física preservada, sem deduplicar) no
 território do piloto; cada esquema auxiliar exigido vira uma relação derivada com as linhas de todos
 os artefatos (a seleção do T06 decide quais valem); a integridade por versão vem do registro.
+
+Os esquemas de `CADASTROS_DO_CONTEXTO` (CNES ST) não são lidos por regra alguma, mas as precondições
+das operações dos contrafactuais (`catalog/operations.yaml`) os leem: se a pasta os traz, viram
+relações derivadas, conferidas como os demais auxiliares, e entram nos auxiliares da execução e no
+`entrada_validacao.json`, sem mudar o resultado das regras. Fora da cobertura recalculada.
 """
 
 from __future__ import annotations
@@ -78,8 +83,9 @@ _NAO_INTEGRAS = {
 class InsumosIngest:
     """Produção no território, auxiliares por esquema, cobertura e exclusões contadas.
 
-    `cobertura` é a recalculada sobre a produção territorial (a que é avaliada);
-    `cobertura_da_ingestao` fica registrada como origem.
+    `auxiliares` traz também os cadastros do contexto (`CADASTROS_DO_CONTEXTO`) presentes na pasta.
+    `cobertura` é a recalculada sobre a produção territorial (a que é avaliada), só com os
+    auxiliares das regras; `cobertura_da_ingestao` fica registrada como origem.
     """
 
     producao: DatasetRef
@@ -223,8 +229,9 @@ def _classificar(
     coberturas = [ref for ref in datasets if ref.schema_id == COBERTURA]
     if len(coberturas) > 1:
         raise ConfigInvalida(f"ingest_com_varias_coberturas quantidade={len(coberturas)}")
-    exigidos = sorted({requisito_auxiliar(regra).schema_id for regra in regras})
-    auxiliares = {s: [ref for ref in datasets if ref.schema_id == s] for s in exigidos}
+    exigidos = {requisito_auxiliar(regra).schema_id for regra in regras}
+    esquemas = sorted(exigidos | set(CADASTROS_DO_CONTEXTO))
+    auxiliares = {s: [ref for ref in datasets if ref.schema_id == s] for s in esquemas}
     return producao, auxiliares, coberturas[0] if coberturas else None
 
 
@@ -448,7 +455,9 @@ def preparar_insumos_ingest(
     ]
     recalculada = None
     if cobertura is not None:
-        originais = [ref for refs in grupos[1:] for ref in refs]
+        originais = [
+            ref for refs in grupos[1:] for ref in refs if ref.schema_id not in CADASTROS_DO_CONTEXTO
+        ]
         recalculada = _recalcular_cobertura(incompleto, (ref_producao, originais), config, destino)
     logger.info(
         "insumos_ingest_prontos producao=%s exclusoes=%s", ref_producao.dataset_id, exclusoes

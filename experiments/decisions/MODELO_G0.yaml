@@ -1,0 +1,50 @@
+# MODELO — não é decisão. Arquivos MODELO_* são ignorados por sustemporal.gates e nunca liberam
+# portão. A decisão G0 é humana: copie para G0_<AAAA-MM-DD>.yaml, preencha e registre por PR de
+# humano (branch humano/*). Agentes não criam nem alteram decisões (AGENTS.md).
+#
+# Insumo: o relatório do piloto (`sustemporal pilot-report`, docs/method/observability.md) com
+# dados reais das seis competências de desenvolvimento. Relatório SINTETICO não sustenta decisão.
+modelo: G0
+nao_e_decisao: "true"
+# Uma decisão válida (contrato DecisaoPortao) tem estes campos; os valores abaixo são marcadores.
+campos_da_decisao:
+  portao: G0
+  decisao: "<uma das opcoes>"
+  data: "<AAAA-MM-DD>"
+  responsaveis: ["<nome do responsável humano>"]
+  registrado_por_humano: "<true, preenchido só por humano>"
+  evidencias: ["<caminho do relatorio.json real e hashes das tabelas>"]
+  familias_aprovadas: ["<obrigatório em RESTRINGIR_FAMILIAS>"]
+  observacoes: "<texto humano>"
+opcoes:
+  CONTINUAR: >-
+    As famílias candidatas são observáveis no DRS XI com as fontes públicas; seguir para T06/T07
+    no mesmo recorte.
+  AMPLIAR_SP: >-
+    O recorte do DRS XI limita a amostra (poucos registros por estrato), mas as fontes existem;
+    repetir o piloto em SP antes de seguir.
+  RESTRINGIR_FAMILIAS: >-
+    Só parte das famílias tem fontes auxiliares disponíveis; seguir apenas com as listadas em
+    familias_aprovadas.
+  REFORMULAR: >-
+    A ausência é estrutural (fonte, campo ou versão que não existe publicamente); reformular o
+    desfecho antes de investir no motor. Não libera o portão.
+# Antes de escolher, separar os dois tipos de limitação, cada um com denominador explícito.
+separar:
+  limitacao_amostral: >-
+    Fonte e campo existem, mas há poucos registros incluídos no estrato (competência,
+    instrumento, estabelecimento, família). Indício: taxa_inconclusivo baixa com denominador
+    pequeno; muda ao ampliar o recorte (AMPLIAR_SP).
+  ausencia_estrutural: >-
+    Fonte, campo ou versão não existe ou não é recuperável: classes ausente_nao_encontrado_na_listagem
+    persistentes, campo sempre ausente em piloto_campos, cobertura AUSENTE em todas as
+    competências. Não muda ao ampliar o recorte (RESTRINGIR_FAMILIAS ou REFORMULAR).
+  tentativa_sem_bytes: >-
+    Classe ausente_tentativa_sem_bytes ou em_quarentena_falha_de_coleta_com_bytes é falha de
+    coleta, não ausência: refazer a aquisição antes de decidir.
+perguntas:
+  - Quais famílias têm a cobertura DISPONIVEL nas duas bases temporais em cada competência?
+  - Quantos registros incluídos (fracao_registros_incluidos) e quantos excluídos por motivo?
+  - Qual a distribuição da defasagem atendimento–processamento e o que depende do mês vizinho?
+  - Os rótulos antes e depois do pré-processamento reconciliam, aprovações incluídas?
+  - O que é limitação amostral e o que é ausência estrutural, com os denominadores?

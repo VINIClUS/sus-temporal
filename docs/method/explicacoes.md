@@ -74,7 +74,7 @@ trocada pela recalculada. O SHA-256 da consulta de reexecução fica no PROV
 |---|---|
 | `entity` | versões de conteúdo (`art_…`), conjuntos (`ds_…`, entradas e saídas), regras (`regra_<id>_<versão>`), registro, evidências (`ev_…`), avaliações |
 | `activity` | aquisição de cada versão, transformação de cada conjunto de entrada, avaliação (a execução, com início e fim) |
-| `agent` | o software (`prov:SoftwareAgent`, versão do pacote e commit) |
+| `agent` | o software (`prov:SoftwareAgent`, versão do pacote, commit, `sus:sujo` e, só com código sujo hasheável, `sus:diff_sha256`) |
 | `wasGeneratedBy` | versão ← aquisição; conjunto ← transformação; saídas, evidências e avaliações ← execução |
 | `used` | transformação → versões; execução → conjuntos de entrada, regras e versões selecionadas |
 | `wasDerivedFrom` | conjunto → versões; registro → `sia_pa.v1`; evidência → conjunto e versões consultadas; avaliação → registro, regra e evidências |

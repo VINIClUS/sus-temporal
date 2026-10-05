@@ -10,20 +10,34 @@ from typing import TYPE_CHECKING
 
 from sustemporal.contracts import FamiliaFonte, OrigemDados, RuntimeConfig
 from sustemporal.ingest.cnes import carregar_leiautes_cnes, normalize_cnes
+from sustemporal.ingest.coverage import build_coverage
 from sustemporal.ingest.sia_pa import normalize_pa
 from sustemporal.ingest.sigtap import TABELAS, normalize_sigtap
 from sustemporal.ingest.sigtap_zip import carregar_leiautes_sigtap
 from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf
-from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa, leiaute_pa, registro_pa
+from tests.fixtures.sia_pa_fixtures import (
+    artefato_pa,
+    campos_pa,
+    dbc_pa,
+    leiaute_pa,
+    registro_pa,
+)
 from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Sequence
     from pathlib import Path
 
-    from sustemporal.contracts import DatasetRef
+    from sustemporal.contracts import DatasetRef, LayoutSpec
 
-__all__ = ["conjunto_cnes_pf", "conjunto_sia_pa", "conjuntos_sigtap", "registro", "runtime"]
+__all__ = [
+    "cobertura_sintetica",
+    "conjunto_cnes_pf",
+    "conjunto_sia_pa",
+    "conjuntos_sigtap",
+    "registro",
+    "runtime",
+]
 
 
 def runtime(pasta: Path) -> RuntimeConfig:
@@ -37,6 +51,16 @@ def registro(
     return registro_pa(PA_DOCORIG=instrumento, PA_MVM=processamento, PA_CMP=atendimento, **outros)
 
 
+def _leiaute_com_opcionais(omitidos: Collection[str]) -> LayoutSpec:
+    """Leiaute do catálogo com os campos físicos `omitidos` opcionais (arquivo sem a coluna)."""
+    leiaute = leiaute_pa()
+    campos = tuple(
+        c.model_copy(update={"obrigatorio": False}) if c.nome_fisico in omitidos else c
+        for c in leiaute.campos
+    )
+    return leiaute.model_copy(update={"campos": campos})
+
+
 def conjunto_sia_pa(
     pasta: Path,
     registros: Sequence[dict[str, str]],
@@ -44,14 +68,31 @@ def conjunto_sia_pa(
     competencia: str = "201801",
     parte: str = "a",
     deletados: Collection[int] = (),
+    sem_campos: Collection[str] = (),
 ) -> DatasetRef:
-    dados = dbc_pa(registros, deletados=deletados)
+    """`sia_pa.v1` normalizado; `sem_campos` (nomes físicos) sai do arquivo e vira nulo."""
+    campos = [c for c in campos_pa() if c.nome not in sem_campos] if sem_campos else None
+    dados = dbc_pa(registros, deletados=deletados, campos=campos)
     artefato = artefato_pa(pasta, dados, competencia=competencia, parte=parte)
     (pasta / "saida").mkdir(parents=True, exist_ok=True)
     return normalize_pa(
         artefato,
-        leiaute_pa(),
+        _leiaute_com_opcionais(sem_campos) if sem_campos else leiaute_pa(),
         pasta / "saida",
+        runtime=runtime(pasta),
+        origem_dados=OrigemDados.SINTETICO,
+    )
+
+
+def cobertura_sintetica(
+    pasta: Path, sia_pa: Sequence[DatasetRef], competencias: Sequence[str] = ("201801", "201802")
+) -> DatasetRef:
+    """`cobertura.v1` da ingestão pelo `build_coverage` real, sem auxiliares."""
+    return build_coverage(
+        sia_pa,
+        [],
+        competencias,
+        pasta / "cobertura_ingest",
         runtime=runtime(pasta),
         origem_dados=OrigemDados.SINTETICO,
     )

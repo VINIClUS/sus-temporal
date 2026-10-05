@@ -187,7 +187,7 @@ def _exigir_escopo_do_piloto(
 def _exigir_versao_selecionavel(
     artefatos: list[str], registro: RegistroTemporal, config: RunConfig
 ) -> None:
-    """Pelo seletor do T06, as versões da pasta são as únicas visíveis no registro até o corte."""
+    """Pelo seletor do T06, a pasta traz exatamente as versões selecionadas até o corte."""
     criterio = CriterioTemporal(fonte=FamiliaFonte.SIA_PA, base=BaseTemporal.PROCESSAMENTO)
     por_competencia: dict[str, set[str]] = defaultdict(set)
     for artefato in artefatos:
@@ -205,10 +205,16 @@ def _exigir_versao_selecionavel(
                 f"producao_com_versoes_concorrentes competencia={competencia} "
                 f"motivo={selecao.motivo}"
             )
-        if selecao.artifact_ids and not da_pasta <= set(selecao.artifact_ids):
+        selecionadas = set(selecao.artifact_ids)
+        if selecionadas and da_pasta - selecionadas:
             raise ConfigInvalida(
                 f"producao_com_versao_nao_selecionada competencia={competencia} "
-                f"artefatos={sorted(da_pasta - set(selecao.artifact_ids))}"
+                f"artefatos={sorted(da_pasta - selecionadas)}"
+            )
+        if selecionadas - da_pasta:
+            raise ConfigInvalida(
+                f"producao_com_partes_ausentes competencia={competencia} "
+                f"ausentes={sorted(selecionadas - da_pasta)}"
             )
 
 
@@ -455,7 +461,8 @@ def preparar_insumos_ingest(
 
     Raises:
         ConfigInvalida: origens diferentes, sem produção, várias coberturas, versões concorrentes,
-            artefato fora do registro ou observado só depois do corte.
+            parte selecionada ausente da pasta, artefato fora do registro ou observado só depois
+            do corte.
         FalhaOperacionalErro: `row_id` repetido na união da produção.
         ValueError: conteúdo ou tipo físico divergente do `DatasetRef`.
     """

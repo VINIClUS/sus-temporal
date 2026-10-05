@@ -15,7 +15,7 @@ from sustemporal.config import load_config
 from sustemporal.contracts.artifacts import EstadoIntegridade, ResultadoTentativa
 from sustemporal.contracts.base import FamiliaFonte, hash_canonico
 from sustemporal.contracts.experiment import EstadoExecucao, RunResult
-from sustemporal.errors import ExitCode
+from sustemporal.errors import ConfigInvalida, ExitCode
 from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.cli import EntradaValidacao
 from sustemporal.rules.conteudo import ConteudoDivergente
@@ -464,3 +464,17 @@ def test_motivo_de_incompletude_malformado_recusa_sem_gravar(tmp_path: Path) -> 
     mundo = montar_ingest(tmp_path, cobertura_motivo_malformado=True)
     assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
     assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))
+
+
+def test_producao_com_artefato_de_outra_fonte_e_recusada(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, producao_com_artefato_cnes=True)
+    config = load_config(mundo.config)
+    contexto = (config, carregar_registro(config), municipios_do_piloto(config))
+    with (
+        duckdb.connect() as con,
+        pytest.raises(ConfigInvalida, match="producao_com_fonte_invalida"),
+    ):
+        preparar_insumos_ingest(
+            con, ler_datasets(mundo.pasta), carregar_regras(), contexto, tmp_path / "destino"
+        )
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA

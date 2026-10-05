@@ -292,6 +292,39 @@ def _trocar_artefatos(refs: list[DatasetRef], schema_id: str) -> list[DatasetRef
     return trocados
 
 
+def _producao_de_outra_fonte(
+    pasta: Path, versao: ArtifactVersion | None, opcoes: dict[str, bool]
+) -> DatasetRef:
+    """Um `sia_pa.v1` cujas linhas declaram um artefato do CNES (mesma UF e competência)."""
+    assert versao is not None
+    linhas = _producao(versao.artifact_id, "b", opcoes)
+    destino = pasta / "cnes_como_producao.sia_pa.parquet"
+    return _gravar_completo(destino, "sia_pa.v1", linhas, (versao.artifact_id,))
+
+
+def _indice(refs: list[DatasetRef], schema_id: str) -> int:
+    return max(i for i, ref in enumerate(refs) if ref.schema_id == schema_id)
+
+
+def _com_defeitos(refs: list[DatasetRef], defeitos: dict[str, bool]) -> list[DatasetRef]:
+    """Defeitos de entrada injetados nos `DatasetRef` da pasta, um por opção."""
+    refs = list(refs)
+    if defeitos["producao_repetida"]:
+        refs.append(next(ref for ref in refs if ref.schema_id == "sia_pa.v1"))
+    if defeitos["cobertura_motivo_malformado"]:
+        indice = _indice(refs, "cobertura.v1")
+        refs[indice] = _motivo_malformado(refs[indice])
+    if defeitos["cobertura_com_tipo_invalido"]:
+        indice = _indice(refs, "cobertura.v1")
+        refs[indice] = _competencia_inteira(refs[indice])
+    if defeitos["auxiliares_trocados"]:
+        refs = _trocar_artefatos(refs, "cnes_estab_cbo.v1")
+    if defeitos["auxiliar_divergente"]:
+        indice = _indice(refs, "sigtap_procedimento.v1")
+        refs[indice] = refs[indice].model_copy(update={"linhas": refs[indice].linhas + 1})
+    return refs
+
+
 def _gravar_config(
     raiz: Path, territorio: Path, competencias: tuple[str, ...], corte: str | None
 ) -> Path:
@@ -339,6 +372,7 @@ def montar_ingest(
     concorrente_so_no_registro: int | None = None,
     linha_fora_do_piloto: bool = False,
     cobertura_motivo_malformado: bool = False,
+    producao_com_artefato_cnes: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -370,19 +404,16 @@ def montar_ingest(
         refs = _com_perda(refs, itens["cnes_fev"][1])
     if not (sem_cobertura or sem_coluna_municipio):
         refs.append(_cobertura(pasta, refs, sia_pa_incompleto))
-    if producao_repetida:
-        refs.append(next(ref for ref in refs if ref.schema_id == "sia_pa.v1"))
-    if cobertura_motivo_malformado:
-        indice = next(i for i, ref in enumerate(refs) if ref.schema_id == "cobertura.v1")
-        refs[indice] = _motivo_malformado(refs[indice])
-    if cobertura_com_tipo_invalido:
-        indice = next(i for i, ref in enumerate(refs) if ref.schema_id == "cobertura.v1")
-        refs[indice] = _competencia_inteira(refs[indice])
-    if auxiliares_trocados:
-        refs = _trocar_artefatos(refs, "cnes_estab_cbo.v1")
-    if auxiliar_divergente:
-        indice = max(i for i, ref in enumerate(refs) if ref.schema_id == "sigtap_procedimento.v1")
-        refs[indice] = refs[indice].model_copy(update={"linhas": refs[indice].linhas + 1})
+    if producao_com_artefato_cnes:
+        refs.append(_producao_de_outra_fonte(pasta, itens["cnes_fev"][1], opcoes))
+    defeitos = {
+        "producao_repetida": producao_repetida,
+        "cobertura_motivo_malformado": cobertura_motivo_malformado,
+        "cobertura_com_tipo_invalido": cobertura_com_tipo_invalido,
+        "auxiliares_trocados": auxiliares_trocados,
+        "auxiliar_divergente": auxiliar_divergente,
+    }
+    refs = _com_defeitos(refs, defeitos)
     linhas = "".join(f"{ref.model_dump_json()}\n" for ref in refs)
     (pasta / "datasets.jsonl").write_text(linhas, encoding="utf-8")
     territorio = gravar_territorio(raiz / "territorio.yaml", municipio_extra)

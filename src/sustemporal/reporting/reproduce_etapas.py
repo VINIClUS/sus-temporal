@@ -40,11 +40,13 @@ if TYPE_CHECKING:
     from sustemporal.contracts.config import RunConfig
     from sustemporal.contracts.experiment import RunResult, SplitManifest, SplitSpec
     from sustemporal.contracts.temporal import MetodoId
+    from sustemporal.rules.entrada import EntradaValidacao
 
 __all__ = [
     "Derivado",
     "competencias_da_particao",
     "derivar_protocolo",
+    "entradas_congeladas",
     "estados_do_ingest",
     "janela_do_ingest",
     "validar_janela",
@@ -239,3 +241,10 @@ def estados_do_ingest(pasta: Path) -> dict[str, str]:
         if estados.get(artefato, _NORMALIZADO) == _NORMALIZADO:
             estados[artefato] = estado
     return estados
+
+
+def entradas_congeladas(
+    pasta: Path, identidades: Mapping[str, Mapping[str, str]]
+) -> dict[str, EntradaValidacao]:
+    """`pasta/<politica_id>.json` de cada política congelada, se for a entrada congelada."""
+    raise NotImplementedError

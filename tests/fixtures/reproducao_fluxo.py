@@ -7,10 +7,12 @@ código limpo e a decisão G0 são de teste, escritos só no diretório temporá
 
 from __future__ import annotations
 
+import hashlib
+import json
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pyarrow.parquet as pq
 
@@ -154,3 +156,52 @@ def congelar_e_avaliar(fluxo: Fluxo) -> None:
     fluxo.codigos["evaluate_sem_exploratory"] = comando("evaluate", *base)
     fluxo.codigos["evaluate"] = comando("evaluate", *base, "--exploratory")
     fluxo.codigos["annotation_export"] = comando("annotation-export", *base)
+
+
+@dataclass(frozen=True)
+class Reproducao:
+    """Resultado de um `reproduce`: código de saída, destino e o `reproducao.json` lido."""
+
+    codigo: int
+    out: Path
+    conteudo: dict[str, Any]
+    antes: dict[str, str] = field(default_factory=dict)
+    depois: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def itens(self) -> dict[str, dict[str, str]]:
+        return {i["item"]: i for i in self.conteudo["comparacoes"]}
+
+    @property
+    def situacoes(self) -> dict[str, str]:
+        return {item: i["situacao"] for item, i in self.itens.items()}
+
+
+def reproduzir(fluxo: Fluxo, config: Path, out: Path | None = None) -> Reproducao:
+    """`reproduce --offline` do congelamento do fluxo; `out` padrão: `<raiz_saidas>/reproducao/`."""
+    assert fluxo.freeze_id is not None
+    argumentos = ["reproduce", "--config", str(config), "--freeze", fluxo.freeze_id, "--offline"]
+    if out is not None:
+        argumentos += ["--saida", str(out)]
+    codigo = comando(*argumentos)
+    destino = out or fluxo.mundo.saidas / "reproducao" / fluxo.freeze_id
+    relatorio = destino / "reproducao.json"
+    conteudo = json.loads(relatorio.read_text(encoding="utf-8")) if relatorio.is_file() else {}
+    return Reproducao(codigo, destino, conteudo)
+
+
+def instantaneo(fluxo: Fluxo) -> dict[str, str]:
+    """SHA-256 de todo arquivo dos originais: dados, manifestos, saídas e congelamentos."""
+    reproducao = fluxo.mundo.saidas / "reproducao"
+    return {
+        str(arquivo.relative_to(fluxo.mundo.raiz)): hashlib.sha256(arquivo.read_bytes()).hexdigest()
+        for raiz in ("dados", "manifestos", "saidas", "congelamentos")
+        for arquivo in sorted((fluxo.mundo.raiz / raiz).rglob("*"))
+        if arquivo.is_file() and not arquivo.is_relative_to(reproducao)
+    }
+
+
+def metricas_refeitas(out: Path) -> list[dict[str, Any]]:
+    """Métricas do relatório de avaliação que a reprodução refez em `out`."""
+    (relatorio,) = (out / "avaliacao").rglob("rep_*.json")
+    return list(json.loads(relatorio.read_text(encoding="utf-8"))["metricas"])

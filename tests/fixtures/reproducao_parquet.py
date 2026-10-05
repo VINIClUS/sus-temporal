@@ -65,3 +65,24 @@ def gravar(
         origem_dados=OrigemDados.SINTETICO,
         produzido_por="tests.fixtures.reproducao_parquet",
     )
+
+
+def reordenar_linhas(caminho: Path) -> bytes:
+    """Mesmo conteúdo, outros bytes: linhas em ordem inversa e outra compressão."""
+    original = caminho.read_bytes()
+    tabela = pq.read_table(caminho)
+    inversa = tabela.take(list(reversed(range(tabela.num_rows))))
+    pq.write_table(inversa, caminho, compression="zstd")
+    return original
+
+
+def adulterar_coluna(caminho: Path, coluna: str, valor: object) -> bytes:
+    """Muda o valor da coluna na primeira linha; devolve os bytes originais."""
+    original = caminho.read_bytes()
+    tabela = pq.read_table(caminho)
+    indice = tabela.schema.get_field_index(coluna)
+    campo = tabela.schema.field(indice)
+    valores = tabela.column(indice).to_pylist()
+    valores[0] = valor
+    pq.write_table(tabela.set_column(indice, campo, pa.array(valores, campo.type)), caminho)
+    return original

@@ -41,18 +41,21 @@ __all__ = [
     "Comparacao",
     "Identidade",
     "Situacao",
+    "comparar_auxiliares",
     "comparar_insumos",
     "comparar_metricas",
     "comparar_notas",
     "comparar_originais",
     "comparar_referencia",
     "comparar_saida",
+    "comparar_saidas",
     "comparar_split",
     "exigir_conferido",
     "identidade_do_arquivo",
     "ler_relatorio_original",
     "observacoes_do_ambiente",
     "observacoes_do_ingest",
+    "observacoes_dos_insumos",
     "resultado_geral",
     "rodada_registrada",
 ]
@@ -197,6 +200,15 @@ def comparar_saida(
     return Comparacao(item, Situacao.IGUAL, _texto(antigo), _texto(refeito), detalhe)
 
 
+def comparar_saidas(
+    metodo: str,
+    originais: Mapping[str, DatasetRef] | None,
+    refeitas: Mapping[str, DatasetRef] | None,
+) -> list[Comparacao]:
+    """As saídas da execução refeita contra as da registrada, pela união dos `schema_id`."""
+    raise NotImplementedError
+
+
 def _arquivo(ref: DatasetRef) -> Path:
     return Path(ref.caminho)
 
@@ -329,6 +341,13 @@ def comparar_originais(
     return itens
 
 
+def comparar_auxiliares(
+    entradas: Mapping[str, EntradaValidacao], estados: Mapping[str, str]
+) -> list[Comparacao]:
+    """Um item inconclusivo por política cujos auxiliares usam artefato não normalizado."""
+    raise NotImplementedError
+
+
 def comparar_notas(
     item: str, esperadas: Sequence[str] | None, obtidas: Sequence[str]
 ) -> Comparacao:
@@ -397,6 +416,11 @@ def observacoes_do_ingest(estados: Mapping[str, str]) -> list[str]:
         return []
     nomes = ",".join(sorted({estados[artefato] for artefato in falhas}))
     return [f"ingest_sem_tabela artefatos={len(falhas)} estados={nomes}"]
+
+
+def observacoes_dos_insumos(congeladas: Collection[str], conferidas: Collection[str]) -> list[str]:
+    """Políticas congeladas cuja entrada original não pôde ser conferida."""
+    raise NotImplementedError
 
 
 def rodada_registrada(

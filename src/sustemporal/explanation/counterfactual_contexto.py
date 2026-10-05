@@ -12,8 +12,8 @@ from pydantic import ValidationError
 from sustemporal.contracts.temporal import MetodoId
 from sustemporal.explanation.cli import ExecucaoNaoResolvida, localizar_execucao
 from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
-from sustemporal.rules.cli import EntradaValidacao
 from sustemporal.rules.engine import calcular_run_id
+from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
 from sustemporal.rules.insumos import InsumosAvaliacao, MetodoInvalido, politica_padrao
 
 if TYPE_CHECKING:
@@ -38,7 +38,6 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-ARQUIVO_ENTRADA = "entrada_validacao.json"
 _DIRETORIOS_DE_EXECUCAO = ("runs", "validacao")
 _ST = "cnes_estabelecimento.v1"
 
@@ -91,9 +90,11 @@ def _entrada(raiz: Path, run_id: str) -> EntradaValidacao:
 def _politica(
     run: RunResult, entrada: EntradaValidacao, regras: list[RuleSpec]
 ) -> PoliticaTemporal:
-    """A mesma política que `validate` usa para o método gravado na execução."""
+    """A política que a execução gravou na entrada; sem ela, a que `validate` usa para o método."""
     if run.metodo is None:
         raise ContextoIndisponivel(f"contrafactual_sem_contexto run={run.run_id} metodo=ausente")
+    if entrada.politica is not None:
+        return entrada.politica
     documentada = entrada.politica_documentada
     if run.metodo is MetodoId.M_TEMP and documentada is not None:
         return documentada
@@ -107,7 +108,8 @@ def contexto_da_execucao(raiz: Path, run_id: str, config: RunConfig) -> Contexto
     """Insumos gravados na pasta exata da execução, conferidos pelo `run_id` recalculado.
 
     O `run_id` deriva de conjunto, seleção, regras, política, configuração (sem `runtime`),
-    auxiliares e integridade; recalculá-lo prova que os insumos são os da execução.
+    auxiliares, integridade e identidade adicional (o recorte territorial do `validate --ingest`);
+    recalculá-lo prova que os insumos são os da execução.
 
     Raises:
         ContextoIndisponivel: execução, entrada ou catálogo ausentes, ou `run_id` divergente.
@@ -124,6 +126,7 @@ def contexto_da_execucao(raiz: Path, run_id: str, config: RunConfig) -> Contexto
         cobertura=entrada.cobertura,
         integridade=entrada.integridade,
         politica=_politica(run, entrada, regras),
+        identidade_adicional=entrada.identidade_adicional or {},
     )
     recalculado = calcular_run_id(entrada.dataset, entrada.snapshots, regras, config, insumos)
     if recalculado != run_id:

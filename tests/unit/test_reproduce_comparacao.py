@@ -149,6 +149,42 @@ def test_original_ausente_compara_so_com_o_declarado_e_diz_que_os_bytes_nao_fora
     assert resultado.detalhe == "original_ausente"
 
 
+def test_original_ilegivel_compara_so_com_o_declarado_como_o_ausente(tmp_path: Path) -> None:
+    esperada = gravar(LINHAS, tmp_path / "original" / "a.parquet")
+    obtida = gravar(LINHAS, tmp_path / "refeito" / "a.parquet")
+    (tmp_path / "original" / "a.parquet").write_bytes(b"PAR1 truncado")
+    resultado = comparar_referencia("conjunto:x", esperada, obtida)
+    assert resultado.situacao is Situacao.IGUAL
+    assert resultado.detalhe == "original_ilegivel"
+    assert resultado.esperado == resultado.obtido == f"6:{esperada.hash_logico}"
+
+
+def test_refeito_ilegivel_segue_sendo_falha_operacional(tmp_path: Path) -> None:
+    esperada = gravar(LINHAS, tmp_path / "original" / "a.parquet")
+    obtida = gravar(LINHAS, tmp_path / "refeito" / "a.parquet")
+    (tmp_path / "refeito" / "a.parquet").write_bytes(b"PAR1 truncado")
+    with pytest.raises(FalhaOperacionalErro, match=r"^arquivo_ilegivel caminho="):
+        comparar_referencia("conjunto:x", esperada, obtida)
+
+
+def test_saida_original_ilegivel_e_inconclusiva(tmp_path: Path) -> None:
+    original = gravar(_com_run("run_a"), tmp_path / "original" / "s.parquet")
+    obtida = gravar(_com_run("run_b"), tmp_path / "refeito" / "s.parquet")
+    (tmp_path / "original" / "s.parquet").write_bytes(b"PAR1 truncado")
+    resultado = comparar_saida("saida:x", original, obtida)
+    assert resultado.situacao is Situacao.INCONCLUSIVO
+    assert resultado.detalhe == "original_ilegivel"
+    assert resultado.esperado is None
+
+
+def test_saida_refeita_ilegivel_segue_sendo_falha_operacional(tmp_path: Path) -> None:
+    original = gravar(_com_run("run_a"), tmp_path / "original" / "s.parquet")
+    obtida = gravar(_com_run("run_b"), tmp_path / "refeito" / "s.parquet")
+    (tmp_path / "refeito" / "s.parquet").write_bytes(b"PAR1 truncado")
+    with pytest.raises(FalhaOperacionalErro, match=r"^arquivo_ilegivel caminho="):
+        comparar_saida("saida:x", original, obtida)
+
+
 def test_saida_com_outro_run_id_e_o_mesmo_conteudo_e_igual(tmp_path: Path) -> None:
     original = gravar(_com_run("run_a"), tmp_path / "original" / "s.parquet")
     obtida = gravar(_com_run("run_b"), tmp_path / "refeito" / "s.parquet")

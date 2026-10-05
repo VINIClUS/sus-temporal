@@ -31,7 +31,7 @@ from sustemporal.rules.catalog import carregar_esquema
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterable, Mapping, Sequence
 
-    from sustemporal.contracts.evaluation import ValorMetrica
+    from sustemporal.contracts.evaluation import EvaluationReport, ValorMetrica
     from sustemporal.contracts.experiment import CodeVersion, Particao, SplitManifest
     from sustemporal.contracts.records import DatasetRef
     from sustemporal.rules.entrada import EntradaValidacao
@@ -49,6 +49,7 @@ __all__ = [
     "comparar_split",
     "exigir_conferido",
     "identidade_do_arquivo",
+    "ler_relatorio_original",
     "observacoes_do_ambiente",
     "observacoes_do_ingest",
     "resultado_geral",
@@ -328,6 +329,11 @@ def comparar_notas(
     primeira = (faltando or sobrando)[0][:_MAX_TEXTO]
     detalhe = f"faltando={len(faltando)} sobrando={len(sobrando)} primeira={primeira}"
     return Comparacao(item, Situacao.DIVERGENTE, esperado, obtido, detalhe)
+
+
+def ler_relatorio_original(caminho: Path) -> EvaluationReport | None:
+    """O relatório da rodada registrada; ausente, ilegível ou fora do contrato é `None`."""
+    raise NotImplementedError
 
 
 def observacoes_do_ambiente(

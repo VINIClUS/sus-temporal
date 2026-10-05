@@ -7,16 +7,20 @@ refazer o fluxo; o e2e (`test_reproduce_offline.py`) cobre a costura com os arqu
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import pytest
 
-from sustemporal.contracts.experiment import CodeVersion, Particao, SplitManifest
+from sustemporal.contracts.base import OrigemDados
+from sustemporal.contracts.evaluation import EvaluationReport
+from sustemporal.contracts.experiment import CodeVersion, ModoExecucao, Particao, SplitManifest
 from sustemporal.reporting.reproduce_comparacao import (
     Situacao,
     comparar_notas,
     comparar_originais,
     comparar_split,
+    ler_relatorio_original,
     observacoes_do_ambiente,
     observacoes_do_ingest,
     rodada_registrada,
@@ -316,3 +320,34 @@ def test_ingest_refeito_com_falha_diz_quantos_artefatos_e_em_que_estados() -> No
     assert observacoes_do_ingest(estados) == [
         "ingest_sem_tabela artefatos=3 estados=ARQUIVOAUSENTE,QUARENTENA_LEIAUTE"
     ]
+
+
+RELATORIO = EvaluationReport(
+    report_id="rep_" + "a" * 64,
+    modo=ModoExecucao.EXPLORATORIO,
+    origem_dados=OrigemDados.SINTETICO,
+    notas=("particao=CALIBRACAO",),
+    criado_em=datetime(2026, 1, 1, tzinfo=UTC),
+)
+
+
+def test_relatorio_original_valido_e_lido(tmp_path: Path) -> None:
+    caminho = tmp_path / "rep.json"
+    caminho.write_text(RELATORIO.model_dump_json(), encoding="utf-8")
+    assert ler_relatorio_original(caminho) == RELATORIO
+
+
+def test_relatorio_original_ausente_ou_que_e_pasta_nao_existe_para_comparar(tmp_path: Path) -> None:
+    assert ler_relatorio_original(tmp_path / "nao_existe.json") is None
+    assert ler_relatorio_original(tmp_path) is None
+
+
+@pytest.mark.parametrize(
+    "conteudo", [b'{"report_id": "rep_x"', b"\xff\xfe nao e utf-8", b"{}", b"[]"]
+)
+def test_relatorio_original_truncado_ou_fora_do_contrato_nao_derruba_a_reproducao(
+    tmp_path: Path, conteudo: bytes
+) -> None:
+    caminho = tmp_path / "rep.json"
+    caminho.write_bytes(conteudo)
+    assert ler_relatorio_original(caminho) is None

@@ -1,0 +1,216 @@
+"""Etapas do fluxo pequeno da reprodução: janelas do ingest e partições do protocolo (T14).
+
+Os originais são sintéticos, vêm de um FTP local pelo `acquire` e passam pelo `ingest` real;
+nada aqui é resultado empírico. A propriedade central: o `validate --ingest` sobre a janela de
+uma partição lê a mesma população que o split formou (mesmo hash lógico).
+"""
+
+from __future__ import annotations
+
+from collections import Counter
+from typing import TYPE_CHECKING
+
+import pyarrow.parquet as pq
+import pytest
+from tests.fixtures.reproducao_fluxo import (
+    Fluxo,
+    adquirir_e_ingerir,
+    derivar,
+    iniciar,
+    validar_janelas,
+)
+
+from sustemporal.contracts.experiment import EstadoExecucao, Particao
+from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
+from sustemporal.contracts.temporal import MetodoId
+from sustemporal.errors import ConfigInvalida
+from sustemporal.evaluation.split import SCHEMA_ENTRADA
+from sustemporal.execucoes import ler_execucao, raiz_execucoes
+from sustemporal.reporting.reproduce_etapas import (
+    competencias_da_particao,
+    derivar_protocolo,
+    janela_do_ingest,
+    validar_janela,
+)
+from sustemporal.rules.ingest import ler_datasets
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
+
+POLITICAS = {"m_temp_nao_resolvida", "b_atend_exploratoria", "b_proc_exploratoria"}
+
+
+@pytest.fixture(scope="module")
+def ingerido(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Fluxo]:
+    with pytest.MonkeyPatch.context() as mp:
+        fluxo = iniciar(tmp_path_factory.mktemp("etapas"), mp)
+        adquirir_e_ingerir(fluxo)
+        yield fluxo
+
+
+@pytest.fixture(scope="module")
+def derivado(ingerido: Fluxo) -> Fluxo:
+    validar_janelas(ingerido, janelas=("cal",))
+    derivar(ingerido)
+    return ingerido
+
+
+def _sia_pa(pasta: Path) -> list[DatasetRef]:
+    return [ref for ref in ler_datasets(pasta) if ref.schema_id == SCHEMA_ENTRADA]
+
+
+def _auxiliares(pasta: Path) -> list[DatasetRef]:
+    return [ref for ref in ler_datasets(pasta) if ref.schema_id != SCHEMA_ENTRADA]
+
+
+def _janela(fluxo: Fluxo, destino: Path, competencias: tuple[str, ...]) -> Path:
+    assert fluxo.ingest is not None
+    return janela_do_ingest(fluxo.config("teste"), fluxo.ingest, destino, competencias)
+
+
+def test_mundo_com_meses_faltantes_ingere_o_que_existe(ingerido: Fluxo) -> None:
+    assert ingerido.codigos == {"acquire_primaria": 0, "acquire_auxiliar": 5, "ingest": 0}
+    assert ingerido.ingest is not None
+    assert len(_sia_pa(ingerido.ingest)) == 4
+
+
+def test_janela_traz_so_o_sia_pa_dos_arquivos_da_competencia(ingerido: Fluxo, tmp_path: Path):
+    pasta = _janela(ingerido, tmp_path / "cal", ("202301",))
+    (sia_pa,) = _sia_pa(pasta)
+    assert competencias_da_particao(sia_pa) == ("202301",)
+
+
+def test_janela_deixa_todos_os_auxiliares_como_estao(ingerido: Fluxo, tmp_path: Path) -> None:
+    assert ingerido.ingest is not None
+    pasta = _janela(ingerido, tmp_path / "cal", ("202301",))
+    assert _auxiliares(pasta) == _auxiliares(ingerido.ingest)
+    assert _auxiliares(pasta)
+
+
+def test_janela_de_duas_competencias_traz_os_dois_arquivos(ingerido: Fluxo, tmp_path: Path) -> None:
+    pasta = _janela(ingerido, tmp_path / "dev", ("201801", "201803"))
+    competencias = sorted(c for ref in _sia_pa(pasta) for c in competencias_da_particao(ref))
+    assert competencias == ["201801", "201803"]
+
+
+def test_janela_sem_arquivo_na_competencia_nao_inventa_producao(ingerido: Fluxo, tmp_path: Path):
+    pasta = _janela(ingerido, tmp_path / "vazia", ("202412",))
+    assert _sia_pa(pasta) == []
+    assert _auxiliares(pasta)
+
+
+def _dataset_misto(fluxo: Fluxo) -> tuple[DatasetRef, tuple[str, ...]]:
+    """Conjunto com os arquivos de duas competências e a competência de um deles."""
+    assert fluxo.ingest is not None
+    a, b = _sia_pa(fluxo.ingest)[:2]
+    artefatos = tuple(sorted({*a.artifact_ids, *b.artifact_ids}))
+    misto = DatasetRef(
+        dataset_id=calcular_dataset_id(a.schema_id, a.hash_logico, artefatos),
+        schema_id=a.schema_id,
+        caminho=a.caminho,
+        hash_logico=a.hash_logico,
+        linhas=a.linhas,
+        artifact_ids=artefatos,
+        origem_dados=a.origem_dados,
+        produzido_por="teste",
+    )
+    return misto, competencias_da_particao(a)
+
+
+def test_janela_recusa_conjunto_com_arquivos_de_janelas_diferentes(
+    ingerido: Fluxo, tmp_path: Path
+) -> None:
+    falsa = tmp_path / "ingest_misto"
+    falsa.mkdir()
+    misto, pedida = _dataset_misto(ingerido)
+    (falsa / "datasets.jsonl").write_text(misto.model_dump_json() + "\n", encoding="utf-8")
+    with pytest.raises(ConfigInvalida, match="janela_com_dataset_misto"):
+        janela_do_ingest(ingerido.config("teste"), falsa, tmp_path / "j", pedida)
+
+
+def test_janela_recusa_artefato_fora_do_manifesto(ingerido: Fluxo, tmp_path: Path) -> None:
+    assert ingerido.ingest is not None
+    (modelo, *_) = _sia_pa(ingerido.ingest)
+    artefato = "art_" + "0" * 64
+    ref = modelo.model_copy(
+        update={
+            "artifact_ids": (artefato,),
+            "dataset_id": calcular_dataset_id(modelo.schema_id, modelo.hash_logico, (artefato,)),
+        }
+    )
+    falsa = tmp_path / "ingest_orfao"
+    falsa.mkdir()
+    (falsa / "datasets.jsonl").write_text(ref.model_dump_json() + "\n", encoding="utf-8")
+    with pytest.raises(ConfigInvalida, match="janela_artefato_fora_do_manifesto"):
+        janela_do_ingest(ingerido.config("teste"), falsa, tmp_path / "j", ("202301",))
+
+
+def test_derivar_forma_tres_particoes_de_quatro_linhas(derivado: Fluxo) -> None:
+    split = derivado.split
+    assert split is not None
+    assert split.linhas_por_particao == {
+        Particao.DESENVOLVIMENTO: 4,
+        Particao.CALIBRACAO: 4,
+        Particao.TESTE: 4,
+    }
+    assert split.exclusoes == {}
+
+
+def test_cada_particao_traz_as_competencias_da_sua_janela(derivado: Fluxo) -> None:
+    particoes = (derivado.split.particoes if derivado.split else None) or {}
+    assert {p: competencias_da_particao(ref) for p, ref in particoes.items()} == {
+        Particao.DESENVOLVIMENTO: ("201801", "201803"),
+        Particao.CALIBRACAO: ("202301",),
+        Particao.TESTE: ("202401",),
+    }
+
+
+def test_validate_sobre_a_janela_le_a_populacao_da_particao(derivado: Fluxo) -> None:
+    assert derivado.split is not None
+    esperado = derivado.split.hash_por_particao[Particao.CALIBRACAO]
+    linhas = derivado.split.linhas_por_particao[Particao.CALIBRACAO]
+    runs = [run for (janela, _), run in derivado.execucoes.items() if janela == "cal"]
+    assert len(runs) == 3
+    for run in runs:
+        assert run.entradas[0].hash_logico == esperado
+        assert run.entradas[0].linhas == linhas
+
+
+def test_rotulos_da_particao_seguem_o_codebook_do_pa_indica(derivado: Fluxo) -> None:
+    rotulos = (derivado.split.rotulos_por_particao if derivado.split else None) or {}
+    tabela = pq.read_table(rotulos[Particao.CALIBRACAO].caminho, columns=["rotulo"])
+    contagem = Counter(tabela.column("rotulo").to_pylist())
+    assert contagem == {"NAO_APROVADO": 2, "APROVADO_TOTAL": 2}
+
+
+def test_derivar_protocolo_exige_a_coorte_na_config(derivado: Fluxo, tmp_path: Path) -> None:
+    assert derivado.ingest is not None
+    sem_coorte = derivado.config("teste").model_copy(update={"coorte": None})
+    spec = derivado.split.spec if derivado.split else None
+    assert spec is not None
+    with pytest.raises(ConfigInvalida, match="derivar_protocolo_exige_coorte"):
+        derivar_protocolo(sem_coorte, derivado.ingest, tmp_path / "split", spec=spec)
+
+
+def test_derivar_protocolo_recusa_ingest_sem_sia_pa(derivado: Fluxo, tmp_path: Path) -> None:
+    vazio = tmp_path / "ingest_vazio"
+    vazio.mkdir()
+    (vazio / "datasets.jsonl").write_text("", encoding="utf-8")
+    spec = derivado.split.spec if derivado.split else None
+    assert spec is not None
+    with pytest.raises(ConfigInvalida, match="ingest_sem_producao"):
+        derivar_protocolo(derivado.config("teste"), vazio, tmp_path / "split", spec=spec)
+
+
+def test_validar_janela_roda_as_tres_politicas_e_grava_em_runs(derivado: Fluxo) -> None:
+    assert derivado.ingest is not None
+    config = derivado.config("teste")
+    janela = derivado.mundo.saidas / "janelas" / "teste"
+    janela = _janela(derivado, janela, ("202401",))
+    execucoes = validar_janela(config, janela)
+    assert set(execucoes) == {MetodoId.M_TEMP, MetodoId.B_ATEND, MetodoId.B_PROC}
+    assert {run.politica_id for run in execucoes.values()} == POLITICAS
+    assert all(run.estado is EstadoExecucao.CONCLUIDA for run in execucoes.values())
+    for run in execucoes.values():
+        assert ler_execucao(raiz_execucoes(config), run.run_id) == run

@@ -14,6 +14,7 @@ import fcntl
 import subprocess
 import sys
 import time
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -102,10 +103,14 @@ def test_registrar_toma_a_trava_antes_de_reler_e_a_solta_depois_do_append(
         eventos.append(("ler", _linhas(registro)))
         return ler(caminho)
 
+    def relogio() -> datetime:
+        eventos.append(("relogio", _linhas(registro)))
+        return datetime(2026, 1, 1, tzinfo=UTC)
+
     monkeypatch.setattr(fcntl, "flock", _flock_registrando(registro, eventos))
     monkeypatch.setattr(freeze_registro, "ler_registro", ler_anotando)
-    registrar_execucao(registro, _relatorio("rep_a"))
-    assert eventos == [("EX", 0), ("ler", 0), ("UN", 1)]
+    registrar_execucao(registro, _relatorio("rep_a"), relogio=relogio)
+    assert eventos == [("EX", 0), ("ler", 0), ("relogio", 0), ("UN", 1)]
 
 
 def test_recusa_de_segunda_rodada_solta_a_trava_e_nao_grava(

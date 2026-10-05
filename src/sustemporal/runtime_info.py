@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import platform
+import stat
 import subprocess
 from importlib import metadata
-from typing import TYPE_CHECKING
+from pathlib import Path
 
 from sustemporal.contracts.experiment import Ambiente, CodeVersion
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 PACOTES_RELEVANTES = (
     "sus-temporal",
@@ -28,27 +27,79 @@ PACOTES_RELEVANTES = (
 )
 
 
-def _git(raiz: Path, *argumentos: str) -> str | None:
+def _git_bytes(raiz: Path, *argumentos: str) -> bytes | None:
     try:
         resultado = subprocess.run(  # noqa: S603
             ["git", *argumentos],  # noqa: S607
             cwd=raiz,
             check=True,
             capture_output=True,
-            text=True,
         )
     except (OSError, subprocess.CalledProcessError):
         return None
-    return resultado.stdout.strip()
+    return resultado.stdout
+
+
+def _git(raiz: Path, *argumentos: str) -> str | None:
+    saida = _git_bytes(raiz, *argumentos)
+    return None if saida is None else saida.decode("utf-8", errors="surrogateescape").strip()
+
+
+def _estado_do_caminho(caminho: Path) -> bytes | None:
+    """Tipo, bit executável e conteúdo como o git os registraria.
+
+    Link pelo alvo, arquivo pelo hash, diretório sem abri-lo (o que há dentro vem da listagem do
+    git). Repositório aninhado, cujo conteúdo essa listagem não enumera, e falha de leitura
+    resultam em None.
+    """
+    try:
+        if caminho.is_symlink():
+            return b"link\0" + os.fsencode(os.readlink(caminho))
+        if not caminho.exists():
+            return b"ausente"
+        if caminho.is_dir():
+            return None if (caminho / ".git").exists() else b"diretorio"
+        executavel = os.lstat(caminho).st_mode & stat.S_IXUSR
+        with caminho.open("rb") as arquivo:
+            digest = hashlib.file_digest(arquivo, "sha256").hexdigest()
+    except OSError:
+        return None
+    tipo = b"arquivo-exec" if executavel else b"arquivo"
+    return tipo + b"\0" + digest.encode("ascii")
+
+
+def _hash_diferencas(raiz: Path) -> str | None:
+    """SHA-256 do estado de cada caminho alterado em relação ao HEAD ou não rastreado.
+
+    Hash do conteúdo, nunca do texto do diff (que depende da configuração do git). Tudo é lido a
+    partir do topo do repositório; falha em qualquer caminho resulta em None, nunca hash parcial.
+    """
+    topo = _git(raiz, "rev-parse", "--show-toplevel")
+    if not topo:
+        return None
+    base = Path(topo)
+    alterados = _git_bytes(base, "diff", "--name-only", "--no-renames", "-z", "HEAD")
+    novos = _git_bytes(base, "ls-files", "--others", "--exclude-standard", "-z")
+    if alterados is None or novos is None:
+        return None
+    resumo = hashlib.sha256()
+    for caminho in sorted({nome for nome in (alterados + novos).split(b"\0") if nome}):
+        estado = _estado_do_caminho(base / os.fsdecode(caminho))
+        if estado is None:
+            return None
+        resumo.update(caminho + b"\0" + estado + b"\0")
+    return resumo.hexdigest()
 
 
 def versao_codigo(raiz: Path) -> CodeVersion:
     commit = _git(raiz, "rev-parse", "HEAD")
-    estado = _git(raiz, "status", "--porcelain")
+    estado = _git(raiz, "status", "--porcelain", "--untracked-files=all")
+    sujo = commit is None or estado is None or bool(estado)
     return CodeVersion(
         commit=commit or "desconhecido",
-        sujo=commit is None or estado is None or bool(estado),
+        sujo=sujo,
         versao_pacote=metadata.version("sus-temporal"),
+        diff_sha256=_hash_diferencas(raiz) if sujo and commit is not None else None,
     )
 
 

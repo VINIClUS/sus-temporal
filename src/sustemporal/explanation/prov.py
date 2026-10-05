@@ -28,6 +28,8 @@ from sustemporal.contracts.explanation import TipoEvidencia
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
+    from prov.identifier import QualifiedName
+
     from sustemporal.contracts.experiment import RunResult
     from sustemporal.contracts.explanation import Evidence
     from sustemporal.contracts.records import DatasetRef, ProductionRecord
@@ -100,15 +102,15 @@ def _id_avaliacao(avaliacao: RuleEvaluation) -> str:
 
 
 def _software(doc: ProvDocument, run: RunResult) -> None:
-    doc.agent(
-        _SOFTWARE,
-        {
-            "prov:type": PROV["SoftwareAgent"],
-            "sus:versao_pacote": run.codigo.versao_pacote,
-            "sus:commit": run.codigo.commit,
-            "sus:sujo": str(run.codigo.sujo).lower(),
-        },
-    )
+    atributos: dict[str, QualifiedName | str] = {
+        "prov:type": PROV["SoftwareAgent"],
+        "sus:versao_pacote": run.codigo.versao_pacote,
+        "sus:commit": run.codigo.commit,
+        "sus:sujo": str(run.codigo.sujo).lower(),
+    }
+    if run.codigo.diff_sha256 is not None:
+        atributos["sus:diff_sha256"] = run.codigo.diff_sha256
+    doc.agent(_SOFTWARE, atributos)
 
 
 def _conjunto(doc: ProvDocument, dataset: DatasetRef, artefatos_vistos: set[str]) -> None:

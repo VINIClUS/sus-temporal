@@ -19,7 +19,7 @@ from pydantic import ValidationError
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.config import RunConfig, RuntimeConfig
-from sustemporal.contracts.experiment import EstadoExecucao
+from sustemporal.contracts.experiment import CodeVersion, EstadoExecucao
 from sustemporal.contracts.explanation import (
     Afirmacao,
     EstadoCobertura,
@@ -744,3 +744,34 @@ def test_arestas_exigidas_sempre_ligam_registro_ao_sia_pa(execucao: RunResult) -
     inconsistentes = replace(elementos, run=_sem_registro_no_conjunto(execucao))
     usadas = {usada for _gerada, usada in arestas_exigidas(inconsistentes)}
     assert f"sus:{sia.dataset_id}" in usadas
+
+
+AGENTE = "sus:software_sustemporal"
+
+
+def _com_diff_sha256(run: RunResult, diff_sha256: str | None) -> RunResult:
+    codigo = CodeVersion(
+        commit=run.codigo.commit,
+        sujo=diff_sha256 is not None,
+        versao_pacote=run.codigo.versao_pacote,
+        diff_sha256=diff_sha256,
+    )
+    return run.model_copy(update={"codigo": codigo})
+
+
+def test_prov_do_codigo_sujo_leva_o_diff_sha256_no_agente_de_software(
+    execucao: RunResult,
+) -> None:
+    primeira = montar_explicacao(_com_diff_sha256(execucao, "d" * 64), LINHA_VIOLACAO)
+    segunda = montar_explicacao(_com_diff_sha256(execucao, "e" * 64), LINHA_VIOLACAO)
+    agente = json.loads(primeira.prov_json)["agent"][AGENTE]
+    assert agente.get("sus:diff_sha256") == "d" * 64
+    assert f'sus:diff_sha256="{"d" * 64}"' in primeira.bundle.prov_n
+    assert segunda.bundle.prov_json_sha256 != primeira.bundle.prov_json_sha256
+
+
+def test_prov_do_codigo_sem_diff_sha256_nao_ganha_atributo(execucao: RunResult) -> None:
+    explicacao = montar_explicacao(_com_diff_sha256(execucao, None), LINHA_VIOLACAO)
+    agente = json.loads(explicacao.prov_json)["agent"][AGENTE]
+    assert set(agente) == {"prov:type", "sus:versao_pacote", "sus:commit", "sus:sujo"}
+    assert "diff_sha256" not in explicacao.bundle.prov_n

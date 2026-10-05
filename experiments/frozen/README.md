@@ -79,18 +79,20 @@ entra no registro de rodadas.
 
 Antes de calcular qualquer métrica, `evaluate_runs` compara, por método, o `row_id` dos
 resultados lidos com a população da partição avaliada (`evaluation/metrics_cobertura.py`):
-`ausentes` são registros sem resultado e `extras`, resultados de registros de fora dela. O
-método que as predições do baseline declaram em outra partição e que não tem nenhum resultado do
-TESTE (o controle trivial) conta com todos os registros ausentes.
+`ausentes` são registros sem resultado, `extras`, resultados de registros de fora dela e
+`duplicados`, as linhas a mais para o mesmo (método, row_id), em `agregados_registro.v1` ou nas
+predições. O método que as predições do baseline declaram em outra partição e que não tem
+nenhum resultado do TESTE (o controle trivial) conta com todos os registros ausentes.
 
-- Confirmatório: qualquer ausente recusa a avaliação (`execucao_com_cobertura_incompleta
-  metodo=<método> ausentes=<N> extras=<M>`, saída 4), sem relatório e sem registro; o primeiro
-  método em ordem alfabética é o citado. Extras só passam se a execução traz, entre as entradas, a
-  população de outra partição congelada (o baseline lê as partições que ajusta e avalia), o que
-  se confere pelos hashes (pendência T11 #24).
-- Exploratório: a linha sem resultado segue contando como abstenção do método e as contagens
-  vão para as notas do relatório, nos dois modos (`cobertura_dos_resultados metodo=<método>
-  ausentes=<N> extras=<M>`).
+- Confirmatório: resultado repetido recusa a avaliação (`execucao_com_resultado_duplicado
+  metodo=<método> duplicados=<N>`, saída 4), e depois dele qualquer ausente
+  (`execucao_com_cobertura_incompleta metodo=<método> ausentes=<N> extras=<M>`, saída 4), sem
+  relatório e sem registro; o primeiro método em ordem alfabética é o citado. Extras só passam
+  se a execução traz, entre as entradas, a população de outra partição congelada (o baseline lê
+  as partições que ajusta e avalia), o que se confere pelos hashes (pendência T11 #24).
+- Exploratório: a linha sem resultado segue contando como abstenção do método, o último
+  resultado repetido prevalece e as contagens vão para as notas do relatório, nos dois modos
+  (`cobertura_dos_resultados metodo=<método> ausentes=<N> extras=<M> duplicados=<K>`).
 
 Dados sintéticos nunca são confirmatórios. Nenhum congelamento real existe neste repositório
 enquanto o projeto estiver antes do G0.

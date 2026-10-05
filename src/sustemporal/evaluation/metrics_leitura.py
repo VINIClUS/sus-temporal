@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections import Counter
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import duckdb
@@ -18,7 +20,7 @@ if TYPE_CHECKING:
     from sustemporal.contracts import DatasetRef, RunResult
     from sustemporal.contracts.experiment import Particao
 
-__all__ = ["SCHEMA_AGREGADOS", "ler_populacao", "ler_situacoes", "verificar_entrada"]
+__all__ = ["SCHEMA_AGREGADOS", "Leitura", "ler_populacao", "ler_situacoes", "verificar_entrada"]
 
 SCHEMA_AGREGADOS = "agregados_registro.v1"
 _BINARIOS = frozenset({NAO_APROVADO, "APROVADO_TOTAL"})
@@ -136,26 +138,38 @@ def _consulta(
     )
 
 
+@dataclass(frozen=True)
+class Leitura:
+    """Situação por método e row_id, a execução de cada método e as linhas repetidas dele."""
+
+    situacoes: dict[str, dict[str, Situacao]]
+    execucoes: dict[str, RunResult]
+    duplicados: dict[str, int]
+
+
 def ler_situacoes(
     con: duckdb.DuckDBPyConnection, runs: Sequence[RunResult], particao: Particao
-) -> tuple[dict[str, dict[str, Situacao]], dict[str, RunResult]]:
-    """Situação por método e row_id, e a execução de cada método.
+) -> Leitura:
+    """Lê `agregados_registro.v1` ou as predições, por método, e conta o `row_id` repetido.
 
-    Lê `agregados_registro.v1` ou as predições; o método que as predições declaram entra mesmo
-    sem resultado na partição lida, para a cobertura vê-lo sem nenhum.
+    O método que as predições declaram entra mesmo sem resultado na partição lida, para a
+    cobertura vê-lo sem nenhum. Resultado repetido para o mesmo (método, row_id) não é recusado
+    aqui: o último lido prevalece e a repetição fica em `duplicados`, uma por linha a mais.
 
     Raises:
         ValueError: execução sem saída avaliável, método repetido ou resultado desconhecido.
     """
     situacoes: dict[str, dict[str, Situacao]] = {}
     execucoes: dict[str, RunResult] = {}
+    duplicados: Counter[str] = Counter()
     for run in runs:
-        da_execucao = _da_execucao(con, run, particao)
+        da_execucao, repetidos_da_execucao = _da_execucao(con, run, particao)
         if repetidos := sorted(set(da_execucao) & set(situacoes)):
             raise ValueError(f"metodo_repetido metodos={','.join(repetidos)}")
         situacoes.update(da_execucao)
         execucoes.update(dict.fromkeys(da_execucao, run))
-    return situacoes, execucoes
+        duplicados.update(repetidos_da_execucao)
+    return Leitura(situacoes, execucoes, dict(duplicados))
 
 
 def _metodos_declarados(
@@ -170,14 +184,30 @@ def _metodos_declarados(
     return [str(metodo) for (metodo,) in cursor.fetchall()]
 
 
+def _acumular(
+    situacoes: dict[str, dict[str, Situacao]],
+    duplicados: Counter[str],
+    run: RunResult,
+    linhas: list[tuple[object, ...]],
+) -> None:
+    for metodo, row_id, resultado in linhas:
+        if resultado not in _SITUACOES:
+            raise ValueError(f"resultado_desconhecido run={run.run_id} valor={resultado}")
+        do_metodo = situacoes.setdefault(str(metodo), {})
+        if str(row_id) in do_metodo:
+            duplicados[str(metodo)] += 1
+        do_metodo[str(row_id)] = _SITUACOES[resultado]
+
+
 def _da_execucao(
     con: duckdb.DuckDBPyConnection, run: RunResult, particao: Particao
-) -> dict[str, dict[str, Situacao]]:
+) -> tuple[dict[str, dict[str, Situacao]], Counter[str]]:
     avaliaveis = {SCHEMA_AGREGADOS, SCHEMA_PREDICOES.schema_id}
     saidas = [ds for ds in run.saidas if ds.schema_id in avaliaveis]
     if not saidas:
         raise ValueError(f"execucao_sem_saida_avaliavel run={run.run_id}")
     situacoes: dict[str, dict[str, Situacao]] = {}
+    duplicados: Counter[str] = Counter()
     if run.metodo is not None:
         situacoes[run.metodo.value] = {}
     for dataset in saidas:
@@ -185,8 +215,5 @@ def _da_execucao(
         for declarado in _metodos_declarados(con, dataset, run):
             situacoes.setdefault(declarado, {})
         sql, parametros = _consulta(dataset, run, particao)
-        for metodo, row_id, resultado in con.execute(sql, parametros).fetchall():
-            if resultado not in _SITUACOES:
-                raise ValueError(f"resultado_desconhecido run={run.run_id} valor={resultado}")
-            situacoes.setdefault(str(metodo), {})[str(row_id)] = _SITUACOES[resultado]
-    return situacoes
+        _acumular(situacoes, duplicados, run, con.execute(sql, parametros).fetchall())
+    return situacoes, duplicados

@@ -382,6 +382,31 @@ política e configuração), então a reexecução com os mesmos insumos produz 
 independentemente da ordem das linhas e do número de threads do DuckDB. SQL é sempre
 parametrizado; identificadores só vêm da allowlist derivada dos esquemas canônicos.
 
+**Execução imutável.** O `run_id` não inclui a versão do código: os mesmos insumos em outro
+commit, ou numa árvore suja com outro `diff_sha256`, dão o mesmo id. Por isso, antes de criar ou
+escrever qualquer coisa em `out/<run_id>/`, o motor lê o `run_result.json` que já exista ali e
+compara o `codigo` gravado (`CodeVersion`: commit, `sujo`, versão do pacote e `diff_sha256`) com o
+do código que roda (`versao_codigo`, calculada uma só vez por execução e gravada no novo
+`run_result.json`):
+
+- outro código recusa com `execucao_existente_com_outro_codigo run=<run_id>`, e nenhum arquivo da
+  execução anterior (anexos, saídas, `run_result.json`) é alterado;
+- `run_result.json` ilegível (erro de leitura, bytes que não são UTF-8, JSON inválido ou fora do
+  contrato) recusa com `execucao_existente_ilegivel run=<run_id>`;
+- o mesmo código regrava como antes, de forma idempotente (mesmos insumos, mesmos hashes lógicos);
+- sem `run_result.json` no destino (diretório novo, ou execução que não chegou a concluir) não há
+  o que conferir.
+
+A recusa é `ConfigInvalida`: o `validate` (`--entrada` e `--ingest`) termina com saída 2. Para
+reavaliar os mesmos insumos com outro código, grave em outro destino (`--saida`); a execução
+anterior continua sendo o registro do código que a produziu. A imutabilidade cobre só
+`out/<run_id>/`: no `--ingest`, as relações derivadas (`runs/entradas/`) e as seleções
+(`runs/selecoes/`) são preparadas antes do motor e nomeadas pelo conteúdo. Das duas opções
+registradas em ORQ-05 e T14-11 (incluir o código no `run_id`, ou recusar a sobrescrita), vale a
+segunda: o id continua derivado só de insumos e configuração, em vez de mudar a cada commit. O
+limite é o da `versao_codigo`: sem git, o `CodeVersion` é `desconhecido` e `sujo`, sem
+`diff_sha256`, e duas execuções nessa condição comparam iguais.
+
 ## 8. Limites declarados
 - Testes sintéticos verificam a implementação contra esta especificação, não a hipótese empírica.
 - Referências normativas das quatro famílias estão `PENDENTE`; o mapa instrumento→registro é

@@ -95,7 +95,8 @@ def executar_validate(args: argparse.Namespace, config: RunConfig) -> int:
     `counterfactual` descobrem execuções; `--saida` desvia a gravação, e então eles não a acham.
 
     Raises:
-        ConfigInvalida: entrada, catálogo, política, manifesto ou pasta do ingest inválidos.
+        ConfigInvalida: entrada, catálogo, política, manifesto ou pasta do ingest inválidos, ou
+            execução já gravada com outro código (`evaluate_rules`: a execução é imutável).
         FalhaOperacionalErro: `row_id` repetido na produção do ingest.
     """
     metodo = METODO_DA_POLITICA[args.policy]

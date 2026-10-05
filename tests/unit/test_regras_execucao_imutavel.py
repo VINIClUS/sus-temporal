@@ -29,6 +29,7 @@ SUJO = LIMPO.model_copy(update={"sujo": True, "diff_sha256": "1" * 64})
 PARES_DE_CODIGO = {
     "outro_commit": (LIMPO, OUTRO_COMMIT),
     "arvore_suja_no_mesmo_commit": (LIMPO, SUJO),
+    "arvore_suja_de_diff_desconhecido": (LIMPO, LIMPO.model_copy(update={"sujo": True})),
     "mesmo_commit_outro_diff_sha256": (SUJO, SUJO.model_copy(update={"diff_sha256": "2" * 64})),
     "outra_versao_do_pacote": (LIMPO, LIMPO.model_copy(update={"versao_pacote": "9.9.9"})),
 }

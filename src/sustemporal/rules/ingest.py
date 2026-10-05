@@ -22,12 +22,6 @@ from sustemporal.acquisition.manifest import ManifestoCorrompido
 from sustemporal.contracts.artifacts import EstadoIntegridade, ResultadoTentativa
 from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
-from sustemporal.contracts.temporal import (
-    BaseTemporal,
-    CompetenciaArquivo,
-    CriterioTemporal,
-    EstadoSelecao,
-)
 from sustemporal.duck import identificador_seguro
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
 from sustemporal.hashing import hash_logico_relacao
@@ -35,13 +29,10 @@ from sustemporal.ingest.coverage import build_coverage
 from sustemporal.rules.catalog import carregar_esquema, requisito_auxiliar
 from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
 from sustemporal.rules.ingest_conformidade import exigir_colunas_obrigatorias
+from sustemporal.rules.ingest_selecao import exigir_versao_selecionavel
 from sustemporal.rules.preparo import conferir_tipos_fisicos
 from sustemporal.temporal.registry import RegistroTemporal
-from sustemporal.temporal.selector import (
-    partes_esperadas_do_catalogo,
-    selecionar_versao,
-    uf_da_execucao,
-)
+from sustemporal.temporal.selector import partes_esperadas_do_catalogo
 
 if TYPE_CHECKING:
     from datetime import datetime
@@ -185,40 +176,6 @@ def _exigir_escopo_do_piloto(
             )
 
 
-def _exigir_versao_selecionavel(
-    artefatos: list[str], registro: RegistroTemporal, config: RunConfig
-) -> None:
-    """Pelo seletor do T06, a pasta traz exatamente as versões selecionadas até o corte."""
-    criterio = CriterioTemporal(fonte=FamiliaFonte.SIA_PA, base=BaseTemporal.PROCESSAMENTO)
-    por_competencia: dict[str, set[str]] = defaultdict(set)
-    for artefato in artefatos:
-        por_competencia[str(registro.versoes[artefato].chave.competencia_arquivo)].add(artefato)
-    for competencia, da_pasta in sorted(por_competencia.items()):
-        selecao = selecionar_versao(
-            registro,
-            criterio,
-            CompetenciaArquivo(competencia),
-            uf=uf_da_execucao(config),
-            corte=config.corte_observacao,
-        )
-        if selecao.estado is EstadoSelecao.AMBIGUA:
-            raise ConfigInvalida(
-                f"producao_com_versoes_concorrentes competencia={competencia} "
-                f"motivo={selecao.motivo}"
-            )
-        selecionadas = set(selecao.artifact_ids)
-        if selecionadas and da_pasta - selecionadas:
-            raise ConfigInvalida(
-                f"producao_com_versao_nao_selecionada competencia={competencia} "
-                f"artefatos={sorted(da_pasta - selecionadas)}"
-            )
-        if selecionadas - da_pasta:
-            raise ConfigInvalida(
-                f"producao_com_partes_ausentes competencia={competencia} "
-                f"ausentes={sorted(selecionadas - da_pasta)}"
-            )
-
-
 def _exigir_producao_coerente(
     producao: list[DatasetRef], registro: RegistroTemporal, config: RunConfig
 ) -> None:
@@ -235,7 +192,7 @@ def _exigir_producao_coerente(
                 f"producao_com_versoes_concorrentes chave={chave} artefatos={sorted(versoes)}"
             )
     _exigir_escopo_do_piloto(artefatos, registro, config)
-    _exigir_versao_selecionavel(artefatos, registro, config)
+    exigir_versao_selecionavel(artefatos, registro, config)
     corte = config.corte_observacao
     if corte is None:
         return

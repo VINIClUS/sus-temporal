@@ -3,7 +3,8 @@
 O `validate` roda por `sustemporal.cli.main`, sem mock do motor, em dois modos:
 - `--entrada`: os cenários SINTETICOS do contrafactual (com CNES ST), uma linha `VIOLACAO` e
   duas só `INCONCLUSIVO` (mês faltante e borda de 2018);
-- `--ingest`: a pasta SINTETICA do `ingest` do #27 (sem CNES ST, que as regras não exigem).
+- `--ingest`: a pasta SINTETICA do `ingest` do #27, sem CNES ST (que as regras não exigem) ou, com
+  `com_cnes_st`, com o CNES ST de janeiro e fevereiro (lido só pelas precondições).
 
 Nenhuma função daqui escreve na pasta da execução: o contexto é o que o `validate` gravou.
 """
@@ -110,9 +111,11 @@ def validar_entrada_pela_cli(
     return _execucao(config, raiz / "saidas")
 
 
-def validar_ingest_pela_cli(raiz: Path, politica: str) -> ExecucaoReal:
+def validar_ingest_pela_cli(
+    raiz: Path, politica: str, *, com_cnes_st: bool = False
+) -> ExecucaoReal:
     """`sustemporal validate --ingest` sobre a pasta SINTETICA do `ingest`, sem SIGTAP em 202302."""
-    mundo = montar_ingest(raiz, sigtap_fev_ausente=True)
+    mundo = montar_ingest(raiz, sigtap_fev_ausente=True, com_cnes_st=com_cnes_st)
     assert _validar(mundo.config, politica, ["--ingest", str(mundo.pasta)]) == 0
     return _execucao(mundo.config, raiz / "outputs")
 

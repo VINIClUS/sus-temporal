@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 _ESTAB_CBO = "ESTAB_CBO_CNES"
+_INCLUIR = "INCLUIR_CBO_NO_ESTABELECIMENTO"
 
 
 @pytest.fixture(autouse=True)
@@ -88,6 +89,23 @@ def _reavaliou_no_motor(chamadas: list[ChamadaMotor], row: str, alvos: set[str])
     assert any(all(c.estados[(row, r)] == "CONFORME" for r in alvos) for c in sobrepostas)
 
 
+def _exigir_hipoteses_do_catalogo(publicado: _Publicado, alvos: set[str]) -> None:
+    """Toda solução vem do catálogo, resolve o alvo sem violação nova e nunca assegura aprovação."""
+    resultado = publicado.resultado
+    assert set(resultado.regras_alvo) == alvos
+    assert resultado.solucoes
+    assert resultado.candidatos_avaliados >= 1
+    catalogo = {operacao.op_id for operacao in carregar_operacoes()}
+    for solucao in resultado.solucoes:
+        assert {operacao.op_id for operacao in solucao.operacoes} <= catalogo
+        assert solucao.resolve_alvo
+        assert not solucao.novas_violacoes
+        assert alvos <= set(solucao.regras_revalidadas)
+        assert solucao.executabilidade is Executabilidade.HIPOTESE_PASSADA
+    assert resultado.aprovacao_garantida is False
+    assert publicado.bruto["aprovacao_garantida"] is False
+
+
 def test_entrada_real_violacao_ganha_hipotese_do_catalogo_revalidada_no_motor(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -100,19 +118,8 @@ def test_entrada_real_violacao_ganha_hipotese_do_catalogo_revalidada_no_motor(
     assert _contrafactual(execucao, linha) == 0
 
     publicado = _publicado(execucao)
-    resultado = publicado.resultado
-    assert set(resultado.regras_alvo) == alvos == {_ESTAB_CBO}
-    assert resultado.solucoes
-    assert resultado.candidatos_avaliados >= 1
-    catalogo = {operacao.op_id for operacao in carregar_operacoes()}
-    for solucao in resultado.solucoes:
-        assert {operacao.op_id for operacao in solucao.operacoes} <= catalogo
-        assert solucao.resolve_alvo
-        assert not solucao.novas_violacoes
-        assert alvos <= set(solucao.regras_revalidadas)
-        assert solucao.executabilidade is Executabilidade.HIPOTESE_PASSADA
-    assert resultado.aprovacao_garantida is False
-    assert publicado.bruto["aprovacao_garantida"] is False
+    assert alvos == {_ESTAB_CBO}
+    _exigir_hipoteses_do_catalogo(publicado, alvos)
     _reavaliou_no_motor(chamadas, linha, alvos)
     sha256 = hashlib.sha256(CATALOGO_OPERACOES.read_bytes()).hexdigest()
     assert publicado.identidade["catalogo_operacoes_sha256"] == sha256
@@ -167,13 +174,35 @@ def test_ingest_real_violacao_usa_o_contexto_gravado_pelo_validate(
     assert chamadas
     assert not any(c.sobreposta for c in chamadas)
     assert all(c.estados[(linha, _ESTAB_CBO)] == "VIOLACAO" for c in chamadas)
-    # O `--ingest` não grava o CNES ST das precondições: nenhuma operação é admissível.
+    # Sem CNES ST na pasta do ingest, as precondições ficam indeterminadas: nenhuma operação é
+    # admissível, e a busca nunca supõe uma.
     assert resultado.solucoes == ()
     assert resultado.candidatos_avaliados == 0
     assert resultado.motivo_parada is MotivoParada.SEM_OPERACAO_ADMISSIVEL
     assert resultado.minimalidade is Minimalidade.BUSCA_INCONCLUSIVA
     assert resultado.aprovacao_garantida is False
     assert publicado.bruto["aprovacao_garantida"] is False
+    assert instantaneo(tmp_path, sem=execucao.contrafactuais) == antes
+
+
+def test_ingest_real_com_cnes_st_ganha_hipotese_do_catalogo_revalidada_no_motor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    execucao = validar_ingest_pela_cli(tmp_path, "processamento", com_cnes_st=True)
+    linha = execucao.linha_com_violacao()
+    alvos = execucao.regras_em(linha, "VIOLACAO")
+    assert alvos == {_ESTAB_CBO}
+    antes = instantaneo(tmp_path, sem=execucao.contrafactuais)
+    chamadas = espiar_motor(monkeypatch)
+
+    assert _contrafactual(execucao, linha) == 0
+
+    publicado = _publicado(execucao)
+    _exigir_hipoteses_do_catalogo(publicado, alvos)
+    resultado = publicado.resultado
+    assert _INCLUIR in {operacao.op_id for s in resultado.solucoes for operacao in s.operacoes}
+    assert resultado.motivo_parada is not MotivoParada.SEM_OPERACAO_ADMISSIVEL
+    _reavaliou_no_motor(chamadas, linha, alvos)
     assert instantaneo(tmp_path, sem=execucao.contrafactuais) == antes
 
 

@@ -43,6 +43,7 @@ if TYPE_CHECKING:
     from sustemporal.contracts.temporal import SelecaoVersao
 
 __all__ = [
+    "CADASTROS_DO_CONTEXTO",
     "InsumosIngest",
     "carregar_registro",
     "exigir_sem_deletados",
@@ -56,6 +57,7 @@ logger = logging.getLogger(__name__)
 
 PRODUCAO = "sia_pa.v1"
 COBERTURA = "cobertura.v1"
+CADASTROS_DO_CONTEXTO = ("cnes_estabelecimento.v1",)
 _UNIAO = "uniao_ingest"
 _EXCLUSOES = (
     ("registro_deletado", "deletado IS TRUE"),

@@ -11,14 +11,20 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import duckdb
+from pydantic import ValidationError
 
 from sustemporal.contracts import (
     AgregadoRegistro,
+    Aplicabilidade,
+    BaseTemporal,
     CodigoRotulo,
     EstadoAvaliacao,
+    EstadoSelecao,
+    FamiliaFonte,
     MetodoId,
     ResultadoRegistro,
     RuleEvaluation,
+    SelecaoVersao,
     TipoCanonico,
 )
 from sustemporal.duck import identificador_seguro
@@ -50,12 +56,46 @@ EXIGIDAS: dict[str, tuple[str, ...]] = {
         "nao_aplicaveis",
         "resultado",
     ),
-    "avaliacoes.v1": ("run_id", "row_id", "rule_id", "versao", "politica_id", "metodo", "estado"),
+    "avaliacoes.v1": (
+        "run_id",
+        "row_id",
+        "rule_id",
+        "versao",
+        "politica_id",
+        "metodo",
+        "estado",
+        "aplicabilidade",
+        "insumos_completos",
+        "incompatibilidade_demonstrada",
+        "motivos",
+        "evidence_ids",
+    ),
+    "selecao_versoes.v1": (
+        "run_id",
+        "row_id",
+        "rule_id",
+        "fonte",
+        "base",
+        "competencia_requerida",
+        "estado",
+        "artifact_ids",
+        "observation_ids",
+        "motivo",
+    ),
 }
 _DOMINIOS: dict[str, dict[str, type[StrEnum]]] = {
     "sia_pa_rotulos.v1": {"rotulo": CodigoRotulo},
     "agregados_registro.v1": {"resultado": ResultadoRegistro},
-    "avaliacoes.v1": {"metodo": MetodoId, "estado": EstadoAvaliacao},
+    "avaliacoes.v1": {
+        "metodo": MetodoId,
+        "estado": EstadoAvaliacao,
+        "aplicabilidade": Aplicabilidade,
+    },
+    "selecao_versoes.v1": {
+        "fonte": FamiliaFonte,
+        "base": BaseTemporal,
+        "estado": EstadoSelecao,
+    },
 }
 _FISICO = {
     TipoCanonico.TEXTO: "VARCHAR",
@@ -109,13 +149,34 @@ def _exigir_conteudo(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> Non
         ) from erro
 
 
+def _exigir_nulabilidade(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> None:
+    exigidas = EXIGIDAS[dataset.schema_id]
+    nao_anulaveis = [
+        c.nome
+        for c in carregar_esquema(dataset.schema_id).colunas
+        if c.nome in exigidas and not c.anulavel
+    ]
+    for coluna in nao_anulaveis:
+        nome = identificador_seguro(coluna, nao_anulaveis)
+        nulos = con.execute(
+            f"SELECT count(*) FROM read_parquet($c) WHERE {nome} IS NULL",  # noqa: S608
+            {"c": dataset.caminho},
+        ).fetchall()[0][0]
+        if nulos:
+            raise FalhaOperacionalErro(
+                f"valores_nulo_em_coluna_nao_anulavel dataset={dataset.dataset_id} "
+                f"coluna={coluna} nulos={nulos}"
+            )
+
+
 def _exigir_dominios(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> None:
     dominios = _DOMINIOS[dataset.schema_id]
     for coluna, enum in dominios.items():
         nome = identificador_seguro(coluna, list(dominios))
         fora = con.execute(
             f"SELECT DISTINCT {nome} FROM read_parquet($c) "  # noqa: S608
-            f"WHERE {nome} IS NULL OR NOT list_contains($validos, {nome}) ORDER BY 1 LIMIT 1",
+            f"WHERE {nome} IS NOT NULL AND NOT list_contains($validos, {nome}) "
+            "ORDER BY 1 LIMIT 1",
             {"c": dataset.caminho, "validos": [membro.value for membro in enum]},
         ).fetchall()
         if fora:
@@ -129,84 +190,138 @@ def conferir_entrada(con: duckdb.DuckDBPyConnection, dataset: DatasetRef) -> Non
 
     Raises:
         FalhaOperacionalErro: Parquet ilegível, coluna ausente, tipo físico incompatível com o
-            esquema canônico, conteúdo diferente do `DatasetRef` ou valor fora do domínio.
+            esquema canônico, conteúdo diferente do `DatasetRef`, nulo em coluna não anulável
+            ou valor fora do domínio.
     """
     fisicos = _tipos_fisicos(con, dataset)
     _exigir_leiaute(dataset, fisicos)
     _exigir_conteudo(con, dataset)
+    _exigir_nulabilidade(con, dataset)
     _exigir_dominios(con, dataset)
-
-
-_SQL_AVALIACOES = (
-    "SELECT row_id, rule_id, estado, metodo, politica_id FROM read_parquet($c) "
-    "WHERE run_id = $r ORDER BY row_id, rule_id"
-)
-_SQL_AGREGADOS = (
-    "SELECT row_id, violacoes, conformes, inconclusivas, nao_aplicaveis, resultado "
-    "FROM read_parquet($c) WHERE run_id = $r ORDER BY row_id"
-)
 
 
 def _lista(texto: object) -> tuple[str, ...]:
     return tuple(parte for parte in str(texto or "").split(";") if parte)
 
 
-def _avaliacoes_por_registro(
-    con: duckdb.DuckDBPyConnection, avaliacoes: DatasetRef, run_id: str
-) -> dict[str, list[RuleEvaluation]]:
-    """Só as colunas que `AgregadoRegistro.agregar` lê, já conferidas por `conferir_entrada`."""
-    por_registro: dict[str, list[RuleEvaluation]] = {}
-    linhas = con.execute(_SQL_AVALIACOES, {"c": avaliacoes.caminho, "r": run_id}).fetchall()
-    for row_id, rule_id, estado, metodo, politica_id in linhas:
-        campos: dict[str, Any] = {
-            "run_id": run_id,
-            "row_id": str(row_id),
-            "rule_id": str(rule_id),
-            "estado": EstadoAvaliacao(str(estado)),
-            "metodo": MetodoId(str(metodo)),
-            "politica_id": str(politica_id),
+def _linhas(
+    con: duckdb.DuckDBPyConnection, dataset: DatasetRef, run_id: str
+) -> list[dict[str, Any]]:
+    colunas = EXIGIDAS[dataset.schema_id]
+    projecao = ", ".join(identificador_seguro(c, colunas) for c in colunas)
+    cursor = con.execute(
+        f"SELECT {projecao} FROM read_parquet($c) WHERE run_id = $r "  # noqa: S608
+        "ORDER BY row_id",
+        {"c": dataset.caminho, "r": run_id},
+    )
+    return [dict(zip(colunas, linha, strict=True)) for linha in cursor.fetchall()]
+
+
+def _selecao(linha: dict[str, Any]) -> SelecaoVersao:
+    return SelecaoVersao.model_validate(
+        {
+            "fonte": linha["fonte"],
+            "base": linha["base"],
+            "competencia_requerida": linha["competencia_requerida"] or None,
+            "estado": linha["estado"],
+            "artifact_ids": _lista(linha["artifact_ids"]),
+            "observation_ids": _lista(linha["observation_ids"]),
+            "motivo": linha["motivo"] or "",
         }
-        avaliacao = RuleEvaluation.model_construct(**campos)
-        por_registro.setdefault(str(row_id), []).append(avaliacao)
+    )
+
+
+def _avaliacao(linha: dict[str, Any], selecoes: list[SelecaoVersao]) -> RuleEvaluation:
+    return RuleEvaluation.model_validate(
+        {
+            **{c: linha[c] for c in ("run_id", "row_id", "rule_id", "versao", "politica_id")},
+            "metodo": linha["metodo"],
+            "estado": linha["estado"],
+            "aplicabilidade": linha["aplicabilidade"],
+            "insumos_completos": linha["insumos_completos"],
+            "incompatibilidade_demonstrada": linha["incompatibilidade_demonstrada"],
+            "motivos": _lista(linha["motivos"]),
+            "selecoes": tuple(sorted(selecoes, key=lambda s: s.fonte)),
+            "evidence_ids": _lista(linha["evidence_ids"]),
+        }
+    )
+
+
+def _avaliacoes_validadas(
+    con: duckdb.DuckDBPyConnection, avaliacoes: DatasetRef, selecoes: DatasetRef, run_id: str
+) -> dict[str, list[RuleEvaluation]]:
+    """Cada linha de avaliação validada pelo contrato `RuleEvaluation`, com suas seleções."""
+    por_regra: dict[tuple[str, str], list[SelecaoVersao]] = {}
+    for linha in _linhas(con, selecoes, run_id):
+        chave = (str(linha["row_id"]), str(linha["rule_id"]))
+        try:
+            por_regra.setdefault(chave, []).append(_selecao(linha))
+        except ValidationError as erro:
+            raise FalhaOperacionalErro(
+                f"valores_selecao_incoerente row={chave[0]} regra={chave[1]}"
+            ) from erro
+    por_registro: dict[str, list[RuleEvaluation]] = {}
+    for linha in _linhas(con, avaliacoes, run_id):
+        chave = (str(linha["row_id"]), str(linha["rule_id"]))
+        try:
+            avaliacao = _avaliacao(linha, por_regra.get(chave, []))
+        except ValidationError as erro:
+            raise FalhaOperacionalErro(
+                f"valores_avaliacao_incoerente row={chave[0]} regra={chave[1]}"
+            ) from erro
+        por_registro.setdefault(chave[0], []).append(avaliacao)
     return por_registro
 
 
+def _agregado(linha: dict[str, Any]) -> AgregadoRegistro:
+    try:
+        return AgregadoRegistro.model_validate(
+            {
+                "run_id": linha["run_id"],
+                "row_id": linha["row_id"],
+                "violacoes": _lista(linha["violacoes"]),
+                "conformes": _lista(linha["conformes"]),
+                "inconclusivas": _lista(linha["inconclusivas"]),
+                "nao_aplicaveis": _lista(linha["nao_aplicaveis"]),
+                "resultado": linha["resultado"],
+            }
+        )
+    except ValidationError as erro:
+        raise FalhaOperacionalErro(
+            f"valores_agregado_incoerente_com_avaliacoes row={linha['row_id']} "
+            "motivo=agregado_invalido"
+        ) from erro
+
+
 def conferir_agregados(
-    con: duckdb.DuckDBPyConnection, agregados: DatasetRef, avaliacoes: DatasetRef, run_id: str
+    con: duckdb.DuckDBPyConnection,
+    agregados: DatasetRef,
+    avaliacoes: DatasetRef,
+    selecoes: DatasetRef,
+    *,
+    run_id: str,
 ) -> None:
-    """Recalcula cada agregado pelas avaliações do registro (`AgregadoRegistro.agregar`).
+    """Valida avaliações e agregados pelos contratos e recalcula cada agregado das avaliações.
 
     Raises:
-        FalhaOperacionalErro: agregado diferente do recalculado, avaliação de registro sem
-            agregado ou lote de avaliações inválido.
+        FalhaOperacionalErro: seleção, avaliação ou agregado incoerente com o contrato, agregado
+            diferente do recalculado por `AgregadoRegistro.agregar` ou avaliação sem agregado.
     """
-    por_registro = _avaliacoes_por_registro(con, avaliacoes, run_id)
-    linhas = con.execute(_SQL_AGREGADOS, {"c": agregados.caminho, "r": run_id}).fetchall()
-    for row_id, violacoes, conformes, inconclusivas, nao_aplicaveis, resultado in linhas:
-        lido = (
-            _lista(violacoes),
-            _lista(conformes),
-            _lista(inconclusivas),
-            _lista(nao_aplicaveis),
-            str(resultado),
-        )
+    por_registro = _avaliacoes_validadas(con, avaliacoes, selecoes, run_id)
+    for linha in _linhas(con, agregados, run_id):
+        lido = _agregado(linha)
         try:
             canonico = AgregadoRegistro.agregar(
-                run_id, str(row_id), por_registro.pop(str(row_id), [])
+                run_id, lido.row_id, por_registro.pop(lido.row_id, [])
             )
         except ValueError as erro:
             raise FalhaOperacionalErro(
-                f"valores_agregado_incoerente_com_avaliacoes row={row_id} erro={erro}"
+                f"valores_agregado_incoerente_com_avaliacoes row={lido.row_id} erro={erro}"
             ) from erro
-        esperado = (
-            canonico.violacoes,
-            canonico.conformes,
-            canonico.inconclusivas,
-            canonico.nao_aplicaveis,
-            canonico.resultado.value,
-        )
-        if lido != esperado:
-            raise FalhaOperacionalErro(f"valores_agregado_incoerente_com_avaliacoes row={row_id}")
+        if lido != canonico:
+            raise FalhaOperacionalErro(
+                f"valores_agregado_incoerente_com_avaliacoes row={lido.row_id}"
+            )
     if por_registro:
         raise FalhaOperacionalErro(
             f"valores_agregado_incoerente_com_avaliacoes row={sorted(por_registro)[0]} "

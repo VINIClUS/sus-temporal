@@ -5,8 +5,8 @@ uma ocorrência, sem deduplicação (reapresentações não vinculáveis continu
 exatamente uma categoria do seu estrato de resultado oficial. `d(r) = valor_apresentado(r) -
 valor_aprovado(r)` é somado em `Decimal`. O denominador soma `d(r)` das ocorrências com os dois
 valores conhecidos e `d(r) >= 0`; o numerador, o subconjunto com ao menos uma VIOLACAO numa família
-cuja governança municipal está documentada. Inconclusivos, campos insuficientes e diferenças
-negativas saem em categorias próprias, com contagem e valor. Rótulos contraditórios e totais por
+cuja governança municipal está documentada. Campos insuficientes e diferenças negativas saem em
+categorias próprias, com contagem e valor. Inconclusivos, rótulos contraditórios e totais por
 família são recortes sobrepostos, marcados como não aditivos. A razão não é perda financeira nem
 parcela de todas as perdas municipais.
 """
@@ -166,6 +166,22 @@ def _municipais(
     return municipais
 
 
+def _determinado(
+    registros: Iterable[_Registro],
+    familia_da_regra: Mapping[str, FamiliaRegra],
+    governanca_por_familia: Mapping[FamiliaRegra, Governanca] | None,
+) -> bool:
+    """Numerador determinado só com mapa que cobre toda família violada no run."""
+    if governanca_por_familia is None:
+        return False
+    violadas = {f for r in registros for f in _familias(r, familia_da_regra)}
+    cobertas = {f.value for f in governanca_por_familia}
+    faltantes = sorted(violadas - cobertas)
+    if faltantes:
+        logger.warning("valores_governanca_nao_mapeada familias=%s", ",".join(faltantes))
+    return not faltantes
+
+
 def _exigir_selecao_unica(
     con: duckdb.DuckDBPyConnection, avaliacoes: DatasetRef, run: RunResult
 ) -> None:
@@ -173,6 +189,8 @@ def _exigir_selecao_unica(
         "SELECT DISTINCT politica_id, metodo FROM read_parquet($c) WHERE run_id = $r",
         {"c": avaliacoes.caminho, "r": run.run_id},
     ).fetchall()
+    if not selecoes:
+        raise FalhaOperacionalErro(f"valores_sem_selecao_de_versoes run={run.run_id}")
     politicas = {str(politica) for politica, _ in selecoes}
     metodos = {str(metodo) for _, metodo in selecoes}
     politica_divergente = run.politica_id is not None and politicas - {run.politica_id}
@@ -415,36 +433,34 @@ def summarize_values(
 ) -> DatasetRef:
     """Soma d(r) uma vez por ocorrência, com categorias de exclusão explícitas.
 
-    Sem `governanca_por_familia`, numerador e razão ficam indeterminados (nulos) e as
-    incompatibilidades ficam em categoria própria. Com o mapa, só famílias marcadas
-    `MUNICIPAL_DOCUMENTADA` entram no numerador; famílias de fatos do atendimento (CID, idade,
-    sexo; fora do catálogo de operações, plano §6) não podem ser marcadas.
+    Numerador e razão ficam nulos sem `governanca_por_familia` ou com mapa que não cobre toda
+    família violada; CID, idade e sexo não podem ter governança municipal (plano §6).
 
     Raises:
-        FalhaOperacionalErro: saída ausente ou repetida, Parquet ilegível ou divergente, leiaute
-            incompatível, rótulos que não cobrem a execução, ocorrência repetida ou agregado
-            incoerente com as violações, resultado fora de `ResultadoRegistro`, catálogo de
-            regras ou versão de regra divergente do run (`catalogo_regras_divergente`, nunca
-            recarga silenciosa do catálogo atual).
+        FalhaOperacionalErro: entrada ilegível, divergente, incompatível com o esquema ou com o
+            contrato (`values_entrada.py`), run sem seleção de versões ou com catálogo de regras
+            divergente (`catalogo_regras_divergente`), rótulos que não cobrem a execução.
         ValueError: execução não concluída, mais de uma seleção de versões ou divergente do run,
-            rótulos de outro dataset, execução sem catálogo de regras, regra fora do catálogo,
-            família de atendimento com governança municipal, origem de dados divergente ou
-            valor fora da escala.
+            rótulos de outro dataset, run sem catálogo de regras, regra fora do catálogo,
+            governança municipal em família de atendimento, origem divergente ou valor fora da
+            escala.
     """
     _exigir_execucao(run, labels)
     agregados = _saida(run, "agregados_registro.v1")
     avaliacoes = _saida(run, "avaliacoes.v1")
+    selecoes = _saida(run, "selecao_versoes.v1")
     municipais = _municipais(governanca_por_familia)
     with closing(conectar(RuntimeConfig(duckdb_threads=1))) as con, localcontext() as contexto:
         contexto.prec = _PRECISAO
-        for entrada in (labels, agregados, avaliacoes):
+        for entrada in (labels, agregados, avaliacoes, selecoes):
             conferir_entrada(con, entrada)
-        conferir_agregados(con, agregados, avaliacoes, run.run_id)
         _exigir_selecao_unica(con, avaliacoes, run)
+        conferir_agregados(con, agregados, avaliacoes, selecoes, run_id=run.run_id)
         familia_da_regra = _familias_da_execucao(con, avaliacoes, run, regras)
         registros = _registros(con, agregados, labels, run.run_id)
         acumulados = _acumular(registros, familia_da_regra, municipais or set())
-        linhas = _linhas(run.run_id, acumulados, determinado=municipais is not None)
+        determinado = _determinado(registros, familia_da_regra, governanca_por_familia)
+        linhas = _linhas(run.run_id, acumulados, determinado=determinado)
         ref = _gravar(con, linhas, out, (labels, agregados))
     logger.info(
         "valores_p3 run=%s ocorrencias=%d linhas=%d dataset=%s",

@@ -61,6 +61,8 @@ A governança vem do catálogo de operações do T09 (`Governanca`: `MUNICIPAL_D
   `INCOMPATIBILIDADE_SEM_GOVERNANCA_DOCUMENTADA`, com contagem e valor.
 - Com o mapa, só famílias `MUNICIPAL_DOCUMENTADA` entram no numerador; `DESCONHECIDA` e
   `FORA_DA_GOVERNANCA_MUNICIPAL` não entram (numerador zero é então um valor determinado).
+- Mapa que não cobre toda família com violação no run deixa numerador e razão indeterminados
+  (nulos): família ausente do mapa nunca é tratada como não municipal.
 - CID, idade e sexo são fatos do atendimento, fora do catálogo de operações (plano §6), e não
   podem ser marcados como governança municipal.
 
@@ -87,17 +89,23 @@ contagem real. O esquema está declarado em `evaluation/values.py` até ser prom
 `catalog/schemas/` pelo orquestrador.
 
 ## Falhas
-Antes de qualquer agregação, cada entrada (rótulos, `agregados_registro.v1`, `avaliacoes.v1`)
-passa por uma única conferência (`evaluation/values_entrada.py::conferir_entrada`): leitura do
-Parquet, colunas exigidas, tipo físico de cada coluna exigida contra o esquema canônico do
-catálogo, conteúdo (linhas e hash lógico) contra o `DatasetRef` e domínio de toda coluna de enum
-consumida (`rotulo` em `CodigoRotulo`, `resultado` em `ResultadoRegistro`, `metodo` em `MetodoId`,
-`estado` em `EstadoAvaliacao`). Qualquer divergência, assim como rótulo ausente para registro
-avaliado ou ocorrência repetida no run, é `FalhaOperacionalErro` (nunca zero, nunca categoria,
-nunca erro cru do DuckDB). Cada agregado de `agregados_registro.v1` é recalculado a partir das
-linhas de `avaliacoes.v1` do mesmo registro pela definição canônica
-(`AgregadoRegistro.agregar`); divergência é `valores_agregado_incoerente_com_avaliacoes`.
-Execução não concluída é recusada.
+Antes de qualquer agregação, cada entrada (rótulos, `agregados_registro.v1`, `avaliacoes.v1`,
+`selecao_versoes.v1`) passa por uma única conferência
+(`evaluation/values_entrada.py::conferir_entrada`): leitura do Parquet, colunas exigidas, tipo
+físico de cada coluna exigida contra o esquema canônico do catálogo, conteúdo (linhas e hash
+lógico) contra o `DatasetRef`, nulabilidade do esquema (NULL em coluna não anulável é falha, nunca
+texto vazio) e domínio de toda coluna de enum consumida (`rotulo`, `resultado`, `metodo`,
+`estado`, `aplicabilidade`, `fonte`, `base`).
+
+Em seguida, `conferir_agregados` valida cada linha de seleção (`SelecaoVersao`), de avaliação
+(`RuleEvaluation`, com sua coerência de estado e sustentação por seleções e evidências) e de
+agregado (`AgregadoRegistro`) pelos contratos canônicos, e recalcula cada agregado das avaliações
+do registro (`AgregadoRegistro.agregar`). Run sem nenhuma seleção de versões (avaliações vazias) é
+falha (`valores_sem_selecao_de_versoes`), nunca denominador publicado.
+
+Qualquer divergência, assim como rótulo ausente para registro avaliado ou ocorrência repetida no
+run, é `FalhaOperacionalErro` (nunca zero, nunca categoria, nunca erro cru do DuckDB). Execução não
+concluída é recusada.
 
 ## Desempenho (`evaluation/performance.py`)
 `medir(Etapa, repeticoes=, cache=)`:

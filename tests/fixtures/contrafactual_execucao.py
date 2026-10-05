@@ -5,8 +5,8 @@
 - borda de 2018: atendimento em 201712 e processamento em 201801, com política de atendimento;
   existe versão do CNES PF de 201801 que resolveria o par se fosse usada (mês vizinho).
 
-A validação não grava os insumos na pasta da execução; a fixture grava `entrada_validacao.json`
-ao lado do `run_result.json`, como a CLI do contrafactual espera.
+O `validate` grava `entrada_validacao.json` ao lado do `run_result.json`; a fixture nunca escreve
+na pasta da execução, então o contrafactual lê o arquivo que o próprio `validate` gravou.
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ from tests.fixtures.regras_exemplos import ART_CNES, ART_SIA, COMPETENCIA, cenar
 if TYPE_CHECKING:
     from pathlib import Path
 
-__all__ = ["ARQUIVO_ENTRADA", "Execucao", "executar_validacao_sintetica"]
+__all__ = ["ARQUIVO_ENTRADA", "Execucao", "entrada_sintetica", "executar_validacao_sintetica"]
 
 ARQUIVO_ENTRADA = "entrada_validacao.json"
 _PF = "cnes_estab_cbo.v1"
@@ -78,7 +78,7 @@ def _pf() -> tuple[dict[str, object], ...]:
     )
 
 
-def _entrada(raiz: Path) -> EntradaValidacao:
+def entrada_sintetica(raiz: Path) -> EntradaValidacao:
     cenario = cenario_base(*_registros())
     integridade = dict(cenario.integridade) | dict.fromkeys(
         (ART_ST, _ART_PF_2018), EstadoIntegridade.OK
@@ -101,8 +101,8 @@ def _entrada(raiz: Path) -> EntradaValidacao:
 
 
 def executar_validacao_sintetica(raiz: Path) -> Execucao:
-    """Roda `sustemporal validate --policy atendimento` e grava a entrada na pasta da execução."""
-    entrada = _entrada(raiz)
+    """Roda `executar_validate` (`--policy atendimento`); a entrada é a que o `validate` grava."""
+    entrada = entrada_sintetica(raiz)
     caminho = raiz / "entrada.json"
     caminho.write_text(entrada.model_dump_json(), encoding="utf-8")
     config = RunConfig(versao="1", runtime=RuntimeConfig(raiz_saidas=str(raiz / "saidas")))
@@ -110,7 +110,6 @@ def executar_validacao_sintetica(raiz: Path) -> Execucao:
     args = argparse.Namespace(policy="atendimento", entrada=caminho, saida=runs)
     assert executar_validate(args, config) == 0
     (pasta,) = list(runs.iterdir())
-    (pasta / ARQUIVO_ENTRADA).write_text(entrada.model_dump_json(), encoding="utf-8")
     return Execucao(
         config=config,
         raiz=raiz,

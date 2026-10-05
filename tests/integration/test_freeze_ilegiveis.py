@@ -10,7 +10,9 @@ Nenhum resultado empírico.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import errno
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from tests.fixtures.protocolo_avaliacao import run_agregados
@@ -34,8 +36,6 @@ from sustemporal.errors import ExitCode
 from sustemporal.evaluation.freeze_registro import ler_registro
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from tests.fixtures.protocolo_dados import Cenario
 
     from sustemporal.contracts import RunResult
@@ -108,6 +108,33 @@ def test_cli_exploratorio_ignora_execucao_ilegivel_e_avalia_as_validas(
     (entrada,) = ler_registro(tmp_path / "frozen" / REGISTRO)
     assert entrada["runs"] == [valida.run_id]
     assert f"{ILEGIVEL} run=run_estragada motivo={motivo}" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("operacao", ["is_file", "read_text"])
+def test_cli_exploratorio_ignora_execucao_que_o_sistema_nega_abrir(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    operacao: str,
+) -> None:
+    cenario, freeze = congelar_pela_cli(tmp_path, monkeypatch)
+    valida = _execucao_exploratoria(
+        cenario, tmp_path, load_config(config_yaml(tmp_path)).config_hash
+    )
+    gravar_runs(tmp_path, [valida])
+    _estragada(tmp_path, "run_result.json", b"{}")
+    original = getattr(Path, operacao)
+
+    def negada(self: Path, *argumentos: Any, **opcoes: Any) -> Any:
+        if self.parent.name == "run_estragada":
+            raise PermissionError(errno.EACCES, "Permission denied", str(self))
+        return original(self, *argumentos, **opcoes)
+
+    monkeypatch.setattr(Path, operacao, negada)
+    assert _avaliar_exploratorio(tmp_path, freeze) == ExitCode.OK
+    (entrada,) = ler_registro(tmp_path / "frozen" / REGISTRO)
+    assert entrada["runs"] == [valida.run_id]
+    assert f"{ILEGIVEL} run=run_estragada motivo=PermissionError" in capsys.readouterr().err
 
 
 def test_cli_confirmatorio_ignora_execucao_ilegivel_de_outro_protocolo(

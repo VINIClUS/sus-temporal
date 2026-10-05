@@ -67,7 +67,37 @@ AUSENTES_DE_PROPOSITO = {
     "docs/spec/esboco_original.pdf": "esboço PENDENTE em docs/spec/manifest.yaml",
     "tests/integration/test_reproduce_offline.py": "entregue na parte B da T14",
 }
+_SEM_NEGACAO = r"(?:(?!\bnao\b|\bnunca\b|\bjamais\b|\bsem\b)[^.;]){0,80}?"
+_AGENTE = (
+    r"\b(?:alteracao|alteracoes|mudanca|mudancas|ajuste|ajustes|correcao|correcoes|"
+    r"atualizacao|atualizacoes|operacao|operacoes)\b"
+)
+_EFEITO_ATIVO = (
+    r"\b(?:modifica|modificam|modificou|modificaram|altera|alteram|alterou|alteraram|"
+    r"muda|mudam|mudou|mudaram|reescreve|reescrevem|reescreveu|reescreveram|reabre|reabrem|"
+    r"reabriu|reabriram|corrige|corrigem|corrigiu|corrigiram|retifica|retificam|retificou|"
+    r"retroage|retroagem|retroagiu)\b"
+)
+_COMPETENCIA_ENCERRADA = r"\bcompetencias?\s+(?:ja\s+)?(?:encerrad|fechad)\w*"
+_EFEITO_PASSIVO = (
+    r"\b(?:e|sao|foi|foram|sera|serao)\s+"
+    r"(?:modificad|alterad|reescrit|reabert|corrigid|retificad)\w*"
+)
 PROIBIDAS = {
+    "altera competência encerrada": (
+        _AGENTE
+        + _SEM_NEGACAO
+        + _EFEITO_ATIVO
+        + r"[^.;]{0,60}?"
+        + _COMPETENCIA_ENCERRADA
+        + "|"
+        + _COMPETENCIA_ENCERRADA
+        + _SEM_NEGACAO
+        + _EFEITO_PASSIVO
+        + r"\s+(?:pela|pelas|por)\b"
+        + _SEM_NEGACAO
+        + _AGENTE
+    ),
     "garante aprovação": r"garant\w*\s+(?:a\s+|de\s+)?aprovacao|aprovacao\s+garantid[ao]s?",
     "assegura aprovação": r"assegur\w*\s+(?:a\s+|de\s+)?aprovacao",
     "perda financeira": r"perdas?\s+financeiras?",

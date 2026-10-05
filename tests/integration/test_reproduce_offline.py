@@ -405,6 +405,7 @@ def test_reproduce_com_original_do_sia_pa_ausente_e_inconclusivo_e_nao_divergent
     }
     detalhe = "originais_indisponiveis artefatos=1 estados=ARQUIVOAUSENTE"
     assert {i["detalhe"] for i in feita.itens.values()} == {detalhe}
+    assert "ingest_sem_tabela artefatos=1 estados=ARQUIVOAUSENTE" in feita.conteudo["observacoes"]
 
 
 def test_reproduce_recusa_destino_ja_usado(fluxo: Fluxo, reproducao: Reproducao) -> None:

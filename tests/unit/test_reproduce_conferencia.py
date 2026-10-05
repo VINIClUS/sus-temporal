@@ -18,6 +18,7 @@ from sustemporal.reporting.reproduce_comparacao import (
     comparar_originais,
     comparar_split,
     observacoes_do_ambiente,
+    observacoes_do_ingest,
     rodada_registrada,
 )
 from sustemporal.reporting.reproduce_etapas import estados_do_ingest
@@ -295,3 +296,23 @@ def test_artefato_com_dois_estados_de_falha_guarda_o_primeiro(tmp_path: Path) ->
         ],
     )
     assert estados_do_ingest(tmp_path) == {"art_x": "QUARENTENA_LEIAUTE"}
+
+
+@pytest.mark.parametrize(
+    "estado",
+    ["NORMALIZADO", "FAMILIA_RESERVADA", "FAMILIARESERVADA", "FORA_DO_RECORTE", "FORA_DO_CORTE"],
+)
+def test_estado_esperado_do_ingest_nao_e_observacao(estado: str) -> None:
+    assert observacoes_do_ingest({A1: estado}) == []
+
+
+def test_ingest_refeito_com_falha_diz_quantos_artefatos_e_em_que_estados() -> None:
+    estados = {
+        A1: "NORMALIZADO",
+        A2: "ARQUIVOAUSENTE",
+        A3: "QUARENTENA_LEIAUTE",
+        "art_4": "ARQUIVOAUSENTE",
+    }
+    assert observacoes_do_ingest(estados) == [
+        "ingest_sem_tabela artefatos=3 estados=ARQUIVOAUSENTE,QUARENTENA_LEIAUTE"
+    ]

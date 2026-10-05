@@ -50,6 +50,7 @@ __all__ = [
     "exigir_conferido",
     "identidade_do_arquivo",
     "observacoes_do_ambiente",
+    "observacoes_do_ingest",
     "resultado_geral",
     "rodada_registrada",
 ]
@@ -349,6 +350,11 @@ def observacoes_do_ambiente(
     if diferentes:
         observacoes.append(f"pacotes_diferentes_do_congelado pacotes={','.join(diferentes)}")
     return observacoes
+
+
+def observacoes_do_ingest(estados: Mapping[str, str]) -> list[str]:
+    """O ingest refeito deixou artefatos sem tabela (arquivo ausente, quarentena ou falha)."""
+    raise NotImplementedError
 
 
 def rodada_registrada(

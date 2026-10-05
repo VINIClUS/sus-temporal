@@ -22,6 +22,7 @@ from tests.fixtures.protocolo_cli import (
 from tests.fixtures.protocolo_dados import cenario_baseline
 
 from sustemporal.cli import main
+from sustemporal.contracts.temporal import MetodoId
 from sustemporal.errors import ExitCode
 from sustemporal.evaluation.freeze_registro import ler_registro
 from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
@@ -91,6 +92,26 @@ def test_cli_recusa_execucao_com_run_json_e_run_result_json_no_mesmo_diretorio(
         capsys.readouterr().err
     )
     assert not (tmp_path / "frozen" / REGISTRO).exists()
+
+
+def test_cli_recusa_o_confirmatorio_sem_execucao_de_b_proc_e_nao_registra_rodada(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cenario, freeze = congelar_pela_cli(tmp_path, monkeypatch)
+    runs = runs_da_cli(tmp_path, cenario, freeze)
+    b_proc = [run for run in runs if run.metodo is MetodoId.B_PROC]
+    gravar_runs(tmp_path, [run for run in runs if run not in b_proc])
+    config = config_confirmatoria_yaml(tmp_path, freeze)
+    argumentos = ["evaluate", "--config", str(config), "--freeze", freeze]
+    assert main(argumentos) == ExitCode.PORTAO_RECUSADO
+    esperado = "avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias metodos=B_PROC"
+    assert esperado in capsys.readouterr().err
+    assert not (tmp_path / "frozen" / REGISTRO).exists()
+    assert not (tmp_path / "saidas" / "avaliacao").exists()
+    gravar_runs(tmp_path, b_proc)
+    assert main(argumentos) == ExitCode.OK
+    (entrada,) = ler_registro(tmp_path / "frozen" / REGISTRO)
+    assert len(entrada["runs"]) == len(runs)
 
 
 def test_cli_freeze_com_catalogo_de_regras_ilegivel_sai_como_config_invalida(

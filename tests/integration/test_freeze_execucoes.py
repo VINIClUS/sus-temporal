@@ -34,6 +34,7 @@ from sustemporal.contracts.experiment import (
 from sustemporal.errors import ConfigInvalida, PortaoRecusado
 from sustemporal.evaluation.baselines import fit_baseline
 from sustemporal.evaluation.features import FEATURES_PADRAO
+from sustemporal.evaluation.freeze import verificar_execucao
 from sustemporal.evaluation.metrics import evaluate_runs
 from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
 from sustemporal.temporal.politicas import carregar_politica
@@ -154,6 +155,36 @@ def test_baseline_ml_confere_codigo_mas_nao_exige_catalogo_nem_politica(
         _avaliar(confirmatorio, tmp_path / "av", runs)
 
 
+@pytest.mark.parametrize(
+    ("faltam", "metodos"),
+    [
+        ([B_PROC], "B_PROC"),
+        ([M_TEMP], "M_TEMP"),
+        ([B_ATEND, B_PROC], "B_ATEND,B_PROC"),
+        ([M_TEMP, B_ATEND, B_PROC], "B_ATEND,B_PROC,M_TEMP"),
+    ],
+)
+def test_confirmatorio_sem_execucao_de_metodo_das_comparacoes_primarias_e_recusado(
+    tmp_path: Path, confirmatorio: Confirmatorio, faltam: list[int], metodos: str
+) -> None:
+    runs = [run for indice, run in enumerate(confirmatorio.runs) if indice not in faltam]
+    freeze = confirmatorio.manifesto.freeze_id
+    mensagem = (
+        f"avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias metodos={metodos} "
+        f"freeze={freeze}"
+    )
+    with pytest.raises(PortaoRecusado, match=f"^{re.escape(mensagem)}$"):
+        _avaliar(confirmatorio, tmp_path / "av", runs)
+    assert not (tmp_path / "av").exists()
+
+
+def test_confirmatorio_nao_exige_execucao_dos_metodos_secundarios(
+    tmp_path: Path, confirmatorio: Confirmatorio
+) -> None:
+    relatorio = _avaliar(confirmatorio, tmp_path / "av", confirmatorio.runs[:B_ML])
+    assert len(relatorio.runs) == B_ML
+
+
 @pytest.mark.parametrize("tipo", [TipoExecucao.PILOTO, TipoExecucao.AVALIACAO])
 def test_so_o_baseline_dispensa_catalogo_e_politica(
     tmp_path: Path, confirmatorio: Confirmatorio, tipo: TipoExecucao
@@ -182,8 +213,7 @@ def test_baseline_ajustado_no_confirmatorio_passa_na_conferencia_do_manifesto(
         codigo=CODIGO_LIMPO,
     )
     assert run.tipo is TipoExecucao.BASELINE_ML
-    relatorio = _avaliar(conf, tmp_path / "av", [run], config=config)
-    assert relatorio.runs == (run.run_id,)
+    verificar_execucao(conf.manifesto, run, config=config)
 
 
 def test_divergencia_acusa_todos_os_campos_na_ordem_do_protocolo(
@@ -271,8 +301,7 @@ def test_manifesto_sem_catalogo_e_politicas_recusa_validacao_mas_nao_baseline(
     runs = [conf.runs[M_TEMP].model_copy(update=sem_identidade), *conf.runs[1:]]
     with pytest.raises(PortaoRecusado, match="campo=catalogo,politica"):
         _avaliar(conf, tmp_path / "av", runs)
-    relatorio = _avaliar(conf, tmp_path / "av", [conf.runs[B_ML]])
-    assert relatorio.runs == (conf.runs[B_ML].run_id,)
+    verificar_execucao(conf.manifesto, conf.runs[B_ML], config=conf.config)
 
 
 def test_congelamento_registra_a_identidade_do_catalogo_de_regras_e_das_politicas(

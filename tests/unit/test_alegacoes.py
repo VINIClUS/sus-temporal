@@ -419,10 +419,38 @@ def test_linguagem_proibida_e_detectada_com_acento_caixa_e_quebra_de_linha(frase
 @pytest.mark.parametrize(
     "frase",
     [
+        "A alteração atual modifica a competência encerrada.",
+        "A alteração feita hoje altera o resultado de competências já encerradas.",
+        "O ajuste no cadastro atual corrige a competência fechada.",
+        "As alterações atuais reescrevem competências encerradas.",
+        "A mudança no CNES reabriu a competência encerrada de 2019.",
+        "A operação modificou, retroativamente, a competência já encerrada.",
+        "A competência encerrada é modificada pela alteração atual.",
+        "Competências fechadas foram alteradas pela correção do cadastro.",
+        "A alteração\natual  MODIFICA a competência\nENCERRADA.",
+    ],
+)
+def test_afirmar_que_alteracao_atual_modifica_competencia_encerrada_e_detectado(
+    frase: str,
+) -> None:
+    assert termos_proibidos(frase) == ["altera competência encerrada"]
+
+
+@pytest.mark.parametrize(
+    "frase",
+    [
         "A explicação não atribui o motivo registrado pelo sistema oficial.",
         "Valor de tabela não aprovado não equivale a dinheiro perdido.",
         "Nenhum teste de software é confirmação empírica.",
         "A aprovação do registro continua dependendo do processamento.",
+        "Uma alteração atual não modifica a competência encerrada.",
+        "A alteração atual nunca altera competência já encerrada.",
+        "Não assegura que uma alteração atual modificaria uma competência encerrada.",
+        "Contrafactual lido como se modificasse uma competência encerrada não é evidência.",
+        "A alteração atual não pode modificar competência fechada.",
+        "A republicação da fonte modifica a competência encerrada no portal oficial.",
+        "A alteração atual modifica o cadastro; a competência encerrada fica como estava.",
+        "Competência encerrada: a alteração hipotética é hipótese passada.",
     ],
 )
 def test_redacao_alternativa_nao_e_confundida_com_linguagem_proibida(frase: str) -> None:

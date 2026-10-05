@@ -245,7 +245,13 @@ de todo conjunto) vêm antes de gravar qualquer arquivo:
   dão outra execução mesmo quando a produção filtrada é igual;
 - auxiliares: por esquema exigido pelas regras, uma relação derivada com as linhas de todos os
   artefatos daquele esquema, cada linha com o seu `artifact_id`; nada é deduplicado entre artefatos,
-  porque a seleção decide quais versões valem e a avaliação junta por `artifact_id`;
+  porque a seleção decide quais versões valem e a avaliação junta por `artifact_id`. Além deles, os
+  cadastros do contexto (`rules/ingest.py::CADASTROS_DO_CONTEXTO`, hoje o CNES ST,
+  `cnes_estabelecimento.v1`): nenhuma regra os lê, mas as precondições das operações do
+  `counterfactual` sim. Se a pasta os traz, viram a mesma relação derivada, conferida como os
+  demais antes de gravar (divergente do `DatasetRef` → saída 2), e entram nos auxiliares da
+  execução (`RunResult.entradas`, `entrada_validacao.json` e `run_id`), sem mudar o resultado das
+  regras; a cobertura recalculada não os usa. Pasta sem CNES ST: nada muda, nem o `run_id`;
 - cobertura: no máximo um `cobertura.v1` (mais de um → saída 2); nenhum → matriz não fornecida.
   Com um, a cobertura avaliada é recalculada por `ingest.coverage.build_coverage` sobre a
   produção territorial e os conjuntos auxiliares originais da ingestão (com `reconciliacao`, então

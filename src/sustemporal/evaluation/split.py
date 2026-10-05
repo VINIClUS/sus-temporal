@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -32,12 +33,13 @@ from sustemporal.yamlio import carregar_yaml
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-__all__ = ["CONFIG_PARTICOES", "SCHEMA_ENTRADA", "build_splits", "carregar_spec"]
+__all__ = ["CONFIG_PARTICOES", "SCHEMA_ENTRADA", "SUFIXO_ENTRADAS", "build_splits", "carregar_spec"]
 
 logger = logging.getLogger(__name__)
 
 CONFIG_PARTICOES = Path("config/splits.yaml")
 SCHEMA_ENTRADA = "sia_pa.v1"
+SUFIXO_ENTRADAS = ".entradas.json"
 _TABELA = "populacao_split"
 _LIMITES_FIXOS = (
     (
@@ -286,8 +288,15 @@ def _particionar(
     return exclusoes, agrupadas, particoes
 
 
-def _gravar_manifesto(manifesto: SplitManifest, out: Path) -> SplitManifest:
+def _gravar_manifesto(
+    manifesto: SplitManifest, out: Path, dataset: DatasetRef, rotulos: DatasetRef | None
+) -> SplitManifest:
     (out / f"{manifesto.split_id}.json").write_text(manifesto.model_dump_json(indent=2))
+    entradas = {
+        "dataset": dataset.model_dump(mode="json"),
+        "rotulos": rotulos.model_dump(mode="json") if rotulos is not None else None,
+    }
+    (out / f"{manifesto.split_id}{SUFIXO_ENTRADAS}").write_text(json.dumps(entradas, indent=2))
     logger.info(
         "split_construido split=%s linhas=%s exclusoes=%s",
         manifesto.split_id,
@@ -346,4 +355,4 @@ def build_splits(
         limites=_limites(cohort, agrupadas),
         rotulos_por_particao=particionar_rotulos(rotulos, particoes, out) if rotulos else None,
     )
-    return _gravar_manifesto(manifesto, out)
+    return _gravar_manifesto(manifesto, out, dataset, rotulos)

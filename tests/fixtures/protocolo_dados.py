@@ -85,7 +85,7 @@ class LinhaPa:
         return {**base, **self.extras}
 
 
-def _gravar(
+def gravar_tabela(
     linhas: list[dict[str, object]],
     schema_id: str,
     destino: Path,
@@ -126,7 +126,7 @@ def gravar_sia_pa(
 ) -> DatasetRef:
     artefatos = tuple(sorted({linha.artifact_id for linha in linhas}))
     valores = [linha.valores() for linha in linhas]
-    return _gravar(valores, "sia_pa.v1", destino, artifact_ids=artefatos, origem=origem)
+    return gravar_tabela(valores, "sia_pa.v1", destino, artifact_ids=artefatos, origem=origem)
 
 
 def fontes_identidade(linhas: list[LinhaPa]) -> dict[str, str]:
@@ -144,7 +144,9 @@ def gravar_rotulos(
         for row_id, rotulo in sorted(rotulos.items())
     ]
     artefatos = tuple(sorted({row_id.split("#")[0] for row_id in rotulos}))
-    return _gravar(linhas, "sia_pa_rotulos.v1", destino, artifact_ids=artefatos, origem=origem)
+    return gravar_tabela(
+        linhas, "sia_pa_rotulos.v1", destino, artifact_ids=artefatos, origem=origem
+    )
 
 
 def gravar_territorio(destino: Path) -> Path:
@@ -201,6 +203,7 @@ class Cenario:
     config: RunConfig
     linhas: tuple[LinhaPa, ...]
     rotulo_por_row: dict[str, str]
+    dataset: DatasetRef
 
 
 _INVERSO = {"NAO_APROVADO": "APROVADO_TOTAL", "APROVADO_TOTAL": "NAO_APROVADO"}
@@ -259,4 +262,4 @@ def cenario_baseline(
         rotulos=rotulos,
     )
     config = RunConfig.model_validate({"versao": "1", "origem_dados": "SINTETICO"})
-    return Cenario(split, rotulos, config, linhas, {linha.row_id: r for linha, r in pares})
+    return Cenario(split, rotulos, config, linhas, {linha.row_id: r for linha, r in pares}, dataset)

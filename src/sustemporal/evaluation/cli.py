@@ -38,7 +38,7 @@ from sustemporal.evaluation.freeze_registro import exigir_rodada_permitida, regi
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 from sustemporal.evaluation.split import SUFIXO_ENTRADAS
 from sustemporal.gates import DIR_DECISOES, exigir_portao
-from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
+from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.insumos import politica_padrao
 from sustemporal.runtime_info import versao_codigo
 from sustemporal.temporal.politicas import DIRETORIO_POLITICAS, carregar_politica
@@ -78,7 +78,7 @@ def _split_e_entradas(raiz: Path) -> tuple[SplitManifest, DatasetRef, DatasetRef
 def _regras_do_catalogo() -> list[RuleSpec]:
     try:
         return carregar_regras()
-    except CatalogoInvalido as erro:
+    except (OSError, ValueError) as erro:
         raise ConfigInvalida(f"freeze_catalogo_de_regras_invalido erro={erro}") from erro
 
 

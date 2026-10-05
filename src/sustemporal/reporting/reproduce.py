@@ -1,26 +1,349 @@
-"""Reprodução offline a partir de originais locais (T14)."""
+"""Reprodução offline de um congelamento a partir dos originais locais (T14).
+
+`sustemporal reproduce --freeze FREEZE_ID --offline` resolve o manifesto exato do congelamento e
+refaz, em um diretório novo, o fluxo pequeno: ingestão dos originais do manifesto de aquisição,
+união e rótulos do SIA-PA, partições do split, as três políticas sobre a partição avaliada e sobre
+o TESTE e a avaliação. Depois compara com o congelado e com a rodada registrada por hash lógico,
+contagens e métricas (`reproduce_comparacao`). Nada é lido da rede e nada do original é alterado.
+
+Só a rodada exploratória é reproduzida: o confirmatório exige dados reais e o G2 humano, e a
+conferência do manifesto compara a config inteira, inclusive os caminhos de `runtime` (pendência
+T14-9). O que a reprodução relata fica em `<saida>/reproducao.json`.
+"""
 
 from __future__ import annotations
 
+import argparse
+import json
+import logging
+from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    import argparse
-    from pathlib import Path
+from sustemporal.contracts.evaluation import EvaluationReport
+from sustemporal.contracts.experiment import ModoExecucao, Particao
+from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro, RedeProibida
+from sustemporal.evaluation.cli import REGISTRO
+from sustemporal.evaluation.freeze import carregar_freeze, hash_protocolo
+from sustemporal.evaluation.freeze_registro import ler_registro
+from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
+from sustemporal.execucoes import ExecucaoNaoResolvida, ler_execucao, raiz_execucoes
+from sustemporal.ingest import cli as ingest_cli
+from sustemporal.reporting.reproduce_comparacao import (
+    Comparacao,
+    Situacao,
+    comparar_insumos,
+    comparar_metricas,
+    comparar_referencia,
+    comparar_saida,
+    divergentes,
+)
+from sustemporal.reporting.reproduce_etapas import (
+    Derivado,
+    competencias_da_particao,
+    derivar_protocolo,
+    janela_do_ingest,
+    validar_janela,
+)
+from sustemporal.reporting.reproduce_rede import sem_rede
+from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
+from sustemporal.runtime_info import ambiente, versao_codigo
 
-    from sustemporal.contracts import EvaluationReport, RunConfig
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from sustemporal.contracts import FreezeManifest, RunConfig
+    from sustemporal.contracts.experiment import RunResult
+    from sustemporal.contracts.temporal import MetodoId
+
+__all__ = ["configurar_parser", "executar_reproduce", "reproduce"]
+
+logger = logging.getLogger(__name__)
+
+DIRETORIO_REPRODUCAO = "reproducao"
+RELATORIO = "reproducao.json"
+
+
+@dataclass(frozen=True)
+class Original:
+    """Rodada registrada do congelamento: o relatório e as execuções, se ainda existem."""
+
+    relatorio: EvaluationReport | None
+    execucoes: Mapping[MetodoId, RunResult]
+
+
+@dataclass(frozen=True)
+class Refeito:
+    derivado: Derivado
+    avaliadas: Mapping[MetodoId, RunResult]
+    teste: Mapping[MetodoId, RunResult]
+    relatorio: EvaluationReport
 
 
 def configurar_parser(parser: argparse.ArgumentParser) -> None:
-    """Acrescenta `--saida` ao subcomando `reproduce`."""
-    raise NotImplementedError
+    parser.add_argument("--saida", type=Path, default=None)
+
+
+def _exigir_reprodutivel(config: RunConfig) -> str:
+    if config.freeze_id is None:
+        raise ConfigInvalida("reproduce_exige_freeze_id")
+    if config.runtime.rede_permitida:
+        raise RedeProibida("reproduce_com_rede_permitida")
+    if config.modo is ModoExecucao.CONFIRMATORIO:
+        raise ConfigInvalida(f"reproduce_confirmatorio_nao_suportado freeze={config.freeze_id}")
+    return str(config.freeze_id)
+
+
+def _exigir_destino_novo(out: Path) -> None:
+    if out.exists() and any(out.iterdir()):
+        raise ConfigInvalida(f"reproduce_destino_nao_vazio caminho={out}")
+    out.mkdir(parents=True, exist_ok=True)
+
+
+def _config_em(config: RunConfig, out: Path) -> RunConfig:
+    runtime = config.runtime.model_copy(update={"raiz_saidas": str(out)})
+    return config.model_copy(update={"runtime": runtime})
+
+
+def _da_janela(config: RunConfig, competencias: tuple[str, ...]) -> RunConfig:
+    if config.piloto is None:
+        raise ConfigInvalida("reproduce_exige_piloto")
+    piloto = config.piloto.model_copy(update={"competencias_processamento": competencias})
+    return config.model_copy(update={"piloto": piloto})
+
+
+def _ingerir(config: RunConfig) -> Path:
+    ingest_cli.executar_ingest(argparse.Namespace(comando="reproduce"), config)
+    pastas = sorted(
+        p for p in (Path(config.runtime.raiz_saidas) / "ingest").iterdir() if p.is_dir()
+    )
+    if not pastas:
+        raise FalhaOperacionalErro("reproduce_ingest_sem_saida")
+    return pastas[-1]
+
+
+def _validar_particao(
+    config: RunConfig, pasta: Path, derivado: Derivado, particao: Particao
+) -> Mapping[MetodoId, RunResult]:
+    refs = derivado.split.particoes or {}
+    competencias = competencias_da_particao(refs[particao])
+    da_janela = _da_janela(config, competencias)
+    destino = Path(config.runtime.raiz_saidas) / "janelas" / particao.value.lower()
+    janela = janela_do_ingest(da_janela, pasta, destino, competencias)
+    return validar_janela(da_janela, janela)
+
+
+def _avaliar(
+    config: RunConfig,
+    manifesto: FreezeManifest,
+    derivado: Derivado,
+    execucoes: Mapping[MetodoId, RunResult],
+) -> EvaluationReport:
+    split = derivado.split
+    rotulos = (split.rotulos_por_particao or {})[Particao.CALIBRACAO]
+    destino = Path(config.runtime.raiz_saidas) / "avaliacao" / manifesto.freeze_id
+    return evaluate_runs(
+        list(execucoes.values()),
+        rotulos,
+        split,
+        destino,
+        bootstrap=manifesto.bootstrap,
+        congelamento=ReferenciaCongelamento(manifesto.freeze_id),
+    )
+
+
+def _refazer(config: RunConfig, manifesto: FreezeManifest) -> Refeito:
+    pasta = _ingerir(config)
+    destino = Path(config.runtime.raiz_saidas) / "split"
+    derivado = derivar_protocolo(config, pasta, destino, spec=manifesto.split.spec)
+    avaliadas = _validar_particao(config, pasta, derivado, Particao.CALIBRACAO)
+    teste = _validar_particao(config, pasta, derivado, Particao.TESTE)
+    relatorio = _avaliar(config, manifesto, derivado, avaliadas)
+    return Refeito(derivado, avaliadas, teste, relatorio)
+
+
+def _original(config: RunConfig, freeze_id: str) -> Original:
+    registro = Path(config.runtime.dir_congelamentos) / REGISTRO
+    rodadas = [
+        entrada
+        for entrada in ler_registro(registro)
+        if entrada["freeze_id"] == freeze_id and entrada["modo"] == config.modo.value
+    ]
+    if not rodadas:
+        return Original(None, {})
+    ultima = rodadas[-1]
+    caminho = (
+        Path(config.runtime.raiz_saidas) / "avaliacao" / freeze_id / f"{ultima['report_id']}.json"
+    )
+    relatorio = _ler_relatorio(caminho)
+    execucoes = {}
+    for run_id in ultima["runs"]:
+        try:
+            run = ler_execucao(raiz_execucoes(config), run_id)
+        except ExecucaoNaoResolvida:
+            continue
+        if run.metodo is not None:
+            execucoes[run.metodo] = run
+    return Original(relatorio, execucoes)
+
+
+def _ler_relatorio(caminho: Path) -> EvaluationReport | None:
+    if not caminho.is_file():
+        return None
+    return EvaluationReport.model_validate_json(caminho.read_text(encoding="utf-8"))
+
+
+def _comparar_conjuntos(manifesto: FreezeManifest, derivado: Derivado) -> list[Comparacao]:
+    refeitos = {"sia_pa.v1": derivado.uniao, "sia_pa_rotulos.v1": derivado.rotulos}
+    itens = []
+    for esperada in manifesto.datasets:
+        obtida = refeitos.get(esperada.schema_id)
+        item = f"conjunto:{esperada.schema_id}"
+        if obtida is None:
+            itens.append(Comparacao(item, Situacao.INCONCLUSIVO, None, None, "sem_etapa"))
+        else:
+            itens.append(comparar_referencia(item, esperada, obtida))
+    return itens
+
+
+def _comparar_split(manifesto: FreezeManifest, derivado: Derivado) -> list[Comparacao]:
+    congelado, refeito = manifesto.split, derivado.split
+    igual = congelado.split_id == refeito.split_id
+    situacao = Situacao.IGUAL if igual else Situacao.DIVERGENTE
+    itens = [Comparacao("split:split_id", situacao, congelado.split_id, refeito.split_id)]
+    for nome, esperadas, obtidas in (
+        ("particao", congelado.particoes, refeito.particoes),
+        ("rotulos", congelado.rotulos_por_particao, refeito.rotulos_por_particao),
+    ):
+        for particao, esperada in (esperadas or {}).items():
+            obtida = (obtidas or {}).get(particao)
+            item = f"split:{nome}:{particao.value}"
+            if obtida is None:
+                itens.append(Comparacao(item, Situacao.DIVERGENTE, esperada.hash_logico, None))
+            else:
+                itens.append(comparar_referencia(item, esperada, obtida))
+    return itens
+
+
+def _comparar_insumos(
+    config: RunConfig, manifesto: FreezeManifest, teste: Mapping[MetodoId, RunResult]
+) -> list[Comparacao]:
+    itens = []
+    for run in teste.values():
+        caminho = raiz_execucoes(config) / run.run_id / ARQUIVO_ENTRADA
+        entrada = EntradaValidacao.model_validate_json(caminho.read_text(encoding="utf-8"))
+        congeladas = (manifesto.entradas_validacao or {}).get(run.politica_id or "")
+        itens.append(comparar_insumos(f"insumos:{run.politica_id}", congeladas, entrada))
+    return itens
+
+
+def _comparar_execucoes(
+    original: Original, avaliadas: Mapping[MetodoId, RunResult]
+) -> list[Comparacao]:
+    itens = []
+    for metodo, run in avaliadas.items():
+        antiga = original.execucoes.get(metodo)
+        antigas = {s.schema_id: s for s in antiga.saidas} if antiga is not None else {}
+        for saida in run.saidas:
+            item = f"saida:{metodo.value}:{saida.schema_id}"
+            itens.append(comparar_saida(item, antigas.get(saida.schema_id), saida))
+    return itens
+
+
+def _observacoes(config: RunConfig, manifesto: FreezeManifest) -> list[str]:
+    observacoes = []
+    if hash_protocolo(config) != manifesto.config_hash:
+        observacoes.append("config_diferente_da_congelada")
+    codigo = versao_codigo(Path.cwd())
+    if (codigo.commit, codigo.sujo) != (manifesto.codigo.commit, manifesto.codigo.sujo):
+        congelado = manifesto.codigo.commit
+        observacoes.append(
+            f"codigo_diferente_do_congelado congelado={congelado} atual={codigo.commit}"
+        )
+    pacotes = ambiente(Path.cwd()).pacotes
+    diferentes = sorted(p for p, v in manifesto.ambiente.pacotes.items() if pacotes.get(p) != v)
+    if diferentes:
+        observacoes.append(f"pacotes_diferentes_do_congelado pacotes={','.join(diferentes)}")
+    return observacoes
+
+
+def _resultado(itens: list[Comparacao]) -> Situacao:
+    situacoes = {item.situacao for item in itens}
+    if Situacao.DIVERGENTE in situacoes:
+        return Situacao.DIVERGENTE
+    return Situacao.INCONCLUSIVO if Situacao.INCONCLUSIVO in situacoes else Situacao.IGUAL
+
+
+def _gravar(
+    out: Path,
+    manifesto: FreezeManifest,
+    relatorio: EvaluationReport,
+    itens: list[Comparacao],
+    observacoes: list[str],
+) -> None:
+    conteudo = {
+        "freeze_id": manifesto.freeze_id,
+        "modo": relatorio.modo.value,
+        "origem_dados": relatorio.origem_dados.value,
+        "resultado": _resultado(itens).value,
+        "relatorio_refeito": relatorio.report_id,
+        "observacoes": observacoes,
+        "comparacoes": [item.como_dict() for item in itens],
+    }
+    (out / RELATORIO).write_text(
+        json.dumps(conteudo, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
 
 
 def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
-    """Reexecuta o fluxo congelado e compara hashes lógicos e métricas."""
-    raise NotImplementedError
+    """Refaz o fluxo do congelamento em `out` e o compara com o congelado e o registrado.
+
+    Raises:
+        ConfigInvalida: config sem `freeze_id`, confirmatória, `out` já usado ou entradas locais
+            ausentes ou inválidas.
+        RedeProibida: config com `rede_permitida` ou qualquer tentativa de conexão.
+        FalhaOperacionalErro: conteúdo refeito diferente do congelado ou do original.
+    """
+    freeze_id = _exigir_reprodutivel(config)
+    manifesto = carregar_freeze(Path(config.runtime.dir_congelamentos), freeze_id)
+    _exigir_destino_novo(out)
+    with sem_rede():
+        original = _original(config, freeze_id)
+        refeito = _refazer(_config_em(config, out), manifesto)
+        itens = [
+            *_comparar_conjuntos(manifesto, refeito.derivado),
+            *_comparar_split(manifesto, refeito.derivado),
+            *_comparar_insumos(_config_em(config, out), manifesto, refeito.teste),
+            *_comparar_execucoes(original, refeito.avaliadas),
+            comparar_metricas(
+                "metricas",
+                original.relatorio.metricas if original.relatorio else None,
+                refeito.relatorio.metricas,
+            ),
+        ]
+        observacoes = _observacoes(config, manifesto)
+    _gravar(out, manifesto, refeito.relatorio, itens, observacoes)
+    erradas = divergentes(itens)
+    if erradas:
+        nomes = ",".join(item.item for item in erradas[:5])
+        raise FalhaOperacionalErro(f"reproducao_divergente itens={len(erradas)} primeiros={nomes}")
+    logger.info("reproducao_concluida freeze=%s resultado=%s", freeze_id, _resultado(itens).value)
+    return refeito.relatorio
 
 
 def executar_reproduce(args: argparse.Namespace, config: RunConfig) -> int:
-    """`sustemporal reproduce --freeze ID --offline`."""
-    raise NotImplementedError
+    """`sustemporal reproduce --freeze ID --offline [--saida DIR]`.
+
+    Raises:
+        ConfigInvalida: sem `--offline`, freeze diferente do da config ou destino já usado.
+    """
+    if not args.offline:
+        raise ConfigInvalida("reproduce_exige_offline")
+    freeze_id = str(args.freeze)
+    if config.freeze_id not in (None, freeze_id):
+        raise ConfigInvalida(
+            f"reproduce_freeze_diverge_da_config freeze={freeze_id} config={config.freeze_id}"
+        )
+    padrao = Path(config.runtime.raiz_saidas) / DIRETORIO_REPRODUCAO / freeze_id
+    reproduce(config.model_copy(update={"freeze_id": freeze_id}), Path(args.saida or padrao))
+    return int(ExitCode.OK)

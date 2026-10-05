@@ -38,6 +38,8 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
 
+pytestmark = pytest.mark.slow
+
 POLITICAS = {"m_temp_nao_resolvida", "b_atend_exploratoria", "b_proc_exploratoria"}
 
 

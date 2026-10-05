@@ -33,9 +33,11 @@ if TYPE_CHECKING:
         CodeVersion,
         DatasetRef,
         FeatureSpec,
+        RuleSpec,
         RunConfig,
         SplitManifest,
     )
+    from sustemporal.contracts.temporal import PoliticaTemporal
 
 __all__ = [
     "COMPARACOES_PRIMARIAS",
@@ -100,6 +102,8 @@ class Protocolo:
     rotulos: DatasetRef
     catalogos: Mapping[str, Path]
     margens: Mapping[str, Decimal] = field(default_factory=dict)
+    regras: Sequence[RuleSpec] = ()
+    politicas: Sequence[PoliticaTemporal] = ()
 
 
 def congelar(

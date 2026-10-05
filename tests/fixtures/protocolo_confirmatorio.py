@@ -1,0 +1,197 @@
+"""Cenário confirmatório SINTETICO, rotulado REAL só para exercitar os portões (T11).
+
+Nada aqui é dado real nem decisão humana: o rótulo REAL só satisfaz os contratos do modo
+confirmatório, e as decisões G0/G2 são escritas em diretórios temporários dos testes.
+"""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from sustemporal.contracts.base import OrigemDados
+from sustemporal.contracts.config import RunConfig
+from sustemporal.contracts.experiment import (
+    ModoExecucao,
+    Particao,
+    SplitManifest,
+    TipoExecucao,
+)
+from sustemporal.contracts.temporal import MetodoId
+from sustemporal.evaluation.features import FEATURES_PADRAO
+from sustemporal.evaluation.freeze import Protocolo, congelar
+from sustemporal.evaluation.metrics import ReferenciaCongelamento
+from sustemporal.evaluation.split import SUFIXO_ENTRADAS
+from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
+from sustemporal.temporal.politicas import carregar_politica
+from tests.fixtures.protocolo_avaliacao import (
+    CODIGO_LIMPO,
+    escrever_decisao,
+    relogio,
+    run_agregados,
+)
+from tests.fixtures.protocolo_dados import PROC_REJEITADO, LinhaPa, artefato, gravar_sia_pa
+
+if TYPE_CHECKING:
+    from sustemporal.contracts import DatasetRef, FreezeManifest, RunResult
+    from sustemporal.contracts.temporal import PoliticaTemporal
+    from tests.fixtures.protocolo_dados import Cenario
+
+CATALOGO_SIA_PA = Path(__file__).resolve().parents[2] / "catalog" / "schemas" / "sia_pa.yaml"
+CONFIG_PROTOCOLO: dict[str, Any] = {
+    "versao": "1",
+    "origem_dados": "REAL",
+    "bootstrap": {"correcao": "HOLM", "reamostragens": 50},
+}
+POLITICA_DO_METODO = {
+    MetodoId.M_TEMP: "M_TEMP_PADRAO",
+    MetodoId.B_ATEND: "B_ATEND",
+    MetodoId.B_PROC: "B_PROC",
+}
+COMPETENCIA_DO_TESTE = "202401"
+
+
+def como_real(ref: DatasetRef) -> DatasetRef:
+    return ref.model_copy(update={"origem_dados": OrigemDados.REAL})
+
+
+def politicas_do_catalogo() -> list[PoliticaTemporal]:
+    return [carregar_politica(politica_id) for politica_id in POLITICA_DO_METODO.values()]
+
+
+def config_confirmatoria(freeze_id: str, **campos: Any) -> RunConfig:
+    dados = {**CONFIG_PROTOCOLO, "modo": "CONFIRMATORIO", "freeze_id": freeze_id, **campos}
+    return RunConfig.model_validate(dados)
+
+
+@dataclass(frozen=True)
+class Confirmatorio:
+    """Congelamento, G2, config confirmatória e execuções compatíveis sobre o TESTE."""
+
+    cenario: Cenario
+    manifesto: FreezeManifest
+    config: RunConfig
+    decisoes: Path
+    g2: str
+    runs: list[RunResult]
+    rotulos: DatasetRef
+
+    def referencia(self, **trocas: Any) -> ReferenciaCongelamento:
+        campos: dict[str, Any] = {
+            "freeze_id": self.manifesto.freeze_id,
+            "decisao_g2": self.g2,
+            "decisoes": self.decisoes,
+            "manifesto": self.manifesto,
+            "config": self.config,
+        }
+        return ReferenciaCongelamento(**{**campos, **trocas})
+
+
+def _resultados(cenario: Cenario, metodo: MetodoId) -> dict[str, str]:
+    teste = [lp for lp in cenario.linhas if lp.competencia_processamento == COMPETENCIA_DO_TESTE]
+    if metodo is MetodoId.M_TEMP:
+        return {
+            lp.row_id: "ALERTA" if lp.procedimento == PROC_REJEITADO else "SEM_VIOLACAO_VERIFICADA"
+            for lp in teste
+        }
+    if metodo is MetodoId.B_PROC:
+        return {lp.row_id: "ALERTA" if i < 5 else "ABSTENCAO" for i, lp in enumerate(teste)}
+    resultado = "SEM_VIOLACAO_VERIFICADA" if metodo is MetodoId.B_ATEND else "SEM_ALERTA"
+    return {lp.row_id: resultado for lp in teste}
+
+
+def runs_compativeis(
+    cenario: Cenario, manifesto: FreezeManifest, config: RunConfig, out: Path
+) -> list[RunResult]:
+    """Três execuções de validação e uma de baseline, todas iguais ao protocolo congelado."""
+    assert cenario.split.particoes is not None
+    comuns: dict[str, Any] = {
+        "origem": OrigemDados.REAL,
+        "modo": ModoExecucao.CONFIRMATORIO,
+        "freeze_id": manifesto.freeze_id,
+        "config_hash": config.config_hash,
+        "codigo": CODIGO_LIMPO,
+        "entradas": (como_real(cenario.split.particoes[Particao.TESTE]),),
+    }
+    regras = catalogo_sha256(carregar_regras())
+    runs = [
+        run_agregados(
+            metodo,
+            _resultados(cenario, metodo),
+            out,
+            politica_id=politica_id,
+            catalogo_regras_sha256=regras,
+            **comuns,
+        )
+        for metodo, politica_id in POLITICA_DO_METODO.items()
+    ]
+    baseline = _resultados(cenario, MetodoId.B_ML)
+    runs.append(
+        run_agregados(MetodoId.B_ML, baseline, out, tipo=TipoExecucao.BASELINE_ML, **comuns)
+    )
+    return runs
+
+
+def montar_confirmatorio(raiz: Path, cenario: Cenario, **protocolo: Any) -> Confirmatorio:
+    """Congela o protocolo (G0), abre o TESTE (G2) e gera as execuções compatíveis."""
+    assert cenario.split.rotulos_por_particao is not None
+    decisoes = raiz / "decisoes"
+    escrever_decisao(decisoes, "G0", "CONTINUAR")
+    campos: dict[str, Any] = {
+        "config": RunConfig.model_validate(CONFIG_PROTOCOLO),
+        "split": cenario.split,
+        "features": FEATURES_PADRAO,
+        "dataset": cenario.dataset,
+        "rotulos": cenario.rotulos,
+        "catalogos": {"esquema_sia_pa": CATALOGO_SIA_PA},
+        "regras": carregar_regras(),
+        "politicas": politicas_do_catalogo(),
+    }
+    manifesto = congelar(
+        Protocolo(**{**campos, **protocolo}),
+        raiz / "frozen",
+        decisoes=decisoes,
+        codigo=CODIGO_LIMPO,
+        relogio=relogio,
+    )
+    g2 = escrever_decisao(decisoes, "G2", "ABRIR_TESTE", freeze_id=manifesto.freeze_id)
+    config = config_confirmatoria(manifesto.freeze_id)
+    return Confirmatorio(
+        cenario=cenario,
+        manifesto=manifesto,
+        config=config,
+        decisoes=decisoes,
+        g2=f"experiments/decisions/{g2.name}",
+        runs=runs_compativeis(cenario, manifesto, config, raiz / "runs"),
+        rotulos=como_real(cenario.split.rotulos_por_particao[Particao.TESTE]),
+    )
+
+
+def sia_pa_desconhecido(raiz: Path) -> DatasetRef:
+    """Registro `sia_pa.v1` que o congelamento não conhece."""
+    estranha = LinhaPa(artefato("pa_estranha"), 0, competencia_processamento="202401")
+    return como_real(gravar_sia_pa([estranha], raiz / "estranha.parquet"))
+
+
+def reescrever_split_como_real(pasta: Path) -> None:
+    """Marca como REAL, no disco, o split e as entradas que a CLI lê (rótulo de teste)."""
+    for caminho in sorted(pasta.glob("spl_*.json")):
+        if caminho.name.endswith(SUFIXO_ENTRADAS):
+            entradas = json.loads(caminho.read_text(encoding="utf-8"))
+            for chave in ("dataset", "rotulos"):
+                entradas[chave]["origem_dados"] = "REAL"
+            caminho.write_text(json.dumps(entradas, indent=2), encoding="utf-8")
+            continue
+        split = SplitManifest.model_validate_json(caminho.read_text(encoding="utf-8"))
+        assert split.particoes is not None
+        assert split.rotulos_por_particao is not None
+        reais = {
+            "particoes": {p: como_real(r) for p, r in split.particoes.items()},
+            "rotulos_por_particao": {
+                p: como_real(r) for p, r in split.rotulos_por_particao.items()
+            },
+        }
+        texto = split.model_copy(update=reais).model_dump_json(indent=2)
+        caminho.write_text(texto, encoding="utf-8")

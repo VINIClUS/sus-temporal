@@ -423,6 +423,8 @@ class FreezeManifest(ContratoBase):
     comparacoes_primarias: tuple[str, ...] = Field(min_length=1)
     margens: dict[str, DecimalExato] = Field(default_factory=dict)
     decisao_g0: ReferenciaDecisao
+    catalogo_regras_sha256: Sha256Hex | None = None
+    politicas_sha256: dict[str, Sha256Hex] | None = None
 
     @classmethod
     def calcular_id(cls, conteudo: dict[str, Any]) -> str:

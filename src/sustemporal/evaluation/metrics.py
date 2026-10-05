@@ -36,7 +36,13 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
-    from sustemporal.contracts import DatasetRef, RunResult, SplitManifest
+    from sustemporal.contracts import (
+        DatasetRef,
+        FreezeManifest,
+        RunConfig,
+        RunResult,
+        SplitManifest,
+    )
     from sustemporal.contracts.base import OrigemDados
 
 __all__ = ["PARES_PRIMARIOS", "ReferenciaCongelamento", "evaluate_runs"]
@@ -236,6 +242,8 @@ class ReferenciaCongelamento:
     freeze_id: str
     decisao_g2: str | None = None
     decisoes: Path = DIR_DECISOES
+    manifesto: FreezeManifest | None = None
+    config: RunConfig | None = None
 
 
 def evaluate_runs(

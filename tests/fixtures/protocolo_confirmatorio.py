@@ -33,7 +33,13 @@ from tests.fixtures.protocolo_avaliacao import (
     relogio,
     run_agregados,
 )
-from tests.fixtures.protocolo_dados import PROC_REJEITADO, LinhaPa, artefato, gravar_sia_pa
+from tests.fixtures.protocolo_dados import (
+    PROC_REJEITADO,
+    LinhaPa,
+    artefato,
+    gravar_rotulos,
+    gravar_sia_pa,
+)
 
 if TYPE_CHECKING:
     from sustemporal.contracts import FreezeManifest, RunResult
@@ -227,3 +233,28 @@ def reescrever_split_como_real(pasta: Path) -> None:
         split = SplitManifest.model_validate_json(caminho.read_text(encoding="utf-8"))
         texto = split_como_real(split).model_dump_json(indent=2)
         caminho.write_text(texto, encoding="utf-8")
+
+
+def rotulos_do_teste_invertidos(cenario: Cenario, destino: Path) -> DatasetRef:
+    """Arquivo REAL de rótulos do TESTE com as classes binárias trocadas, ainda válido."""
+    inverso = {"NAO_APROVADO": "APROVADO_TOTAL", "APROVADO_TOTAL": "NAO_APROVADO"}
+    teste = [lp for lp in cenario.linhas if lp.competencia_processamento == COMPETENCIA_DO_TESTE]
+    rotulos = {lp.row_id: cenario.rotulo_por_row[lp.row_id] for lp in teste}
+    trocados = {row_id: inverso.get(rotulo, rotulo) for row_id, rotulo in rotulos.items()}
+    return gravar_rotulos(trocados, destino, origem=OrigemDados.REAL)
+
+
+def split_com_rotulos_do_teste(split: SplitManifest, rotulos: DatasetRef) -> SplitManifest:
+    """Mesmo `split_id` e outro rótulo para o TESTE: o id não deriva do conteúdo do manifesto."""
+    dados = split.model_dump(mode="json")
+    dados["rotulos_por_particao"][Particao.TESTE.value] = rotulos.model_dump(mode="json")
+    return SplitManifest.model_validate(dados)
+
+
+def editar_rotulos_do_teste_no_disco(pasta: Path, cenario: Cenario, destino: Path) -> SplitManifest:
+    """Reescreve o split do disco com os rótulos do TESTE trocados, mantendo o `split_id`."""
+    (caminho,) = [c for c in pasta.glob("spl_*.json") if not c.name.endswith(SUFIXO_ENTRADAS)]
+    lido = SplitManifest.model_validate_json(caminho.read_text(encoding="utf-8"))
+    editado = split_com_rotulos_do_teste(lido, rotulos_do_teste_invertidos(cenario, destino))
+    caminho.write_text(editado.model_dump_json(indent=2), encoding="utf-8")
+    return editado

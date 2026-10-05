@@ -227,10 +227,11 @@ def test_baseline_ajustado_no_confirmatorio_passa_na_conferencia_do_manifesto(
     monkeypatch.setattr("sustemporal.evaluation.baselines.versao_codigo", lambda _: CODIGO_LIMPO)
     runtime = {"dir_congelamentos": str(tmp_path / "frozen")}
     protocolo = RunConfig.model_validate({**CONFIG_PROTOCOLO, "runtime": runtime})
-    conf = montar_confirmatorio(tmp_path, cenario, config=protocolo)
+    real = split_como_real(cenario.split)
+    conf = montar_confirmatorio(tmp_path, cenario, config=protocolo, split=real)
     config = config_confirmatoria(conf.manifesto.freeze_id, runtime=runtime)
     run = fit_baseline(
-        split_como_real(cenario.split),
+        real,
         FEATURES_PADRAO,
         config,
         tmp_path / "bml",

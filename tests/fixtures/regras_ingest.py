@@ -52,6 +52,7 @@ _Item = tuple["ArtifactObservation", "ArtifactVersion | None"]
 _COLUNAS_OMITIDAS = {
     "sem_coluna_municipio": "municipio_estabelecimento",
     "sem_coluna_deletado": "deletado",
+    "sem_coluna_artifact_id": "artifact_id",
 }
 
 
@@ -123,6 +124,7 @@ def _linha(artefato: str, indice: int, **campos: object) -> dict[str, object]:
     base: dict[str, object] = {
         "row_id": f"{artefato}#{indice}",
         "artifact_id": artefato,
+        "indice_registro": indice,
         "deletado": False,
         "instrumento": "C",
         "procedimento": _PROCEDIMENTO,
@@ -399,6 +401,7 @@ def montar_ingest(
     parte_b_so_no_registro: bool = False,
     deletado_nulo: bool = False,
     sem_coluna_deletado: bool = False,
+    sem_coluna_artifact_id: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -425,6 +428,7 @@ def montar_ingest(
         "linha_fora_do_piloto": linha_fora_do_piloto,
         "deletado_nulo": deletado_nulo,
         "sem_coluna_deletado": sem_coluna_deletado,
+        "sem_coluna_artifact_id": sem_coluna_artifact_id,
     }
     na_pasta = {k: v for k, v in itens.items() if not (no_registro and k == "pa_a2")}
     refs = _datasets(pasta, na_pasta, opcoes)

@@ -326,3 +326,26 @@ def test_codigo_nao_admite_transformacao_numerica() -> None:
     features = FeatureSpec(feature_set_id="f", atributos=(atributo,))
     with pytest.raises(ValueError, match="transformacao_incompativel_com_coluna"):
         auditar_features(features, ESQUEMAS)
+
+
+def test_coorte_esparsa_com_particoes_vazias_e_aceita(tmp_path: Path) -> None:
+    linhas = [LinhaPa(artefato("dev"), i, competencia_processamento="202001") for i in range(2)]
+    rotulos = gravar_rotulos(
+        {linha.row_id: "APROVADO_TOTAL" for linha in linhas}, tmp_path / "rotulos.parquet"
+    )
+    manifesto = _split(tmp_path, linhas, rotulos=rotulos)
+    assert manifesto.rotulos_por_particao is not None
+    assert {p: r.linhas for p, r in manifesto.rotulos_por_particao.items()} == {
+        Particao.DESENVOLVIMENTO: 2,
+        Particao.CALIBRACAO: 0,
+        Particao.TESTE: 0,
+    }
+
+
+def test_coluna_de_origem_repetida_e_recusada() -> None:
+    atributos = (
+        Atributo(nome="cbo", schema_id="sia_pa.v1", coluna="cbo", transformacao="CATEGORICA"),
+        Atributo(nome="cbo_2", schema_id="sia_pa.v1", coluna="cbo", transformacao="CATEGORICA"),
+    )
+    with pytest.raises(ValueError, match="coluna_de_origem_repetida"):
+        auditar_features(FeatureSpec(feature_set_id="f", atributos=atributos), ESQUEMAS)

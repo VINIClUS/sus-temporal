@@ -10,9 +10,11 @@ from typing import Any, cast
 import duckdb
 import pytest
 from pydantic import ValidationError
+from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO, escrever_decisao
 from tests.fixtures.protocolo_dados import (
     PROC_APROVADO,
     PROC_REJEITADO,
+    Cenario,
     LinhaPa,
     artefato,
     cenario_baseline,
@@ -20,11 +22,14 @@ from tests.fixtures.protocolo_dados import (
 )
 
 from sustemporal.contracts.config import RunConfig
-from sustemporal.contracts.experiment import Particao, SplitManifest
+from sustemporal.contracts.experiment import Atributo, FeatureSpec, Particao, SplitManifest
 from sustemporal.contracts.temporal import MetodoId
-from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
+from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.baselines import fit_baseline
 from sustemporal.evaluation.features import FEATURES_PADRAO
+from sustemporal.evaluation.freeze import Protocolo, congelar
+
+CATALOGO_SIA_PA = Path(__file__).resolve().parents[2] / "catalog" / "schemas" / "sia_pa.yaml"
 
 
 def _relogio() -> datetime:
@@ -150,27 +155,6 @@ def test_baseline_sem_rotulos_e_recusado(tmp_path: Path) -> None:
         fit_baseline(sem_rotulos, FEATURES_PADRAO, cenario.config, tmp_path / "run")
 
 
-def test_confirmatorio_com_dados_sinteticos_e_recusado(tmp_path: Path) -> None:
-    cenario = cenario_baseline(tmp_path)
-    config = RunConfig.model_validate(
-        {
-            "versao": "1",
-            "modo": "CONFIRMATORIO",
-            "origem_dados": "REAL",
-            "freeze_id": f"frz_{'0' * 64}",
-            "bootstrap": {"correcao": "HOLM"},
-        }
-    )
-    with pytest.raises(PortaoRecusado):
-        fit_baseline(
-            cenario.split,
-            FEATURES_PADRAO,
-            config,
-            tmp_path / "run",
-            decisoes=tmp_path / "decisoes",
-        )
-
-
 def _extras_calibracao(rotulo: str, n: int = 12) -> tuple[tuple[LinhaPa, str], ...]:
     return tuple(
         (
@@ -276,32 +260,100 @@ def test_ausente_tem_categoria_propria_mesmo_raro(tmp_path: Path) -> None:
     assert parametros["desconhecidas"]["CALIBRACAO"]["cbo"] == 0
 
 
-def test_confirmatorio_recusado_antes_de_abrir_arquivos(tmp_path: Path) -> None:
-    cenario = cenario_baseline(tmp_path)
+def _apagar_particoes(cenario: Cenario) -> None:
     assert cenario.split.particoes is not None
     assert cenario.split.rotulos_por_particao is not None
     for refs in (cenario.split.particoes, cenario.split.rotulos_por_particao):
         for ref in refs.values():
             Path(ref.caminho).unlink()
-    freeze_id = f"frz_{'0' * 64}"
-    decisoes = tmp_path / "decisoes"
-    decisoes.mkdir()
-    (decisoes / "g2_sintetica.yaml").write_text(
-        "portao: G2\ndecisao: ABRIR_TESTE\ndata: 2025-06-01\nresponsaveis: [teste]\n"
-        f"registrado_por_humano: true\nfreeze_id: {freeze_id}\n",
-        encoding="utf-8",
-    )
-    config = RunConfig.model_validate(
+
+
+def _config_confirmatoria(tmp_path: Path, freeze_id: str) -> RunConfig:
+    return RunConfig.model_validate(
         {
             "versao": "1",
             "modo": "CONFIRMATORIO",
             "origem_dados": "REAL",
             "freeze_id": freeze_id,
             "bootstrap": {"correcao": "HOLM"},
+            "runtime": {"dir_congelamentos": str(tmp_path / "frozen")},
+            "catalogos": {"esquema_sia_pa": str(CATALOGO_SIA_PA)},
         }
     )
-    with pytest.raises(PortaoRecusado, match="confirmatorio_exige_freeze_verificado"):
-        fit_baseline(cenario.split, FEATURES_PADRAO, config, tmp_path / "run", decisoes=decisoes)
+
+
+def _congelar_para_confirmatorio(
+    tmp_path: Path, cenario: Cenario, features: FeatureSpec = FEATURES_PADRAO
+) -> str:
+    decisoes = tmp_path / "decisoes"
+    escrever_decisao(decisoes, "G0", "CONTINUAR")
+    protocolo = Protocolo(
+        config=RunConfig.model_validate(
+            {
+                "versao": "1",
+                "origem_dados": "REAL",
+                "bootstrap": {"correcao": "HOLM"},
+                "runtime": {"dir_congelamentos": str(tmp_path / "frozen")},
+                "catalogos": {"esquema_sia_pa": str(CATALOGO_SIA_PA)},
+            }
+        ),
+        split=cenario.split,
+        features=features,
+        dataset=cenario.dataset,
+        rotulos=cenario.rotulos,
+        catalogos={"esquema_sia_pa": CATALOGO_SIA_PA},
+    )
+    manifesto = congelar(
+        protocolo, tmp_path / "frozen", decisoes=decisoes, codigo=CODIGO_LIMPO, relogio=_relogio
+    )
+    escrever_decisao(decisoes, "G2", "ABRIR_TESTE", freeze_id=manifesto.freeze_id)
+    return manifesto.freeze_id
+
+
+def test_confirmatorio_sem_freeze_e_recusado_antes_de_abrir_arquivos(tmp_path: Path) -> None:
+    cenario = cenario_baseline(tmp_path)
+    _apagar_particoes(cenario)
+    config = _config_confirmatoria(tmp_path, f"frz_{'0' * 64}")
+    with pytest.raises(ConfigInvalida, match="congelamento_ausente"):
+        fit_baseline(cenario.split, FEATURES_PADRAO, config, tmp_path / "run", codigo=CODIGO_LIMPO)
+    assert not (tmp_path / "run").exists()
+
+
+def test_confirmatorio_com_freeze_divergente_e_recusado_antes_de_ler(tmp_path: Path) -> None:
+    cenario = cenario_baseline(tmp_path)
+    so_cbo = FeatureSpec(
+        feature_set_id="so_cbo",
+        atributos=(
+            Atributo(nome="cbo", schema_id="sia_pa.v1", coluna="cbo", transformacao="CATEGORICA"),
+        ),
+    )
+    freeze_id = _congelar_para_confirmatorio(tmp_path, cenario, so_cbo)
+    _apagar_particoes(cenario)
+    with pytest.raises(PortaoRecusado, match="freeze_incompativel campos=features"):
+        fit_baseline(
+            cenario.split,
+            FEATURES_PADRAO,
+            _config_confirmatoria(tmp_path, freeze_id),
+            tmp_path / "run",
+            decisoes=tmp_path / "decisoes",
+            codigo=CODIGO_LIMPO,
+        )
+    assert not (tmp_path / "run").exists()
+
+
+def test_confirmatorio_com_dados_sinteticos_e_recusado(tmp_path: Path) -> None:
+    cenario = cenario_baseline(tmp_path)
+    freeze_id = _congelar_para_confirmatorio(tmp_path, cenario)
+    _apagar_particoes(cenario)
+    with pytest.raises(PortaoRecusado, match="confirmatorio_exige_dados_reais"):
+        fit_baseline(
+            cenario.split,
+            FEATURES_PADRAO,
+            _config_confirmatoria(tmp_path, freeze_id),
+            tmp_path / "run",
+            decisoes=tmp_path / "decisoes",
+            codigo=CODIGO_LIMPO,
+        )
     assert not (tmp_path / "run").exists()
 
 
@@ -337,6 +389,9 @@ def test_rotulos_de_outra_particao_sao_recusados_na_leitura(tmp_path: Path) -> N
     )
     rotulos = {p: r.model_dump(mode="json") for p, r in cenario.split.rotulos_por_particao.items()}
     rotulos[Particao.DESENVOLVIMENTO] = trocado.model_dump(mode="json")
-    split = _com_rotulos(cenario.split, rotulos)
+    with pytest.raises(ValidationError, match="split_rotulos_nao_presos_as_particoes"):
+        _com_rotulos(cenario.split, rotulos)
+    adulterado = {**cenario.split.rotulos_por_particao, Particao.DESENVOLVIMENTO: trocado}
+    split = cenario.split.model_copy(update={"rotulos_por_particao": adulterado})
     with pytest.raises(FalhaOperacionalErro, match="rotulos_fora_da_particao"):
         fit_baseline(split, FEATURES_PADRAO, cenario.config, tmp_path / "run")

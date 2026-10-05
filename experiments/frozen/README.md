@@ -25,8 +25,10 @@ O arquivo nunca é sobrescrito; outro conteúdo com o mesmo id é recusado. Um m
   manifesto. O split de `<raiz_saidas>/split` é comparado por inteiro (partições, rótulos e demais
   campos), não só pelo `split_id`, que não deriva do conteúdo: arquivo editado com o mesmo id sai
   como `freeze_incompativel campos=split` (código 4), antes de ler qualquer dado, e a biblioteca
-  repete a conferência (`split_incompativel_com_congelamento`). Avalia só o TESTE. As execuções
-  vêm de `<raiz_saidas>/runs/<run_id>/`: o `run_result.json` do motor de regras
+  repete a conferência (`split_incompativel_com_congelamento`). Avalia só o TESTE e emite as
+  razões do TOTAL, do domínio comum e, por valor, de competência, instrumento e estabelecimento
+  (CNES); só o TOTAL e as diferenças pareadas levam intervalo. As execuções vêm de
+  `<raiz_saidas>/runs/<run_id>/`: o `run_result.json` do motor de regras
   (`validate --saida <raiz_saidas>/runs`) ou o `run.json` do baseline; os dois no mesmo diretório
   são recusados (`execucao_ambigua`). Antes de ler qualquer dado, confere cada execução contra o
   manifesto carregado, não só pelo `freeze_id`:

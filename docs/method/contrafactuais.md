@@ -95,8 +95,10 @@ vêm da pasta exata de `bundle.run_id` (`contexto_da_execucao`, §3.1); sem eles
 
 `sustemporal counterfactual --run RUN_ID --row ROW_ID` (`explanation/counterfactual_cli.py`):
 
-1. resolve a pasta exata da execução (`<raiz_saidas>/runs/<run_id>` ou
-   `<raiz_saidas>/validacao/<run_id>`), nunca um diretório "latest";
+1. resolve a pasta exata da execução, `<raiz_saidas>/runs/<run_id>`: o único lugar das execuções do
+   `validate` (`sustemporal.execucoes`, o mesmo leitor `ler_execucao` do `explain`), nunca um
+   diretório "latest" nem `validacao/`. `run_result.json` e `entrada_validacao.json` só são lidos
+   dessa pasta; uma execução que o `validate --saida` gravou fora de `runs/` não é descoberta;
 2. recompõe o bundle pelo `explain` real (T08), que reexecuta as evidências;
 3. lê `entrada_validacao.json`, que o `validate` grava nos modos `--entrada` e `--ingest` (a
    `EntradaValidacao` da execução: conjunto SIA-PA, `SnapshotSet`, auxiliares, seleção,
@@ -105,10 +107,14 @@ vêm da pasta exata de `bundle.run_id` (`contexto_da_execucao`, §3.1); sem eles
    seleção, regras, política, configuração sem `runtime`, auxiliares, integridade e identidade
    adicional, como o recorte territorial do `--ingest`). Divergência é recusa
    (`contrafactual_contexto_diverge_da_execucao`). O CNES ST das precondições é o auxiliar
-   `cnes_estabelecimento.v1` gravado na entrada: o `validate --ingest` só grava os auxiliares que
-   as regras exigem, então sobre uma execução `--ingest` não há CNES ST, as operações ficam
-   inadmissíveis e a busca sai `SEM_OPERACAO_ADMISSIVEL`, nunca com operação suposta. A
-   competência aberta fica `None` (só fontes históricas; executabilidade nunca potencial);
+   `cnes_estabelecimento.v1` gravado na entrada: o `validate --ingest` o grava quando a pasta do
+   ingest o traz e o registro e o corte o confirmam como à produção
+   (`rules/ingest_cadastros.py::CADASTROS_DO_CONTEXTO`: nenhuma regra o lê, mas ele entra nos
+   auxiliares e no `run_id` da execução). Sem CNES ST no contexto (família fora da config do
+   piloto, versão ausente, fora do manifesto ou observada só depois do `corte_observacao`), as
+   operações ficam inadmissíveis e a busca sai `SEM_OPERACAO_ADMISSIVEL`, nunca com operação
+   suposta. A competência aberta fica `None` (só fontes históricas; executabilidade nunca
+   potencial);
 4. publica `contrafactual.json` e `identidade.json` em
    `<raiz_saidas>/contrafactuais/<run_id>/id_<identidade>/row_<sha256(row_id)[:32]>/`, de forma
    atômica (diretório temporário renomeado). A identidade deriva do SHA-256 de

@@ -3,7 +3,9 @@
 Produção SIA-PA de 202302 em duas partes (a e b) com uma linha física repetida entre elas e uma
 linha de município fora do território; o catálogo de fontes declara as partes esperadas a e b.
 CNES e SIGTAP de 202301 e 202302; o par (1234567, 225125) existe no CNES de janeiro e falta no de
-fevereiro. Códigos IBGE sintéticos.
+fevereiro. Com `com_cnes_st`, o CNES ST dos dois meses traz o estabelecimento 1234567 (as regras não
+o leem; só as precondições dos contrafactuais), observado no dia de `cnes_st_dias` (janeiro,
+fevereiro) e, com `cnes_st_fora_do_manifesto`, sem constar do manifesto. Códigos IBGE sintéticos.
 """
 
 from __future__ import annotations
@@ -107,6 +109,8 @@ def _itens(
     concorrente_dia: int = 2,
     partes: tuple[str, ...] = _PARTES,
     em_quarentena: bool = False,
+    com_cnes_st: bool = False,
+    cnes_st_dias: tuple[int, int] = (1, 1),
 ) -> dict[str, _Item]:
     sem = ResultadoTentativa.NAO_ENCONTRADO
     itens = {
@@ -123,6 +127,9 @@ def _itens(
         )
     itens["cnes_jan"] = observar(FamiliaFonte.CNES_PF, JANEIRO, "cnes-jan", 1)
     itens["cnes_fev"] = observar(FamiliaFonte.CNES_PF, FEVEREIRO, "cnes-fev", 1)
+    if com_cnes_st:
+        itens["st_jan"] = observar(FamiliaFonte.CNES_ST, JANEIRO, "st-jan", cnes_st_dias[0])
+        itens["st_fev"] = observar(FamiliaFonte.CNES_ST, FEVEREIRO, "st-fev", cnes_st_dias[1])
     itens["sigtap_jan"] = observar(FamiliaFonte.SIGTAP, JANEIRO, "sigtap-jan", 1, uf=None)
     resultado = sem if sigtap_fev_ausente else ResultadoTentativa.OBTIDO
     itens["sigtap_fev"] = observar(
@@ -184,10 +191,14 @@ def _producao(artefato: str, parte: str, opcoes: dict[str, bool]) -> list[dict[s
 
 
 def _auxiliares(artefato: str, fonte: str, competencia: str) -> dict[str, list[dict[str, object]]]:
+    cadastro = {"artifact_id": artefato, "competencia_arquivo": competencia, "cnes": _CNES}
+    if fonte == "CNES_ST":
+        return {
+            "cnes_estabelecimento.v1": [cadastro | {"municipio_estabelecimento": MUNICIPIOS[0]}]
+        }
     if fonte == "CNES_PF":
         cbo = _CBO if competencia == JANEIRO else "223505"
-        linha = {"artifact_id": artefato, "competencia_arquivo": competencia, "cnes": _CNES}
-        return {"cnes_estab_cbo.v1": [linha | {"cbo": cbo, "n_vinculos": 1}]}
+        return {"cnes_estab_cbo.v1": [cadastro | {"cbo": cbo, "n_vinculos": 1}]}
     base = {
         "artifact_id": artefato,
         "dt_competencia": competencia,
@@ -438,6 +449,9 @@ def montar_ingest(
     linha_de_janeiro: bool = False,
     partes_sem_declaracao: bool = False,
     producao_em_quarentena: bool = False,
+    com_cnes_st: bool = False,
+    cnes_st_dias: tuple[int, int] = (1, 1),
+    cnes_st_fora_do_manifesto: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -451,12 +465,15 @@ def montar_ingest(
         concorrente_dia=concorrente_so_no_registro or 2,
         partes=_PARTES[:1] if sem_parte_b else _PARTES,
         em_quarentena=producao_em_quarentena,
+        com_cnes_st=com_cnes_st,
+        cnes_st_dias=cnes_st_dias,
     )
     manifesto = manifestos / NOME_MANIFESTO_AQUISICAO
     if not sem_manifesto:
         registro = Manifesto(manifesto)
-        for observacao, versao in itens.values():
-            registro.registrar(observacao, versao)
+        for nome, (observacao, versao) in itens.items():
+            if not (cnes_st_fora_do_manifesto and nome.startswith("st_")):
+                registro.registrar(observacao, versao)
     opcoes = {
         "municipio_nulo": municipio_nulo,
         "sem_coluna_municipio": sem_coluna_municipio,

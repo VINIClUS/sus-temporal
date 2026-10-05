@@ -27,6 +27,7 @@ from sustemporal.contracts.counterfactual import (
 )
 from sustemporal.contracts.rules import EstadoAvaliacao
 from sustemporal.contracts.temporal import CompetenciaArquivo, EstadoSelecao
+from sustemporal.execucoes import raiz_execucoes
 from sustemporal.explanation.counterfactual_contexto import contexto_da_execucao
 from sustemporal.explanation.counterfactual_executabilidade import (
     aberta_coerente,
@@ -334,7 +335,7 @@ def search_counterfactuals(
 ) -> CounterfactualSearchResult:
     """Busca operações cadastrais de menor custo e revalida o conjunto afetado.
 
-    Sem `contexto`, os insumos vêm da pasta exata de `bundle.run_id` (`contexto_da_execucao`);
+    Sem `contexto`, os insumos vêm de `<raiz_saidas>/runs/<run_id>` (`contexto_da_execucao`);
     `operacoes` substitui `catalog/operations.yaml` (mesmos `op_id`, outros custos).
 
     Raises:
@@ -345,7 +346,7 @@ def search_counterfactuals(
         RevalidacaoFalhou: o motor falhou ao avaliar a sobreposição.
     """
     if contexto is None:
-        contexto = contexto_da_execucao(Path(config.runtime.raiz_saidas), bundle.run_id, config)
+        contexto = contexto_da_execucao(raiz_execucoes(config), bundle.run_id, config)
     catalogo = validar_operacoes(operacoes) if operacoes is not None else carregar_operacoes()
     alvos = _alvos(bundle)
     competencia, artefatos = _competencia_e_artefatos(bundle, alvos)

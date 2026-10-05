@@ -27,11 +27,25 @@ if TYPE_CHECKING:
     from sustemporal.contracts.temporal import SelecaoVersao
     from sustemporal.temporal.registry import RegistroTemporal
 
-__all__ = ["exigir_versao_selecionavel", "marcas_de_incompletude"]
+__all__ = ["exigir_versao_selecionavel", "marcas_de_incompletude", "selecao_da_competencia"]
 
 logger = logging.getLogger(__name__)
 
 _ACEITAS = frozenset({EstadoSelecao.SELECIONADA, EstadoSelecao.INCOMPLETA})
+
+
+def selecao_da_competencia(
+    registro: RegistroTemporal, config: RunConfig, fonte: FamiliaFonte, competencia: str
+) -> SelecaoVersao:
+    """Seleção do T06 da fonte para a competência do arquivo, até o `corte_observacao`."""
+    criterio = CriterioTemporal(fonte=fonte, base=BaseTemporal.PROCESSAMENTO)
+    return selecionar_versao(
+        registro,
+        criterio,
+        CompetenciaArquivo(competencia),
+        uf=uf_da_execucao(config),
+        corte=config.corte_observacao,
+    )
 
 
 def exigir_versao_selecionavel(
@@ -48,19 +62,12 @@ def exigir_versao_selecionavel(
         ConteudoDivergente: seleção de uma competência da pasta em estado não aceito.
         ConfigInvalida: versão da pasta não selecionada ou parte selecionada ausente da pasta.
     """
-    criterio = CriterioTemporal(fonte=FamiliaFonte.SIA_PA, base=BaseTemporal.PROCESSAMENTO)
     por_competencia: dict[str, set[str]] = defaultdict(set)
     for artefato in artefatos:
         por_competencia[str(registro.versoes[artefato].chave.competencia_arquivo)].add(artefato)
     incompletas: dict[str, SelecaoVersao] = {}
     for competencia, da_pasta in sorted(por_competencia.items()):
-        selecao = selecionar_versao(
-            registro,
-            criterio,
-            CompetenciaArquivo(competencia),
-            uf=uf_da_execucao(config),
-            corte=config.corte_observacao,
-        )
+        selecao = selecao_da_competencia(registro, config, FamiliaFonte.SIA_PA, competencia)
         if selecao.estado not in _ACEITAS:
             raise ConteudoDivergente(
                 f"producao_com_selecao_nao_aceita competencia={competencia} "

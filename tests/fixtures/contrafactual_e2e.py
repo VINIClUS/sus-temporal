@@ -3,7 +3,9 @@
 O `validate` roda por `sustemporal.cli.main`, sem mock do motor, em dois modos:
 - `--entrada`: os cenários SINTETICOS do contrafactual (com CNES ST), uma linha `VIOLACAO` e
   duas só `INCONCLUSIVO` (mês faltante e borda de 2018);
-- `--ingest`: a pasta SINTETICA do `ingest` do #27 (sem CNES ST, que as regras não exigem).
+- `--ingest`: a pasta SINTETICA do `ingest` do #27, sem CNES ST (que as regras não exigem) ou, com
+  `com_cnes_st`, com o CNES ST de janeiro e fevereiro (lido só pelas precondições), no dia e com o
+  corte que as opções de `montar_ingest` pedirem.
 
 Nenhuma função daqui escreve na pasta da execução: o contexto é o que o `validate` gravou.
 """
@@ -83,7 +85,7 @@ class ChamadaMotor:
 
 
 def _execucao(config: Path, saidas: Path) -> ExecucaoReal:
-    (caminho,) = sorted(saidas.glob("*/val_*/run_result.json"))
+    (caminho,) = sorted(saidas.glob("runs/val_*/run_result.json"))
     run = RunResult.model_validate_json(caminho.read_text(encoding="utf-8"))
     ref = next(s for s in run.saidas if s.schema_id == "avaliacoes.v1")
     estados: dict[str, dict[str, str]] = {}
@@ -110,9 +112,12 @@ def validar_entrada_pela_cli(
     return _execucao(config, raiz / "saidas")
 
 
-def validar_ingest_pela_cli(raiz: Path, politica: str) -> ExecucaoReal:
-    """`sustemporal validate --ingest` sobre a pasta SINTETICA do `ingest`, sem SIGTAP em 202302."""
-    mundo = montar_ingest(raiz, sigtap_fev_ausente=True)
+def validar_ingest_pela_cli(raiz: Path, politica: str, **opcoes: Any) -> ExecucaoReal:
+    """`sustemporal validate --ingest` sobre a pasta SINTETICA do `ingest`, sem SIGTAP em 202302.
+
+    `opcoes` vão para `montar_ingest` (`com_cnes_st`, `cnes_st_dias`, `corte`, ...).
+    """
+    mundo = montar_ingest(raiz, sigtap_fev_ausente=True, **opcoes)
     assert _validar(mundo.config, politica, ["--ingest", str(mundo.pasta)]) == 0
     return _execucao(mundo.config, raiz / "outputs")
 

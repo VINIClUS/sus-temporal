@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.config import RunConfig, RuntimeConfig
+from sustemporal.execucoes import raiz_execucoes
 from sustemporal.rules.cli import EntradaValidacao, executar_validate
 from tests.fixtures.contrafactual_cenario import (
     ART_ST,
@@ -101,15 +102,17 @@ def entrada_sintetica(raiz: Path) -> EntradaValidacao:
 
 
 def executar_validacao_sintetica(raiz: Path) -> Execucao:
-    """Roda `executar_validate` (`--policy atendimento`); a entrada é a que o `validate` grava."""
+    """`executar_validate` (`--policy atendimento`) sem `--saida`: a execução fica em `runs/`.
+
+    A entrada é a que o `validate` grava ao lado do `run_result.json`.
+    """
     entrada = entrada_sintetica(raiz)
     caminho = raiz / "entrada.json"
     caminho.write_text(entrada.model_dump_json(), encoding="utf-8")
     config = RunConfig(versao="1", runtime=RuntimeConfig(raiz_saidas=str(raiz / "saidas")))
-    runs = raiz / "saidas" / "runs"
-    args = argparse.Namespace(policy="atendimento", entrada=caminho, ingest=None, saida=runs)
+    args = argparse.Namespace(policy="atendimento", entrada=caminho, ingest=None, saida=None)
     assert executar_validate(args, config) == 0
-    (pasta,) = list(runs.iterdir())
+    (pasta,) = list(raiz_execucoes(config).iterdir())
     return Execucao(
         config=config,
         raiz=raiz,

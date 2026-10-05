@@ -1,0 +1,44 @@
+schema_id: piloto_inconclusivos.v1
+descricao: >-
+  Seleção de versões classificada por estrato (regra, fonte e base) e estado, nas linhas incluídas
+  do relatório do piloto (T05): cada linha de selecao_versoes.v1 de um registro incluído entra no
+  denominador do seu estrato. A classe separa a ausência sem bytes pela observação de coleta
+  (ausente_nao_encontrado_na_listagem, ausente_tentativa_sem_bytes,
+  ausente_tentativa_sem_resultado_conhecido ou ausente_sem_tentativa), leva o motivo do seletor na
+  quarentena (em_quarentena_<motivo>) e é o estado em minúsculas nos demais casos (selecionada, por
+  exemplo). Tabela derivada do código do relatório (reporting/report_selecao.py), sem leiaute
+  oficial; exploratória pré-G0 e A_CONFIRMAR.
+chave: [rule_id, fonte, base, estado, classe]
+colunas:
+  - nome: rule_id
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Regra (RuleSpec.rule_id) da seleção.
+  - nome: fonte
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: FamiliaFonte da dependência.
+  - nome: base
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: >-
+      BaseTemporal aplicada (ATENDIMENTO ou PROCESSAMENTO); texto vazio quando a seleção não
+      resolveu a base.
+  - nome: estado
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: EstadoSelecao.
+  - nome: classe
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Classe da seleção, conforme a descrição do esquema.
+  - nome: linhas
+    tipo: INTEIRO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Linhas de selecao_versoes.v1 de registros incluídos naquele grupo.

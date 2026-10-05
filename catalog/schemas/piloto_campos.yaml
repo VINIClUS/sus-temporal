@@ -1,0 +1,28 @@
+schema_id: piloto_campos.v1
+descricao: >-
+  Ausência por campo nas linhas incluídas do relatório do piloto (T05): os campos que as famílias
+  de regras exigem e os que o plano manda verificar antes do G0 (quantidades e valores
+  apresentados e aprovados, PA_INDICA e os campos de erro). Ausente é valor nulo no conjunto
+  canônico; nos campos sem normalização (pa_indica, pa_codoco, pa_flqt e pa_fler) nulo é coluna
+  fora do arquivo e texto em branco é valor lido, não ausência. Campo de erro entra só aqui, como
+  observabilidade, nunca em contagem nem como atributo de classificação. Tabela derivada do código
+  do relatório (reporting/report_tabelas.py), sem leiaute oficial; exploratória pré-G0 e
+  A_CONFIRMAR. Os nomes de campo do SIA-PA herdam a proveniência de sia_pa.v1 (INFERIDA ou
+  SECUNDARIA, conforme o campo; A_CONFIRMAR).
+chave: [campo]
+colunas:
+  - nome: campo
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Nome da coluna de sia_pa.v1 verificada.
+  - nome: ausentes
+    tipo: INTEIRO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Linhas incluídas em que o campo é nulo (numerador da taxa de ausência).
+  - nome: denominador
+    tipo: INTEIRO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Linhas incluídas (denominador da taxa de ausência).

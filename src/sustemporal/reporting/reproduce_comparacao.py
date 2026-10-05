@@ -350,6 +350,20 @@ def comparar_split(esperado: SplitManifest, obtido: SplitManifest) -> list[Compa
     return itens
 
 
+def _nao_normalizados(artefatos: Iterable[str], estados: Mapping[str, str]) -> dict[str, str]:
+    return {
+        artefato: estados.get(artefato, _AUSENTE_DO_INGEST)
+        for artefato in artefatos
+        if estados.get(artefato) != _NORMALIZADO
+    }
+
+
+def _inconclusivo(item: str, esperado: str | None, falta: Mapping[str, str]) -> Comparacao:
+    nomes = ",".join(sorted(set(falta.values())))
+    detalhe = f"originais_indisponiveis artefatos={len(falta)} estados={nomes}"
+    return Comparacao(item, Situacao.INCONCLUSIVO, esperado, None, detalhe)
+
+
 def comparar_originais(
     congelados: Sequence[DatasetRef], estados: Mapping[str, str]
 ) -> list[Comparacao]:
@@ -361,25 +375,29 @@ def comparar_originais(
     """
     itens = []
     for conjunto in congelados:
-        falta = {
-            artefato: estados.get(artefato, _AUSENTE_DO_INGEST)
-            for artefato in conjunto.artifact_ids
-            if estados.get(artefato) != _NORMALIZADO
-        }
+        falta = _nao_normalizados(conjunto.artifact_ids, estados)
         if falta:
-            nomes = ",".join(sorted(set(falta.values())))
-            detalhe = f"originais_indisponiveis artefatos={len(falta)} estados={nomes}"
             declarado = f"{conjunto.linhas}:{conjunto.hash_logico}"
-            item = f"conjunto:{conjunto.schema_id}"
-            itens.append(Comparacao(item, Situacao.INCONCLUSIVO, declarado, None, detalhe))
+            itens.append(_inconclusivo(f"conjunto:{conjunto.schema_id}", declarado, falta))
     return itens
 
 
 def comparar_auxiliares(
     entradas: Mapping[str, EntradaValidacao], estados: Mapping[str, str]
 ) -> list[Comparacao]:
-    """Um item inconclusivo por política cujos auxiliares usam artefato não normalizado."""
-    raise NotImplementedError
+    """Um item inconclusivo por política cujos auxiliares usam artefato não normalizado.
+
+    São os auxiliares (CNES, SIGTAP) da entrada congelada de cada política; a população e os
+    rótulos já são conferidos por `comparar_originais`, e a cobertura e a seleção só derivam desses
+    artefatos. Mesmo item (`insumos:<politica>`) que a comparação refeita dá a essa entrada.
+    """
+    itens = []
+    for politica_id in sorted(entradas):
+        auxiliares = entradas[politica_id].auxiliares
+        falta = _nao_normalizados({a for ref in auxiliares for a in ref.artifact_ids}, estados)
+        if falta:
+            itens.append(_inconclusivo(f"insumos:{politica_id}", None, falta))
+    return itens
 
 
 def comparar_notas(
@@ -453,8 +471,13 @@ def observacoes_do_ingest(estados: Mapping[str, str]) -> list[str]:
 
 
 def observacoes_dos_insumos(congeladas: Collection[str], conferidas: Collection[str]) -> list[str]:
-    """Políticas congeladas cuja entrada original não pôde ser conferida."""
-    raise NotImplementedError
+    """Políticas congeladas cuja entrada original não pôde ser conferida.
+
+    Sem ela não se sabe de que artefatos os auxiliares dependiam: a disponibilidade deles não é
+    conferida antes de refazer, e a diferença nos insumos aparece como divergência.
+    """
+    faltam = sorted(set(congeladas) - set(conferidas))
+    return [f"insumos_originais_nao_conferidos politicas={','.join(faltam)}"] if faltam else []
 
 
 def rodada_registrada(

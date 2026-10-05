@@ -24,12 +24,14 @@ from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.duck import conectar, identificador_seguro
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
+from sustemporal.evaluation.freeze_entrada import campos_divergentes
 from sustemporal.evaluation.labels import CODEBOOK_PA, label_pa
 from sustemporal.evaluation.split import SCHEMA_ENTRADA, build_splits
 from sustemporal.execucoes import raiz_execucoes
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.sia_pa import gravar_parquet, produtor
 from sustemporal.rules.catalog import carregar_esquema
+from sustemporal.rules.entrada import EntradaValidacao
 from sustemporal.rules.ingest import ler_datasets
 from sustemporal.rules.insumos import METODOS_DE_VALIDACAO
 from sustemporal.rules.validate_ingest import validar_ingest
@@ -40,7 +42,6 @@ if TYPE_CHECKING:
     from sustemporal.contracts.config import RunConfig
     from sustemporal.contracts.experiment import RunResult, SplitManifest, SplitSpec
     from sustemporal.contracts.temporal import MetodoId
-    from sustemporal.rules.entrada import EntradaValidacao
 
 __all__ = [
     "Derivado",
@@ -243,8 +244,28 @@ def estados_do_ingest(pasta: Path) -> dict[str, str]:
     return estados
 
 
+def _ler_entrada(caminho: Path) -> EntradaValidacao | None:
+    try:
+        return EntradaValidacao.model_validate_json(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
 def entradas_congeladas(
     pasta: Path, identidades: Mapping[str, Mapping[str, str]]
 ) -> dict[str, EntradaValidacao]:
-    """`pasta/<politica_id>.json` de cada política congelada, se for a entrada congelada."""
-    raise NotImplementedError
+    """`pasta/<politica_id>.json` de cada política congelada, se for a entrada congelada.
+
+    O manifesto guarda só a identidade de cada campo; a entrada original (`<raiz_saidas>/split/
+    insumos`, a que o `freeze` leu) dá os artefatos dos auxiliares. Entra só a que existe, é
+    legível e tem, campo a campo, a identidade congelada; a ausente, a ilegível e a alterada depois
+    do congelamento ficam de fora.
+    """
+    entradas = {}
+    for politica_id in sorted(identidades):
+        entrada = _ler_entrada(pasta / f"{politica_id}.json")
+        if entrada is not None and not campos_divergentes(identidades[politica_id], entrada):
+            entradas[politica_id] = entrada
+        else:
+            logger.warning("insumo_original_nao_conferido politica=%s pasta=%s", politica_id, pasta)
+    return entradas

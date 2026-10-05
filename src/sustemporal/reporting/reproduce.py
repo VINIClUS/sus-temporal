@@ -33,6 +33,7 @@ from sustemporal.ingest import cli as ingest_cli
 from sustemporal.reporting.reproduce_comparacao import (
     Comparacao,
     Situacao,
+    comparar_auxiliares,
     comparar_execucoes,
     comparar_insumos,
     comparar_metricas,
@@ -44,6 +45,7 @@ from sustemporal.reporting.reproduce_comparacao import (
     ler_relatorio_original,
     observacoes_do_ambiente,
     observacoes_do_ingest,
+    observacoes_dos_insumos,
     resultado_geral,
     rodada_registrada,
 )
@@ -51,6 +53,7 @@ from sustemporal.reporting.reproduce_etapas import (
     Derivado,
     competencias_da_particao,
     derivar_protocolo,
+    entradas_congeladas,
     estados_do_ingest,
     janela_do_ingest,
     validar_janela,
@@ -237,6 +240,26 @@ def _observacoes(config: RunConfig, manifesto: FreezeManifest) -> list[str]:
     )
 
 
+def _antes_de_refazer(
+    config: RunConfig, manifesto: FreezeManifest, estados: Mapping[str, str]
+) -> tuple[list[Comparacao], list[str]]:
+    """Itens inconclusivos (original que o ingest refeito não trouxe) e observações do ambiente."""
+    congeladas = manifesto.entradas_validacao or {}
+    entradas = entradas_congeladas(
+        Path(config.runtime.raiz_saidas) / "split" / "insumos", congeladas
+    )
+    indisponiveis = [
+        *comparar_originais(manifesto.datasets, estados),
+        *comparar_auxiliares(entradas, estados),
+    ]
+    observacoes = [
+        *observacoes_do_ingest(estados),
+        *observacoes_dos_insumos(congeladas, entradas),
+        *_observacoes(config, manifesto),
+    ]
+    return indisponiveis, observacoes
+
+
 def _comparar(
     config: RunConfig, manifesto: FreezeManifest, original: Original, refeito: Refeito
 ) -> list[Comparacao]:
@@ -284,9 +307,10 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
         ConfigInvalida: config sem `freeze_id`, confirmatória, `out` já usado ou entradas locais
             ausentes ou inválidas.
         RedeProibida: config com `rede_permitida` ou qualquer tentativa de conexão.
-        FalhaOperacionalErro: conteúdo refeito diferente do congelado ou do original, ou item
-            sem original para comparar (inclusive artefato do SIA-PA que o ingest não normalizou);
-            o `reproducao.json` já está gravado em `out`.
+        FalhaOperacionalErro: conteúdo refeito diferente do congelado ou do original, saída que
+            só uma das execuções emitiu, ou item sem original para comparar (inclusive artefato
+            do SIA-PA ou dos auxiliares congelados, CNES e SIGTAP, que o ingest não normalizou); o
+            `reproducao.json` já está gravado em `out`.
     """
     freeze_id = _exigir_reprodutivel(config)
     manifesto = carregar_freeze(Path(config.runtime.dir_congelamentos), freeze_id)
@@ -295,9 +319,7 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
     with sem_rede():
         original = _original(config, freeze_id)
         pasta = _ingerir(em_out)
-        estados = estados_do_ingest(pasta)
-        observacoes = [*observacoes_do_ingest(estados), *_observacoes(config, manifesto)]
-        indisponiveis = comparar_originais(manifesto.datasets, estados)
+        indisponiveis, observacoes = _antes_de_refazer(config, manifesto, estados_do_ingest(pasta))
         if indisponiveis:
             _registrar(config, out, None, indisponiveis, observacoes)
             exigir_conferido(indisponiveis)

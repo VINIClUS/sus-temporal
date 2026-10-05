@@ -96,6 +96,24 @@ def test_execucoes_compativeis_com_o_manifesto_sao_avaliadas(
     assert "sigtap_procedimento.v1" in esquemas
 
 
+def test_relatorio_traz_o_tamanho_do_estrato_de_cada_estabelecimento(
+    tmp_path: Path, confirmatorio: Confirmatorio
+) -> None:
+    relatorio = _avaliar(confirmatorio, tmp_path / "av")
+    tamanhos = {
+        m.estrato: m.numerador for m in relatorio.metricas if m.nome == "populacao.tamanho_estrato"
+    }
+    por_estabelecimento = {e: n for e, n in tamanhos.items() if e.startswith("estabelecimento=")}
+    assert por_estabelecimento == {
+        "estabelecimento=0000000": 8,
+        "estabelecimento=0000001": 8,
+        "estabelecimento=0000002": 7,
+        "estabelecimento=0000003": 7,
+    }
+    assert sum(por_estabelecimento.values()) == tamanhos["TOTAL"]
+    assert tamanhos["competencia=202401"] == tamanhos["instrumento=C"] == tamanhos["TOTAL"]
+
+
 def _particao(conf: Confirmatorio, particao: Particao) -> Any:
     assert conf.cenario.split.particoes is not None
     return como_real(conf.cenario.split.particoes[particao])

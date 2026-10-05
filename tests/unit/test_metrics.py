@@ -120,6 +120,97 @@ def test_tamanho_dos_estratos(metricas: Metricas) -> None:
     )
 
 
+ESTABELECIMENTOS = ("0000000", "0000001")
+
+
+def _estrato(cnes: str) -> str:
+    return f"estabelecimento={cnes}"
+
+
+def _do_estabelecimento(
+    metricas: Metricas, nome: str, cnes: str
+) -> tuple[int, int, Decimal | None]:
+    assert (nome, _estrato(cnes)) in metricas, f"estrato_ausente nome={nome} cnes={cnes}"
+    return _razao(metricas, nome, _estrato(cnes))
+
+
+def test_ha_estrato_por_estabelecimento_com_o_tamanho_de_cada_um(metricas: Metricas) -> None:
+    estratos = {e for nome, e in metricas if nome == "populacao.tamanho_estrato"}
+    assert {_estrato(cnes) for cnes in ESTABELECIMENTOS} <= estratos
+    for cnes in ESTABELECIMENTOS:
+        tamanho = _do_estabelecimento(metricas, "populacao.tamanho_estrato", cnes)
+        assert tamanho == (4, 8, Decimal("0.5"))
+
+
+def test_estratos_de_estabelecimento_particionam_a_populacao(metricas: Metricas) -> None:
+    partes: dict[str, list[ValorMetrica]] = {}
+    for (nome, estrato), valor in metricas.items():
+        if estrato.startswith("estabelecimento="):
+            partes.setdefault(nome, []).append(valor)
+    assert "M.cobertura_rejeicoes" in partes
+    assert "populacao.tamanho_estrato" in partes
+    for nome, valores in partes.items():
+        total = metricas[(nome, "TOTAL")]
+        assert len(valores) == len(ESTABELECIMENTOS)
+        assert sum(v.numerador for v in valores) == total.numerador
+        if nome != "populacao.tamanho_estrato":
+            assert sum(v.denominador for v in valores) == total.denominador
+
+
+# Contas à mão: 0000000 = r1, r3, r5, r7 e 0000001 = r2, r4, r6, r8 (pela TABELA).
+POR_ESTABELECIMENTO = [
+    ("0000000", "M.cobertura_rejeicoes", (1, 2, Decimal("0.5"))),
+    ("0000001", "M.cobertura_rejeicoes", (0, 1, Decimal("0"))),
+    ("0000000", "M.cobertura_verificabilidade", (3, 4, Decimal("0.75"))),
+    ("0000001", "M.cobertura_verificabilidade", (3, 4, Decimal("0.75"))),
+    ("0000000", "M.precisao_alertas", (1, 1, Decimal("1"))),
+    ("0000001", "M.precisao_alertas", (0, 1, Decimal("0"))),
+    ("0000000", "M.falsos_alertas_aprovacoes", (0, 1, Decimal("0"))),
+    ("0000001", "M.falsos_alertas_aprovacoes", (1, 2, Decimal("0.5"))),
+    ("0000000", "M.abstencao", (1, 4, Decimal("0.25"))),
+    ("0000001", "M.abstencao", (1, 4, Decimal("0.25"))),
+    ("0000000", "M.alerta_aprovacao_parcial", (1, 1, Decimal("1"))),
+    ("0000000", "M.rejeicoes_sem_alerta_fora_de_escopo_documentada", (0, 1, Decimal("0"))),
+    ("0000001", "M.rejeicoes_sem_alerta_fora_de_escopo_documentada", (1, 1, Decimal("1"))),
+    ("0000000", "M.rejeicoes_sem_alerta_causa_indeterminada", (1, 1, Decimal("1"))),
+    ("0000001", "M.rejeicoes_sem_alerta_causa_indeterminada", (0, 1, Decimal("0"))),
+    ("0000000", "B.cobertura_rejeicoes", (1, 2, Decimal("0.5"))),
+    ("0000001", "B.cobertura_rejeicoes", (1, 1, Decimal("1"))),
+    ("0000000", "B.precisao_alertas", (1, 1, Decimal("1"))),
+]
+
+
+@pytest.mark.parametrize(("cnes", "nome", "esperado"), POR_ESTABELECIMENTO)
+def test_metricas_por_estabelecimento_contra_contas_a_mao(
+    metricas: Metricas, cnes: str, nome: str, esperado: tuple[int, int, Decimal]
+) -> None:
+    assert _do_estabelecimento(metricas, nome, cnes) == esperado
+
+
+def test_denominador_zero_no_estabelecimento_da_valor_none(metricas: Metricas) -> None:
+    for metodo in ("M", "B"):
+        nome = f"{metodo}.alerta_aprovacao_parcial"
+        assert _do_estabelecimento(metricas, nome, "0000001") == (0, 0, None)
+
+
+def test_linha_sem_cnes_forma_um_estrato_proprio_e_nenhuma_se_perde() -> None:
+    linhas = [
+        LinhaAvaliada(
+            row_id=f"r{i}",
+            rotulo="NAO_APROVADO",
+            cnes=cnes,
+            competencia="202401",
+            instrumento="C",
+            situacoes={"M": A},
+        )
+        for i, cnes in enumerate(["0000001", None, "0000001"])
+    ]
+    valores = {(v.nome, v.estrato): v for v in calcular_metricas(linhas, ["M"])}
+    tamanhos = {e: v.numerador for (n, e), v in valores.items() if n == "populacao.tamanho_estrato"}
+    por_estabelecimento = {e: n for e, n in tamanhos.items() if e.startswith("estabelecimento=")}
+    assert por_estabelecimento == {_estrato("0000001"): 2, _estrato("None"): 1}
+
+
 def test_denominador_zero_da_valor_none() -> None:
     linhas = [
         LinhaAvaliada(

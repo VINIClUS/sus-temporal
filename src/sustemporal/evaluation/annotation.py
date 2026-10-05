@@ -158,6 +158,8 @@ def _rejeicoes(
     registros: DatasetRef,
     labels: DatasetRef,
     dimensoes: tuple[str, ...],
+    *,
+    particao: Particao,
 ) -> dict[str, str]:
     """row_id → estrato das rejeições da partição; falha se algum registro não tem rótulo."""
     partes = " || '|' || ".join(f"'{d}=' || {_SQL_DIMENSAO[d]}" for d in dimensoes)
@@ -167,8 +169,9 @@ def _rejeicoes(
     ).fetchall()
     sem_rotulo = sum(1 for _, rotulo, _ in linhas if rotulo is None)
     if sem_rotulo:
-        raise ValueError(
-            f"rotulos_nao_cobrem_particao dataset={registros.dataset_id} faltantes={sem_rotulo}"
+        raise FalhaOperacionalErro(
+            f"anotacao_rotulos_incompletos particao={particao} dataset={registros.dataset_id} "
+            f"faltantes={sem_rotulo}"
         )
     return {str(row_id): str(estrato) for row_id, rotulo, estrato in linhas if rotulo == REJEICAO}
 
@@ -236,11 +239,14 @@ def _sortear(
         _exigir_colunas(con, registros, (*COLUNAS_AMOSTRAGEM, *COLUNAS_PACOTE))
     for dataset in (labels, teste, desenvolvimento):
         _unicidade(con, dataset)
-    populacao = _rejeicoes(con, teste, labels, dimensoes)
+    populacao = _rejeicoes(con, teste, labels, dimensoes, particao=Particao.TESTE)
     if not populacao:
         raise ValueError(f"anotacao_sem_rejeicoes dataset={teste.dataset_id}")
     contagens, alocacao, casos = _sortear_final(populacao, tamanho, semente)
-    treino = _treino(_rejeicoes(con, desenvolvimento, labels, dimensoes), tamanho_treino, semente)
+    rejeicoes_dev = _rejeicoes(
+        con, desenvolvimento, labels, dimensoes, particao=Particao.DESENVOLVIMENTO
+    )
+    treino = _treino(rejeicoes_dev, tamanho_treino, semente)
     ordem_casos = _ordem(casos, semente, "caso")
     ordem_treino = _ordem(treino, semente, "treino")
     return _Sorteio(
@@ -291,9 +297,10 @@ def prepare_annotation_sample(
 
     Raises:
         ConfigInvalida: partição de teste ou de desenvolvimento não materializada.
-        FalhaOperacionalErro: Parquet ilegível ou diferente do `DatasetRef`.
-        ValueError: dimensão não observável, partição divergente do split, rótulos que não
-            cobrem a partição, origem de dados divergente ou mais estratos que casos.
+        FalhaOperacionalErro: Parquet ilegível, diferente do `DatasetRef`, com leiaute
+            incompatível ou rótulos que não cobrem uma partição selecionada.
+        ValueError: dimensão não observável, partição divergente do split, origem de dados
+            divergente ou mais estratos que casos.
     """
     _exigir_dimensoes(dimensoes)
     if tamanho_treino < 0:

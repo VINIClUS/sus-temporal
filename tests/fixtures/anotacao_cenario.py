@@ -46,7 +46,7 @@ _ARROW_TIPO = {
 }
 
 
-def _gravar(
+def gravar_dataset(
     caminho: Path, schema_id: str, linhas: list[dict[str, object]], artefatos: tuple[str, ...]
 ) -> DatasetRef:
     esquema = carregar_esquema(schema_id)
@@ -132,7 +132,7 @@ def gravar_rotulos(caminho: Path, linhas: list[dict[str, object]]) -> DatasetRef
         }
         for i, linha in enumerate(linhas)
     ]
-    return _gravar(caminho, "sia_pa_rotulos.v1", rotulos, (ARTEFATO_DEV, ARTEFATO_TESTE))
+    return gravar_dataset(caminho, "sia_pa_rotulos.v1", rotulos, (ARTEFATO_DEV, ARTEFATO_TESTE))
 
 
 @dataclass(frozen=True)
@@ -161,11 +161,17 @@ def montar_cenario(
     )
     vazio = [registro("c00000", ARTEFATO_DEV, 0, competencia_processamento="202306")]
     particoes = {
-        Particao.DESENVOLVIMENTO: _gravar(raiz / "dev.parquet", "sia_pa.v1", dev, (ARTEFATO_DEV,)),
-        Particao.CALIBRACAO: _gravar(raiz / "cal.parquet", "sia_pa.v1", vazio, (ARTEFATO_DEV,)),
-        Particao.TESTE: _gravar(raiz / "teste.parquet", "sia_pa.v1", teste, (ARTEFATO_TESTE,)),
+        Particao.DESENVOLVIMENTO: gravar_dataset(
+            raiz / "dev.parquet", "sia_pa.v1", dev, (ARTEFATO_DEV,)
+        ),
+        Particao.CALIBRACAO: gravar_dataset(
+            raiz / "cal.parquet", "sia_pa.v1", vazio, (ARTEFATO_DEV,)
+        ),
+        Particao.TESTE: gravar_dataset(
+            raiz / "teste.parquet", "sia_pa.v1", teste, (ARTEFATO_TESTE,)
+        ),
     }
-    completo = _gravar(
+    completo = gravar_dataset(
         raiz / "completo.parquet", "sia_pa.v1", dev + vazio + teste, (ARTEFATO_DEV, ARTEFATO_TESTE)
     )
     labels = gravar_rotulos(raiz / "rotulos.parquet", dev + vazio + teste)

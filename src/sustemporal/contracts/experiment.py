@@ -249,15 +249,8 @@ class Atributo(ContratoBase):
     transformacao: str
 
 
-_ROTULOS_E_ERROS = (
-    "pa_indica",
-    "rotulo",
-    "contradicoes",
-    "pa_codoco",
-    "pa_flqt",
-    "pa_fler",
-    "pa_flidade",
-)
+_ROTULOS = ("pa_indica", "rotulo", "contradicoes")
+_CAMPOS_DE_ERRO = ("pa_codoco", "pa_flqt", "pa_fler", "pa_flidade")
 _VALORES_DO_PROCESSAMENTO = (
     "quantidade_aprovada",
     "valor_aprovado",
@@ -271,7 +264,7 @@ _VALORES_DO_PROCESSAMENTO = (
 )
 COLUNAS_PROIBIDAS_EM_ATRIBUTOS = frozenset(
     f"{nome}{sufixo}"
-    for nome in (*_ROTULOS_E_ERROS, *_VALORES_DO_PROCESSAMENTO)
+    for nome in (*_ROTULOS, *_CAMPOS_DE_ERRO, *_VALORES_DO_PROCESSAMENTO)
     for sufixo in ("", "_bruto", "_motivo")
 )
 

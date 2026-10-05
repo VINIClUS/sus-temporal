@@ -169,7 +169,10 @@ def _avaliar(
 
 def _refazer(config: RunConfig, manifesto: FreezeManifest, pasta: Path) -> Refeito:
     destino = Path(config.runtime.raiz_saidas) / "split"
-    derivado = derivar_protocolo(config, pasta, destino, spec=manifesto.split.spec)
+    split = manifesto.split
+    derivado = derivar_protocolo(
+        config, pasta, destino, spec=split.spec, inspecionados=split.artefatos_inspecionados
+    )
     avaliadas = _validar_particao(config, pasta, derivado, Particao.CALIBRACAO)
     teste = _validar_particao(config, pasta, derivado, Particao.TESTE)
     relatorio = _avaliar(config, manifesto, derivado, avaliadas)

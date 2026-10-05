@@ -188,15 +188,15 @@ def derivar_protocolo(
     """União do SIA-PA do ingest, rótulos pelo codebook e partições do split, em `destino`.
 
     O split sai direto em `destino` (`spl_*.json`, `<split_id>.entradas.json` e as partições),
-    onde o `freeze` e o `evaluate` o procuram (`<raiz_saidas>/split`).
+    onde o `freeze` e o `evaluate` o procuram (`<raiz_saidas>/split`). Os `inspecionados` são os
+    artefatos já vistos no desenvolvimento: entram no `split_id` e não podem estar no TESTE.
 
     Raises:
         ConfigInvalida: config sem `coorte`, ingest sem SIA-PA ou com origens misturadas.
+        ValueError: artefato inspecionado sem fonte no manifesto ou que cairia no TESTE.
     """
     if config.coorte is None:
         raise ConfigInvalida("derivar_protocolo_exige_coorte")
-    if tuple(inspecionados):
-        raise NotImplementedError("derivar_protocolo_inspecionados")
     producao = [ref for ref in ler_datasets(pasta) if ref.schema_id == SCHEMA_ENTRADA]
     if not producao:
         raise ConfigInvalida("ingest_sem_producao schema=sia_pa.v1")
@@ -209,6 +209,7 @@ def derivar_protocolo(
         destino,
         spec=spec,
         fonte_por_artefato=_fonte_por_artefato(config),
+        inspecionados=inspecionados,
         rotulos=rotulos,
     )
     return Derivado(uniao, rotulos, split)

@@ -33,12 +33,12 @@ from sustemporal.ingest import cli as ingest_cli
 from sustemporal.reporting.reproduce_comparacao import (
     Comparacao,
     Situacao,
+    comparar_execucoes,
     comparar_insumos,
     comparar_metricas,
     comparar_notas,
     comparar_originais,
     comparar_referencia,
-    comparar_saida,
     comparar_split,
     exigir_conferido,
     ler_relatorio_original,
@@ -65,6 +65,7 @@ if TYPE_CHECKING:
     from sustemporal.contracts import FreezeManifest, RunConfig
     from sustemporal.contracts.evaluation import EvaluationReport
     from sustemporal.contracts.experiment import RunResult
+    from sustemporal.contracts.records import DatasetRef
     from sustemporal.contracts.temporal import MetodoId
 
 __all__ = ["configurar_parser", "executar_reproduce", "reproduce"]
@@ -217,17 +218,13 @@ def _comparar_insumos(
     return itens
 
 
-def _comparar_execucoes(
-    original: Original, avaliadas: Mapping[MetodoId, RunResult]
-) -> list[Comparacao]:
-    itens = []
-    for metodo, run in avaliadas.items():
-        antiga = original.execucoes.get(metodo)
-        antigas = {s.schema_id: s for s in antiga.saidas} if antiga is not None else {}
-        for saida in run.saidas:
-            item = f"saida:{metodo.value}:{saida.schema_id}"
-            itens.append(comparar_saida(item, antigas.get(saida.schema_id), saida))
-    return itens
+def _saidas_por_metodo(
+    execucoes: Mapping[MetodoId, RunResult],
+) -> dict[str, dict[str, DatasetRef]]:
+    return {
+        metodo.value: {saida.schema_id: saida for saida in run.saidas}
+        for metodo, run in execucoes.items()
+    }
 
 
 def _observacoes(config: RunConfig, manifesto: FreezeManifest) -> list[str]:
@@ -248,7 +245,9 @@ def _comparar(
         *_comparar_conjuntos(manifesto, refeito.derivado),
         *comparar_split(manifesto.split, refeito.derivado.split),
         *_comparar_insumos(config, manifesto, refeito.teste),
-        *_comparar_execucoes(original, refeito.avaliadas),
+        *comparar_execucoes(
+            _saidas_por_metodo(original.execucoes), _saidas_por_metodo(refeito.avaliadas)
+        ),
         comparar_metricas(
             "metricas", antigo.metricas if antigo else None, refeito.relatorio.metricas
         ),

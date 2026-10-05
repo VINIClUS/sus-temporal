@@ -206,16 +206,41 @@ def comparar_saidas(
     originais: Mapping[str, DatasetRef] | None,
     refeitas: Mapping[str, DatasetRef] | None,
 ) -> list[Comparacao]:
-    """As saídas da execução refeita contra as da registrada, pela união dos `schema_id`."""
-    raise NotImplementedError
+    """As saídas da execução refeita contra as da registrada, pela união dos `schema_id`.
+
+    `None` é a execução que não existe: sem a registrada não há original para comparar e a saída
+    refeita fica inconclusiva. Com as duas, a saída registrada que a refeita não emitiu e a saída
+    nova sem original são divergência de conteúdo, não inconclusão.
+    """
+    antigas, novas = originais or {}, refeitas or {}
+    itens = []
+    for schema_id in dict.fromkeys([*novas, *antigas]):
+        item = f"saida:{metodo}:{schema_id}"
+        original, obtida = antigas.get(schema_id), novas.get(schema_id)
+        if obtida is None:
+            itens.append(
+                Comparacao(item, Situacao.DIVERGENTE, None, None, "saida_ausente_no_refeito")
+            )
+        elif original is None and originais is not None:
+            itens.append(Comparacao(item, Situacao.DIVERGENTE, None, None, "saida_sem_original"))
+        else:
+            itens.append(comparar_saida(item, original, obtida))
+    return itens
 
 
 def comparar_execucoes(
     originais: Mapping[str, Mapping[str, DatasetRef]],
     refeitas: Mapping[str, Mapping[str, DatasetRef]],
 ) -> list[Comparacao]:
-    """As saídas de cada método (`{método: {schema_id: saída}}`); primeiro os métodos refeitos."""
-    raise NotImplementedError
+    """As saídas de cada método (`{método: {schema_id: saída}}`); primeiro os métodos refeitos.
+
+    Método que só a execução registrada tem é execução que a reconstrução não refez (toda saída
+    registrada diverge); o que só o refeito tem não tem execução registrada (inconclusivo).
+    """
+    itens = []
+    for metodo in dict.fromkeys([*refeitas, *originais]):
+        itens += comparar_saidas(metodo, originais.get(metodo), refeitas.get(metodo))
+    return itens
 
 
 def _arquivo(ref: DatasetRef) -> Path:

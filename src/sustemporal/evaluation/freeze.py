@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from sustemporal.contracts.base import hash_canonico, hash_identidade
-from sustemporal.contracts.experiment import DecisaoPortao, FreezeManifest, Portao
+from sustemporal.contracts.experiment import DecisaoPortao, FreezeManifest, Particao, Portao
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.features import auditar_features
 from sustemporal.gates import DIR_DECISOES, exigir_portao
@@ -27,7 +27,7 @@ from sustemporal.runtime_info import ambiente, versao_codigo
 from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
     from decimal import Decimal
 
     from sustemporal.contracts import (
@@ -51,6 +51,7 @@ __all__ = [
     "hash_protocolo",
     "hashes_das_politicas",
     "hashes_dos_catalogos",
+    "ids_nao_populacionais",
     "referencia_decisao",
 ]
 
@@ -134,11 +135,13 @@ def congelar(
     Raises:
         PortaoRecusado: G0 ausente ou que não libera.
         ConfigInvalida: protocolo incoerente, com valor A_DEFINIR, código sujo, catálogo
-            ausente ou que a config não declara, ou política repetida com conteúdo diferente.
+            ausente ou que a config não declara, política repetida com conteúdo diferente ou
+            insumos que não são os da partição TESTE.
         FalhaOperacionalErro: já existe outro conteúdo sob o mesmo `freeze_id`.
     """
     g0 = exigir_portao(decisoes, Portao.G0, hoje=hoje)
     _exigir_coerencia(protocolo)
+    auxiliares, snapshots = _identidades_dos_insumos(protocolo)
     raiz = Path.cwd()
     try:
         manifesto = FreezeManifest.criar(
@@ -157,6 +160,8 @@ def congelar(
             comparacoes_primarias=COMPARACOES_PRIMARIAS,
             margens=dict(protocolo.margens),
             decisao_g0=referencia_decisao(decisoes, g0),
+            auxiliares=auxiliares,
+            snapshots=snapshots,
         )
     except ValidationError as erro:
         raise ConfigInvalida(f"congelamento_invalido erro={erro}") from erro
@@ -182,6 +187,43 @@ def _exigir_coerencia(protocolo: Protocolo) -> None:
         raise ConfigInvalida(f"congelamento_catalogos_fora_da_config config={sorted(declarados)}")
     esquemas = {carregar_esquema(a.schema_id) for a in protocolo.features.atributos}
     auditar_features(protocolo.features, esquemas)
+    _exigir_insumos_do_teste(protocolo)
+
+
+def _exigir_insumos_do_teste(protocolo: Protocolo) -> None:
+    teste = protocolo.split.hash_por_particao[Particao.TESTE]
+    de_outra = sorted(p for p, e in protocolo.insumos.items() if e.dataset.hash_logico != teste)
+    if de_outra:
+        raise ConfigInvalida(
+            f"congelamento_insumos_de_outra_populacao politicas={','.join(de_outra)}"
+        )
+
+
+def ids_nao_populacionais(
+    entradas: Iterable[DatasetRef | None], populacao: Iterable[DatasetRef]
+) -> tuple[str, ...]:
+    """Ids, ordenados e sem repetição, das entradas de esquema que a população não usa.
+
+    `populacao` são os conjuntos congelados da população (registros e rótulos); o que sobra nas
+    `entradas` de uma execução de regras são auxiliares, seleções e cobertura. `congelar` e a
+    conferência por execução usam esta função.
+    """
+    esquemas = {d.schema_id for d in populacao}
+    presentes = (d for d in entradas if d is not None)
+    return tuple(sorted({d.dataset_id for d in presentes if d.schema_id not in esquemas}))
+
+
+def _identidades_dos_insumos(
+    protocolo: Protocolo,
+) -> tuple[dict[str, tuple[str, ...]] | None, dict[str, str] | None]:
+    """Ids não populacionais e `snapshot_id` por política; None sem insumos."""
+    populacao = (protocolo.dataset, protocolo.rotulos)
+    auxiliares, snapshots = {}, {}
+    for politica, entrada in sorted(protocolo.insumos.items()):
+        refs = (entrada.dataset, *entrada.auxiliares, entrada.selecoes, entrada.cobertura)
+        auxiliares[politica] = ids_nao_populacionais(refs, populacao)
+        snapshots[politica] = entrada.snapshots.snapshot_id
+    return auxiliares or None, snapshots or None
 
 
 def hashes_dos_catalogos(catalogos: Mapping[str, Path]) -> dict[str, str]:

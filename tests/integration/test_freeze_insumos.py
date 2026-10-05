@@ -169,6 +169,16 @@ def test_insumos_de_outra_politica_sao_recusados_nos_dois_campos(
         verificar_congelamento_completo(confirmatorio.manifesto, confirmatorio.estado, runs)
 
 
+def test_entradas_auxiliares_e_snapshots_divergentes_saem_nessa_ordem(
+    confirmatorio: Confirmatorio,
+) -> None:
+    run = confirmatorio.runs[B_PROC].model_copy(update={"entradas": (), "snapshot_set_id": None})
+    runs = [*confirmatorio.runs[:B_PROC], run, confirmatorio.runs[B_ML]]
+    mensagem = _mensagem(run, "entradas,auxiliares,snapshots", confirmatorio)
+    with pytest.raises(PortaoRecusado, match=mensagem):
+        verificar_congelamento_completo(confirmatorio.manifesto, confirmatorio.estado, runs)
+
+
 def test_execucao_com_outro_sigtap_e_recusada_antes_de_ler_dados_e_de_gravar(
     tmp_path: Path, confirmatorio: Confirmatorio
 ) -> None:

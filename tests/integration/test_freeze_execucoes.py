@@ -18,6 +18,7 @@ from tests.fixtures.protocolo_confirmatorio import (
     Confirmatorio,
     como_real,
     config_confirmatoria,
+    entradas_nao_populacionais,
     montar_confirmatorio,
     politicas_do_catalogo,
     sia_pa_desconhecido,
@@ -172,7 +173,7 @@ CASOS = [
     ("so_a_particao_de_desenvolvimento", "entradas"),
     ("calibracao_com_rotulos_do_teste", "entradas"),
     ("dataset_completo_sem_a_particao", "entradas"),
-    ("hash_do_teste_em_conjunto_de_outro_esquema", "entradas"),
+    ("hash_do_teste_em_conjunto_de_outro_esquema", "entradas,auxiliares"),
 ]
 
 
@@ -182,6 +183,8 @@ def test_execucao_com_o_mesmo_freeze_mas_identidade_diferente_e_recusada(
 ) -> None:
     alvo = confirmatorio.runs[M_TEMP]
     trocas = _divergencias(confirmatorio, tmp_path)[caso]()
+    if "entradas" in trocas:
+        trocas["entradas"] = (*trocas["entradas"], *entradas_nao_populacionais(alvo))
     runs = [alvo.model_copy(update=trocas), *confirmatorio.runs[1:]]
     with pytest.raises(PortaoRecusado, match=_mensagem(alvo, campo, confirmatorio)):
         _avaliar(confirmatorio, tmp_path / "av", runs)

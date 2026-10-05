@@ -2,10 +2,12 @@
 
 Entradas por convenção, sempre resolvidas por id exato e nunca por "latest":
 `<raiz_saidas>/split/<split_id>.json` (único) com `<split_id>.entradas.json` (dataset e rótulos
-completos), execuções em `raiz_execucoes(config)` = `<raiz_saidas>/runs/<run_id>/` e congelamentos
-em `<dir_congelamentos>/<freeze_id>.json`. A execução é o `run_result.json` que o motor de regras
-grava por padrão ali (`validate`) ou o `run.json` do baseline, nunca os dois no mesmo diretório.
-O registro append-only fica em `<dir_congelamentos>/registro_execucoes.jsonl`.
+completos), `<raiz_saidas>/split/insumos/<politica_id>.json` (a `entrada_validacao.json` de cada
+política sobre o TESTE, que o `freeze` congela), execuções em `raiz_execucoes(config)` =
+`<raiz_saidas>/runs/<run_id>/` e congelamentos em `<dir_congelamentos>/<freeze_id>.json`. A
+execução é o `run_result.json` que o motor de regras grava por padrão ali (`validate`) ou o
+`run.json` do baseline, nunca os dois no mesmo diretório. O registro append-only fica em
+`<dir_congelamentos>/registro_execucoes.jsonl`.
 
 Depois da abertura do teste, a segunda rodada confirmatória só entra como correção declarada:
 `evaluate --corrige <report_id> --declaracao <texto>`, os dois juntos, com alvo confirmatório
@@ -44,6 +46,7 @@ from sustemporal.evaluation.split import SUFIXO_ENTRADAS
 from sustemporal.execucoes import raiz_execucoes
 from sustemporal.gates import DIR_DECISOES, exigir_portao
 from sustemporal.rules.catalog import carregar_regras
+from sustemporal.rules.entrada import EntradaValidacao
 from sustemporal.rules.insumos import politica_padrao
 from sustemporal.runtime_info import ambiente, versao_codigo
 from sustemporal.temporal.politicas import DIRETORIO_POLITICAS, carregar_politica
@@ -109,20 +112,40 @@ def _politicas_do_catalogo(regras: list[RuleSpec]) -> list[PoliticaTemporal]:
     return [*catalogo, *padrao]
 
 
+def _insumos_do_split(raiz: Path) -> dict[str, EntradaValidacao]:
+    """`<raiz_saidas>/split/insumos/<politica_id>.json`: a `entrada_validacao.json` da política."""
+    pasta = raiz / "split" / "insumos"
+    arquivos = sorted(pasta.glob("*.json"))
+    if not arquivos:
+        raise ConfigInvalida(f"freeze_sem_insumos_das_execucoes pasta={pasta}")
+    insumos = {}
+    for arquivo in arquivos:
+        try:
+            insumos[arquivo.stem] = EntradaValidacao.model_validate_json(
+                arquivo.read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError) as erro:
+            raise ConfigInvalida(f"freeze_insumos_ilegiveis arquivo={arquivo}") from erro
+    return insumos
+
+
 def executar_freeze(args: argparse.Namespace, config: RunConfig) -> int:
     """Congela o protocolo a partir do split e das entradas em `<raiz_saidas>/split`.
 
-    O manifesto registra também a identidade do catálogo de regras e das políticas do catálogo.
+    O manifesto registra também a identidade do catálogo de regras e das políticas do catálogo e,
+    por política, os insumos não populacionais lidos de `<raiz_saidas>/split/insumos`.
 
     Raises:
-        ConfigInvalida: sem catálogos na config, split ausente, catálogo de regras ou políticas
-            inválido, ou protocolo inválido.
+        ConfigInvalida: sem catálogos na config, split ou insumos ausentes ou ilegíveis, catálogo
+            de regras ou políticas inválido, ou protocolo inválido.
         PortaoRecusado: G0 ausente ou que não libera.
     """
     if not config.catalogos:
         raise ConfigInvalida("freeze_sem_catalogos")
-    split, dataset, rotulos = _split_e_entradas(Path(config.runtime.raiz_saidas))
+    raiz = Path(config.runtime.raiz_saidas)
+    split, dataset, rotulos = _split_e_entradas(raiz)
     regras = _regras_do_catalogo()
+    insumos = _insumos_do_split(raiz)
     protocolo = Protocolo(
         config=config,
         split=split,
@@ -132,6 +155,7 @@ def executar_freeze(args: argparse.Namespace, config: RunConfig) -> int:
         catalogos={nome: Path(caminho) for nome, caminho in config.catalogos.items()},
         regras=regras,
         politicas=_politicas_do_catalogo(regras),
+        insumos=insumos,
     )
     destino = Path(config.runtime.dir_congelamentos)
     manifesto = congelar(protocolo, destino, codigo=versao_codigo(Path.cwd()))

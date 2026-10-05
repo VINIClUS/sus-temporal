@@ -31,6 +31,7 @@ from sustemporal.evaluation.freeze import (
     hash_protocolo,
     hashes_das_politicas,
     hashes_dos_catalogos,
+    ids_nao_populacionais,
 )
 
 if TYPE_CHECKING:
@@ -97,6 +98,8 @@ CAMPOS_DO_MANIFESTO: dict[str, Campo] = {
     ),
     "catalogo_regras_sha256": Campo(estado="catalogo", execucao="catalogo"),
     "politicas_sha256": Campo(estado="politica", execucao="politica"),
+    "auxiliares": Campo(execucao="auxiliares"),
+    "snapshots": Campo(execucao="snapshots"),
 }
 
 SUBCAMPOS_INFORMATIVOS = {
@@ -276,6 +279,26 @@ def _politica_divergente(manifesto: FreezeManifest, run: RunResult) -> bool:
     return run.politica_id is None or run.politica_id not in (manifesto.politicas_sha256 or {})
 
 
+def _sem_insumos_a_conferir(manifesto: FreezeManifest, run: RunResult) -> bool:
+    """Baseline não usa regras; política desconhecida já diverge em `politica`."""
+    return run.tipo is TipoExecucao.BASELINE_ML or _politica_divergente(manifesto, run)
+
+
+def _auxiliares_divergentes(manifesto: FreezeManifest, run: RunResult) -> bool:
+    if _sem_insumos_a_conferir(manifesto, run):
+        return False
+    congelados = (manifesto.auxiliares or {}).get(run.politica_id or "")
+    atuais = ids_nao_populacionais(run.entradas, manifesto.datasets)
+    return congelados is None or set(atuais) != set(congelados)
+
+
+def _snapshots_divergentes(manifesto: FreezeManifest, run: RunResult) -> bool:
+    if _sem_insumos_a_conferir(manifesto, run):
+        return False
+    congelado = (manifesto.snapshots or {}).get(run.politica_id or "")
+    return congelado is None or run.snapshot_set_id != congelado
+
+
 def _hashes_das_entradas_congeladas(manifesto: FreezeManifest, run: RunResult) -> set[str]:
     esquemas = {d.schema_id for d in manifesto.datasets}
     return {d.hash_logico for d in run.entradas if d.schema_id in esquemas}
@@ -308,15 +331,17 @@ def verificar_execucao(manifesto: FreezeManifest, run: RunResult, *, config: Run
 
     `config` é a config confirmatória do congelamento: o protocolo dela confere com o manifesto
     (`hash_protocolo`) e o `config_hash` da execução é o dela, com `modo` e `freeze_id`. O
-    ambiente (Python e dependências) é o congelado, para toda execução. Catálogo de regras e
-    política valem para toda execução, menos a de baseline (`BASELINE_ML`), que não usa regras.
-    Só as entradas `sia_pa.v1` e de rótulos são congeladas, e a população da partição TESTE
-    precisa estar entre elas (o baseline pode trazer outras partições); auxiliares, seleções e
-    cobertura não entram no manifesto.
+    ambiente (Python e dependências) é o congelado, para toda execução. Catálogo de regras,
+    política, auxiliares e snapshots valem para toda execução, menos a de baseline
+    (`BASELINE_ML`), que não usa regras. Entre as entradas, as `sia_pa.v1` e de rótulos são a
+    população e a da partição TESTE precisa estar entre elas (o baseline pode trazer outras
+    partições). O resto delas (auxiliares, seleções e cobertura) e o `snapshot_set_id` são os
+    congelados para o `politica_id` da execução; sem insumos congelados para a política, diverge.
 
     Raises:
         PortaoRecusado: `run_incompativel_com_congelamento run=... campo=...`, com cada identidade
-            divergente na ordem código, ambiente, config, catálogo, política e entradas.
+            divergente na ordem código, ambiente, config, catálogo, política, entradas,
+            auxiliares e snapshots.
     """
     divergencias = {
         "codigo": _codigo_divergente(run.codigo, manifesto),
@@ -325,6 +350,8 @@ def verificar_execucao(manifesto: FreezeManifest, run: RunResult, *, config: Run
         "catalogo": _catalogo_divergente(manifesto, run),
         "politica": _politica_divergente(manifesto, run),
         "entradas": _entradas_divergentes(manifesto, run),
+        "auxiliares": _auxiliares_divergentes(manifesto, run),
+        "snapshots": _snapshots_divergentes(manifesto, run),
     }
     if campos := [nome for nome, divergente in divergencias.items() if divergente]:
         raise PortaoRecusado(

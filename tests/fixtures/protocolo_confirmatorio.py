@@ -69,6 +69,7 @@ ESQUEMA_CNES = "cnes_estabelecimento.v1"
 ESQUEMA_SIGTAP = "sigtap_procedimento.v1"
 ESQUEMA_COBERTURA = "cobertura.v1"
 ESQUEMA_SELECAO = "selecao_versoes.v1"
+ESQUEMAS_DA_POPULACAO = frozenset({"sia_pa.v1", "sia_pa_rotulos.v1"})
 COMPETENCIA_DO_TESTE = "202401"
 OUTRO_SHA = "f" * 64
 MUTACOES_DO_AMBIENTE: dict[str, Callable[[Ambiente], Ambiente]] = {
@@ -142,6 +143,11 @@ def entrada_da_politica(
 def insumos_do_teste(cenario: Cenario) -> dict[str, EntradaValidacao]:
     """Uma entrada de validação por política do protocolo (M_TEMP, B_ATEND e B_PROC)."""
     return {politica: entrada_da_politica(cenario, politica) for politica in POLITICAS_DO_PROTOCOLO}
+
+
+def entradas_nao_populacionais(run: RunResult) -> tuple[DatasetRef, ...]:
+    """Entradas da execução que não são a população nem os rótulos (auxiliares, seleção, ...)."""
+    return tuple(d for d in run.entradas if d.schema_id not in ESQUEMAS_DA_POPULACAO)
 
 
 def com_conjunto_trocado(run: RunResult, esquema: str, novo: DatasetRef) -> RunResult:

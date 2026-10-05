@@ -12,7 +12,8 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
   `A_DEFINIR`, código sujo, catálogo ausente e catálogo que a config não declara em
   `config.catalogos`. Registra o catálogo de regras de `catalog/rules`, as políticas de
   `catalog/policies` e as padrão dos baselines; sem esses campos o manifesto não prova catálogo
-  nem política.
+  nem política. Lê também os insumos de cada política em `<raiz_saidas>/split/insumos/`
+  (seção "Entradas não populacionais das execuções de regras").
 - `sustemporal evaluate --freeze <id>`: confirmatório. Exige config confirmatória com dados
   REAIS, G2 humano para o `freeze_id` e o manifesto conferido por inteiro (tabela abaixo) antes
   de ler qualquer dado. Avalia só o TESTE e emite as razões do TOTAL, do domínio comum e, por
@@ -68,6 +69,35 @@ divergência. A biblioteca (`evaluate_runs`) repete a conferência antes de ler 
 | `decisao_g0` | informativo | informativo | G0 só autoriza congelar (exigido em `congelar`); no teste vale o G2 do `freeze_id` |
 | `catalogo_regras_sha256` | `catalogo` | `catalogo` | digest do catálogo de regras; na execução vale para toda menos a de baseline |
 | `politicas_sha256` | `politica` | `politica` | hash de cada política do avaliador; na execução, o `politica_id` entre as congeladas (menos baseline) |
+| `auxiliares` | não se aplica | `auxiliares` | por `politica_id`, os ids dos conjuntos não populacionais (auxiliares como CNES e SIGTAP, seleções temporais e cobertura) que a execução de regras usa; a execução tem exatamente esses, e a de baseline não é conferida |
+| `snapshots` | não se aplica | `snapshots` | por `politica_id`, o `snapshot_id` (derivado do conteúdo) do `SnapshotSet` que a execução registra em `snapshot_set_id` |
+
+## Entradas não populacionais das execuções de regras
+
+Uma execução de regras usa, além da população, auxiliares (CNES, SIGTAP), seleções temporais,
+cobertura e um `SnapshotSet`, e qualquer um deles muda as saídas: reingerir depois de chegar uma
+versão nova do SIGTAP, por exemplo. O manifesto fixa, por `politica_id` (a seleção e o
+`SnapshotSet` dependem da política temporal), os ids desses conjuntos (`auxiliares`) e o
+`snapshot_id` (`snapshots`). A fonte é explícita: `sustemporal freeze` lê
+`<raiz_saidas>/split/insumos/<politica_id>.json`, uma `entrada_validacao.json` (a que o
+`validate --entrada` consome) por política do protocolo (M_TEMP_PADRAO, B_ATEND e B_PROC),
+preparada antes do G2 e com a partição TESTE do split em `dataset`.
+
+- `freeze` sai com código 2 sem a pasta (`freeze_sem_insumos_das_execucoes`), com arquivo
+  ilegível (`freeze_insumos_ilegiveis`) ou de outra população
+  (`congelamento_insumos_de_outra_populacao`), e não congela. `congelar` na biblioteca aceita
+  `Protocolo.insumos` vazio e então deixa os dois campos `None` (os ids de congelamentos já
+  emitidos seguem válidos); um manifesto assim recusa toda execução de regras no confirmatório.
+- Confirmatório: cada execução de regras tem as entradas não populacionais (`entradas` fora dos
+  esquemas da população e dos rótulos) e o `snapshot_set_id` iguais aos congelados para a sua
+  política, e a divergência sai como `run_incompativel_com_congelamento campo=auxiliares,snapshots`
+  (saída 4), antes de ler dados. A execução de baseline (`BASELINE_ML`) não usa regras e não é
+  conferida; a política desconhecida diverge só em `politica`. A comparação é entre ids derivados
+  do hash lógico, sem reabrir os arquivos auxiliares.
+- Exploratório: as execuções não são conferidas uma a uma (leem a CALIBRACAO, de outra população
+  e outras seleções); só o estado do avaliador é conferido e registrado.
+- Limites: o `integridade` da entrada de validação não é congelado e a seleção do arquivo não é
+  conferida contra o registro temporal (pendências T11 #26 e #27).
 
 Outras recusas, antes de ler dados, com a mesma conferência: execução PARCIAL, FALHOU ou com
 falhas registradas (`execucao_incompleta_no_confirmatorio`), porque o que faltou viraria

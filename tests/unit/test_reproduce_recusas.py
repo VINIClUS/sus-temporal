@@ -31,7 +31,7 @@ def _argumentos(freeze: str = FREEZE, *, offline: bool = True) -> argparse.Names
 
 def test_reproduce_exige_freeze_id_na_config(tmp_path: Path) -> None:
     destino = tmp_path / "out"
-    with pytest.raises(ConfigInvalida, match="reproduce_exige_freeze_id"):
+    with pytest.raises(ConfigInvalida, match=r"^reproduce_exige_freeze_id$"):
         reproduce(_config(tmp_path), destino)
     assert not destino.exists()
 
@@ -40,35 +40,35 @@ def test_reproduce_recusa_config_que_permite_rede(tmp_path: Path) -> None:
     config = _config(tmp_path)
     permissiva = config.runtime.model_copy(update={"rede_permitida": True})
     destino = tmp_path / "out"
-    with pytest.raises(RedeProibida, match="reproduce_com_rede_permitida"):
+    with pytest.raises(RedeProibida, match=r"^reproduce_com_rede_permitida$"):
         reproduce(_config(tmp_path, freeze_id=FREEZE, runtime=permissiva), destino)
     assert not destino.exists()
 
 
 def test_reproduce_nao_reproduz_o_confirmatorio(tmp_path: Path) -> None:
     config = _config(tmp_path, freeze_id=FREEZE, modo=ModoExecucao.CONFIRMATORIO)
-    with pytest.raises(
-        ConfigInvalida, match=f"reproduce_confirmatorio_nao_suportado freeze={FREEZE}"
-    ):
+    padrao = f"^reproduce_confirmatorio_nao_suportado freeze={FREEZE}$"
+    with pytest.raises(ConfigInvalida, match=padrao):
         reproduce(config, tmp_path / "out")
 
 
 def test_reproduce_de_congelamento_ausente_nao_cria_o_destino(tmp_path: Path) -> None:
     destino = tmp_path / "out"
-    with pytest.raises(ConfigInvalida, match="congelamento_ausente"):
+    with pytest.raises(ConfigInvalida, match=f"^congelamento_ausente freeze={FREEZE} diretorio="):
         reproduce(_config(tmp_path, freeze_id=FREEZE), destino)
     assert not destino.exists()
 
 
 def test_executar_reproduce_exige_offline(tmp_path: Path) -> None:
-    with pytest.raises(ConfigInvalida, match="reproduce_exige_offline"):
+    with pytest.raises(ConfigInvalida, match=r"^reproduce_exige_offline$"):
         executar_reproduce(_argumentos(offline=False), _config(tmp_path, freeze_id=FREEZE))
 
 
 def test_executar_reproduce_recusa_freeze_diferente_do_da_config(tmp_path: Path) -> None:
     outro = "frz_" + "b" * 64
     config = _config(tmp_path, freeze_id=outro)
-    with pytest.raises(ConfigInvalida, match=f"reproduce_freeze_diverge_da_config freeze={FREEZE}"):
+    padrao = f"^reproduce_freeze_diverge_da_config freeze={FREEZE} config={outro}$"
+    with pytest.raises(ConfigInvalida, match=padrao):
         executar_reproduce(_argumentos(), config)
 
 

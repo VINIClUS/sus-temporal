@@ -32,6 +32,7 @@ from tests.fixtures.reproducao_fluxo import (
 from tests.fixtures.reproducao_mundo import COMPETENCIAS, comando, escrever_config
 
 from sustemporal.acquisition.manifest import Manifesto
+from sustemporal.contracts import FamiliaFonte
 from sustemporal.contracts.counterfactual import CounterfactualSearchResult, MotivoParada
 from sustemporal.contracts.evaluation import EvaluationReport
 from sustemporal.contracts.experiment import FreezeManifest, ModoExecucao, Particao, RunResult
@@ -63,6 +64,7 @@ ITENS_DA_REPRODUCAO = {
     *(f"insumos:{politica}" for politica in POLITICAS),
     *(f"saida:{m}:{s}" for m in METODOS for s in ESQUEMAS_DA_SAIDA),
     "metricas",
+    "notas",
 }
 BYTES_DIFERENTES = "BYTES_DIFERENTES_HASH_LOGICO_IGUAL"
 
@@ -370,6 +372,39 @@ def test_reproduce_falha_e_nomeia_os_itens_quando_o_conteudo_original_diverge(fl
     divergentes = {item for item, situacao in feita.situacoes.items() if situacao == "DIVERGENTE"}
     assert divergentes == {"conjunto:sia_pa.v1", "saida:B_ATEND:agregados_registro.v1"}
     assert feita.itens["conjunto:sia_pa.v1"]["detalhe"] == "original_diverge"
+
+
+def _arquivo_original_do_sia_pa(fluxo: Fluxo, competencia: str) -> Path:
+    estado = Manifesto(fluxo.mundo.raiz / "manifestos" / "aquisicao.jsonl").ler()
+    (versao,) = (
+        v
+        for v in estado.versoes.values()
+        if v.chave.fonte is FamiliaFonte.SIA_PA and str(v.chave.competencia_arquivo) == competencia
+    )
+    return fluxo.mundo.raiz / "dados" / "raw" / versao.caminho_conteudo
+
+
+def test_reproduce_com_original_do_sia_pa_ausente_e_inconclusivo_e_nao_divergente(
+    fluxo: Fluxo,
+) -> None:
+    arquivo = _arquivo_original_do_sia_pa(fluxo, "202301")
+    guardado = arquivo.read_bytes()
+    arquivo.unlink()
+    try:
+        feita = _reproduzir(
+            fluxo, fluxo.configs["teste"], fluxo.mundo.raiz / "reproducao_sem_sia_pa"
+        )
+    finally:
+        arquivo.write_bytes(guardado)
+    assert feita.codigo == ExitCode.FALHA_OPERACIONAL
+    assert feita.conteudo["resultado"] == "INCONCLUSIVO"
+    assert feita.conteudo["relatorio_refeito"] is None
+    assert feita.situacoes == {
+        "conjunto:sia_pa.v1": "INCONCLUSIVO",
+        "conjunto:sia_pa_rotulos.v1": "INCONCLUSIVO",
+    }
+    detalhe = "originais_indisponiveis artefatos=1 estados=ARQUIVOAUSENTE"
+    assert {i["detalhe"] for i in feita.itens.values()} == {detalhe}
 
 
 def test_reproduce_recusa_destino_ja_usado(fluxo: Fluxo, reproducao: Reproducao) -> None:

@@ -20,15 +20,17 @@ from tests.fixtures.reproducao_fluxo import (
     validar_janelas,
 )
 
+from sustemporal.contracts.base import OrigemDados
 from sustemporal.contracts.experiment import EstadoExecucao, Particao
 from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.contracts.temporal import MetodoId
-from sustemporal.errors import ConfigInvalida
+from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
 from sustemporal.evaluation.split import SCHEMA_ENTRADA
 from sustemporal.execucoes import ler_execucao, raiz_execucoes
 from sustemporal.reporting.reproduce_etapas import (
     competencias_da_particao,
     derivar_protocolo,
+    estados_do_ingest,
     janela_do_ingest,
     validar_janela,
 )
@@ -216,3 +218,46 @@ def test_validar_janela_roda_as_tres_politicas_e_grava_em_runs(derivado: Fluxo) 
     assert all(run.estado is EstadoExecucao.CONCLUIDA for run in execucoes.values())
     for run in execucoes.values():
         assert ler_execucao(raiz_execucoes(config), run.run_id) == run
+
+
+def test_estados_do_ingest_trazem_o_estado_de_cada_artefato(ingerido: Fluxo) -> None:
+    assert ingerido.ingest is not None
+    estados = estados_do_ingest(ingerido.ingest)
+    assert Counter(estados.values()) == {"NORMALIZADO": 28}
+    sia_pa = {a for ref in _sia_pa(ingerido.ingest) for a in ref.artifact_ids}
+    assert sia_pa <= set(estados)
+
+
+def test_estados_do_ingest_recusa_pasta_sem_resultados(tmp_path: Path) -> None:
+    with pytest.raises(FalhaOperacionalErro, match=r"^ingest_ilegivel caminho="):
+        estados_do_ingest(tmp_path)
+
+
+@pytest.mark.parametrize("linha", ["{nao e json", '{"artifact_id": "art_x"}', "[1, 2]"])
+def test_estados_do_ingest_recusa_linha_fora_do_formato(tmp_path: Path, linha: str) -> None:
+    (tmp_path / "resultados.jsonl").write_text(linha + "\n", encoding="utf-8")
+    with pytest.raises(FalhaOperacionalErro, match=r"^ingest_ilegivel caminho="):
+        estados_do_ingest(tmp_path)
+
+
+def test_estados_do_ingest_ignora_linha_em_branco(tmp_path: Path) -> None:
+    conteudo = '{"artifact_id": "art_x", "estado": "ARQUIVOAUSENTE"}\n\n'
+    (tmp_path / "resultados.jsonl").write_text(conteudo, encoding="utf-8")
+    assert estados_do_ingest(tmp_path) == {"art_x": "ARQUIVOAUSENTE"}
+
+
+def test_derivar_protocolo_recusa_ingest_com_origens_diferentes(
+    derivado: Fluxo, tmp_path: Path
+) -> None:
+    assert derivado.ingest is not None
+    refs = ler_datasets(derivado.ingest)
+    primeiro = next(i for i, ref in enumerate(refs) if ref.schema_id == SCHEMA_ENTRADA)
+    refs[primeiro] = refs[primeiro].model_copy(update={"origem_dados": OrigemDados.REAL})
+    misturado = tmp_path / "ingest_misturado"
+    misturado.mkdir()
+    linhas = "".join(f"{ref.model_dump_json()}\n" for ref in refs)
+    (misturado / "datasets.jsonl").write_text(linhas, encoding="utf-8")
+    spec = derivado.split.spec if derivado.split else None
+    assert spec is not None
+    with pytest.raises(ConfigInvalida, match=r"^ingest_com_origens_diferentes origens="):
+        derivar_protocolo(derivado.config("teste"), misturado, tmp_path / "split", spec=spec)

@@ -44,6 +44,7 @@ __all__ = [
     "Derivado",
     "competencias_da_particao",
     "derivar_protocolo",
+    "estados_do_ingest",
     "janela_do_ingest",
     "validar_janela",
 ]
@@ -211,3 +212,8 @@ def validar_janela(
     """
     saida = raiz_execucoes(config)
     return {metodo: validar_ingest(janela, metodo, config, saida) for metodo in metodos}
+
+
+def estados_do_ingest(pasta: Path) -> dict[str, str]:
+    """Estado de cada artefato no `resultados.jsonl` do ingest (`NORMALIZADO`, `ARQUIVOAUSENTE`)."""
+    raise NotImplementedError

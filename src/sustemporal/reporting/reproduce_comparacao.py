@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from collections.abc import Collection, Iterable, Mapping, Sequence
 
     from sustemporal.contracts.evaluation import ValorMetrica
+    from sustemporal.contracts.experiment import CodeVersion, SplitManifest
     from sustemporal.contracts.records import DatasetRef
     from sustemporal.rules.entrada import EntradaValidacao
 
@@ -40,11 +41,16 @@ __all__ = [
     "Situacao",
     "comparar_insumos",
     "comparar_metricas",
+    "comparar_notas",
+    "comparar_originais",
     "comparar_referencia",
     "comparar_saida",
+    "comparar_split",
     "exigir_conferido",
     "identidade_do_arquivo",
+    "observacoes_do_ambiente",
     "resultado_geral",
+    "rodada_registrada",
 ]
 
 logger = logging.getLogger(__name__)
@@ -240,3 +246,41 @@ def exigir_conferido(comparacoes: Sequence[Comparacao]) -> None:
         if itens:
             nomes = ",".join(itens[:_MAX_NOMES])
             raise FalhaOperacionalErro(f"{chave} itens={len(itens)} primeiros={nomes}")
+
+
+def comparar_split(esperado: SplitManifest, obtido: SplitManifest) -> list[Comparacao]:
+    """Id do split e, por partição, a população e os rótulos refeitos contra os congelados."""
+    raise NotImplementedError
+
+
+def comparar_originais(
+    congelados: Sequence[DatasetRef], estados: Mapping[str, str]
+) -> list[Comparacao]:
+    """Um item inconclusivo por conjunto congelado cujo artefato o ingest refeito não normalizou."""
+    raise NotImplementedError
+
+
+def comparar_notas(
+    item: str, esperadas: Sequence[str] | None, obtidas: Sequence[str]
+) -> Comparacao:
+    """As notas do relatório refeito contra as da rodada registrada, como multiconjunto."""
+    raise NotImplementedError
+
+
+def observacoes_do_ambiente(
+    *,
+    config_igual: bool,
+    codigo: CodeVersion,
+    congelado: CodeVersion,
+    pacotes: Mapping[str, str],
+    congelados: Mapping[str, str],
+) -> list[str]:
+    """O que difere no ambiente sem ser divergência de conteúdo: config, código e pacotes."""
+    raise NotImplementedError
+
+
+def rodada_registrada(
+    registro: Sequence[Mapping[str, Any]], freeze_id: str, modo: str
+) -> Mapping[str, Any] | None:
+    """A última rodada registrada do congelamento e do modo, se houver."""
+    raise NotImplementedError

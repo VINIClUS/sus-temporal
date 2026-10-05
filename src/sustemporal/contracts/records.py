@@ -146,10 +146,13 @@ class ColunaCanonica(ContratoBase):
 
 
 class EsquemaCanonico(ContratoBase):
+    """Esquema de um conjunto; em `chave_com_nulo` o nulo da chave é uma categoria própria."""
+
     schema_id: SchemaId
     descricao: str
     chave: tuple[NomeColuna, ...]
     colunas: tuple[ColunaCanonica, ...]
+    chave_com_nulo: tuple[NomeColuna, ...] = ()
 
     @model_validator(mode="after")
     def _coerencia(self) -> EsquemaCanonico:
@@ -158,8 +161,15 @@ class EsquemaCanonico(ContratoBase):
             raise ValueError(f"esquema_coluna_repetida schema={self.schema_id}")
         if not self.chave or not set(self.chave) <= set(nomes):
             raise ValueError(f"esquema_chave_invalida schema={self.schema_id}")
-        por_nome = {coluna.nome: coluna for coluna in self.colunas}
-        if any(por_nome[nome].anulavel for nome in self.chave):
+        anulaveis = {coluna.nome for coluna in self.colunas if coluna.anulavel}
+        com_nulo = set(self.chave_com_nulo)
+        if not com_nulo <= set(self.chave):
+            raise ValueError(f"esquema_chave_com_nulo_fora_da_chave schema={self.schema_id}")
+        if not com_nulo <= anulaveis:
+            raise ValueError(
+                f"esquema_chave_com_nulo_em_coluna_nao_anulavel schema={self.schema_id}"
+            )
+        if (set(self.chave) & anulaveis) - com_nulo:
             raise ValueError(f"esquema_chave_anulavel schema={self.schema_id}")
         return self
 

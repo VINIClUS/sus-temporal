@@ -1,0 +1,45 @@
+schema_id: piloto_disponibilidade.v1
+descricao: >-
+  Disponibilidade das fontes por família, instrumento, competência e base temporal no relatório do
+  piloto (T05): a cobertura.v1 recalculada só com a população incluída
+  (reporting/report_cobertura.py), restrita às competências do intervalo e aos instrumentos da
+  coorte. Mesmas colunas e mesma semântica de cobertura.v1: fonte carregada não implica família
+  verificável; INSUFICIENTE e AUSENTE levam a inconclusão, nunca a violação. Tabela derivada do
+  código do relatório, sem leiaute oficial; exploratória pré-G0 e A_CONFIRMAR.
+chave: [familia_regra, instrumento, competencia, base_temporal]
+colunas:
+  - nome: familia_regra
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: FamiliaRegra de catalog/familias.yaml.
+  - nome: instrumento
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: >-
+      Instrumento PA_DOCORIG: C, I, P, S, A ou B.
+  - nome: competencia
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Competência de processamento AAAAMM dos registros SIA-PA.
+  - nome: base_temporal
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: >-
+      BaseTemporal que escolhe as competências das fontes auxiliares: ATENDIMENTO (B_ATEND) ou
+      PROCESSAMENTO (B_PROC).
+  - nome: estado
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: >-
+      EstadoCobertura: DISPONIVEL, INSUFICIENTE ou AUSENTE.
+  - nome: motivo
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    descricao: >-
+      Motivo da cobertura.v1: fonte, campo, versão ou marca de incompletude da população que
+      falta quando o estado não é DISPONIVEL; nulo quando é.

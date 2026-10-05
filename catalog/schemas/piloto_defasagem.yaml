@@ -1,0 +1,23 @@
+schema_id: piloto_defasagem.v1
+descricao: >-
+  Defasagem entre processamento e atendimento nas linhas incluídas do relatório do piloto (T05): a
+  diferença, em meses, entre a competência de processamento (PA_MVM) e a de atendimento (PA_CMP),
+  cada uma contada como ano * 12 + mês, sem filtro de sinal. A defasagem é nula quando falta uma
+  das competências; o nulo é uma categoria própria, com uma única linha, e por isso a chave admite
+  nulo em defasagem_meses. Tabela derivada do código do relatório (reporting/report_tabelas.py),
+  sem leiaute oficial; exploratória pré-G0 e A_CONFIRMAR. As competências herdam a proveniência de
+  sia_pa.v1 (SECUNDARIA; A_CONFIRMAR).
+chave: [defasagem_meses]
+chave_com_nulo: [defasagem_meses]
+colunas:
+  - nome: defasagem_meses
+    tipo: INTEIRO
+    papel: CHAVE
+    descricao: >-
+      Competência de processamento menos competência de atendimento, em meses; nula quando falta
+      uma das duas.
+  - nome: linhas
+    tipo: INTEIRO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Linhas incluídas com essa defasagem.

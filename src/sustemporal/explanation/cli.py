@@ -1,8 +1,8 @@
 """Comando `sustemporal explain --run RUN_ID --row ROW_ID`.
 
-O `run_id` resolve o `run_result.json` exato da execução (`<raiz_saidas>/runs/<run_id>` ou
-`<raiz_saidas>/validacao/<run_id>`), nunca um diretório "latest". A saída fica em
-`<raiz_saidas>/explicacoes/<run_id>/row_<sha256(row_id)[:32]>/`.
+O `run_id` resolve o `run_result.json` exato da execução em `<raiz_saidas>/runs/<run_id>` (o único
+lugar das execuções do `validate`, ver `sustemporal.execucoes`), nunca um diretório "latest". A
+saída fica em `<raiz_saidas>/explicacoes/<run_id>/row_<sha256(row_id)[:32]>/`.
 """
 
 from __future__ import annotations
@@ -19,11 +19,10 @@ from typing import TYPE_CHECKING
 import duckdb
 from pydantic import TypeAdapter, ValidationError
 
-from sustemporal.contracts.base import Identificador
-from sustemporal.contracts.experiment import RunResult
 from sustemporal.contracts.records import RowId
 from sustemporal.contracts.rules import FalhaOperacional
 from sustemporal.errors import ExitCode
+from sustemporal.execucoes import ExecucaoNaoResolvida, ler_execucao, raiz_execucoes, validar_run_id
 from sustemporal.explanation.evidence import EvidenciaDivergente, sql_reexecucao
 from sustemporal.explanation.explain import ExplicacaoIndisponivel, montar_explicacao
 from sustemporal.explanation.explain_texto import TemplateInvalido
@@ -36,52 +35,16 @@ if TYPE_CHECKING:
     from sustemporal.contracts.config import RunConfig
     from sustemporal.explanation.explain import Explicacao
 
-__all__ = ["diretorio_explicacao", "executar_explain", "localizar_execucao"]
+__all__ = ["diretorio_explicacao", "executar_explain"]
 
 logger = logging.getLogger(__name__)
 
 _ROW_ID: TypeAdapter[str] = TypeAdapter(RowId)
-_IDENTIFICADOR: TypeAdapter[str] = TypeAdapter(Identificador)
-_DIRETORIOS_DE_EXECUCAO = ("runs", "validacao")
+_RECUSAS = (ExecucaoNaoResolvida, ExplicacaoIndisponivel, TemplateInvalido, ProvIncompleto)
 
 
 def _agora() -> datetime:
     return datetime.now(UTC)
-
-
-class ExecucaoNaoResolvida(ValueError):
-    """`run_id` ou `row_id` fora do formato, ou sem `run_result.json` exato e coerente."""
-
-
-_RECUSAS = (ExecucaoNaoResolvida, ExplicacaoIndisponivel, TemplateInvalido, ProvIncompleto)
-
-
-def localizar_execucao(raiz: Path, run_id: str) -> RunResult:
-    """`RunResult` gravado para `run_id`; nunca escolhe a execução mais recente.
-
-    Raises:
-        ExecucaoNaoResolvida: nenhum, mais de um distinto ou com `run_id` diferente.
-    """
-    lidos: dict[str, RunResult] = {}
-    for nome in _DIRETORIOS_DE_EXECUCAO:
-        caminho = raiz / nome / run_id / "run_result.json"
-        if not caminho.is_file():
-            continue
-        try:
-            resultado = RunResult.model_validate_json(caminho.read_text(encoding="utf-8"))
-        except (OSError, ValidationError) as erro:
-            raise ExecucaoNaoResolvida(
-                f"execucao_ilegivel run={run_id} caminho={caminho}"
-            ) from erro
-        lidos[resultado.model_dump_json()] = resultado
-    if not lidos:
-        raise ExecucaoNaoResolvida(f"execucao_inexistente run={run_id} raiz={raiz}")
-    if len(lidos) > 1:
-        raise ExecucaoNaoResolvida(f"execucao_ambigua run={run_id} n={len(lidos)}")
-    resultado = next(iter(lidos.values()))
-    if resultado.run_id != run_id:
-        raise ExecucaoNaoResolvida(f"execucao_incoerente run={run_id} gravada={resultado.run_id}")
-    return resultado
 
 
 def diretorio_explicacao(raiz: Path, run_id: str, row_id: str) -> Path:
@@ -147,14 +110,12 @@ def _registrar_falha(destino: Path, falha: FalhaOperacional) -> None:
 def _validar_argumentos(args: argparse.Namespace) -> tuple[str, str]:
     """Raises: ExecucaoNaoResolvida para `--run` ou `--row` fora do formato."""
     try:
-        run_id = _IDENTIFICADOR.validate_python(args.run)
+        run_id = validar_run_id(args.run)
         row_id = _ROW_ID.validate_python(args.row)
-    except ValidationError as erro:
+    except (ExecucaoNaoResolvida, ValidationError) as erro:
         raise ExecucaoNaoResolvida(
             f"argumento_invalido run={args.run!r} row={args.row!r}"
         ) from erro
-    if set(run_id) <= {"."}:
-        raise ExecucaoNaoResolvida(f"argumento_invalido run={run_id!r}")
     return run_id, row_id
 
 
@@ -176,7 +137,7 @@ def executar_explain(
     try:
         run_id, row_id = _validar_argumentos(args)
         destino = diretorio_explicacao(raiz, run_id, row_id)
-        run = localizar_execucao(raiz, run_id)
+        run = ler_execucao(raiz_execucoes(config), run_id)
         _publicar(destino, _arquivos(montar_explicacao(run, row_id, runtime=config.runtime)))
     except _RECUSAS as erro:
         _remover(destino)

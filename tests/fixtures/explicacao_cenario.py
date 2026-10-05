@@ -83,15 +83,19 @@ def executar_cenario(
     *,
     nome: str = "execucao",
     regras: list[RuleSpec] | None = None,
+    saida: Path | None = None,
 ) -> RunResult:
-    """Sem `regras`, o catálogo inteiro; `regras_so_de_c` deixa a linha 3 não aplicável."""
+    """Sem `regras`, o catálogo inteiro; `regras_so_de_c` deixa a linha 3 não aplicável.
+
+    `saida` é a pasta que recebe `<run_id>/` (padrão: `<tmp_path>/<nome>/saida`).
+    """
     dataset, insumos = materializar(cenario or cenario_explicacao(), tmp_path / nome / "entrada")
     return evaluate_rules(
         dataset,
         SnapshotSet.criar(artifact_ids=(), observation_ids=(), dataset_hashes=(), selecoes=()),
         regras if regras is not None else carregar_regras(),
         RunConfig(versao="1"),
-        tmp_path / nome / "saida",
+        saida or tmp_path / nome / "saida",
         insumos=insumos,
     )
 

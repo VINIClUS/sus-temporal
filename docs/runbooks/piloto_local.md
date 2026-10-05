@@ -95,10 +95,14 @@ uv run sustemporal pilot-report --config "$CFG"
 ```
 
 O `ingest` grava `<raiz_saidas>/ingest/execucao_<instante>_<id>/` (Parquet, `datasets.jsonl`,
-`resultados.jsonl`, `manifesto_lido.json`). O `pilot-report` lê a execução completa mais recente
-do `ingest` (com `datasets.jsonl` e `manifesto_lido.json`; pasta interrompida é ignorada com o aviso
+`resultados.jsonl`, `manifesto_lido.json`, `configuracao_ingest.json`). O `pilot-report` lê a
+execução completa mais recente do `ingest` (com `datasets.jsonl`, `manifesto_lido.json` e
+`configuracao_ingest.json`; pasta interrompida é ignorada com o aviso
 `pilot_report_ingest_incompleto`), seleciona as versões (B_PROC e B_ATEND) e grava
 `<raiz_saidas>/pilot/execucao_<instante>_<id>/relatorio.json` mais as tabelas `piloto_*.v1`.
+Mudou a UF, o corte de observação, as famílias, `sources.yaml` ou o leiaute do SIA-PA depois do
+`ingest`? O `pilot-report` recusa (saída 2, `ingest_com_configuracao_divergente campo=…`): rode o
+`ingest` de novo com a configuração atual.
 Revise `resultados.jsonl` (quarentenas, `FORA_DO_RECORTE`, `FORA_DO_CORTE`) antes de ler o
 relatório.
 

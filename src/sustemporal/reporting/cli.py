@@ -1,11 +1,13 @@
 """Comando `sustemporal pilot-report`: relatório do piloto de observabilidade (T05).
 
 Lê a execução completa mais recente do `ingest` (`<raiz_saidas>/ingest/execucao_*` com
-`datasets.jsonl` e `manifesto_lido.json`; pasta sem um deles, de ingestão interrompida ou antiga, é
-ignorada com aviso), faz a seleção temporal em lote (B_PROC e B_ATEND) de cada conjunto SIA-PA
-contra o prefixo do manifesto de aquisição que a ingestão leu (`manifesto_lido.json`) e grava,
-numa pasta nova `<raiz_saidas>/pilot/execucao_<instante>_<id>/`, as tabelas do relatório, as
-seleções e `relatorio.json` (o `EvaluationReport`).
+`datasets.jsonl`, `manifesto_lido.json` e `configuracao_ingest.json`; pasta sem um deles, de
+ingestão interrompida ou antiga, é ignorada com aviso) e recusa a execução feita com configuração
+diferente da atual (UF, corte, famílias, catálogo de fontes e leiaute do SIA-PA) antes de abrir
+qualquer dado. Faz a seleção temporal em lote (B_PROC e B_ATEND) de cada conjunto SIA-PA contra o
+prefixo do manifesto de aquisição que a ingestão leu (`manifesto_lido.json`) e grava, numa pasta
+nova `<raiz_saidas>/pilot/execucao_<instante>_<id>/`, as tabelas do relatório, as seleções e
+`relatorio.json` (o `EvaluationReport`).
 """
 
 from __future__ import annotations
@@ -21,7 +23,11 @@ from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import EstadoManifesto, Manifesto
 from sustemporal.contracts import CohortSpec, DatasetRef
 from sustemporal.errors import ConfigInvalida, ExitCode
-from sustemporal.ingest.cli import NOME_POSICAO_MANIFESTO
+from sustemporal.ingest.cli import (
+    NOME_CONFIGURACAO_INGEST,
+    NOME_POSICAO_MANIFESTO,
+    configuracao_do_ingest,
+)
 from sustemporal.reporting.report import build_pilot_report
 from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.insumos import InsumosAvaliacao
@@ -42,8 +48,9 @@ logger = logging.getLogger(__name__)
 # O piloto mede a disponibilidade nas duas bases temporais (B_PROC e B_ATEND); M_TEMP segue
 # NAO_RESOLVIDA até o G0.
 POLITICAS_PILOTO = ("B_PROC", "B_ATEND")
-# Arquivos do `ingest` sem os quais a execução não serve: os conjuntos e o retrato do manifesto.
-ARQUIVOS_DA_INGESTAO = ("datasets.jsonl", NOME_POSICAO_MANIFESTO)
+# Arquivos do `ingest` sem os quais a execução não serve: os conjuntos, o retrato do manifesto e
+# a configuração usada.
+ARQUIVOS_DA_INGESTAO = ("datasets.jsonl", NOME_POSICAO_MANIFESTO, NOME_CONFIGURACAO_INGEST)
 
 
 def _coorte(config: RunConfig, piloto: PilotSpec) -> CohortSpec:
@@ -82,6 +89,37 @@ def _ultima_ingestao(raiz_saidas: Path) -> Path:
             ",".join(faltando),
         )
     raise ConfigInvalida(f"pilot_report_sem_ingest_completo raiz={raiz} incompletas={ignoradas}")
+
+
+def _configuracao_gravada(execucao: Path) -> dict[str, object]:
+    try:
+        gravada = json.loads((execucao / NOME_CONFIGURACAO_INGEST).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as erro:
+        raise ConfigInvalida(f"pilot_report_configuracao_ilegivel ingest={execucao.name}") from erro
+    if not isinstance(gravada, dict):
+        raise ConfigInvalida(f"pilot_report_configuracao_ilegivel ingest={execucao.name}")
+    return gravada
+
+
+def _texto(valor: object) -> str:
+    return ",".join(str(item) for item in valor) if isinstance(valor, list) else str(valor)
+
+
+def _conferir_configuracao(execucao: Path, config: RunConfig) -> None:
+    """Recusa a execução do `ingest` feita com configuração diferente da atual.
+
+    Raises:
+        ConfigInvalida: configuração gravada ilegível ou com algum campo diferente do atual
+            (UF, corte, famílias, SHA-256 do catálogo de fontes ou do leiaute do SIA-PA).
+    """
+    gravada = _configuracao_gravada(execucao)
+    atual = configuracao_do_ingest(config)
+    for campo in dict.fromkeys([*atual, *gravada]):
+        if gravada.get(campo) != atual.get(campo):
+            raise ConfigInvalida(
+                f"ingest_com_configuracao_divergente campo={campo} "
+                f"ingest={_texto(gravada.get(campo))} atual={_texto(atual.get(campo))}"
+            )
 
 
 def _datasets_do_ingest(execucao: Path) -> list[DatasetRef]:
@@ -139,13 +177,14 @@ def executar_pilot_report(args: argparse.Namespace, config: RunConfig) -> int:
 
     Raises:
         ConfigInvalida: configuração sem piloto, território inválido, nenhuma execução completa
-            do `ingest` em `raiz_saidas` ou posição do manifesto lida pela ingestão ilegível ou
-            divergente do manifesto atual.
+            do `ingest` em `raiz_saidas`, configuração do `ingest` ilegível ou diferente da atual
+            ou posição do manifesto lida pela ingestão ilegível ou divergente do manifesto atual.
     """
     if config.piloto is None:
         raise ConfigInvalida("pilot_report_exige_piloto")
     raiz_saidas = Path(config.runtime.raiz_saidas)
     ingestao = _ultima_ingestao(raiz_saidas)
+    _conferir_configuracao(ingestao, config)
     datasets = _datasets_do_ingest(ingestao)
     manifesto = Path(config.runtime.raiz_manifestos) / NOME_MANIFESTO_AQUISICAO
     lido = _manifesto_lido(ingestao, manifesto)

@@ -5,8 +5,9 @@ com os leiautes do catálogo. Quarentena, arquivo ausente e família reservada v
 registrados, nunca tabela vazia; falha inesperada de uma versão vira FALHA_NORMALIZACAO e a
 execução segue. Cada execução grava numa pasta nova,
 `<raiz_saidas>/ingest/execucao_<instante>_<id>/`: os Parquet canônicos, `datasets.jsonl` (um
-`DatasetRef` por linha, inclusive a cobertura), `resultados.jsonl` e `manifesto_lido.json` (a
-posição do manifesto lida).
+`DatasetRef` por linha, inclusive a cobertura), `resultados.jsonl`, `manifesto_lido.json` (a
+posição do manifesto lida) e `configuracao_ingest.json` (a configuração que determina o recorte,
+a seleção e a completude; o relatório do piloto recusa a execução se ela difere da atual).
 """
 
 from __future__ import annotations
@@ -22,11 +23,12 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 import pyarrow.parquet as pq
 
-from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
+from sustemporal.acquisition.cli import CATALOGO_PADRAO, NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import Manifesto
-from sustemporal.acquisition.watch import carregar_leiaute_pa
+from sustemporal.acquisition.watch import LEIAUTE_PA_PADRAO, carregar_leiaute_pa
 from sustemporal.contracts import EstadoIntegridade, FamiliaFonte, LayoutSpec, OrigemDados
 from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro
+from sustemporal.hashing import sha256_arquivo
 from sustemporal.ingest.cnes import RESERVADAS, FamiliaReservada, carregar_leiautes_cnes
 from sustemporal.ingest.coverage import build_coverage
 from sustemporal.ingest.dbf import ArquivoAusente, QuarentenaLeitura
@@ -37,7 +39,7 @@ from sustemporal.temporal.selector import partes_esperadas_do_catalogo, uf_da_ex
 
 if TYPE_CHECKING:
     import argparse
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from sustemporal.acquisition.manifest import EstadoManifesto
     from sustemporal.contracts import (
@@ -49,7 +51,12 @@ if TYPE_CHECKING:
     )
     from sustemporal.contracts.config import PilotSpec, RunConfig
 
-__all__ = ["NOME_POSICAO_MANIFESTO", "executar_ingest"]
+__all__ = [
+    "NOME_CONFIGURACAO_INGEST",
+    "NOME_POSICAO_MANIFESTO",
+    "configuracao_do_ingest",
+    "executar_ingest",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +65,8 @@ SUBPASTA_ARMAZENAMENTO = "raw"
 # Posição do manifesto lida pela ingestão (linhas e hash encadeado da última); o relatório do
 # piloto seleciona só com esse prefixo.
 NOME_POSICAO_MANIFESTO = "manifesto_lido.json"
+# Configuração da execução (ver `configuracao_do_ingest`); o relatório do piloto a confere.
+NOME_CONFIGURACAO_INGEST = "configuracao_ingest.json"
 FONTES_NACIONAIS = frozenset({FamiliaFonte.SIGTAP})
 # Mesma noção de conteúdo selecionável do seletor (temporal/selector.py, `_INTEGRAS`).
 INTEGRIDADES_SELECIONAVEIS = frozenset({EstadoIntegridade.OK, EstadoIntegridade.NAO_VERIFICADO})
@@ -92,6 +101,35 @@ def _piloto(config: RunConfig) -> PilotSpec:
         raise ConfigInvalida("ingest_exige_piloto")
     carregar_territorio(Path(config.piloto.territorio), uf=config.piloto.uf)
     return config.piloto
+
+
+def _sha256_do_arquivo(caminho: Path, nome: str) -> str:
+    try:
+        return sha256_arquivo(caminho)
+    except OSError as erro:
+        raise ConfigInvalida(f"{nome}_ilegivel caminho={caminho}") from erro
+
+
+def configuracao_do_ingest(config: RunConfig) -> dict[str, str | list[str] | None]:
+    """O que determina o recorte, a seleção e a completude do `ingest`, para o relatório conferir.
+
+    UF da execução, corte de observação, famílias configuradas e o SHA-256 do catálogo de fontes
+    (inclusive as partes esperadas do SIA-PA) e do leiaute do SIA-PA em uso.
+
+    Raises:
+        ConfigInvalida: catálogo de fontes ou leiaute do SIA-PA ilegível.
+    """
+    familias = config.piloto.familias_fontes if config.piloto is not None else ()
+    corte = config.corte_observacao
+    catalogo = Path(config.catalogos.get("fontes", str(CATALOGO_PADRAO)))
+    leiaute = Path(config.catalogos.get("leiaute_sia_pa", str(LEIAUTE_PA_PADRAO)))
+    return {
+        "uf": uf_da_execucao(config),
+        "corte_observacao": None if corte is None else corte.isoformat(),
+        "familias_fontes": sorted(familia.value for familia in familias),
+        "catalogo_fontes_sha256": _sha256_do_arquivo(catalogo, "catalogo_fontes"),
+        "leiaute_sia_pa_sha256": _sha256_do_arquivo(leiaute, "leiaute_sia_pa"),
+    }
 
 
 def _resultado(
@@ -354,18 +392,28 @@ def _gravar_jsonl(destino: Path, linhas: list[str]) -> None:
     temporario.replace(destino)
 
 
+def _gravar_retrato(
+    saida: Path, manifesto: EstadoManifesto, configuracao: Mapping[str, object]
+) -> None:
+    """Posição do manifesto lida e configuração usada: o relatório do piloto só aceita este par."""
+    posicao = {"linhas": len(manifesto.linhas), "cabeca_sha256": manifesto.cabeca_sha256}
+    _gravar_jsonl(saida / NOME_POSICAO_MANIFESTO, [json.dumps(posicao)])
+    _gravar_jsonl(saida / NOME_CONFIGURACAO_INGEST, [json.dumps(configuracao)])
+
+
 def executar_ingest(args: argparse.Namespace, config: RunConfig) -> int:
     """Normaliza cada versão do manifesto de aquisição pela família e grava a cobertura.
 
     Raises:
-        ConfigInvalida: configuração sem piloto ou com território inválido.
+        ConfigInvalida: configuração sem piloto, com território inválido ou com catálogo de fontes
+            ou leiaute do SIA-PA ilegível.
     """
     piloto = _piloto(config)
+    configuracao = configuracao_do_ingest(config)
     saida = _pasta_execucao(Path(config.runtime.raiz_saidas) / "ingest")
     execucao = _Execucao(config, saida)
     manifesto = Manifesto(Path(config.runtime.raiz_manifestos) / NOME_MANIFESTO_AQUISICAO).ler()
-    posicao = {"linhas": len(manifesto.linhas), "cabeca_sha256": manifesto.cabeca_sha256}
-    _gravar_jsonl(saida / NOME_POSICAO_MANIFESTO, [json.dumps(posicao)])
+    _gravar_retrato(saida, manifesto, configuracao)
     recorte = _Recorte(
         frozenset(piloto.familias_fontes), uf_da_execucao(config), config.corte_observacao
     )

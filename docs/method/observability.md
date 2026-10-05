@@ -15,8 +15,8 @@ classificador e não exige ganho positivo. Ele subsidia a decisão humana G0
 ## Entradas
 
 - A execução completa mais recente do `ingest` (`<raiz_saidas>/ingest/execucao_*` com
-  `datasets.jsonl` e `manifesto_lido.json`): um `sia_pa.v1` por versão de conteúdo, os auxiliares
-  (CNES, SIGTAP) e a `cobertura.v1`.
+  `datasets.jsonl`, `manifesto_lido.json` e `configuracao_ingest.json`): um `sia_pa.v1` por versão
+  de conteúdo, os auxiliares (CNES, SIGTAP) e a `cobertura.v1`.
 - O manifesto de aquisição (`<raiz_manifestos>/aquisicao.jsonl`), lido pelo registro temporal.
 - A coorte: `coorte` da configuração ou, sem ela, a derivada do `piloto` (UF, território e o
   intervalo entre a menor e a maior competência de processamento pedida).
@@ -110,11 +110,35 @@ hash: versão obtida depois da ingestão não entra na seleção, então seleç�
 descrevem o mesmo retrato. Posição ilegível, além do manifesto atual ou com hash divergente
 (manifesto reescrito) recusa a execução (saída 2), nunca cai no manifesto atual.
 
-Pasta `execucao_*` sem `manifesto_lido.json` (ingestão antiga) ou sem `datasets.jsonl` (ingestão
-interrompida) está incompleta: o `pilot-report` a ignora, com o aviso
-`pilot_report_ingest_incompleto execucao=… faltando=…`, e usa a mais recente completa. Sem nenhuma
-completa (inclusive sem pasta `ingest`) a execução é recusada (`ConfigInvalida`, saída 2), nunca
-`FileNotFoundError`.
+Pasta `execucao_*` sem `manifesto_lido.json` ou sem `configuracao_ingest.json` (ingestão antiga)
+ou sem `datasets.jsonl` (ingestão interrompida) está incompleta: o `pilot-report` a ignora, com o
+aviso `pilot_report_ingest_incompleto execucao=… faltando=…`, e usa a mais recente completa. Sem
+nenhuma completa (inclusive sem pasta `ingest`) a execução é recusada (`ConfigInvalida`, saída 2),
+nunca `FileNotFoundError`.
+
+## Configuração do ingest
+
+Só o prefixo do manifesto não prende a seleção: a seleção usa o catálogo de fontes (partes
+esperadas do SIA-PA), a UF e o corte de observação da configuração, enquanto os conjuntos e as
+marcas de completude da cobertura vieram da configuração do `ingest`. Mudar um deles depois do
+`ingest` (ou outra configuração dividir a mesma `raiz_saidas`) deixaria `piloto_inconclusivos.v1`
+`INCOMPLETA` e a disponibilidade `DISPONIVEL`. Por isso o `ingest` grava, no começo da execução,
+`configuracao_ingest.json`:
+
+| Campo | Conteúdo |
+|---|---|
+| `uf` | UF da execução (`piloto.uf`) |
+| `corte_observacao` | corte de observação em UTC (ISO 8601), ou nulo |
+| `familias_fontes` | famílias do `piloto`, em ordem alfabética (a ordem da configuração não conta) |
+| `catalogo_fontes_sha256` | SHA-256 do arquivo do catálogo de fontes (`catalogos.fontes`, por padrão `catalog/sources.yaml`), com as partes esperadas do SIA-PA |
+| `leiaute_sia_pa_sha256` | SHA-256 do arquivo do leiaute do SIA-PA em uso (`catalogos.leiaute_sia_pa`, por padrão `catalog/layouts/sia_pa.yaml`) |
+
+O `pilot-report` recalcula esses valores com a configuração atual, depois de escolher a execução e
+antes de abrir qualquer dado, e recusa a divergência (`ConfigInvalida`, saída 2):
+`ingest_com_configuracao_divergente campo=… ingest=… atual=…`. Arquivo ilegível é recusado
+(`pilot_report_configuracao_ilegivel`). O SHA-256 é do arquivo, então qualquer edição do catálogo ou
+do leiaute (até um comentário) pede novo `ingest`. As competências do `piloto` não entram: o
+relatório pode cobrir um subconjunto das competências ingeridas.
 
 ## Inconclusivos
 

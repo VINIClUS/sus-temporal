@@ -23,6 +23,10 @@ classificador e não exige ganho positivo. Ele subsidia a decisão humana G0
 Os conjuntos são conferidos contra o `DatasetRef` (estrutura, contagem e hash lógico) antes de
 qualquer contagem. Conjuntos de origens diferentes (`SINTETICO` e `REAL`) são recusados.
 
+A `cobertura.v1` é obrigatória. Sem ela o relatório recusa a entrada (`ConfigInvalida`
+`relatorio_sem_cobertura`, saída 2 pela CLI) e não publica nada: uma `piloto_disponibilidade.v1`
+vazia seria lida como resultado, e o consumidor do G0 não a distinguiria de evidência ausente.
+
 ## Recorte e reconciliação
 
 Cada linha física do SIA-PA recebe no máximo um motivo de exclusão, na ordem:

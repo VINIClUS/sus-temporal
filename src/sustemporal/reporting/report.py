@@ -1,11 +1,13 @@
 """Relatório do piloto de observabilidade (T05): o que as fontes públicas permitem observar.
 
 Entradas: os `DatasetRef` do `ingest` (SIA-PA, auxiliares e `cobertura.v1`) e, quando houver, a
-`selecao_versoes.v1` de cada conjunto SIA-PA. O recorte territorial é explícito: linhas do
-SIA-PA cujo município do estabelecimento não está em `municipios_ibge6` do território da coorte
-são excluídas com motivo `fora_do_territorio`. A disponibilidade das tabelas vem da cobertura
-recalculada só com as linhas incluídas (`report_cobertura.py`). Toda razão sai com numerador e
-denominador; o relatório é sempre exploratório (pré-G0) e nunca libera portão.
+`selecao_versoes.v1` de cada conjunto SIA-PA. Sem `cobertura.v1` a entrada é recusada
+(`relatorio_sem_cobertura`): disponibilidade vazia seria lida como resultado, não como evidência
+ausente. O recorte territorial é explícito: linhas do SIA-PA cujo município do estabelecimento não
+está em `municipios_ibge6` do território da coorte são excluídas com motivo `fora_do_territorio`. A
+disponibilidade das tabelas vem da cobertura recalculada só com as linhas incluídas
+(`report_cobertura.py`). Toda razão sai com numerador e denominador; o relatório é sempre
+exploratório (pré-G0) e nunca libera portão.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from sustemporal.contracts.base import hash_canonico
 from sustemporal.contracts.evaluation import ValorMetrica
 from sustemporal.contracts.experiment import ModoExecucao
 from sustemporal.duck import conectar
+from sustemporal.errors import ConfigInvalida
 from sustemporal.ingest.territorio import carregar_territorio, municipios_ibge6
 from sustemporal.reporting.report_cobertura import recalcular_cobertura
 from sustemporal.reporting.report_publicacao import publicar_tabelas
@@ -62,6 +65,15 @@ def _origem(datasets: Sequence[DatasetRef]) -> OrigemDados:
     if len(origens) > 1:
         raise ValueError(f"relatorio_com_origens_misturadas origens={sorted(origens)}")
     return origens.pop() if origens else OrigemDados.SINTETICO
+
+
+def _cobertura_da_ingestao(datasets: Sequence[DatasetRef]) -> DatasetRef:
+    ingest = next((d for d in datasets if d.schema_id == "cobertura.v1"), None)
+    if ingest is None:
+        raise ConfigInvalida(
+            f"relatorio_sem_cobertura esquema=cobertura.v1 datasets={len(datasets)}"
+        )
+    return ingest
 
 
 def _razao(nome: str, numerador: int, denominador: int, estrato: str = "TOTAL") -> ValorMetrica:
@@ -128,9 +140,10 @@ def build_pilot_report(
 
     Raises:
         ValueError: conjuntos de origens diferentes ou divergentes do `DatasetRef`.
-        ConfigInvalida: território da coorte inválido.
+        ConfigInvalida: território da coorte inválido ou entrada sem `cobertura.v1`.
     """
     origem = _origem(datasets)
+    ingestao = _cobertura_da_ingestao(datasets)
     municipios = municipios_ibge6(carregar_territorio(Path(cohort.territorio), uf=cohort.uf))
     sia_pa = [d for d in datasets if d.schema_id == "sia_pa.v1"]
     selecoes = [d for d in datasets if d.schema_id == "selecao_versoes.v1"]
@@ -141,7 +154,7 @@ def build_pilot_report(
         carregar_rotulos(con, sia_pa, out, runtime=execucao)
         carregar_inconclusivos(con, selecoes, observacoes or {})
         cobertura = recalcular_cobertura(
-            con, datasets, cohort, out, runtime=execucao, origem=origem
+            con, datasets, cohort, out, ingest=ingestao, runtime=execucao, origem=origem
         )
         carregar_disponibilidade(con, cobertura, cohort)
         tabelas = publicar_tabelas(con, out, datasets, origem)
@@ -151,7 +164,7 @@ def build_pilot_report(
         modo=ModoExecucao.EXPLORATORIO,
         origem_dados=origem,
         metricas=tuple(metricas),
-        tabelas=(*tabelas, *([cobertura] if cobertura else [])),
+        tabelas=(*tabelas, cobertura),
         notas=tuple(_notas(origem, cohort, municipios, selecoes=len(selecoes))),
         criado_em=relogio(),
     )

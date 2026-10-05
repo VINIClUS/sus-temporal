@@ -109,16 +109,10 @@ def carregar_inconclusivos(
 
 
 def carregar_disponibilidade(
-    con: duckdb.DuckDBPyConnection, cobertura: DatasetRef | None, cohort: CohortSpec
+    con: duckdb.DuckDBPyConnection, cobertura: DatasetRef, cohort: CohortSpec
 ) -> None:
     """Tabela `disponibilidade`: a cobertura no intervalo e nos instrumentos da coorte."""
-    if cobertura is None:
-        con.execute(
-            "CREATE TABLE cobertura (familia_regra VARCHAR, instrumento VARCHAR, "
-            "competencia VARCHAR, base_temporal VARCHAR, estado VARCHAR, motivo VARCHAR)"
-        )
-    else:
-        carregar_conferido(con, cobertura, carregar_esquema("cobertura.v1"), "cobertura")
+    carregar_conferido(con, cobertura, carregar_esquema("cobertura.v1"), "cobertura")
     con.execute(
         _SQL_DISPONIBILIDADE,
         {

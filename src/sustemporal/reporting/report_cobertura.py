@@ -90,13 +90,11 @@ def recalcular_cobertura(
     cohort: CohortSpec,
     out: Path,
     *,
+    ingest: DatasetRef,
     runtime: RuntimeConfig,
     origem: OrigemDados,
-) -> DatasetRef | None:
-    """`cobertura.v1` da população incluída; None sem cobertura da ingestão."""
-    ingest = next((d for d in datasets if d.schema_id == "cobertura.v1"), None)
-    if ingest is None:
-        return None
+) -> DatasetRef:
+    """`cobertura.v1` da população incluída, recalculada a partir da cobertura `ingest`."""
     marcas, competencias = _marcas_e_competencias(con, ingest, cohort)
     sia_pa = [d for d in datasets if d.schema_id == "sia_pa.v1"]
     recortes = [_publicar_recorte(con, sia_pa, out / "recorte", origem)] if sia_pa else []

@@ -279,9 +279,9 @@ def test_formato_com_justificativa_e_aceito_so_no_caminho_justificado() -> None:
 
 
 def test_limite_de_tamanho_aceita_200_kb_e_reprova_um_byte_a_mais() -> None:
-    assert _auditar(_arquivo("docs/a.md", LIMITE_BYTES)) == []
-    esperado = [f"arquivo_grande caminho=docs/b.md bytes={LIMITE_BYTES + 1}"]
-    assert _auditar(_arquivo("docs/b.md", LIMITE_BYTES + 1)) == esperado
+    assert _auditar(_arquivo("docs/a.md", 204_800)) == []
+    esperado = ["arquivo_grande caminho=docs/b.md bytes=204801"]
+    assert _auditar(_arquivo("docs/b.md", 204_801)) == esperado
 
 
 def test_arquivo_grande_com_justificativa_e_aceito() -> None:

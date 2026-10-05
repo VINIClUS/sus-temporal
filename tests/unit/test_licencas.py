@@ -158,6 +158,24 @@ def test_fechamento_cobre_as_dependencias_declaradas_e_as_transitivas() -> None:
     assert len(FECHAMENTO) > len(declarados)
 
 
+def test_dependencias_so_de_dev_nao_entram_no_fechamento() -> None:
+    dados = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+    dev = {_normalizar(Requirement(texto).name) for texto in dados["dependency-groups"]["dev"]}
+    exigidas = {
+        _normalizar(Requirement(linha).name)
+        for dist in FECHAMENTO.values()
+        for linha in dist.requires or []
+    }
+    declaradas = {
+        _normalizar(Requirement(texto).name) for texto in dados["project"]["dependencies"]
+    }
+    so_dev = dev - exigidas - declaradas
+    assert so_dev, "sem_ferramenta_so_de_dev"
+    assert not so_dev & set(FECHAMENTO), (
+        f"dev_no_runtime pacotes={sorted(so_dev & set(FECHAMENTO))}"
+    )
+
+
 def test_toda_licenca_permissiva_tem_justificativa() -> None:
     assert PERMISSIVAS
     assert all(justificativa.strip() for justificativa in PERMISSIVAS.values())

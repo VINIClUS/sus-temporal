@@ -43,6 +43,7 @@ from sustemporal.reporting.reproduce_comparacao import (
     comparar_split,
     exigir_conferido,
     observacoes_do_ambiente,
+    observacoes_do_ingest,
     resultado_geral,
     rodada_registrada,
 )
@@ -263,18 +264,18 @@ def _comparar(
 def _registrar(
     config: RunConfig,
     out: Path,
-    manifesto: FreezeManifest,
     relatorio: EvaluationReport | None,
     itens: list[Comparacao],
+    observacoes: list[str],
 ) -> None:
     origem = config.origem_dados
     conteudo = {
-        "freeze_id": manifesto.freeze_id,
+        "freeze_id": config.freeze_id,
         "modo": config.modo.value,
         "origem_dados": origem.value if origem else None,
         "resultado": resultado_geral(itens).value,
         "relatorio_refeito": relatorio.report_id if relatorio else None,
-        "observacoes": _observacoes(config, manifesto),
+        "observacoes": observacoes,
         "comparacoes": [item.como_dict() for item in itens],
     }
     (out / RELATORIO).write_text(
@@ -300,13 +301,15 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
     with sem_rede():
         original = _original(config, freeze_id)
         pasta = _ingerir(em_out)
-        indisponiveis = comparar_originais(manifesto.datasets, estados_do_ingest(pasta))
+        estados = estados_do_ingest(pasta)
+        observacoes = [*observacoes_do_ingest(estados), *_observacoes(config, manifesto)]
+        indisponiveis = comparar_originais(manifesto.datasets, estados)
         if indisponiveis:
-            _registrar(config, out, manifesto, None, indisponiveis)
+            _registrar(config, out, None, indisponiveis, observacoes)
             exigir_conferido(indisponiveis)
         refeito = _refazer(em_out, manifesto, pasta)
         itens = _comparar(em_out, manifesto, original, refeito)
-        _registrar(config, out, manifesto, refeito.relatorio, itens)
+        _registrar(config, out, refeito.relatorio, itens, observacoes)
     exigir_conferido(itens)
     logger.info(
         "reproducao_concluida freeze=%s resultado=%s", freeze_id, resultado_geral(itens).value

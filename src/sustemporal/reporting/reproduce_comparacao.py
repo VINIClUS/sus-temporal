@@ -64,6 +64,9 @@ _MAX_TEXTO = 80
 _NORMALIZADO = "NORMALIZADO"
 _AUSENTE_DO_INGEST = "AUSENTE_DO_INGEST"
 _SEM_PARTICAO = "particao_ausente"
+_SEM_FALHA = frozenset(
+    {_NORMALIZADO, "FAMILIA_RESERVADA", "FAMILIARESERVADA", "FORA_DO_RECORTE", "FORA_DO_CORTE"}
+)
 
 
 class Situacao(StrEnum):
@@ -353,8 +356,16 @@ def observacoes_do_ambiente(
 
 
 def observacoes_do_ingest(estados: Mapping[str, str]) -> list[str]:
-    """O ingest refeito deixou artefatos sem tabela (arquivo ausente, quarentena ou falha)."""
-    raise NotImplementedError
+    """O ingest refeito deixou artefatos sem tabela (arquivo ausente, quarentena ou falha).
+
+    Não conta como falha o artefato normalizado nem o que o ingest deixa de fora por desenho
+    (família reservada, fora do recorte ou do corte de observação).
+    """
+    falhas = {artefato for artefato, estado in estados.items() if estado not in _SEM_FALHA}
+    if not falhas:
+        return []
+    nomes = ",".join(sorted({estados[artefato] for artefato in falhas}))
+    return [f"ingest_sem_tabela artefatos={len(falhas)} estados={nomes}"]
 
 
 def rodada_registrada(

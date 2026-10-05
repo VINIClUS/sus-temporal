@@ -187,13 +187,18 @@ denominador do estrato `regra|fonte|base` (`taxa_inconclusivo`). As classes:
 | `selecionada` | `SELECIONADA` (não é inconclusiva) |
 | `ausente_nao_encontrado_na_listagem` | `AUSENTE` com observação `NAO_ENCONTRADO` |
 | `ausente_tentativa_sem_bytes` | `AUSENTE` com `FALHA_TRANSPORTE`, `RECUSADO_OFFLINE`, `INTERROMPIDO` ou `FALHA_ARMAZENAMENTO` |
-| `ausente_sem_tentativa` | `AUSENTE` sem observação |
+| `ausente_tentativa_sem_resultado_conhecido` | `AUSENTE` que cita observação sem resultado conhecido: `observacoes` ausente ou sem o id citado em `build_pilot_report`; não afirma ausência estrutural nem falha de coleta |
+| `ausente_sem_tentativa` | `AUSENTE` que não cita observação |
 | `em_quarentena_<motivo>` | `EM_QUARENTENA` com o motivo do seletor (`conteudo_em_quarentena`, `falha_de_coleta_com_bytes`, `observacao_integra_sem_versao`) |
 | `incompleta`, `ambigua`, `fora_do_corte`, `nao_resolvida` | o estado da seleção |
 
 Quando a mesma seleção cita `NAO_ENCONTRADO` e uma tentativa sem bytes, vale a primeira linha da
-tabela. Tentativa sem bytes e quarentena por falha de coleta são falha de coleta, não ausência da
-fonte: refazem-se antes do G0.
+tabela. Resultado conhecido de uma das observações citadas prevalece sobre as desconhecidas: com
+`NAO_ENCONTRADO` conhecido ao lado de um id fora do mapa, a classe é a de ausência na listagem. A
+CLI passa o resultado de todas as observações do manifesto lido pela ingestão; quem chama
+`build_pilot_report` sem `observacoes` recebe `ausente_tentativa_sem_resultado_conhecido` nas
+ausências com tentativa citada. Tentativa sem bytes e quarentena por falha de coleta são falha de
+coleta, não ausência da fonte: refazem-se antes do G0.
 
 ## Limitação amostral × ausência estrutural
 

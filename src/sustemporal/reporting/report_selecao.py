@@ -4,8 +4,10 @@ Cada linha de `selecao_versoes.v1` de um registro incluído entra no denominador
 (regra, fonte, base). A classe separa a ausência sem bytes pela observação de coleta: listagem que
 não trouxe o arquivo (`NAO_ENCONTRADO`), tentativa sem bytes (`FALHA_TRANSPORTE`,
 `RECUSADO_OFFLINE`, `INTERROMPIDO`, `FALHA_ARMAZENAMENTO`) ou nenhuma tentativa observada; nessa
-ordem quando há mais de uma. EM_QUARENTENA leva o motivo do seletor (por exemplo,
-`falha_de_coleta_com_bytes`).
+ordem quando há mais de uma. Seleção que cita observação sem resultado conhecido (id fora do mapa
+de resultados recebido) é `ausente_tentativa_sem_resultado_conhecido`: não afirma ausência nem
+falha, e `ausente_sem_tentativa` fica para a que não cita observação. EM_QUARENTENA leva o motivo
+do seletor (por exemplo, `falha_de_coleta_com_bytes`).
 """
 
 from __future__ import annotations
@@ -60,6 +62,8 @@ SELECT rule_id, fonte, coalesce(base, '') AS base, estado,
     WHEN estado = 'AUSENTE' AND coalesce(t.nao_encontrado, false)
       THEN 'ausente_nao_encontrado_na_listagem'
     WHEN estado = 'AUSENTE' AND coalesce(t.sem_bytes, false) THEN 'ausente_tentativa_sem_bytes'
+    WHEN estado = 'AUSENTE' AND observation_ids <> ''
+      THEN 'ausente_tentativa_sem_resultado_conhecido'
     WHEN estado = 'AUSENTE' THEN 'ausente_sem_tentativa'
     WHEN estado = 'EM_QUARENTENA' THEN 'em_quarentena_' || split_part(motivo, ' ', 1)
     ELSE lower(estado)

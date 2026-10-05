@@ -245,7 +245,8 @@ def build_pilot_report(
 
     `chaves` (id do artefato → chave com UF, competência do arquivo e parte) permite achar versões
     de conteúdo concorrentes do SIA-PA, que saem da população (`report_republicacao.py`); sem ela
-    nada é detectado.
+    nada é detectado. `observacoes` (id → resultado) classifica a ausência das seleções: observação
+    citada fora dele dá `ausente_tentativa_sem_resultado_conhecido`, nunca `ausente_sem_tentativa`.
 
     Raises:
         ValueError: conjuntos de origens diferentes ou divergentes do `DatasetRef`.

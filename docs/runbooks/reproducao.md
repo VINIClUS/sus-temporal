@@ -18,8 +18,8 @@ real tem o roteiro próprio em `docs/runbooks/piloto_local.md`.
   fluxo da seção 4.5 escreve uma decisão G0 **de teste**, só no diretório temporário do mundo
   sintético, para exercitar o `freeze` exploratório; ela não vale como decisão.
 - Verificado em 2026-10-05, em Linux x86_64, sobre `main` no commit `3fec351` (#29): as seções 2, 4
-  e 5 num clone novo do branch da parte B da T14 e a seção 3 (`bash scripts/ci.sh`) no mesmo
-  commit.
+  e 5 num clone novo do branch da parte B da T14 e a seção 3 (`bash scripts/ci.sh`) sobre o
+  mesmo código e os mesmos testes.
 
 ## 2. Ambiente limpo
 
@@ -49,8 +49,8 @@ propriedade de arquivos só julga branch `claude/*` e PR contra `docs/process/pr
 num clone normal de `main` (com a referência `origin/main`) ela registra
 `propriedade_ignorada motivo=fora_de_pr` e passa; numa cópia sem `origin/main` sai com
 `propriedade_erro base_ausente`. A execução completa passou na máquina de desenvolvimento em
-cerca de 22 minutos, com 4.086 testes (medido em 2026-10-05, depois da parte B da T14); o tempo
-varia com a máquina.
+27 min 32 s, com 4.086 testes passando e 1 desmarcado (medido em 2026-10-05 numa máquina
+compartilhada, depois da parte B da T14); o tempo varia com a máquina e a carga.
 
 Recortes úteis: `uv run pytest tests/unit -q` (rápido) e `uv run pytest tests/integration -q`
 (CLI e FTP local). O `pytest` exclui por padrão os marcadores `network`, `real_data` e `perf`, e o

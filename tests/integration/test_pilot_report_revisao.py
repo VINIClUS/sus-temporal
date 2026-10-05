@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
@@ -21,6 +24,7 @@ from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
 from tests.integration.test_pilot_report import (
     PF,
     _estados_disponibilidade,
+    _execucao_ingest,
     _manifesto_com_falhas,
 )
 
@@ -30,10 +34,12 @@ from sustemporal.errors import ConfigInvalida, ExitCode
 from sustemporal.reporting.report import build_pilot_report
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from sustemporal.contracts import EvaluationReport
 
+RAIZ = Path(__file__).resolve().parents[2]
+LEIAUTE_PA = RAIZ / "catalog" / "layouts" / "sia_pa.yaml"
+CONFIGURACAO_INGEST = "configuracao_ingest.json"
+CORTE_POSTERIOR = "2026-10-02T00:00:00Z"
 FORA_DO_DRS_XI = "355030"
 CAMPOS_DE_ERRO = ("pa_codoco", "pa_flqt", "pa_fler")
 FISICOS_OMITIDOS = ("PA_INDICA", "PA_CODOCO", "PA_FLQT", "PA_FLER")
@@ -150,7 +156,16 @@ def test_execucao_incompleta_do_ingest_mais_nova_e_ignorada_com_aviso(
     config = _ingest_completo(tmp_path)
     _execucao_parcial(tmp_path, "execucao_29991231T235959000000Z_vazia")
     _execucao_parcial(
-        tmp_path, "execucao_29991231T235959000001Z_sem_datasets", "manifesto_lido.json"
+        tmp_path,
+        "execucao_29991231T235959000001Z_sem_datasets",
+        "manifesto_lido.json",
+        CONFIGURACAO_INGEST,
+    )
+    _execucao_parcial(
+        tmp_path,
+        "execucao_29991231T235959000002Z_sem_configuracao",
+        "datasets.jsonl",
+        "manifesto_lido.json",
     )
     (tmp_path / "saidas" / "ingest" / "zzz_rascunho").mkdir()
     capsys.readouterr()
@@ -160,12 +175,17 @@ def test_execucao_incompleta_do_ingest_mais_nova_e_ignorada_com_aviso(
         for linha in capsys.readouterr().err.splitlines()
         if "pilot_report_ingest_incompleto" in linha
     ]
-    assert len(avisos) == 2
+    assert len(avisos) == 3
     assert avisos[0].endswith(
-        "execucao=execucao_29991231T235959000001Z_sem_datasets faltando=datasets.jsonl"
+        "execucao=execucao_29991231T235959000002Z_sem_configuracao "
+        "faltando=configuracao_ingest.json"
     )
     assert avisos[1].endswith(
-        "execucao=execucao_29991231T235959000000Z_vazia faltando=datasets.jsonl,manifesto_lido.json"
+        "execucao=execucao_29991231T235959000001Z_sem_datasets faltando=datasets.jsonl"
+    )
+    assert avisos[2].endswith(
+        "execucao=execucao_29991231T235959000000Z_vazia "
+        "faltando=datasets.jsonl,manifesto_lido.json,configuracao_ingest.json"
     )
     assert relatorio_gravado(tmp_path).origem_dados is OrigemDados.SINTETICO
 
@@ -179,3 +199,143 @@ def test_pilot_report_sem_execucao_completa_do_ingest_recusa(tmp_path: Path, est
         _execucao_parcial(tmp_path, "execucao_20261002T000000000000Z_antiga", "datasets.jsonl")
     assert _saida_do_pilot_report(config) == ExitCode.CONFIG_INVALIDA
     assert not (tmp_path / "saidas" / "pilot").exists()
+
+
+def _sha256(caminho: Path) -> str:
+    return hashlib.sha256(caminho.read_bytes()).hexdigest()
+
+
+def _configuracao_gravada(pasta: Path) -> Path:
+    arquivo = _execucao_ingest(pasta) / CONFIGURACAO_INGEST
+    assert arquivo.is_file()
+    return arquivo
+
+
+def _divergencia(campo: str, ingest: str, atual: str) -> str:
+    return f"ingest_com_configuracao_divergente campo={campo} ingest={ingest} atual={atual}"
+
+
+def _erro_do_relatorio_recusado(
+    config: Path, pasta: Path, capsys: pytest.CaptureFixture[str]
+) -> str:
+    """Texto do erro de um `pilot-report` recusado (saída 2) antes de gravar qualquer coisa."""
+    capsys.readouterr()
+    assert _saida_do_pilot_report(config) == ExitCode.CONFIG_INVALIDA
+    assert not (pasta / "saidas" / "pilot").exists()
+    return capsys.readouterr().err
+
+
+def test_ingest_grava_a_configuracao_que_determina_a_selecao(tmp_path: Path) -> None:
+    _ingest_completo(tmp_path)
+    gravada = json.loads(_configuracao_gravada(tmp_path).read_text(encoding="utf-8"))
+    assert gravada == {
+        "uf": "SP",
+        "corte_observacao": None,
+        "familias_fontes": ["CNES_PF", "SIA_PA", "SIGTAP"],
+        "catalogo_fontes_sha256": _sha256(tmp_path / "sources.yaml"),
+        "leiaute_sia_pa_sha256": _sha256(LEIAUTE_PA),
+    }
+
+
+def test_corte_de_observacao_fica_na_configuracao_gravada_em_utc(tmp_path: Path) -> None:
+    _manifesto_com_falhas(tmp_path)
+    config = config_ingest(tmp_path, fontes_ingest(tmp_path, ["a"]), corte=CORTE_POSTERIOR)
+    assert cli.main(["ingest", "--config", str(config)]) == ExitCode.OK
+    gravada = json.loads(_configuracao_gravada(tmp_path).read_text(encoding="utf-8"))
+    assert gravada["corte_observacao"] == "2026-10-02T00:00:00+00:00"
+
+
+def test_catalogo_de_fontes_alterado_depois_do_ingest_recusa(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = _ingest_completo(tmp_path)
+    antes = _sha256(tmp_path / "sources.yaml")
+    fontes_ingest(tmp_path, ["a", "b"])
+    erro = _erro_do_relatorio_recusado(config, tmp_path, capsys)
+    depois = _sha256(tmp_path / "sources.yaml")
+    assert antes != depois
+    assert _divergencia("catalogo_fontes_sha256", antes, depois) in erro
+
+
+def test_catalogo_de_fontes_removido_depois_do_ingest_recusa(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = _ingest_completo(tmp_path)
+    (tmp_path / "sources.yaml").unlink()
+    erro = _erro_do_relatorio_recusado(config, tmp_path, capsys)
+    assert f"catalogo_fontes_ilegivel caminho={tmp_path / 'sources.yaml'}" in erro
+
+
+def test_corte_de_observacao_alterado_depois_do_ingest_recusa(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _ingest_completo(tmp_path)
+    config = config_ingest(tmp_path, tmp_path / "sources.yaml", corte=CORTE_POSTERIOR)
+    erro = _erro_do_relatorio_recusado(config, tmp_path, capsys)
+    assert _divergencia("corte_observacao", "None", "2026-10-02T00:00:00+00:00") in erro
+
+
+def test_familias_alteradas_depois_do_ingest_recusam(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _ingest_completo(tmp_path)
+    config = config_ingest(tmp_path, tmp_path / "sources.yaml", familias="SIA_PA, SIGTAP")
+    erro = _erro_do_relatorio_recusado(config, tmp_path, capsys)
+    assert _divergencia("familias_fontes", "CNES_PF,SIA_PA,SIGTAP", "SIA_PA,SIGTAP") in erro
+
+
+def test_leiaute_do_sia_pa_alterado_depois_do_ingest_recusa(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _ingest_completo(tmp_path)
+    texto = LEIAUTE_PA.read_text(encoding="utf-8")
+    assert "proveniencia: INFERIDA\n" in texto
+    leiaute = tmp_path / "sia_pa_leiaute.yaml"
+    leiaute.write_text(
+        texto.replace(
+            "proveniencia: INFERIDA\n", 'proveniencia: INFERIDA\nvalido_de: "201901"\n', 1
+        ),
+        encoding="utf-8",
+    )
+    config = config_ingest(tmp_path, tmp_path / "sources.yaml", leiaute_pa=leiaute)
+    erro = _erro_do_relatorio_recusado(config, tmp_path, capsys)
+    assert _divergencia("leiaute_sia_pa_sha256", _sha256(LEIAUTE_PA), _sha256(leiaute)) in erro
+
+
+def test_uf_gravada_diferente_da_atual_recusa(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = _ingest_completo(tmp_path)
+    arquivo = _configuracao_gravada(tmp_path)
+    gravada = json.loads(arquivo.read_text(encoding="utf-8"))
+    arquivo.write_text(json.dumps({**gravada, "uf": "MG"}), encoding="utf-8")
+    erro = _erro_do_relatorio_recusado(config, tmp_path, capsys)
+    assert _divergencia("uf", "MG", "SP") in erro
+
+
+@pytest.mark.parametrize("conteudo", ["{", "[]", '"texto"'])
+def test_configuracao_gravada_ilegivel_recusa(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], conteudo: str
+) -> None:
+    config = _ingest_completo(tmp_path)
+    _configuracao_gravada(tmp_path).write_text(conteudo, encoding="utf-8")
+    erro = _erro_do_relatorio_recusado(config, tmp_path, capsys)
+    assert "pilot_report_configuracao_ilegivel ingest=execucao_" in erro
+
+
+def test_execucao_sem_configuracao_do_ingest_conta_como_incompleta(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = _ingest_completo(tmp_path)
+    _configuracao_gravada(tmp_path).unlink()
+    erro = _erro_do_relatorio_recusado(config, tmp_path, capsys)
+    assert "pilot_report_ingest_incompleto" in erro
+    assert "faltando=configuracao_ingest.json" in erro
+    assert "pilot_report_sem_ingest_completo" in erro
+
+
+def test_mesma_configuracao_com_familias_em_outra_ordem_gera_o_relatorio(tmp_path: Path) -> None:
+    _ingest_completo(tmp_path)
+    config = config_ingest(tmp_path, tmp_path / "sources.yaml", familias="SIGTAP, SIA_PA, CNES_PF")
+    assert _saida_do_pilot_report(config) == ExitCode.OK
+    assert relatorio_gravado(tmp_path).origem_dados is OrigemDados.SINTETICO

@@ -244,9 +244,14 @@ def test_allowlists_sao_justificadas_e_ainda_necessarias(raiz_git: Path) -> None
         assert len(justificativa.split()) >= 6, f"allowlist_sem_justificativa caminho={caminho}"
         assert caminho in rastreados, f"allowlist_obsoleta caminho={caminho}"
     for caminho in FORMATOS_JUSTIFICADOS:
-        assert caminho.lower().endswith(EXTENSOES_PROIBIDAS), f"allowlist_sem_efeito {caminho}"
+        assert caminho.lower().endswith(EXTENSOES_PROIBIDAS), (
+            f"allowlist_sem_efeito caminho={caminho}"
+        )
+        assert caminho != PDF_DO_ESBOCO, (
+            f"allowlist_sem_efeito caminho={caminho} motivo=manifesto_decide"
+        )
     for caminho in GRANDES_JUSTIFICADOS:
-        assert rastreados[caminho].tamanho > LIMITE_BYTES, f"allowlist_sem_efeito {caminho}"
+        assert rastreados[caminho].tamanho > LIMITE_BYTES, f"allowlist_sem_efeito caminho={caminho}"
 
 
 def test_arquivo_em_data_ou_outputs_reprova_ate_o_readme() -> None:
@@ -301,6 +306,22 @@ def test_pdf_do_esboco_com_hash_do_manifesto_e_aceito_e_com_outro_hash_reprova()
     assert _auditar(_arquivo(PDF_DO_ESBOCO), esboco_sha256=hash_certo, ler_blob=leitura) == []
     divergente = _auditar(_arquivo(PDF_DO_ESBOCO), esboco_sha256="0" * 64, ler_blob=leitura)
     assert divergente == [f"esboco_com_hash_divergente caminho={PDF_DO_ESBOCO}"]
+
+
+def test_pdf_do_esboco_na_allowlist_de_formatos_ainda_passa_pelo_manifesto() -> None:
+    conteudo = b"%PDF-esboco"
+    liberado = {
+        PDF_DO_ESBOCO: "documento oficial preservado, sem licença própria de redistribuição"
+    }
+    leitura = _leitura(conteudo)
+    arquivo = _arquivo(PDF_DO_ESBOCO)
+    sem_hash = _auditar(arquivo, ler_blob=leitura, formatos=liberado)
+    assert sem_hash == [f"esboco_sem_hash_no_manifesto caminho={PDF_DO_ESBOCO}"]
+    divergente = _auditar(arquivo, esboco_sha256="0" * 64, ler_blob=leitura, formatos=liberado)
+    assert divergente == [f"esboco_com_hash_divergente caminho={PDF_DO_ESBOCO}"]
+    hash_certo = hashlib.sha256(conteudo).hexdigest()
+    conferido = _auditar(arquivo, esboco_sha256=hash_certo, ler_blob=leitura, formatos=liberado)
+    assert conferido == []
 
 
 def test_hash_do_manifesto_nao_libera_outro_pdf() -> None:

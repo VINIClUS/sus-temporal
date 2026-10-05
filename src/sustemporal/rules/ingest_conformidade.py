@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from sustemporal.duck import identificador_seguro
+from sustemporal.rules.catalog import carregar_esquema
 from sustemporal.rules.conteudo import ConteudoDivergente
 
 if TYPE_CHECKING:
@@ -13,11 +14,6 @@ if TYPE_CHECKING:
     from sustemporal.contracts.records import DatasetRef
 
 __all__ = ["exigir_colunas_obrigatorias"]
-
-
-def _obrigatorias(schema_id: str) -> list[str]:
-    """Sinalizador de exclusão da produção: ausente ou nulo, a linha deletada passaria por ativa."""
-    return ["deletado"] if schema_id == "sia_pa.v1" else []
 
 
 def _fora_do_esquema(ref: DatasetRef, coluna: str, motivo: str, linhas: int) -> ConteudoDivergente:
@@ -30,18 +26,16 @@ def _fora_do_esquema(ref: DatasetRef, coluna: str, motivo: str, linhas: int) -> 
 def exigir_colunas_obrigatorias(
     con: duckdb.DuckDBPyConnection, ref: DatasetRef, presentes: set[str]
 ) -> None:
-    """Cada coluna obrigatória existe no arquivo e nenhuma linha a tem nula.
+    """Toda coluna não anulável do esquema existe no arquivo e nenhuma linha a tem nula.
 
     Raises:
-        ConteudoDivergente: coluna obrigatória ausente (`motivo=ausente`, todas as linhas) ou com
-            nulos (`motivo=nulo`).
+        ConteudoDivergente: coluna ausente (`motivo=ausente`, todas as linhas) ou com nulos
+            (`motivo=nulo`), na ordem das colunas do esquema.
     """
-    obrigatorias = _obrigatorias(ref.schema_id)
+    obrigatorias = [c.nome for c in carregar_esquema(ref.schema_id).colunas if not c.anulavel]
     for nome in obrigatorias:
         if nome not in presentes:
             raise _fora_do_esquema(ref, nome, "ausente", ref.linhas)
-    if not obrigatorias:
-        return
     contagens = ", ".join(
         f"count(*) FILTER (WHERE {identificador_seguro(nome, obrigatorias)} IS NULL)"
         for nome in obrigatorias

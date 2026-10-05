@@ -200,17 +200,20 @@ quarentena no registro temporal chega como seleção diferente de `SELECIONADA` 
 
 **Validação a partir do ingest.** `sustemporal validate --policy P --ingest DIR` (`rules/ingest.py`,
 `rules/validate_ingest.py`) monta os insumos de uma pasta `execucao_*` do `sustemporal ingest` e do
-registro temporal; todas as conferências (inclusive conteúdo e tipo físico de todo conjunto)
-vêm antes de gravar qualquer arquivo:
+registro temporal; todas as conferências (inclusive conteúdo, tipo físico e colunas obrigatórias
+de todo conjunto) vêm antes de gravar qualquer arquivo:
 
 - registro: `RegistroTemporal.de_manifesto` do manifesto de aquisição em `raiz_manifestos`, com as
   partes esperadas do catálogo; manifesto ausente, ilegível ou corrompido → saída 2;
 - `datasets.jsonl`: cada `DatasetRef` conferido como no motor (linhas, hash lógico, tipo físico de
-  todas as colunas do esquema, `DECIMAL` e `DATA` inclusive) e pela linhagem: toda linha tem
-  `artifact_id` declarado pelo próprio conjunto, senão saída 2 (`linhagem_divergente`), o que impede
-  trocar uma versão por outra na união; produção sem a coluna `deletado`, ou com `deletado` nulo em
-  alguma linha → saída 2 (`entrada_fora_do_esquema`), porque a situação da linha seria desconhecida
-  e ela passaria por ativa; `origem_dados` igual em todos;
+  todas as colunas do esquema, `DECIMAL` e `DATA` inclusive), pelas colunas obrigatórias e pela
+  linhagem. Toda coluna não anulável do esquema canônico do conjunto (na produção, `row_id`,
+  `artifact_id`, `indice_registro` e `deletado`; também nos auxiliares e na cobertura) existe no
+  arquivo e não tem nulo, senão saída 2 (`entrada_fora_do_esquema`, com `coluna`, `dataset`,
+  `linhas` e `motivo=ausente|nulo`): sem `deletado` a situação da linha seria desconhecida e ela
+  passaria por ativa, e sem `artifact_id` não há linhagem a conferir. Toda linha tem `artifact_id`
+  declarado pelo próprio conjunto, senão saída 2 (`linhagem_divergente`), o que impede trocar uma
+  versão por outra na união; `origem_dados` igual em todos;
 - produção: união de todos os `sia_pa.v1`, cada linha física preservada (sem deduplicar; uma linha
   repetida em duas partes conta duas vezes), `artifact_ids` = união ordenada, hash por
   `hash_logico_relacao`. Republicação concorrente → saída 2, nunca escolha automática: duas versões

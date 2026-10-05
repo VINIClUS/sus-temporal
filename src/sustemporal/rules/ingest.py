@@ -464,8 +464,8 @@ def preparar_insumos_ingest(
             parte selecionada ausente da pasta, artefato fora do registro ou observado só depois
             do corte.
         FalhaOperacionalErro: `row_id` repetido na união da produção.
-        ValueError: conteúdo ou tipo físico divergente do `DatasetRef`; `deletado` da produção
-            ausente ou nulo (`ConteudoDivergente`, antes de gravar).
+        ValueError: conteúdo ou tipo físico divergente do `DatasetRef`; coluna não anulável do
+            esquema ausente ou nula em qualquer conjunto (`ConteudoDivergente`, antes de gravar).
     """
     config, registro, municipios = contexto
     producao, auxiliares, cobertura = _classificar(datasets, regras)

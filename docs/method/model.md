@@ -217,12 +217,17 @@ de todo conjunto) vêm antes de gravar qualquer arquivo:
 - produção: união de todos os `sia_pa.v1`, cada linha física preservada (sem deduplicar; uma linha
   repetida em duas partes conta duas vezes), `artifact_ids` = união ordenada, hash por
   `hash_logico_relacao`. Republicação concorrente → saída 2, nunca escolha automática: duas versões
-  da pasta com a mesma chave lógica (fonte, UF, competência do arquivo, parte), ou, pelo seletor do
-  T06 (`selecionar_versao`, critério de processamento) sobre o registro inteiro até o corte, seleção
-  `AMBIGUA` ou versão da pasta que não é a visível no registro (mesmo que a pasta traga uma só).
-  A pasta traz todas as versões que o seletor escolhe para cada competência do arquivo: parte
-  selecionada ausente da pasta → saída 2 (`producao_com_partes_ausentes`), nunca avaliação só das
-  partes presentes; a marca `sia_pa_incompleto` da ingestão não isenta a parte ausente.
+  da pasta com a mesma chave lógica (fonte, UF, competência do arquivo, parte) ou versão da pasta
+  que não é a visível no registro (mesmo que a pasta traga uma só). Pelo seletor do T06
+  (`selecionar_versao`, critério de processamento) sobre o registro inteiro até o corte, a pasta só
+  é aceita quando a seleção de cada competência do arquivo é `SELECIONADA` ou `INCOMPLETA` (esta
+  vira marca de incompletude, abaixo); qualquer outro estado (`AMBIGUA`, `EM_QUARENTENA`,
+  `FORA_DO_CORTE`, `AUSENTE`, `NAO_RESOLVIDA`) → saída 2 (`producao_com_selecao_nao_aceita`, com
+  competência, estado e motivo do seletor), antes de gravar: produção em quarentena nunca é avaliada
+  como produção comum. A pasta traz todas as versões que o seletor escolhe para cada competência do
+  arquivo: parte selecionada ausente da pasta → saída 2 (`producao_com_partes_ausentes`), nunca
+  avaliação só das partes presentes; a marca `sia_pa_incompleto` da ingestão não isenta a parte
+  ausente.
   Artefato fora do registro, de UF ou competência do arquivo fora do piloto, ou, com
   `corte_observacao`, sem observação `OBTIDO` até o corte → saída 2; `row_id` repetido → falha
   operacional (saída 5);

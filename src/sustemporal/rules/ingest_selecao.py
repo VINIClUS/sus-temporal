@@ -15,6 +15,7 @@ from sustemporal.contracts.temporal import (
 )
 from sustemporal.duck import identificador_seguro
 from sustemporal.errors import ConfigInvalida
+from sustemporal.rules.conteudo import ConteudoDivergente
 from sustemporal.temporal.selector import selecionar_versao, uf_da_execucao
 
 if TYPE_CHECKING:
@@ -30,17 +31,22 @@ __all__ = ["exigir_versao_selecionavel", "marcas_de_incompletude"]
 
 logger = logging.getLogger(__name__)
 
+_ACEITAS = frozenset({EstadoSelecao.SELECIONADA, EstadoSelecao.INCOMPLETA})
+
 
 def exigir_versao_selecionavel(
     artefatos: list[str], registro: RegistroTemporal, config: RunConfig
 ) -> dict[str, SelecaoVersao]:
     """Pelo seletor do T06, a pasta traz exatamente as versões selecionadas até o corte.
 
-    Devolve, por competência do arquivo, as seleções `INCOMPLETA` (parte esperada ausente, parte
-    não declarada ou completude indeterminada) que a pasta aceitou.
+    Só a seleção completa (`SELECIONADA`) ou `INCOMPLETA` é aceita. Devolve, por competência do
+    arquivo, as `INCOMPLETA` (parte esperada ausente, parte não declarada ou completude
+    indeterminada); qualquer outro estado (ambíguo, em quarentena, fora do corte, ausente ou não
+    resolvido) é recusado, nunca avaliado como produção comum.
 
     Raises:
-        ConfigInvalida: versões concorrentes, versão não selecionada ou parte selecionada ausente.
+        ConteudoDivergente: seleção de uma competência da pasta em estado não aceito.
+        ConfigInvalida: versão da pasta não selecionada ou parte selecionada ausente da pasta.
     """
     criterio = CriterioTemporal(fonte=FamiliaFonte.SIA_PA, base=BaseTemporal.PROCESSAMENTO)
     por_competencia: dict[str, set[str]] = defaultdict(set)
@@ -55,13 +61,13 @@ def exigir_versao_selecionavel(
             uf=uf_da_execucao(config),
             corte=config.corte_observacao,
         )
-        if selecao.estado is EstadoSelecao.AMBIGUA:
-            raise ConfigInvalida(
-                f"producao_com_versoes_concorrentes competencia={competencia} "
-                f"motivo={selecao.motivo}"
+        if selecao.estado not in _ACEITAS:
+            raise ConteudoDivergente(
+                f"producao_com_selecao_nao_aceita competencia={competencia} "
+                f"estado={selecao.estado} motivo={selecao.motivo}"
             )
         selecionadas = set(selecao.artifact_ids)
-        if selecionadas and da_pasta - selecionadas:
+        if da_pasta - selecionadas:
             raise ConfigInvalida(
                 f"producao_com_versao_nao_selecionada competencia={competencia} "
                 f"artefatos={sorted(da_pasta - selecionadas)}"

@@ -10,20 +10,18 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from pydantic import ValidationError
-
-from sustemporal.contracts import FreezeManifest, Particao
 from sustemporal.errors import ConfigInvalida, ExitCode
 from sustemporal.evaluation.annotation import (
     SCHEMA_REGISTROS,
     SCHEMA_ROTULOS,
     prepare_annotation_sample,
 )
+from sustemporal.evaluation.freeze import carregar_freeze
 
 if TYPE_CHECKING:
     import argparse
 
-    from sustemporal.contracts import DatasetRef, RunConfig
+    from sustemporal.contracts import DatasetRef, FreezeManifest, Particao, RunConfig
 
 __all__ = ["carregar_congelamento", "executar_annotation_export"]
 
@@ -34,21 +32,9 @@ def carregar_congelamento(diretorio: Path, freeze_id: str) -> FreezeManifest:
     """Manifesto `<diretorio>/<freeze_id>.json` cujo id confere com o conteúdo.
 
     Raises:
-        ConfigInvalida: manifesto ausente, inválido ou de outro freeze_id.
+        ConfigInvalida: o de `carregar_freeze` (ausente, ilegível, adulterado ou de outro id).
     """
-    disponiveis = {c.stem: c for c in diretorio.glob("frz_*.json") if c.is_file()}
-    caminho = disponiveis.get(freeze_id)
-    if caminho is None:
-        raise ConfigInvalida(f"congelamento_ausente freeze={freeze_id} diretorio={diretorio}")
-    try:
-        manifesto = FreezeManifest.model_validate_json(caminho.read_text(encoding="utf-8"))
-    except ValidationError as erro:
-        raise ConfigInvalida(f"congelamento_invalido freeze={freeze_id}") from erro
-    if manifesto.freeze_id != freeze_id:
-        raise ConfigInvalida(
-            f"congelamento_de_outro_id freeze={freeze_id} manifesto={manifesto.freeze_id}"
-        )
-    return manifesto
+    return carregar_freeze(diretorio, freeze_id)
 
 
 def _rotulos(manifesto: FreezeManifest) -> DatasetRef:

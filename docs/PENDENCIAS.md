@@ -582,11 +582,12 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 
 - **Itens:** T14-11 (decisão: run_id do validate e a versão do código); T07-i21 (o run_id do
   --ingest depende dos caminhos da config)
-- **Ferramenta pronta:** `versao_codigo` (`src/sustemporal/runtime_info.py`) e o `run_id` do
-  `validate` (`src/sustemporal/rules/validate_ingest.py`).
+- **Ferramenta pronta:** `evaluate_rules` (`src/sustemporal/rules/engine.py`), que compara o
+  `codigo` do `run_result.json` existente com `versao_codigo` (`src/sustemporal/runtime_info.py`).
 - **Runbook:** —
-- **Estado:** aberta (decisão do orquestrador)
-- **Nota:** Ver ORQ-05 e `docs/pendencias/T14.md` item 11. O `reproduce` compara as saídas sem a
+- **Estado:** fechada (opção (b): o motor recusa regravar `out/<run_id>` com outro código; PR #36)
+- **Nota:** Ver ORQ-05 e `docs/pendencias/T14.md` item 11; o método está em
+  `docs/method/model.md` §7 ("Execução imutável"). O `reproduce` compara as saídas sem a
   coluna `run_id` (ORQ-29).
 
 ### EN-20 — Conferência das execuções e da cobertura no `evaluate` (T11)
@@ -647,9 +648,9 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 ## 5. Pendências de engenharia registradas pelo orquestrador
 
 Itens da nota do orquestrador para a S9, todos abertos, salvo ORQ-02 (esquemas promovidos no PR
-#35), ORQ-21, ORQ-23, ORQ-24 e ORQ-25 (resolvidos no #34, com o que resta nos itens novos),
-ORQ-28 (resolvido no #29), ORQ-26, ORQ-29 e ORQ-31 (tratados na parte B da T14) e ORQ-30 (escolha
-aceita). Cada linha traz a tarefa, o PR de origem, a ferramenta pronta e o passo do runbook (`—`
+#35), ORQ-05 (execução imutável, PR #36), ORQ-21, ORQ-23, ORQ-24 e ORQ-25 (resolvidos no #34, com
+o que resta nos itens novos), ORQ-28 (resolvido no #29), ORQ-26, ORQ-29 e ORQ-31 (tratados na
+parte B da T14) e ORQ-30 (escolha aceita). Cada linha traz a tarefa, o PR de origem, a ferramenta pronta e o passo do runbook (`—`
 quando não há passo: é mudança de código). Os números de comentário e de P2 são os do GitHub
 nos PRs indicados.
 
@@ -659,7 +660,7 @@ nos PRs indicados.
 | ORQ-02 | T05 | #31 (comentário 4179930704) | Promover os esquemas `piloto_*.v1` a `catalog/schemas/` (depende do mapa de propriedade; junto com `valores_p3.v1` da S8, pendência b2 de T13). Feita no PR #35 (ver EN-07). | `carregar_esquema` (`src/sustemporal/rules/catalog.py`) e `TABELAS_RELATORIO` (`src/sustemporal/reporting/report_publicacao.py`) | — |
 | ORQ-03 | T07/T05 | #31 | Alinhar o `validate --ingest` ao instantâneo do manifesto gravado pelo `ingest` (`manifesto_lido.json`, #31), como o `pilot-report`. | `manifesto_lido.json` gravado pelo `ingest` e a leitura dele em `src/sustemporal/reporting/cli.py` | `docs/runbooks/piloto_local.md` §3 |
 | ORQ-04 | T09/T08 | #28 | Consolidar `_publicar` e `_validar_argumentos` dos CLIs `explain` e `counterfactual` num helper comum (duplicação apontada pelo SonarCloud). | `_publicar` e `_validar_argumentos` em `src/sustemporal/explanation/cli.py` e em `src/sustemporal/explanation/counterfactual_cli.py` | — |
-| ORQ-05 | T07 | #27 (a nota não cita o número; é o PR do `validate --ingest`) | O `run_id` do `validate` não inclui a versão do código; o motor grava em `outputs/runs/<run_id>/` com `exist_ok=True`. Decidir (T14) entre incluir o código no `run_id` ou recusar a sobrescrita de run com código diferente (opções e preferência em `docs/pendencias/T14.md`, item 11). | `versao_codigo` (`src/sustemporal/runtime_info.py`) e o `run_result.json` de cada run | — |
+| ORQ-05 | T07 | #27 (a nota não cita o número; é o PR do `validate --ingest`) | O `run_id` do `validate` não inclui a versão do código; o motor grava em `outputs/runs/<run_id>/` com `exist_ok=True`. Decidir (T14) entre incluir o código no `run_id` ou recusar a sobrescrita de run com código diferente (opções e preferência em `docs/pendencias/T14.md`, item 11). Resolvida no PR #36 (ver EN-19): o motor recusa regravar `out/<run_id>` quando o `codigo` do `run_result.json` existente difere ou o arquivo é ilegível. | `versao_codigo` (`src/sustemporal/runtime_info.py`) e o `run_result.json` de cada run | — |
 | ORQ-06 | T01 | #32 (comentário 4180023928) | `versao_codigo`: passar `--ignore-submodules=none` na listagem de caminhos alterados; conferir `S_ISREG` antes de abrir (um FIFO no lugar de arquivo rastreado travaria); caminho sob diretório rastreado que virou link simbólico é lido através do link. | `versao_codigo` (`src/sustemporal/runtime_info.py`) e os testes de `diff_sha256` | — |
 | ORQ-07 | T07 | #27 (comentário 4180014336) | A igualdade estrita entre as partes da pasta e as partes selecionadas recusa (saída 2) também quando a ingestão marcou a competência com `sia_pa_incompleto` (parte com normalização falha). Refinamento: a marca isentar a parte ausente, registrando a incompletude da população e mantendo as células INSUFICIENTE, em vez de recusar a execução inteira. | `marcas_sia_pa_incompleto` (`src/sustemporal/ingest/coverage.py`) e `src/sustemporal/rules/validate_ingest.py` | — |
 | ORQ-08 | T07 | #27 (a nota não cita o número) | Competência do piloto sem nenhum artefato na pasta não passa pelo guard de partes; hoje fica visível só pela cobertura recalculada (`sia_pa_ausente`). Conferir também as competências do piloto ausentes da pasta contra o seletor. | `src/sustemporal/rules/validate_ingest.py` e `selecionar_lote` (`src/sustemporal/temporal/lote.py`) | — |

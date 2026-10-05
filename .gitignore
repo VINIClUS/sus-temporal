@@ -20,3 +20,6 @@ outputs/*
 !outputs/README.md
 .claude/worktrees/
 .claude/settings.local.json
+
+# trava entre processos (fcntl.flock) ao lado dos registros e manifestos append-only
+*.trava

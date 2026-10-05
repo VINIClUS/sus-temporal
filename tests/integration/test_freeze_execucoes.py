@@ -18,13 +18,13 @@ from tests.fixtures.protocolo_confirmatorio import (
     Confirmatorio,
     como_real,
     config_confirmatoria,
-    entradas_nao_populacionais,
     montar_confirmatorio,
     politicas_do_catalogo,
     sia_pa_desconhecido,
     split_como_real,
 )
 from tests.fixtures.protocolo_dados import cenario_baseline
+from tests.fixtures.protocolo_insumos import entradas_nao_populacionais
 
 from sustemporal.contracts.base import conteudo_identidade, hash_canonico
 from sustemporal.contracts.config import RunConfig

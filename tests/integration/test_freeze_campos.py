@@ -17,18 +17,14 @@ import pytest
 from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO
 from tests.fixtures.protocolo_confirmatorio import (
     CATALOGO_SIA_PA,
-    ESQUEMA_SIGTAP,
     MUTACOES_DO_AMBIENTE,
     OUTRO_SHA,
     Confirmatorio,
-    com_conjunto_trocado,
-    conjunto_sintetico,
-    entradas_nao_populacionais,
     montar_confirmatorio,
     sia_pa_desconhecido,
-    snapshots_sinteticos,
 )
 from tests.fixtures.protocolo_dados import cenario_baseline
+from tests.fixtures.protocolo_insumos import entradas_nao_populacionais
 
 from sustemporal.contracts.experiment import Ambiente, CodeVersion, FeatureSpec, FreezeManifest
 from sustemporal.contracts.temporal import MetodoId
@@ -50,11 +46,13 @@ if TYPE_CHECKING:
 
     from sustemporal.contracts import RunResult
     from sustemporal.evaluation.freeze_conferencia import EstadoAtual
+    from sustemporal.rules.entrada import EntradaValidacao
 
     Resultado = tuple[FreezeManifest, EstadoAtual]
     Modificador = Callable[[FreezeManifest, EstadoAtual], Resultado]
 
 OUTRO_CODIGO = CODIGO_LIMPO.model_copy(update={"commit": "b" * 40})
+Cenario3 = tuple[list["RunResult"], dict[str, "EntradaValidacao"], str]
 M_TEMP = 0
 MODELOS_DOS_SUBCAMPOS = {"codigo": CodeVersion, "ambiente": Ambiente}
 AMBIENTE_BASE = Ambiente(
@@ -181,7 +179,7 @@ def test_estado_e_execucoes_compativeis_com_o_manifesto_passam(
 ) -> None:
     verificar_congelamento_completo(confirmatorio.manifesto, confirmatorio.estado)
     verificar_congelamento_completo(
-        confirmatorio.manifesto, confirmatorio.estado, confirmatorio.runs
+        confirmatorio.manifesto, confirmatorio.estado, confirmatorio.runs, confirmatorio.entradas
     )
 
 
@@ -227,21 +225,16 @@ def _mensagem_da_execucao(run: RunResult, campo: str, conf: Confirmatorio) -> st
     return f"^{re.escape(base)} freeze={conf.manifesto.freeze_id}$"
 
 
-def _cenarios_da_execucao(
-    conf: Confirmatorio,
-) -> dict[str, Callable[[], tuple[list[RunResult], str]]]:
-    """Por nome em `campo=` (ou `metodos`): execuções em que só ele diverge e a mensagem."""
+def _cenarios_da_execucao(conf: Confirmatorio) -> dict[str, Callable[[], Cenario3]]:
+    """Por nome em `campo=` (ou `metodos`): execuções e entradas em que só ele diverge."""
     alvo = conf.runs[M_TEMP]
 
-    def com(campo: str, **trocas: object) -> tuple[list[RunResult], str]:
+    def com(campo: str, **trocas: object) -> Cenario3:
         runs = [alvo.model_copy(update=trocas), *conf.runs[1:]]
-        return runs, _mensagem_da_execucao(alvo, campo, conf)
+        return runs, conf.entradas, _mensagem_da_execucao(alvo, campo, conf)
 
     outro_ambiente = MUTACOES_DO_AMBIENTE["pacotes"](alvo.ambiente)
-    outro_sigtap = com_conjunto_trocado(
-        alvo, ESQUEMA_SIGTAP, conjunto_sintetico(ESQUEMA_SIGTAP, "x")
-    )
-    outro_snapshot = snapshots_sinteticos("outro").snapshot_id
+    sem_entrada = {k: v for k, v in conf.entradas.items() if k != alvo.run_id}
     sem_b_proc = [run for run in conf.runs if run.metodo is not MetodoId.B_PROC]
     faltam = (
         "avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias metodos=B_PROC "
@@ -254,9 +247,12 @@ def _cenarios_da_execucao(
         "catalogo": lambda: com("catalogo", catalogo_regras_sha256=OUTRO_SHA),
         "politica": lambda: com("politica", politica_id="politica_inventada"),
         "entradas": lambda: com("entradas", entradas=entradas_nao_populacionais(alvo)),
-        "auxiliares": lambda: com("auxiliares", entradas=outro_sigtap.entradas),
-        "snapshots": lambda: com("snapshots", snapshot_set_id=outro_snapshot),
-        "metodos": lambda: (sem_b_proc, f"^{re.escape(faltam)}$"),
+        "entrada_validacao": lambda: (
+            conf.runs,
+            sem_entrada,
+            _mensagem_da_execucao(alvo, "entrada_validacao", conf),
+        ),
+        "metodos": lambda: (sem_b_proc, conf.entradas, f"^{re.escape(faltam)}$"),
     }
 
 
@@ -272,9 +268,13 @@ EXECUCOES = sorted(c.execucao for c in CAMPOS_DO_MANIFESTO.values() if c.execuca
 
 @pytest.mark.parametrize("campo", EXECUCOES)
 def test_divergencia_na_execucao_e_recusada(confirmatorio: Confirmatorio, campo: str) -> None:
-    runs, mensagem = _cenarios_da_execucao(confirmatorio)[campo]()
+    cenarios = _cenarios_da_execucao(confirmatorio)
+    assert campo in cenarios
+    runs, entradas, mensagem = cenarios[campo]()
     with pytest.raises(PortaoRecusado, match=mensagem):
-        verificar_congelamento_completo(confirmatorio.manifesto, confirmatorio.estado, runs)
+        verificar_congelamento_completo(
+            confirmatorio.manifesto, confirmatorio.estado, runs, entradas
+        )
 
 
 def test_readme_lista_todo_campo_do_manifesto() -> None:

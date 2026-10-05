@@ -53,6 +53,7 @@ if TYPE_CHECKING:
     )
     from sustemporal.contracts.base import OrigemDados
     from sustemporal.evaluation.freeze_conferencia import EstadoAtual
+    from sustemporal.rules.entrada import EntradaValidacao
 
 __all__ = ["PARES_PRIMARIOS", "ReferenciaCongelamento", "evaluate_runs"]
 
@@ -287,6 +288,7 @@ class ReferenciaCongelamento:
     decisoes: Path = DIR_DECISOES
     manifesto: FreezeManifest | None = None
     estado: EstadoAtual | None = None
+    entradas: Mapping[str, EntradaValidacao] | None = None
 
 
 def _bootstrap(

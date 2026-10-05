@@ -429,6 +429,7 @@ class FreezeManifest(ContratoBase):
     politicas_sha256: dict[str, Sha256Hex] | None = None
     auxiliares: dict[str, tuple[DatasetId, ...]] | None = None
     snapshots: dict[str, str] | None = None
+    entradas_validacao: dict[str, dict[str, str]] | None = None
 
     @classmethod
     def calcular_id(cls, conteudo: dict[str, Any]) -> str:

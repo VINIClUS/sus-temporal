@@ -35,7 +35,7 @@ from sustemporal.evaluation.freeze import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
 
     from sustemporal.contracts import (
         CodeVersion,
@@ -47,6 +47,7 @@ if TYPE_CHECKING:
         SplitManifest,
     )
     from sustemporal.contracts.temporal import PoliticaTemporal
+    from sustemporal.rules.entrada import EntradaValidacao
 
 __all__ = [
     "CAMPOS_DO_MANIFESTO",
@@ -201,7 +202,10 @@ def _divergencias_do_estado(manifesto: FreezeManifest, estado: EstadoAtual) -> d
 
 
 def verificar_congelamento_completo(
-    manifesto: FreezeManifest, estado: EstadoAtual, runs: Sequence[RunResult] = ()
+    manifesto: FreezeManifest,
+    estado: EstadoAtual,
+    runs: Sequence[RunResult] = (),
+    entradas: Mapping[str, EntradaValidacao] | None = None,
 ) -> None:
     """Confere o manifesto inteiro contra o estado atual e, se dadas, contra cada execução.
 
@@ -221,7 +225,8 @@ def verificar_congelamento_completo(
             f"freeze_incompativel campos={','.join(campos)} freeze={manifesto.freeze_id}"
         )
     for run in runs:
-        verificar_execucao(manifesto, run, config=estado.config)
+        entrada = (entradas or {}).get(run.run_id)
+        verificar_execucao(manifesto, run, config=estado.config, entrada=entrada)
         verificar_execucao_concluida(run)
     if runs:
         verificar_comparacoes_primarias(manifesto, runs)
@@ -326,7 +331,19 @@ def _entradas_divergentes(manifesto: FreezeManifest, run: RunResult) -> bool:
     return teste not in hashes or not hashes <= _hashes_congelados(manifesto)
 
 
-def verificar_execucao(manifesto: FreezeManifest, run: RunResult, *, config: RunConfig) -> None:
+def _divergencias_da_entrada(
+    manifesto: FreezeManifest, run: RunResult, entrada: EntradaValidacao | None
+) -> dict[str, bool]:
+    raise NotImplementedError("freeze_entrada")
+
+
+def verificar_execucao(
+    manifesto: FreezeManifest,
+    run: RunResult,
+    *,
+    config: RunConfig,
+    entrada: EntradaValidacao | None = None,
+) -> None:
     """Recusa a execução cuja identidade registrada difere da congelada.
 
     `config` é a config confirmatória do congelamento: o protocolo dela confere com o manifesto
@@ -353,6 +370,8 @@ def verificar_execucao(manifesto: FreezeManifest, run: RunResult, *, config: Run
         "auxiliares": _auxiliares_divergentes(manifesto, run),
         "snapshots": _snapshots_divergentes(manifesto, run),
     }
+    if manifesto.entradas_validacao is not None:
+        divergencias.update(_divergencias_da_entrada(manifesto, run, entrada))
     if campos := [nome for nome, divergente in divergencias.items() if divergente]:
         raise PortaoRecusado(
             f"run_incompativel_com_congelamento run={run.run_id} campo={','.join(campos)} "

@@ -13,6 +13,7 @@ from sustemporal.cli import main
 from sustemporal.config import load_config
 from sustemporal.contracts.experiment import FreezeManifest, TipoExecucao
 from sustemporal.errors import ExitCode
+from sustemporal.rules.entrada import ARQUIVO_ENTRADA
 from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO, escrever_decisao
 from tests.fixtures.protocolo_confirmatorio import (
     CATALOGO_SIA_PA,
@@ -21,13 +22,16 @@ from tests.fixtures.protocolo_confirmatorio import (
     runs_compativeis,
 )
 from tests.fixtures.protocolo_dados import cenario_baseline
+from tests.fixtures.protocolo_insumos import entradas_das_execucoes
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
     import pytest
 
     from sustemporal.contracts import RunResult
+    from sustemporal.rules.entrada import EntradaValidacao
     from tests.fixtures.protocolo_dados import Cenario
 
 REGISTRO = "registro_execucoes.jsonl"
@@ -114,13 +118,19 @@ def nome_do_arquivo_da_execucao(run: RunResult) -> str:
     return "run.json" if run.tipo is TipoExecucao.BASELINE_ML else "run_result.json"
 
 
-def gravar_runs(raiz: Path, runs: list[RunResult]) -> None:
+def gravar_runs(
+    raiz: Path, runs: list[RunResult], *, entradas: Mapping[str, EntradaValidacao] | None = None
+) -> None:
+    """Grava cada execução, e a `entrada_validacao.json` das de regras (`entradas` a substitui)."""
+    gravadas = {**entradas_das_execucoes(runs), **(entradas or {})}
     for run in runs:
         destino = raiz / "saidas" / "runs" / run.run_id
         destino.mkdir(parents=True, exist_ok=True)
         (destino / nome_do_arquivo_da_execucao(run)).write_text(
             run.model_dump_json(), encoding="utf-8"
         )
+        if (entrada := gravadas.get(run.run_id)) is not None:
+            (destino / ARQUIVO_ENTRADA).write_text(entrada.model_dump_json(), encoding="utf-8")
 
 
 def runs_da_cli(raiz: Path, cenario: Cenario, freeze: str) -> list[RunResult]:

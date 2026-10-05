@@ -1022,6 +1022,24 @@
     "title": "Decisao G0",
     "type": "string"
    },
+   "entradas_validacao": {
+    "anyOf": [
+     {
+      "additionalProperties": {
+       "additionalProperties": {
+        "type": "string"
+       },
+       "type": "object"
+      },
+      "type": "object"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Entradas Validacao"
+   },
    "features": {
     "$ref": "#/$defs/FeatureSpec"
    },

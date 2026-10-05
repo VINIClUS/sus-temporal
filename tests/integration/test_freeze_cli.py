@@ -34,6 +34,7 @@ from sustemporal.contracts.temporal import MetodoId
 from sustemporal.errors import ExitCode
 from sustemporal.evaluation.freeze_registro import ler_registro, registrar_execucao
 from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
+from sustemporal.rules.entrada import ARQUIVO_ENTRADA
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -77,7 +78,8 @@ def test_cli_avalia_execucoes_do_motor_gravadas_como_run_result_json(
     runs = runs_da_cli(tmp_path, cenario, freeze)
     gravar_runs(tmp_path, runs)
     pasta = tmp_path / "saidas" / "runs"
-    gravados = {arquivo.parent.name: arquivo.name for arquivo in pasta.glob("*/*.json")}
+    execucoes = (arquivo for arquivo in pasta.glob("*/*.json") if arquivo.name != ARQUIVO_ENTRADA)
+    gravados = {arquivo.parent.name: arquivo.name for arquivo in execucoes}
     assert gravados == {run.run_id: nome_do_arquivo_da_execucao(run) for run in runs}
     assert set(gravados.values()) == {"run.json", "run_result.json"}
     config = config_confirmatoria_yaml(tmp_path, freeze)

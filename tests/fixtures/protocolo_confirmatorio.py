@@ -6,7 +6,6 @@ confirmatório, e as decisões G0/G2 são escritas em diretórios temporários d
 
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -21,14 +20,13 @@ from sustemporal.contracts.experiment import (
     TipoExecucao,
 )
 from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
-from sustemporal.contracts.temporal import MetodoId, SnapshotSet
+from sustemporal.contracts.temporal import MetodoId
 from sustemporal.evaluation.features import FEATURES_PADRAO
 from sustemporal.evaluation.freeze import Protocolo, congelar
 from sustemporal.evaluation.freeze_conferencia import EstadoAtual
 from sustemporal.evaluation.metrics import ReferenciaCongelamento
 from sustemporal.evaluation.split import SUFIXO_ENTRADAS
 from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
-from sustemporal.rules.entrada import EntradaValidacao
 from sustemporal.runtime_info import ambiente
 from sustemporal.temporal.politicas import carregar_politica
 from tests.fixtures.protocolo_avaliacao import (
@@ -44,12 +42,17 @@ from tests.fixtures.protocolo_dados import (
     gravar_rotulos,
     gravar_sia_pa,
 )
+from tests.fixtures.protocolo_insumos import (
+    entrada_da_politica,
+    entradas_das_execucoes,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from sustemporal.contracts import Ambiente, FreezeManifest, RunResult
     from sustemporal.contracts.temporal import PoliticaTemporal
+    from sustemporal.rules.entrada import EntradaValidacao
     from tests.fixtures.protocolo_dados import Cenario
 
 CATALOGO_SIA_PA = Path(__file__).resolve().parents[2] / "catalog" / "schemas" / "sia_pa.yaml"
@@ -65,11 +68,6 @@ POLITICA_DO_METODO = {
     MetodoId.B_PROC: "B_PROC",
 }
 POLITICAS_DO_PROTOCOLO = tuple(POLITICA_DO_METODO.values())
-ESQUEMA_CNES = "cnes_estabelecimento.v1"
-ESQUEMA_SIGTAP = "sigtap_procedimento.v1"
-ESQUEMA_COBERTURA = "cobertura.v1"
-ESQUEMA_SELECAO = "selecao_versoes.v1"
-ESQUEMAS_DA_POPULACAO = frozenset({"sia_pa.v1", "sia_pa_rotulos.v1"})
 COMPETENCIA_DO_TESTE = "202401"
 OUTRO_SHA = "f" * 64
 MUTACOES_DO_AMBIENTE: dict[str, Callable[[Ambiente], Ambiente]] = {
@@ -98,63 +96,11 @@ def auxiliar_fora_do_manifesto() -> DatasetRef:
     )
 
 
-def conjunto_sintetico(esquema: str, versao: str) -> DatasetRef:
-    """Conjunto não populacional REAL sem arquivo: só a identidade importa na conferência."""
-    conteudo = f"lh1:{hashlib.sha256(f'{esquema}:{versao}'.encode()).hexdigest()}"
-    return DatasetRef(
-        dataset_id=calcular_dataset_id(esquema, conteudo, ()),
-        schema_id=esquema,
-        caminho=f"{esquema}.{versao}.parquet",
-        hash_logico=conteudo,
-        linhas=0,
-        artifact_ids=(),
-        origem_dados=OrigemDados.REAL,
-        produzido_por="tests.fixtures.protocolo_confirmatorio",
-    )
-
-
-def snapshots_sinteticos(versao: str) -> SnapshotSet:
-    """`SnapshotSet` vazio que só se distingue pelo hash de dataset da `versao`."""
-    return SnapshotSet.criar(
-        artifact_ids=(),
-        observation_ids=(),
-        dataset_hashes=(conjunto_sintetico(ESQUEMA_SELECAO, versao).hash_logico,),
-        selecoes=(),
-    )
-
-
-def entrada_da_politica(
-    cenario: Cenario, politica_id: str, *, sigtap: str = "2024-01", cobertura: str = "base"
-) -> EntradaValidacao:
-    """Entrada de validação sobre o TESTE; a seleção e os snapshots dependem da política."""
-    assert cenario.split.particoes is not None
-    return EntradaValidacao(
-        dataset=como_real(cenario.split.particoes[Particao.TESTE]),
-        snapshots=snapshots_sinteticos(politica_id),
-        auxiliares=(
-            conjunto_sintetico(ESQUEMA_CNES, "2024-01"),
-            conjunto_sintetico(ESQUEMA_SIGTAP, sigtap),
-        ),
-        selecoes=conjunto_sintetico(ESQUEMA_SELECAO, politica_id),
-        cobertura=conjunto_sintetico(ESQUEMA_COBERTURA, cobertura),
-    )
-
-
 def insumos_do_teste(cenario: Cenario) -> dict[str, EntradaValidacao]:
-    """Uma entrada de validação por política do protocolo (M_TEMP, B_ATEND e B_PROC)."""
-    return {politica: entrada_da_politica(cenario, politica) for politica in POLITICAS_DO_PROTOCOLO}
-
-
-def entradas_nao_populacionais(run: RunResult) -> tuple[DatasetRef, ...]:
-    """Entradas da execução que não são a população nem os rótulos (auxiliares, seleção, ...)."""
-    return tuple(d for d in run.entradas if d.schema_id not in ESQUEMAS_DA_POPULACAO)
-
-
-def com_conjunto_trocado(run: RunResult, esquema: str, novo: DatasetRef) -> RunResult:
-    """Mesma execução com a entrada do `esquema` trocada por `novo` (outra versão do conjunto)."""
-    entradas = tuple(novo if d.schema_id == esquema else d for d in run.entradas)
-    assert entradas != run.entradas
-    return run.model_copy(update={"entradas": entradas})
+    """Uma entrada de validação, sobre o TESTE, por política do protocolo."""
+    assert cenario.split.particoes is not None
+    teste = como_real(cenario.split.particoes[Particao.TESTE])
+    return {politica: entrada_da_politica(teste, politica) for politica in POLITICAS_DO_PROTOCOLO}
 
 
 def politicas_do_catalogo() -> list[PoliticaTemporal]:
@@ -178,6 +124,7 @@ class Confirmatorio:
     g2: str
     runs: list[RunResult]
     rotulos: DatasetRef
+    entradas: dict[str, EntradaValidacao]
 
     def referencia(self, **trocas: Any) -> ReferenciaCongelamento:
         campos: dict[str, Any] = {
@@ -186,6 +133,7 @@ class Confirmatorio:
             "decisoes": self.decisoes,
             "manifesto": self.manifesto,
             "estado": self.estado,
+            "entradas": self.entradas,
         }
         return ReferenciaCongelamento(**{**campos, **trocas})
 
@@ -253,7 +201,7 @@ def run_compativel(
             **comuns,
         )
     politica_id = POLITICA_DO_METODO[metodo]
-    insumos = entrada_da_politica(cenario, politica_id)
+    insumos = entrada_da_politica(teste, politica_id)
     entradas = (teste, *insumos.auxiliares, insumos.selecoes, insumos.cobertura, *entradas_a_mais)
     return run_agregados(
         metodo,
@@ -319,6 +267,7 @@ def montar_confirmatorio(
         regras=campos["regras"],
         politicas=campos["politicas"],
     )
+    runs = runs_compativeis(cenario, manifesto, config, raiz / "runs")
     return Confirmatorio(
         cenario=cenario,
         manifesto=manifesto,
@@ -326,8 +275,9 @@ def montar_confirmatorio(
         estado=estado,
         decisoes=decisoes,
         g2=f"experiments/decisions/{g2.name}",
-        runs=runs_compativeis(cenario, manifesto, config, raiz / "runs"),
+        runs=runs,
         rotulos=como_real(cenario.split.rotulos_por_particao[Particao.TESTE]),
+        entradas=entradas_das_execucoes(runs),
     )
 
 

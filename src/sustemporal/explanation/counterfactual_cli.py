@@ -26,7 +26,7 @@ from sustemporal.contracts.base import Identificador, hash_canonico
 from sustemporal.contracts.records import RowId
 from sustemporal.contracts.rules import FalhaOperacional
 from sustemporal.errors import ExitCode
-from sustemporal.explanation.cli import ExecucaoNaoResolvida, localizar_execucao
+from sustemporal.explanation.cli import ExecucaoNaoResolvida
 from sustemporal.explanation.counterfactual import (
     BaselineIncoerente,
     SemViolacao,
@@ -35,6 +35,7 @@ from sustemporal.explanation.counterfactual import (
 from sustemporal.explanation.counterfactual_contexto import (
     ContextoIndisponivel,
     contexto_da_execucao,
+    execucao_legivel,
 )
 from sustemporal.explanation.counterfactual_operacoes import (
     CATALOGO_OPERACOES,
@@ -180,7 +181,7 @@ def _buscar(
     relogio: Callable[[], datetime],
 ) -> dict[str, bytes]:
     run_id, row_id = alvo
-    run = localizar_execucao(raiz, run_id)
+    run = execucao_legivel(raiz, run_id)
     bundle = montar_explicacao(run, row_id, runtime=config.runtime).bundle
     contexto = replace(contexto_da_execucao(raiz, run_id, config), relogio=relogio)
     resultado = search_counterfactuals(

@@ -34,6 +34,7 @@ __all__ = [
     "ContextoContrafactual",
     "ContextoIndisponivel",
     "contexto_da_execucao",
+    "execucao_legivel",
 ]
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,21 @@ class ContextoContrafactual:
 
 class ContextoIndisponivel(ValueError):
     """Insumos da execução ausentes, ilegíveis ou divergentes do `run_id`."""
+
+
+def execucao_legivel(raiz: Path, run_id: str) -> RunResult:
+    """`localizar_execucao` que recusa também `run_result.json` com bytes que não são UTF-8.
+
+    Raises:
+        ExecucaoNaoResolvida: execução inexistente, ambígua, incoerente ou ilegível.
+    """
+    try:
+        return localizar_execucao(raiz, run_id)
+    except UnicodeDecodeError as erro:
+        raise ExecucaoNaoResolvida(
+            f"execucao_ilegivel run={run_id} arquivo=run_result.json erro=nao_utf8 "
+            f"posicao={erro.start}"
+        ) from erro
 
 
 def _entrada(raiz: Path, run_id: str) -> EntradaValidacao:
@@ -115,7 +131,7 @@ def contexto_da_execucao(raiz: Path, run_id: str, config: RunConfig) -> Contexto
         ContextoIndisponivel: execução, entrada ou catálogo ausentes, ou `run_id` divergente.
     """
     try:
-        run = localizar_execucao(raiz, run_id)
+        run = execucao_legivel(raiz, run_id)
         regras = carregar_regras()
     except (ExecucaoNaoResolvida, CatalogoInvalido) as erro:
         raise ContextoIndisponivel(f"contrafactual_sem_contexto run={run_id} erro={erro}") from erro

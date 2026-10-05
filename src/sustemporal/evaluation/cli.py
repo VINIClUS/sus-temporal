@@ -33,7 +33,11 @@ from sustemporal.contracts.temporal import MetodoId
 from sustemporal.errors import ConfigInvalida, ExitCode, PortaoRecusado
 from sustemporal.evaluation.features import FEATURES_PADRAO
 from sustemporal.evaluation.freeze import Protocolo, carregar_freeze, congelar, referencia_decisao
-from sustemporal.evaluation.freeze_conferencia import EstadoAtual, verificar_congelamento_completo
+from sustemporal.evaluation.freeze_conferencia import (
+    EstadoAtual,
+    entradas_do_congelamento,
+    verificar_congelamento_completo,
+)
 from sustemporal.evaluation.freeze_registro import exigir_rodada_permitida, registrar_execucao
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 from sustemporal.evaluation.split import SUFIXO_ENTRADAS
@@ -144,17 +148,34 @@ def _arquivo_da_execucao(diretorio: Path) -> Path | None:
     return existentes[0] if existentes else None
 
 
-def _runs(pasta: Path, modo: ModoExecucao, freeze_id: str) -> list[RunResult]:
-    runs = []
+def _execucoes(pasta: Path) -> list[RunResult]:
+    execucoes = []
     for diretorio in sorted(pasta.glob("*")):
         caminho = _arquivo_da_execucao(diretorio)
-        if caminho is None:
-            continue
-        run = RunResult.model_validate_json(caminho.read_text(encoding="utf-8"))
-        confirmatoria = modo is ModoExecucao.CONFIRMATORIO
-        if run.modo is modo and (not confirmatoria or run.freeze_id == freeze_id):
-            runs.append(run)
-    return runs
+        if caminho is not None:
+            execucoes.append(RunResult.model_validate_json(caminho.read_text(encoding="utf-8")))
+    return execucoes
+
+
+def _do_protocolo(run: RunResult, config: RunConfig, manifesto: FreezeManifest) -> bool:
+    """Confirmatório: execução do mesmo congelamento. Exploratório: mesma config e entradas dele."""
+    if run.modo is not config.modo:
+        return False
+    if config.modo is ModoExecucao.CONFIRMATORIO:
+        return run.freeze_id == manifesto.freeze_id
+    return run.config_hash == config.config_hash and entradas_do_congelamento(manifesto, run)
+
+
+def _runs(pasta: Path, config: RunConfig, manifesto: FreezeManifest) -> list[RunResult]:
+    selecionadas = []
+    for run in _execucoes(pasta):
+        if _do_protocolo(run, config, manifesto):
+            selecionadas.append(run)
+        else:
+            logger.info("evaluate_execucao_ignorada run=%s modo=%s", run.run_id, run.modo.value)
+    if not selecionadas:
+        raise ConfigInvalida(f"avaliacao_sem_execucoes pasta={pasta} modo={config.modo.value}")
+    return selecionadas
 
 
 def _estado_atual(
@@ -213,10 +234,13 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     do manifesto contra o estado atual (código, ambiente, catálogos, split por inteiro, ...) e
     contra cada execução (`freeze_conferencia`); o exploratório explícito avalia a CALIBRACAO e só
     registra a divergência. A segunda rodada confirmatória exige `--corrige` e `--declaracao`.
+    As execuções vêm de `runs/`: no confirmatório, as do congelamento; no exploratório, só as da
+    mesma `config_hash` cujas entradas são do split do congelamento, e as demais são ignoradas
+    com `evaluate_execucao_ignorada`.
 
     Raises:
-        ConfigInvalida: congelamento ou split ausente ou inválido, ou correção incompleta,
-            inválida ou pedida fora do confirmatório.
+        ConfigInvalida: congelamento ou split ausente ou inválido, correção incompleta, inválida
+            ou pedida fora do confirmatório, ou nenhuma execução do protocolo em `runs/`.
         PortaoRecusado: confirmatório ou execução incompatível com o congelamento, sem G2 ou
             segunda rodada sem correção declarada.
     """
@@ -238,7 +262,7 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
             args.freeze, referencia_decisao(DIR_DECISOES, g2), manifesto=manifesto, estado=estado
         )
     relatorio = evaluate_runs(
-        _runs(raiz / "runs", config.modo, args.freeze),
+        _runs(raiz / "runs", config, manifesto),
         (split.rotulos_por_particao or {})[particao],
         split,
         raiz / "avaliacao" / args.freeze,

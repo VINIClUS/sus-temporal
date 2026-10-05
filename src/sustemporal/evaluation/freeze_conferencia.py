@@ -55,6 +55,7 @@ __all__ = [
     "ambiente_divergente",
     "campos_sem_classificacao",
     "declara_outras_particoes",
+    "entradas_do_congelamento",
     "verificar_comparacoes_primarias",
     "verificar_congelamento_completo",
     "verificar_execucao",
@@ -275,6 +276,21 @@ def _politica_divergente(manifesto: FreezeManifest, run: RunResult) -> bool:
     return run.politica_id is None or run.politica_id not in (manifesto.politicas_sha256 or {})
 
 
+def _hashes_das_entradas_congeladas(manifesto: FreezeManifest, run: RunResult) -> set[str]:
+    esquemas = {d.schema_id for d in manifesto.datasets}
+    return {d.hash_logico for d in run.entradas if d.schema_id in esquemas}
+
+
+def entradas_do_congelamento(manifesto: FreezeManifest, run: RunResult) -> bool:
+    """A execução traz entrada dos esquemas congelados e todas são conteúdo congelado.
+
+    É a pertença da execução ao split do congelamento, sem exigir o TESTE: a execução
+    exploratória lê a CALIBRACAO.
+    """
+    hashes = _hashes_das_entradas_congeladas(manifesto, run)
+    return bool(hashes) and hashes <= _hashes_congelados(manifesto)
+
+
 def declara_outras_particoes(manifesto: FreezeManifest, run: RunResult) -> bool:
     """A execução traz como entrada a população de alguma partição congelada além do TESTE."""
     outras = {h for p, h in manifesto.split.hash_por_particao.items() if p is not Particao.TESTE}
@@ -282,12 +298,9 @@ def declara_outras_particoes(manifesto: FreezeManifest, run: RunResult) -> bool:
 
 
 def _entradas_divergentes(manifesto: FreezeManifest, run: RunResult) -> bool:
-    esquemas = {d.schema_id for d in manifesto.datasets}
-    congeladas = [d for d in run.entradas if d.schema_id in esquemas]
-    permitidos = _hashes_congelados(manifesto)
     teste = manifesto.split.hash_por_particao[Particao.TESTE]
-    sem_o_teste = not any(d.hash_logico == teste for d in congeladas)
-    return sem_o_teste or any(d.hash_logico not in permitidos for d in congeladas)
+    hashes = _hashes_das_entradas_congeladas(manifesto, run)
+    return teste not in hashes or not hashes <= _hashes_congelados(manifesto)
 
 
 def verificar_execucao(manifesto: FreezeManifest, run: RunResult, *, config: RunConfig) -> None:

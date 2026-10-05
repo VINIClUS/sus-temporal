@@ -258,7 +258,8 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
   e 3); T09-i3 (admissibilidade da reclassificação de CBO); T13-b1 (governança municipal por família
   na P3)
 - **Ferramenta pronta:** `catalog/operations.yaml` e
-  `sustemporal counterfactual --run RUN_ID --row ROW_ID`; `docs/method/contrafactuais.md` §2 e §6.
+  `sustemporal counterfactual --run RUN_ID --row ROW_ID` (a CLI está no PR #28, ainda fora de
+  `main`); `docs/method/contrafactuais.md` §2 e §6.
 - **Runbook:** ainda sem passo de runbook; ver `docs/method/contrafactuais.md` §2 e §6 e
   `docs/runbooks/reproducao.md` §7.6 para o registro.
 - **Estado:** aberta (decisão humana)
@@ -271,7 +272,8 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
   (hiperparâmetros fixos, sem busca); T12-i3 (confirmar tamanho, estratos e faixa de volume no
   protocolo congelado)
 - **Ferramenta pronta:** `FEATURES_PADRAO` (`src/sustemporal/evaluation/features.py`),
-  `config/splits.yaml`, `sustemporal freeze` e `docs/method/annotation.md`.
+  `config/splits.yaml`, `sustemporal freeze` (o manipulador entra com o PR #29) e
+  `docs/method/annotation.md`.
 - **Runbook:** `docs/runbooks/reproducao.md` §4.4 (portões e freeze) e §7.9.
 - **Estado:** aberta (decisão humana antes do G2)
 - **Nota:** Congelar população, rótulos, políticas, catálogo, atributos, métricas, sementes e

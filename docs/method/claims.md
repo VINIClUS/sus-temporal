@@ -48,8 +48,9 @@ Cada alegação é um bloco `### AL-NN — título` com os campos abaixo.
   dados reais, sem congelamento), CONFIRMADA ou NAO_CONFIRMADA (resultado sob os portões exigidos; o
   resultado nulo também se registra).
 - **Limites:** o que não se conclui mesmo com a evidência.
-- **Ferramentas** e **Pendências:** os comandos e módulos prontos e as chaves de
-  `docs/PENDENCIAS.md` que bloqueiam a alegação.
+- **Ferramentas** e **Pendências:** os comandos e módulos previstos para produzir a evidência (nem
+  todos estão em `main` ainda: ver as ações EN-13, EN-14, EN-16 e EN-18 de `docs/PENDENCIAS.md`) e
+  as chaves de pendência que bloqueiam a alegação.
 
 ## Regras de atualização
 
@@ -226,7 +227,7 @@ Verificadas por `tests/unit/test_alegacoes.py`:
   motivo do processamento oficial só porque uma regra falhou. O G1 é registro humano; nenhuma sessão
   o cria.
 - **Ferramentas:** `sustemporal validate`, `sustemporal explain`
-- **Pendências:** T08-i1, T08-i2, T07-i10
+- **Pendências:** T08-i1, T08-i2, T07-i11
 
 ### AL-10 — Seleção temporal reprodutível e congelada
 

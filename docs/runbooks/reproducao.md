@@ -44,7 +44,7 @@ propriedade de arquivos só julga branch `claude/*` e PR contra `docs/process/pr
 num clone normal de `main` (com a referência `origin/main`) ela registra
 `propriedade_ignorada motivo=fora_de_pr` e passa; numa cópia sem `origin/main` sai com
 `propriedade_erro base_ausente`. A execução completa passou na máquina de desenvolvimento em
-cerca de 17 minutos (3.166 testes em 2026-10-05); o tempo varia com a máquina.
+cerca de 17 minutos, com mais de 3.200 testes (medido em 2026-10-05); o tempo varia com a máquina.
 
 Recortes úteis: `uv run pytest tests/unit -q` (rápido) e `uv run pytest tests/integration -q`
 (CLI e FTP local). O `pytest` exclui por padrão os marcadores `network`, `real_data` e `perf`, e o

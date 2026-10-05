@@ -200,7 +200,7 @@ passada auxiliar os pede, registra a ausência e sai com 5. Em DEV há uma linha
 
 | Linha | Atendimento e processamento | O que o fluxo mostra |
 |---|---|---|
-| ausência | 201801 e 201801 | CBO fora do CNES de 201801: `B_ATEND` tem regra em `VIOLACAO`; o `counterfactual` sobre essa execução encontra a inclusão do CBO no estabelecimento, sem garantia de aprovação |
+| ausência | 201801 e 201801 | CBO fora do CNES de 201801: `B_ATEND` tem regra em `VIOLACAO`; o `counterfactual` sobre essa execução encontra a inclusão do CBO no estabelecimento, com `aprovacao_garantida` falso |
 | mês faltante | 201802 e 201803 | sem arquivos de 201802: `B_ATEND` fica `INCONCLUSIVO` (o mês vizinho nunca substitui) e `B_PROC`, que usa 201803, fica `CONFORME`; o `counterfactual` recusa (`contrafactual_sem_violacao`) |
 | borda de 2018 | 201712 e 201801 | sem arquivos de 201712: `B_ATEND` fica `INCONCLUSIVO` e `B_PROC`, que usa 201801, tem regra em `VIOLACAO`; o `counterfactual` sobre a execução `B_ATEND` recusa (`contrafactual_sem_violacao`) |
 

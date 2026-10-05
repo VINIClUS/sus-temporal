@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import platform
+import stat
 import subprocess
 from importlib import metadata
 from pathlib import Path
@@ -45,17 +46,19 @@ def _git(raiz: Path, *argumentos: str) -> str | None:
 
 
 def _estado_do_caminho(caminho: Path) -> bytes | None:
-    """Tipo e conteúdo como o git os registraria: alvo do link, hash do arquivo ou ausência."""
+    """Tipo, bit executável e conteúdo como o git os registraria (alvo do link, hash, ausência)."""
     try:
         if caminho.is_symlink():
             return b"link\0" + os.fsencode(os.readlink(caminho))
         if not caminho.exists():
             return b"ausente"
+        executavel = os.lstat(caminho).st_mode & stat.S_IXUSR
         with caminho.open("rb") as arquivo:
             digest = hashlib.file_digest(arquivo, "sha256").hexdigest()
     except OSError:
         return None
-    return b"arquivo\0" + digest.encode("ascii")
+    tipo = b"arquivo-exec" if executavel else b"arquivo"
+    return tipo + b"\0" + digest.encode("ascii")
 
 
 def _hash_diferencas(raiz: Path) -> str | None:

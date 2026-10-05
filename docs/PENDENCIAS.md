@@ -397,9 +397,13 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
   `TABELAS_RELATORIO` (`src/sustemporal/reporting/report_publicacao.py`), `SCHEMA_PREDICOES`
   (`src/sustemporal/evaluation/baselines.py`) e `_TIPOS` em `src/sustemporal/evaluation/values.py`.
 - **Runbook:** —
-- **Estado:** aberta (só o orquestrador altera `catalog/schemas/`)
-- **Nota:** Promover `piloto_*.v1`, `valores_p3.v1` e `predicoes_baseline.v1` e decidir o tipo
-  esperado de colunas DECIMAL no motor (ver ORQ-02).
+- **Estado:** parcial (esquemas promovidos a `catalog/schemas/` no PR #35; faltam trocar
+  `SCHEMA_PREDICOES` por `carregar_esquema` e decidir o tipo esperado de DECIMAL no motor)
+- **Nota:** `piloto_*.v1`, `valores_p3.v1` e `predicoes_baseline.v1` têm YAML em
+  `catalog/schemas/` (T05-14 e T13-b2 fechados; T10-5 só no catálogo, a constante segue em
+  `evaluation/baselines.py`). `tests/unit/test_catalogo_esquemas_emitidos.py` falha se um
+  `schema_id` literal de `src/` ficar sem YAML. Abertos: trocar a constante (módulo da S5) e
+  decidir o tipo esperado de colunas DECIMAL no motor (T04-13).
 
 ### EN-08 — SIGTAP e CNES: escolhas de ingestão a rever depois do G0
 
@@ -544,14 +548,15 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 
 ## 5. Pendências de engenharia registradas pelo orquestrador
 
-Itens da nota do orquestrador para a S9, todos abertos. Cada linha traz a tarefa, o PR de origem,
-a ferramenta pronta e o passo do runbook (`—` quando não há passo: é mudança de código). Os números
-de comentário e de P2 são os do GitHub nos PRs indicados.
+Itens da nota do orquestrador para a S9, todos abertos, salvo o ORQ-02 (esquemas promovidos no
+PR #35). Cada linha traz a tarefa, o PR de origem, a ferramenta pronta e o passo do runbook (`—`
+quando não há passo: é mudança de código). Os números de comentário e de P2 são os do GitHub
+nos PRs indicados.
 
 | ID | Tarefa | PR de origem | Pendência | Ferramenta pronta | Runbook |
 |---|---|---|---|---|---|
 | ORQ-01 | T13b | #25 (comentário 4179959486) | Comparar, por `row_id`, o conjunto de regras avaliadas com o catálogo congelado do run antes de aceitar o agregado (endurecimento contra saída forjada coerente com o `RunResult`). Recusado no #25 por estar fora do modelo de ameaça pré-G0. | `summarize_values` (`src/sustemporal/evaluation/values.py`) e `carregar_regras` (`src/sustemporal/rules/catalog.py`) | — |
-| ORQ-02 | T05 | #31 (comentário 4179930704) | Promover os esquemas `piloto_*.v1` a `catalog/schemas/` (depende do mapa de propriedade; junto com `valores_p3.v1` da S8, pendência b2 de T13). | `carregar_esquema` (`src/sustemporal/rules/catalog.py`) e `TABELAS_RELATORIO` (`src/sustemporal/reporting/report_publicacao.py`) | — |
+| ORQ-02 | T05 | #31 (comentário 4179930704) | Promover os esquemas `piloto_*.v1` a `catalog/schemas/` (depende do mapa de propriedade; junto com `valores_p3.v1` da S8, pendência b2 de T13). Feita no PR #35 (ver EN-07). | `carregar_esquema` (`src/sustemporal/rules/catalog.py`) e `TABELAS_RELATORIO` (`src/sustemporal/reporting/report_publicacao.py`) | — |
 | ORQ-03 | T07/T05 | #31 | Alinhar o `validate --ingest` ao instantâneo do manifesto gravado pelo `ingest` (`manifesto_lido.json`, #31), como o `pilot-report`. | `manifesto_lido.json` gravado pelo `ingest` e a leitura dele em `src/sustemporal/reporting/cli.py` | `docs/runbooks/piloto_local.md` §3 |
 | ORQ-04 | T09/T08 | #28 | Consolidar `_publicar` e `_validar_argumentos` dos CLIs `explain` e `counterfactual` num helper comum (duplicação apontada pelo SonarCloud). | `_publicar` e `_validar_argumentos` em `src/sustemporal/explanation/cli.py` e em `src/sustemporal/explanation/counterfactual_cli.py` | — |
 | ORQ-05 | T07 | #27 (a nota não cita o número; é o PR do `validate --ingest`) | O `run_id` do `validate` não inclui a versão do código; o motor grava em `outputs/runs/<run_id>/` com `exist_ok=True`. Decidir (T14) entre incluir o código no `run_id` ou recusar a sobrescrita de run com código diferente (opções e preferência em `docs/pendencias/T14.md`, item 11). | `versao_codigo` (`src/sustemporal/runtime_info.py`) e o `run_result.json` de cada run | — |

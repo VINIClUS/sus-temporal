@@ -1,0 +1,30 @@
+schema_id: piloto_contagens.v1
+descricao: >-
+  Contagens do relatório do piloto (T05) sobre as linhas incluídas do SIA-PA: uma linha por campo
+  contado (competencia_processamento, instrumento ou cnes) e valor, com o número de linhas. O
+  valor nulo (campo ausente, vazio ou inválido no conjunto canônico) é uma categoria própria, com
+  uma única linha por campo; por isso a chave admite nulo em valor. Tabela derivada do código do
+  relatório (reporting/report_tabelas.py), sem leiaute oficial; exploratória pré-G0 e A_CONFIRMAR.
+  Os nomes de campo do SIA-PA herdam a proveniência de sia_pa.v1 (INFERIDA ou SECUNDARIA, conforme
+  o campo; A_CONFIRMAR).
+chave: [dimensao, valor]
+chave_com_nulo: [valor]
+colunas:
+  - nome: dimensao
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: >-
+      Campo contado: competencia_processamento, instrumento ou cnes.
+  - nome: valor
+    tipo: TEXTO
+    papel: CHAVE
+    descricao: >-
+      Valor do campo como texto (competência AAAAMM, instrumento PA_DOCORIG ou CNES de 7 dígitos
+      com zeros à esquerda); nulo quando o campo é nulo nas linhas contadas.
+  - nome: linhas
+    tipo: INTEIRO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: >-
+      Linhas incluídas com aquele valor; a soma por campo é o total de linhas incluídas.

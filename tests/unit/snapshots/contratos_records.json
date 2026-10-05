@@ -398,6 +398,7 @@
    }
   },
   "additionalProperties": false,
+  "description": "Esquema de um conjunto; em `chave_com_nulo` o nulo da chave é uma categoria própria.",
   "properties": {
    "chave": {
     "items": {
@@ -405,6 +406,15 @@
      "type": "string"
     },
     "title": "Chave",
+    "type": "array"
+   },
+   "chave_com_nulo": {
+    "default": [],
+    "items": {
+     "pattern": "^[a-z][a-z0-9_]*$",
+     "type": "string"
+    },
+    "title": "Chave Com Nulo",
     "type": "array"
    },
    "colunas": {

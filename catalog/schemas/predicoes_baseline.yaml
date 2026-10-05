@@ -1,0 +1,37 @@
+schema_id: predicoes_baseline.v1
+descricao: >-
+  Predições do B_ML e do controle trivial por registro e partição; escore em [0, 1] com 9 casas e
+  resultado ALERTA ou SEM_ALERTA. Sem rótulo nem campo de erro. Mesma estrutura de SCHEMA_PREDICOES
+  em evaluation/baselines.py, sem leiaute oficial; exploratório pré-G0 e A_CONFIRMAR.
+chave: [run_id, row_id, metodo]
+colunas:
+  - nome: run_id
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Execução do baseline (RunResult.run_id).
+  - nome: row_id
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: Registro predito (RowId de sia_pa.v1).
+  - nome: metodo
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: MetodoId do preditor, B_ML ou CONTROLE_TRIVIAL.
+  - nome: particao
+    tipo: TEXTO
+    papel: LINHAGEM
+    anulavel: false
+    descricao: Particao do registro (DESENVOLVIMENTO, CALIBRACAO ou TESTE).
+  - nome: escore
+    tipo: DECIMAL
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Escore em [0, 1] com 9 casas decimais.
+  - nome: resultado
+    tipo: TEXTO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: ALERTA ou SEM_ALERTA.

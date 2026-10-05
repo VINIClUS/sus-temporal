@@ -48,6 +48,16 @@ NOMES_ESQUEMAS = (
     "evidencias",
     "agregados_registro",
     "falhas",
+    "sigtap_registro",
+    "piloto_contagens",
+    "piloto_exclusoes",
+    "piloto_campos",
+    "piloto_defasagem",
+    "piloto_rotulos",
+    "piloto_inconclusivos",
+    "piloto_disponibilidade",
+    "valores_p3",
+    "predicoes_baseline",
 )
 ATRIBUTOS_SIA_PA = frozenset(
     {

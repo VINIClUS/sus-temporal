@@ -174,11 +174,18 @@ def _arquivo_da_execucao(diretorio: Path) -> Path | None:
 
 
 def _execucoes(pasta: Path) -> list[RunResult]:
+    """Execuções legíveis de `pasta`; a ilegível é ignorada e registrada, e as conferências
+    recusam se faltar uma necessária."""
     execucoes = []
     for diretorio in sorted(pasta.glob("*")):
         caminho = _arquivo_da_execucao(diretorio)
-        if caminho is not None:
+        if caminho is None:
+            continue
+        try:
             execucoes.append(RunResult.model_validate_json(caminho.read_text(encoding="utf-8")))
+        except (OSError, ValueError) as erro:
+            motivo = type(erro).__name__
+            logger.warning("evaluate_execucao_ilegivel run=%s motivo=%s", diretorio.name, motivo)
     return execucoes
 
 
@@ -261,7 +268,7 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     registra a divergência. A segunda rodada confirmatória exige `--corrige` e `--declaracao`.
     As execuções vêm de `runs/`: no confirmatório, as do congelamento; no exploratório, só as da
     mesma `config_hash` cujas entradas são do split do congelamento, e as demais são ignoradas
-    com `evaluate_execucao_ignorada`.
+    com `evaluate_execucao_ignorada`; o manifesto ilegível, com `evaluate_execucao_ilegivel`.
 
     Raises:
         ConfigInvalida: congelamento ou split ausente ou inválido, correção incompleta, inválida

@@ -8,6 +8,7 @@ import pytest
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.base import OrigemDados
+from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.contracts.temporal import MetodoId
 from sustemporal.evaluation.freeze_entrada import (
     campos_divergentes,
@@ -44,8 +45,19 @@ class EntradaComCampoNovo(EntradaValidacao):
     novo: str = "x"
 
 
+class EntradaComColecoes(EntradaValidacao):
+    """Entrada com campos de coleção e de mapa que a conferência ainda não conhece."""
+
+    lista: list[DatasetRef] | None = None
+    mapa: dict[str, DatasetRef] | None = None
+
+
 def _entrada() -> EntradaValidacao:
     return entrada_gravada(TESTE, "B_ATEND")
+
+
+def _com_colecoes(**campos: object) -> EntradaComColecoes:
+    return EntradaComColecoes(**_entrada().model_dump(), **campos)
 
 
 def test_identidade_cobre_todo_campo_da_entrada() -> None:
@@ -63,6 +75,20 @@ def test_ordem_dos_auxiliares_nao_muda_a_identidade() -> None:
     entrada = _entrada()
     invertida = entrada.model_copy(update={"auxiliares": tuple(reversed(entrada.auxiliares))})
     assert identidades_da_entrada(invertida) == identidades_da_entrada(entrada)
+
+
+def test_conjunto_do_mesmo_hash_logico_com_outros_artefatos_tem_outra_identidade() -> None:
+    entrada = _entrada()
+    base = entrada.auxiliares[0]
+    artefatos = ("art_de_outra_coleta",)
+    outro = base.model_copy(
+        update={
+            "artifact_ids": artefatos,
+            "dataset_id": calcular_dataset_id(base.schema_id, base.hash_logico, artefatos),
+        }
+    )
+    alterada = entrada.model_copy(update={"auxiliares": (outro, *entrada.auxiliares[1:])})
+    assert campos_divergentes(identidades_da_entrada(entrada), alterada) == ["auxiliares"]
 
 
 @pytest.mark.parametrize("campo", ["identidade_adicional", "integridade"])
@@ -141,6 +167,28 @@ def test_campo_novo_da_entrada_entra_na_comparacao_sem_mudar_o_modulo() -> None:
     assert campos_divergentes(congeladas, nova) == ["novo"]
 
 
+@pytest.mark.parametrize(("campo", "vazio"), [("lista", []), ("mapa", {})])
+def test_colecao_de_campo_novo_vazia_vale_o_mesmo_que_ausente(campo: str, vazio: object) -> None:
+    vazia = identidades_da_entrada(_com_colecoes(**{campo: vazio}))
+    assert vazia == identidades_da_entrada(_com_colecoes())
+
+
+def test_lista_de_conjuntos_de_campo_novo_vale_pelo_id_e_nao_pela_ordem() -> None:
+    cnes = conjunto_sintetico(ESQUEMA_CNES, "2024-01")
+    base = identidades_da_entrada(_com_colecoes(lista=[TESTE, cnes]))
+    movido = TESTE.model_copy(update={"caminho": "/outro/lugar.parquet"})
+    assert identidades_da_entrada(_com_colecoes(lista=[cnes, movido])) == base
+    assert identidades_da_entrada(_com_colecoes(lista=[TESTE])) != base
+
+
+def test_mapa_de_conjuntos_de_campo_novo_vale_pelo_id_e_nao_pelo_caminho() -> None:
+    base = identidades_da_entrada(_com_colecoes(mapa={"x": TESTE}))
+    movido = TESTE.model_copy(update={"caminho": "/outro/lugar.parquet"})
+    assert identidades_da_entrada(_com_colecoes(mapa={"x": movido})) == base
+    outro = conjunto_sintetico("sia_pa.v1", OUTRA)
+    assert identidades_da_entrada(_com_colecoes(mapa={"x": outro})) != base
+
+
 def _execucao(tmp_path: Path, entrada: EntradaValidacao) -> RunResult:
     run = run_agregados(MetodoId.B_ATEND, {}, tmp_path, origem=OrigemDados.REAL)
     return execucao_com_entrada(run, entrada)
@@ -158,14 +206,19 @@ def test_entrada_de_outro_snapshot_nao_e_a_da_execucao(tmp_path: Path) -> None:
     assert not entrada_da_execucao(outra, run)
 
 
-@pytest.mark.parametrize("campo", ["selecoes", "cobertura"])
+@pytest.mark.parametrize("campo", ["selecoes", "cobertura", "auxiliares"])
 def test_entrada_com_conjunto_que_a_execucao_nao_registrou_nao_e_a_dela(
     tmp_path: Path, campo: str
 ) -> None:
     entrada = _entrada()
     run = _execucao(tmp_path, entrada)
-    esquema = {"selecoes": ESQUEMA_SELECAO, "cobertura": ESQUEMA_COBERTURA}[campo]
-    outra = entrada.model_copy(update={campo: conjunto_sintetico(esquema, OUTRA)})
+    esquema = {
+        "selecoes": ESQUEMA_SELECAO,
+        "cobertura": ESQUEMA_COBERTURA,
+        "auxiliares": ESQUEMA_CNES,
+    }[campo]
+    outro = conjunto_sintetico(esquema, OUTRA)
+    outra = entrada.model_copy(update={campo: (outro,) if campo == "auxiliares" else outro})
     assert not entrada_da_execucao(outra, run)
 
 

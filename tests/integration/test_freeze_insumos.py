@@ -54,6 +54,7 @@ from sustemporal.evaluation.freeze_conferencia import (
     verificar_congelamento_completo,
     verificar_execucao,
 )
+from sustemporal.evaluation.freeze_entrada import identidades_da_entrada
 from sustemporal.evaluation.metrics import evaluate_runs
 from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
 from sustemporal.temporal.politicas import carregar_politica
@@ -339,6 +340,46 @@ def test_congelar_recusa_insumos_de_outra_populacao(tmp_path: Path, cenario: Cen
     assert "politicas=B_ATEND" in str(erro.value)
 
 
+def test_congelar_cita_em_ordem_alfabetica_os_insumos_de_outra_populacao(
+    tmp_path: Path, cenario: Cenario
+) -> None:
+    assert cenario.split.particoes is not None
+    calibracao = como_real(cenario.split.particoes[Particao.CALIBRACAO])
+    base = insumos_do_teste(cenario)
+    insumos = {
+        "B_PROC": base["B_PROC"].model_copy(update={"dataset": calibracao}),
+        "B_ATEND": base["B_ATEND"].model_copy(update={"dataset": calibracao}),
+        "M_TEMP_PADRAO": base["M_TEMP_PADRAO"],
+    }
+    with pytest.raises(ConfigInvalida, match="congelamento_insumos_de_outra_populacao") as erro:
+        montar_confirmatorio(tmp_path, cenario, insumos=insumos)
+    assert "politicas=B_ATEND,B_PROC" in str(erro.value)
+
+
+def test_congelar_aceita_o_insumo_que_ja_traz_a_politica_resolvida_do_catalogo(
+    tmp_path: Path, cenario: Cenario
+) -> None:
+    base = insumos_do_teste(cenario)
+    resolvida = base["B_ATEND"].model_copy(update={"politica": carregar_politica("B_ATEND")})
+    conf = montar_confirmatorio(tmp_path, cenario, insumos={**base, "B_ATEND": resolvida})
+    congeladas = conf.manifesto.entradas_validacao
+    catalogo = conf.manifesto.politicas_sha256
+    assert congeladas is not None
+    assert catalogo is not None
+    assert congeladas["B_ATEND"]["politica"] == catalogo["B_ATEND"]
+
+
+def test_insumos_sem_politica_no_catalogo_levam_a_politica_do_proprio_arquivo(
+    tmp_path: Path, cenario: Cenario
+) -> None:
+    conf = montar_confirmatorio(tmp_path, cenario, politicas=())
+    assert conf.manifesto.politicas_sha256 is None
+    insumos = insumos_do_teste(cenario)
+    assert conf.manifesto.entradas_validacao == {
+        politica: identidades_da_entrada(entrada) for politica, entrada in insumos.items()
+    }
+
+
 def test_congelar_recusa_insumo_com_politica_diferente_da_congelada(
     tmp_path: Path, cenario: Cenario
 ) -> None:
@@ -396,6 +437,19 @@ def test_cli_freeze_recusa_insumo_de_outra_populacao(
     codigo = executar_cli(["freeze", "--config", str(config_yaml(tmp_path))])
     assert codigo == ExitCode.CONFIG_INVALIDA
     assert "congelamento_insumos_de_outra_populacao politicas=B_ATEND" in capsys.readouterr().err
+
+
+def test_cli_freeze_recusa_insumo_que_nao_e_arquivo(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cenario = preparar_cli(tmp_path, monkeypatch)
+    alvo = gravar_insumos(tmp_path, cenario) / "B_PROC.json"
+    alvo.unlink()
+    alvo.mkdir()
+    codigo = executar_cli(["freeze", "--config", str(config_yaml(tmp_path))])
+    assert codigo == ExitCode.CONFIG_INVALIDA
+    assert f"freeze_insumos_ilegiveis arquivo={alvo}" in capsys.readouterr().err
+    assert not (tmp_path / "frozen").exists()
 
 
 def _avaliar_pela_cli(raiz: Path, freeze: str) -> int:
@@ -472,3 +526,17 @@ def test_cli_recusa_o_confirmatorio_com_entrada_de_validacao_ilegivel(
     erro = capsys.readouterr().err
     assert f"evaluate_entrada_ilegivel run={alvo.run_id} motivo={motivo}" in erro
     assert f"run_incompativel_com_congelamento run={alvo.run_id} campo=entrada_validacao" in erro
+
+
+def test_cli_confere_a_entrada_pelo_run_id_da_execucao_e_nao_pelo_nome_da_pasta(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cenario, freeze = congelar_pela_cli(tmp_path, monkeypatch)
+    runs = runs_da_cli(tmp_path, cenario, freeze)
+    gravar_runs(tmp_path, runs)
+    pasta = tmp_path / "saidas" / "runs"
+    copia = pasta / "copia_do_motor"
+    copia.mkdir()
+    for nome in ("run_result.json", ARQUIVO_ENTRADA):
+        (pasta / runs[M_TEMP].run_id / nome).rename(copia / nome)
+    assert _avaliar_pela_cli(tmp_path, freeze) == ExitCode.OK

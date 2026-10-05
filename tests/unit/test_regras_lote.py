@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
@@ -254,9 +255,24 @@ def test_corte_da_config_deixa_fevereiro_fora_do_corte(tmp_path: Path) -> None:
     assert selecao.snapshots.corte_observacao == config.corte_observacao
 
 
-def test_selecao_vazia_preserva_o_corte_da_config(tmp_path: Path) -> None:
-    cenario = mundo_lote(tmp_path / "entrada")
+@pytest.mark.parametrize("vazio", ["sem_registros", "sem_regras"])
+@pytest.mark.parametrize(("agora", "congelado"), [("2026-01-01", False), ("2026-02-01", True)])
+def test_selecao_vazia_preserva_o_corte_da_config(
+    tmp_path: Path, vazio: str, agora: str, congelado: bool
+) -> None:
+    cenario = mundo_lote(tmp_path / "entrada", sem_registros=vazio == "sem_registros")
     config = config_lote("B_PROC", corte_observacao="2026-01-02T12:00:00+00:00")
-    selecao = selecionar_em_lote(cenario.dataset, [], config, cenario.registro, tmp_path / "sel")
+    regras = [] if vazio == "sem_regras" else carregar_regras()
+    instante = datetime.fromisoformat(f"{agora}T00:00:00+00:00")
+    selecao = selecionar_em_lote(
+        cenario.dataset,
+        regras,
+        config,
+        cenario.registro,
+        tmp_path / "sel",
+        relogio=lambda: instante,
+    )
     assert selecao.selecoes.linhas == 0
+    assert selecao.snapshots.selecoes == ()
     assert selecao.snapshots.corte_observacao == config.corte_observacao
+    assert selecao.snapshots.congelado is congelado

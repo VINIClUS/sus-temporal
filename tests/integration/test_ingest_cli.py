@@ -11,6 +11,7 @@ import duckdb
 import pytest
 from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf, registro_st
 from tests.fixtures.piloto_conjuntos import registro
+from tests.fixtures.piloto_ingest import config_ingest
 from tests.fixtures.piloto_manifesto import registrar_falha, registrar_versoes
 from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa
 from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
@@ -138,6 +139,18 @@ def test_ingest_com_territorio_invalido_e_config_invalida(tmp_path: Path) -> Non
     assert cli.main(["ingest", "--config", str(_config(tmp_path, territorio=ruim))]) == (
         ExitCode.CONFIG_INVALIDA
     )
+
+
+def test_ingest_com_catalogo_de_fontes_ilegivel_e_config_invalida(tmp_path: Path) -> None:
+    config = _config(tmp_path, fontes=tmp_path / "nao_existe.yaml")
+    assert cli.main(["ingest", "--config", str(config)]) == ExitCode.CONFIG_INVALIDA
+    assert not (tmp_path / "saidas").exists()
+
+
+def test_ingest_com_leiaute_do_sia_pa_ilegivel_e_config_invalida(tmp_path: Path) -> None:
+    config = config_ingest(tmp_path, FONTES, leiaute_pa=tmp_path / "nao_existe.yaml")
+    assert cli.main(["ingest", "--config", str(config)]) == ExitCode.CONFIG_INVALIDA
+    assert not (tmp_path / "saidas").exists()
 
 
 def test_parte_do_sia_pa_em_quarentena_impede_cobertura_disponivel(executado: Path) -> None:

@@ -5,7 +5,9 @@ com os leiautes do catálogo. Quarentena, arquivo ausente e família reservada v
 registrados, nunca tabela vazia; falha inesperada de uma versão vira FALHA_NORMALIZACAO e a
 execução segue. Cada execução grava numa pasta nova,
 `<raiz_saidas>/ingest/execucao_<instante>_<id>/`: os Parquet canônicos, `datasets.jsonl` (um
-`DatasetRef` por linha, inclusive a cobertura) e `resultados.jsonl`.
+`DatasetRef` por linha, inclusive a cobertura), `resultados.jsonl`, `manifesto_lido.json` (a
+posição do manifesto lida) e `configuracao_ingest.json` (a configuração que determina o recorte,
+a seleção e a completude; o relatório do piloto recusa a execução se ela difere da atual).
 """
 
 from __future__ import annotations
@@ -21,10 +23,12 @@ from typing import TYPE_CHECKING, Protocol, cast
 
 import pyarrow.parquet as pq
 
-from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
+from sustemporal.acquisition.cli import CATALOGO_PADRAO, NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import Manifesto
-from sustemporal.contracts import FamiliaFonte, LayoutSpec, OrigemDados
+from sustemporal.acquisition.watch import LEIAUTE_PA_PADRAO, carregar_leiaute_pa
+from sustemporal.contracts import EstadoIntegridade, FamiliaFonte, LayoutSpec, OrigemDados
 from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro
+from sustemporal.hashing import sha256_arquivo
 from sustemporal.ingest.cnes import RESERVADAS, FamiliaReservada, carregar_leiautes_cnes
 from sustemporal.ingest.coverage import build_coverage
 from sustemporal.ingest.dbf import ArquivoAusente, QuarentenaLeitura
@@ -32,11 +36,10 @@ from sustemporal.ingest.registry import normalizador
 from sustemporal.ingest.sigtap_zip import carregar_leiautes_sigtap
 from sustemporal.ingest.territorio import carregar_territorio
 from sustemporal.temporal.selector import partes_esperadas_do_catalogo, uf_da_execucao
-from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
     import argparse
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from sustemporal.acquisition.manifest import EstadoManifesto
     from sustemporal.contracts import (
@@ -48,14 +51,25 @@ if TYPE_CHECKING:
     )
     from sustemporal.contracts.config import PilotSpec, RunConfig
 
-__all__ = ["executar_ingest"]
+__all__ = [
+    "NOME_CONFIGURACAO_INGEST",
+    "NOME_POSICAO_MANIFESTO",
+    "configuracao_do_ingest",
+    "executar_ingest",
+]
 
 logger = logging.getLogger(__name__)
 
-LEIAUTE_SIA_PA = Path(__file__).resolve().parents[3] / "catalog" / "layouts" / "sia_pa.yaml"
 # Mesmo endereçamento da aquisição (acquisition/cli.py): conteúdo em <raiz_dados>/raw.
 SUBPASTA_ARMAZENAMENTO = "raw"
+# Posição do manifesto lida pela ingestão (linhas e hash encadeado da última); o relatório do
+# piloto seleciona só com esse prefixo.
+NOME_POSICAO_MANIFESTO = "manifesto_lido.json"
+# Configuração da execução (ver `configuracao_do_ingest`); o relatório do piloto a confere.
+NOME_CONFIGURACAO_INGEST = "configuracao_ingest.json"
 FONTES_NACIONAIS = frozenset({FamiliaFonte.SIGTAP})
+# Mesma noção de conteúdo selecionável do seletor (temporal/selector.py, `_INTEGRAS`).
+INTEGRIDADES_SELECIONAVEIS = frozenset({EstadoIntegridade.OK, EstadoIntegridade.NAO_VERIFICADO})
 _NORMALIZAVEIS = frozenset(
     {FamiliaFonte.SIA_PA, FamiliaFonte.SIGTAP, FamiliaFonte.CNES_PF, FamiliaFonte.CNES_ST}
 )
@@ -73,9 +87,9 @@ class _Normalizar(Protocol):
     ) -> DatasetRef: ...
 
 
-def _leiautes(fonte: FamiliaFonte) -> list[LayoutSpec]:
+def _leiautes(fonte: FamiliaFonte, config: RunConfig) -> list[LayoutSpec]:
     if fonte is FamiliaFonte.SIA_PA:
-        return [LayoutSpec.model_validate(carregar_yaml(LEIAUTE_SIA_PA))]
+        return [carregar_leiaute_pa(config)]
     if fonte is FamiliaFonte.SIGTAP:
         return list(carregar_leiautes_sigtap().values())
     leiautes = carregar_leiautes_cnes()
@@ -87,6 +101,35 @@ def _piloto(config: RunConfig) -> PilotSpec:
         raise ConfigInvalida("ingest_exige_piloto")
     carregar_territorio(Path(config.piloto.territorio), uf=config.piloto.uf)
     return config.piloto
+
+
+def _sha256_do_arquivo(caminho: Path, nome: str) -> str:
+    try:
+        return sha256_arquivo(caminho)
+    except OSError as erro:
+        raise ConfigInvalida(f"{nome}_ilegivel caminho={caminho}") from erro
+
+
+def configuracao_do_ingest(config: RunConfig) -> dict[str, str | list[str] | None]:
+    """O que determina o recorte, a seleção e a completude do `ingest`, para o relatório conferir.
+
+    UF da execução, corte de observação, famílias configuradas e o SHA-256 do catálogo de fontes
+    (inclusive as partes esperadas do SIA-PA) e do leiaute do SIA-PA em uso.
+
+    Raises:
+        ConfigInvalida: catálogo de fontes ou leiaute do SIA-PA ilegível.
+    """
+    familias = config.piloto.familias_fontes if config.piloto is not None else ()
+    corte = config.corte_observacao
+    catalogo = Path(config.catalogos.get("fontes", str(CATALOGO_PADRAO)))
+    leiaute = Path(config.catalogos.get("leiaute_sia_pa", str(LEIAUTE_PA_PADRAO)))
+    return {
+        "uf": uf_da_execucao(config),
+        "corte_observacao": None if corte is None else corte.isoformat(),
+        "familias_fontes": sorted(familia.value for familia in familias),
+        "catalogo_fontes_sha256": _sha256_do_arquivo(catalogo, "catalogo_fontes"),
+        "leiaute_sia_pa_sha256": _sha256_do_arquivo(leiaute, "leiaute_sia_pa"),
+    }
 
 
 def _resultado(
@@ -105,11 +148,14 @@ class _Execucao:
     def __init__(self, config: RunConfig, saida: Path) -> None:
         raiz = Path(config.runtime.raiz_dados) / SUBPASTA_ARMAZENAMENTO
         self.runtime = config.runtime.model_copy(update={"raiz_dados": str(raiz)})
+        self.config = config
         self.origem = config.origem_dados or OrigemDados.SINTETICO
         self.saida = saida
         self.datasets: list[DatasetRef] = []
         self.resultados: list[dict[str, str | None]] = []
         self.sia_pa_incompleto: dict[str, str] = {}
+        self.falhas: dict[str, str] = {}
+        self.fora_do_corte: set[tuple[str, str | None]] = set()
 
     def normalizar(self, versao: ArtifactVersion) -> None:
         fonte = versao.chave.fonte
@@ -118,7 +164,7 @@ class _Execucao:
             self.resultados.append(_resultado(versao, None, "FAMILIA_RESERVADA", motivo=motivo))
             return
         funcao = cast("_Normalizar", normalizador(fonte))
-        for layout in _leiautes(fonte):
+        for layout in _leiautes(fonte, self.config):
             self._uma(funcao, versao, layout)
 
     def admitir(
@@ -136,7 +182,7 @@ class _Execucao:
         )
         competencia = versao.chave.competencia_arquivo
         if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
-            self.sia_pa_incompleto[competencia.valor] = "versao_fora_do_corte"
+            self.fora_do_corte.add((competencia.valor, versao.chave.parte))
         return False
 
     def propagar_incompletude(self, versoes: Sequence[ArtifactVersion]) -> None:
@@ -172,21 +218,37 @@ class _Execucao:
                 self.sia_pa_incompleto[competencia.valor] = observacao.resultado.value
 
     def marcar_partes(self, versoes: Sequence[ArtifactVersion], config: RunConfig) -> None:
-        """Completude das partes do SIA-PA com a mesma semântica do seletor (T06): parte
-        declarada sem versão, parte não declarada ou partes sem declaração no catálogo tornam a
-        competência incompleta (a aquisição não grava observação de parte ausente da listagem)."""
+        """Completude das partes do SIA-PA com a mesma semântica do seletor (T06), contando só
+        versões íntegras selecionáveis: parte vista sem versão íntegra (em quarentena ou fora do
+        corte), versão íntegra que não normalizou, republicação divergente, parte declarada sem
+        versão, parte não declarada ou partes sem declaração no catálogo tornam a competência
+        incompleta (a aquisição não grava observação de parte ausente da listagem)."""
         esperadas_por = partes_esperadas_do_catalogo(config)
-        artefatos: dict[str, dict[str | None, set[str]]] = defaultdict(lambda: defaultdict(set))
+        vistas: dict[str, set[str | None]] = defaultdict(set)
+        for valor, parte in self.fora_do_corte:
+            vistas[valor].add(parte)
+        integras: dict[str, dict[str | None, set[str]]] = defaultdict(lambda: defaultdict(set))
         for versao in versoes:
             competencia = versao.chave.competencia_arquivo
-            if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
-                artefatos[competencia.valor][versao.chave.parte].add(versao.artifact_id)
-        for valor, por_parte in artefatos.items():
-            motivo = _republicacao(por_parte) or _incompletude(
-                set(por_parte), esperadas_por.get((FamiliaFonte.SIA_PA, valor))
+            if versao.chave.fonte is not FamiliaFonte.SIA_PA or competencia is None:
+                continue
+            vistas[competencia.valor].add(versao.chave.parte)
+            if versao.integridade in INTEGRIDADES_SELECIONAVEIS:
+                integras[competencia.valor][versao.chave.parte].add(versao.artifact_id)
+        for valor, partes in vistas.items():
+            por_parte = integras[valor]
+            motivo = (
+                _republicacao(por_parte)
+                or _sem_integra(partes, por_parte)
+                or self._falha_integra(por_parte)
+                or _incompletude(set(por_parte), esperadas_por.get((FamiliaFonte.SIA_PA, valor)))
             )
             if motivo is not None:
                 self.sia_pa_incompleto[valor] = motivo
+
+    def _falha_integra(self, por_parte: dict[str | None, set[str]]) -> str | None:
+        ids = sorted(i for conjunto in por_parte.values() for i in conjunto if i in self.falhas)
+        return self.falhas[ids[0]] if ids else None
 
     def _uma(self, funcao: _Normalizar, versao: ArtifactVersion, layout: LayoutSpec) -> None:
         try:
@@ -207,9 +269,7 @@ class _Execucao:
             return
         logger.warning("ingest_sem_tabela id=%s estado=%s", versao.artifact_id, estado)
         self.resultados.append(_resultado(versao, layout.layout_id, estado, motivo=motivo))
-        competencia = versao.chave.competencia_arquivo
-        if versao.chave.fonte is FamiliaFonte.SIA_PA and competencia is not None:
-            self.sia_pa_incompleto[competencia.valor] = estado
+        self.falhas[versao.artifact_id] = estado
 
 
 def _diagnostico(versao: ArtifactVersion, dataset: DatasetRef) -> dict[str, str]:
@@ -248,6 +308,14 @@ def _republicacao(por_parte: dict[str | None, set[str]]) -> str | None:
     return f"republicacao_com_conteudo_divergente partes={','.join(divergentes)}"
 
 
+def _sem_integra(vistas: set[str | None], por_parte: dict[str | None, set[str]]) -> str | None:
+    """Parte vista só em quarentena ou fora do corte: o seletor não tem o que selecionar."""
+    sem = sorted(parte or "" for parte in vistas if not por_parte.get(parte))
+    if not sem:
+        return None
+    return f"parte_sem_versao_integra_selecionavel partes={','.join(sem)}"
+
+
 def _incompletude(obtidas: set[str | None], esperadas: frozenset[str] | None) -> str | None:
     nomeadas = {parte for parte in obtidas if parte is not None}
     if esperadas is None:
@@ -274,9 +342,11 @@ class _Recorte:
     def fora(self, chave: ChaveArtefato) -> dict[str, str] | None:
         """Detalhe do motivo quando a chave fica fora; None quando entra."""
         if chave.fonte not in self.familias:
-            return {"familia": chave.fonte.value}
+            return {"motivo": "familia_nao_configurada", "familia": chave.fonte.value}
         if chave.fonte in FONTES_NACIONAIS:
-            return None
+            return (
+                None if chave.uf is None else {"motivo": "uf_em_familia_nacional", "uf": chave.uf}
+            )
         if chave.uf is None:
             return {"motivo": "uf_ausente_em_familia_regional"}
         return None if chave.uf == self.uf else {"uf": chave.uf}
@@ -322,16 +392,28 @@ def _gravar_jsonl(destino: Path, linhas: list[str]) -> None:
     temporario.replace(destino)
 
 
+def _gravar_retrato(
+    saida: Path, manifesto: EstadoManifesto, configuracao: Mapping[str, object]
+) -> None:
+    """Posição do manifesto lida e configuração usada: o relatório do piloto só aceita este par."""
+    posicao = {"linhas": len(manifesto.linhas), "cabeca_sha256": manifesto.cabeca_sha256}
+    _gravar_jsonl(saida / NOME_POSICAO_MANIFESTO, [json.dumps(posicao)])
+    _gravar_jsonl(saida / NOME_CONFIGURACAO_INGEST, [json.dumps(configuracao)])
+
+
 def executar_ingest(args: argparse.Namespace, config: RunConfig) -> int:
     """Normaliza cada versão do manifesto de aquisição pela família e grava a cobertura.
 
     Raises:
-        ConfigInvalida: configuração sem piloto ou com território inválido.
+        ConfigInvalida: configuração sem piloto, com território inválido ou com catálogo de fontes
+            ou leiaute do SIA-PA ilegível.
     """
     piloto = _piloto(config)
+    configuracao = configuracao_do_ingest(config)
     saida = _pasta_execucao(Path(config.runtime.raiz_saidas) / "ingest")
     execucao = _Execucao(config, saida)
     manifesto = Manifesto(Path(config.runtime.raiz_manifestos) / NOME_MANIFESTO_AQUISICAO).ler()
+    _gravar_retrato(saida, manifesto, configuracao)
     recorte = _Recorte(
         frozenset(piloto.familias_fontes), uf_da_execucao(config), config.corte_observacao
     )

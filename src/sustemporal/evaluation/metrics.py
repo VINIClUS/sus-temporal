@@ -66,6 +66,7 @@ _COM_INTERVALO = (
     "precisao_alertas",
     "falsos_alertas_aprovacoes",
 )
+_BLOCOS_TEMPORAIS = "sensibilidade_blocos_temporais"
 _CASAS = Decimal("0.000001")
 _SEM_CNES = "SEM_CNES"
 _SEM_COMPETENCIA = "SEM_COMPETENCIA"
@@ -77,7 +78,8 @@ NOTAS = (
     ),
     (
         "sensibilidade_blocos_temporais: sorteia competências inteiras; protege contra choques "
-        "comuns do mês, não contra dependência dentro do estabelecimento"
+        "comuns do mês, não contra dependência dentro do estabelecimento; acompanha cada métrica "
+        "com intervalo, por método, com a mesma estimativa e a mesma semente do TOTAL"
     ),
     (
         "linhas_nao_independentes: nenhuma reamostragem trata linhas como independentes; "
@@ -173,14 +175,18 @@ def _com_intervalos(
     spec: BootstrapSpec,
 ) -> list[ValorMetrica]:
     alvos = {f"{metodo}.{nome}": (metodo, nome) for metodo in metodos for nome in _COM_INTERVALO}
-    grupos = _grupos(linhas, por_competencia=False)
+    por_estabelecimento = _grupos(linhas, por_competencia=False)
+    por_bloco = _grupos(linhas, por_competencia=True)
     saida = []
     for metrica in metricas:
         if metrica.estrato != "TOTAL" or metrica.nome not in alvos:
             saida.append(metrica)
             continue
         nums, dens = indicadores(linhas, *alvos[metrica.nome])
-        saida.append(metrica.model_copy(update={"ic": intervalo_razao(nums, dens, grupos, spec)}))
+        ic = intervalo_razao(nums, dens, por_estabelecimento, spec)
+        ic_blocos = intervalo_razao(nums, dens, por_bloco, spec)
+        saida.append(metrica.model_copy(update={"ic": ic}))
+        saida.append(metrica.model_copy(update={"estrato": _BLOCOS_TEMPORAIS, "ic": ic_blocos}))
     return saida
 
 
@@ -197,10 +203,7 @@ def _diferencas(
             valor = (Decimal(sum(num_a) - sum(num_b)) / denominador).quantize(
                 _CASAS, rounding=ROUND_HALF_EVEN
             )
-        for estrato, por_competencia in (
-            ("TOTAL", False),
-            ("sensibilidade_blocos_temporais", True),
-        ):
+        for estrato, por_competencia in (("TOTAL", False), (_BLOCOS_TEMPORAIS, True)):
             grupos = _grupos(linhas, por_competencia)
             saida.append(
                 ValorMetrica(

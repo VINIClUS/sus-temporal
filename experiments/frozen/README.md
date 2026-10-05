@@ -16,9 +16,17 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
   (seção "Entrada de validação das execuções de regras").
 - `sustemporal evaluate --freeze <id>`: confirmatório. Exige config confirmatória com dados
   REAIS, G2 humano para o `freeze_id` e o manifesto conferido por inteiro (tabela abaixo) antes
-  de ler qualquer dado. Avalia só o TESTE e emite as razões do TOTAL, do domínio comum e, por
-  valor, de competência, instrumento e estabelecimento (CNES); só o TOTAL e as diferenças
-  pareadas levam intervalo. As execuções vêm de `<raiz_saidas>/runs/<run_id>/`: o
+  de ler qualquer dado. A carga do manifesto (`carregar_freeze`) recusa o ausente, o que o
+  sistema nega ler e o adulterado (UTF-8 inválido, JSON truncado ou fora do contrato) com
+  código 2 (`congelamento_ausente`, `congelamento_ilegivel`, `congelamento_invalido`). Avalia só
+  o TESTE e emite as razões do TOTAL, do domínio comum e, por valor, de competência,
+  instrumento e estabelecimento (CNES); só o TOTAL e as diferenças pareadas levam intervalo.
+  Cada métrica com intervalo (cobertura de rejeições, cobertura de verificabilidade, precisão
+  dos alertas e falsos alertas em aprovações), por método, traz dois: o do TOTAL, que sorteia
+  estabelecimentos inteiros, e o do estrato `sensibilidade_blocos_temporais`, que sorteia
+  competências inteiras (a mesma estimativa, a mesma máquina e a semente do manifesto); a
+  diferença pareada já trazia os dois.
+  As execuções vêm de `<raiz_saidas>/runs/<run_id>/`: o
   `run_result.json` do motor de regras (`validate` grava ali por padrão, `raiz_execucoes(config)`)
   ou o `run.json` do baseline; os dois no mesmo diretório são recusados (`execucao_ambigua`). Entram só as
   execuções confirmatórias do mesmo `freeze_id`; as demais são ignoradas
@@ -42,6 +50,12 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
   congelamento, exploratório ou inexistente é recusado (código 2) e não reabre o teste, e a
   correção só vale no confirmatório. A correção precisa de execuções diferentes das da rodada
   anterior: o `report_id` deriva das execuções, e o relatório nunca é sobrescrito.
+  A releitura final do registro, a checagem de rodada única e o append correm sob uma trava
+  entre processos (`fcntl.flock` exclusivo em `registro_execucoes.jsonl.trava`, ao lado do
+  registro; `arquivo_de_trava`), então dois `evaluate` simultâneos não repetem `seq`, não
+  quebram a cadeia e não registram duas rodadas confirmatórias: o que chega depois espera e
+  relê o registro já com a entrada do outro. O arquivo de trava, vazio, não é dado do
+  protocolo e não deve ir para o Git.
 
 ## Como cada campo do manifesto é conferido
 

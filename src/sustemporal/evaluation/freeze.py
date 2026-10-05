@@ -260,19 +260,33 @@ def _gravar(manifesto: FreezeManifest, destino: Path) -> None:
         arquivo.write(texto)
 
 
+def _ler_manifesto(caminho: Path, freeze_id: str) -> FreezeManifest | None:
+    """O manifesto de `caminho`; None se o arquivo não existe.
+
+    `ValueError` cobre o UTF-8 inválido, o JSON truncado e o contrato (`ValidationError`).
+    """
+    try:
+        if not caminho.is_file():
+            return None
+        return FreezeManifest.model_validate_json(caminho.read_text(encoding="utf-8"))
+    except OSError as erro:
+        motivo = type(erro).__name__
+        raise ConfigInvalida(f"congelamento_ilegivel freeze={freeze_id} motivo={motivo}") from erro
+    except ValueError as erro:
+        raise ConfigInvalida(f"congelamento_invalido freeze={freeze_id}") from erro
+
+
 def carregar_freeze(diretorio: Path, freeze_id: str) -> FreezeManifest:
     """Manifesto `<diretorio>/<freeze_id>.json` cujo id confere com o conteúdo.
 
     Raises:
-        ConfigInvalida: manifesto ausente, adulterado ou de outro `freeze_id`.
+        ConfigInvalida: manifesto ausente, que o sistema nega ler (`congelamento_ilegivel`),
+            adulterado (UTF-8 inválido, JSON truncado ou fora do contrato) ou de outro
+            `freeze_id`.
     """
-    caminho = diretorio / f"{freeze_id}.json"
-    if not caminho.is_file():
+    manifesto = _ler_manifesto(diretorio / f"{freeze_id}.json", freeze_id)
+    if manifesto is None:
         raise ConfigInvalida(f"congelamento_ausente freeze={freeze_id} diretorio={diretorio}")
-    try:
-        manifesto = FreezeManifest.model_validate_json(caminho.read_text(encoding="utf-8"))
-    except ValidationError as erro:
-        raise ConfigInvalida(f"congelamento_invalido freeze={freeze_id}") from erro
     if manifesto.freeze_id != freeze_id:
         raise ConfigInvalida(f"congelamento_de_outro_id freeze={freeze_id}")
     return manifesto

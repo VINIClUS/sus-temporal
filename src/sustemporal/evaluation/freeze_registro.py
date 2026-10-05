@@ -4,11 +4,15 @@ Cada linha JSON leva o próprio hash e o hash da linha anterior; reescrever ou a
 linha quebra o encadeamento e o registro é recusado. Toda avaliação entra, inclusive a de
 resultado nulo (métricas sem valor). Depois da abertura do teste, nova rodada confirmatória do
 mesmo congelamento só entra como correção declarada, e a rodada anterior permanece. A correção
-só aponta para relatório confirmatório já registrado do mesmo congelamento.
+só aponta para relatório confirmatório já registrado do mesmo congelamento. A releitura final,
+a checagem de rodada única e o append correm sob uma trava entre processos (`fcntl.flock` em
+`arquivo_de_trava`), então dois `evaluate` simultâneos não repetem `seq` nem quebram a cadeia.
 """
 
 from __future__ import annotations
 
+import contextlib
+import fcntl
 import hashlib
 import json
 import logging
@@ -19,14 +23,31 @@ from sustemporal.contracts.experiment import ModoExecucao
 from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
     from sustemporal.contracts import EvaluationReport
 
-__all__ = ["exigir_rodada_permitida", "ler_registro", "registrar_execucao"]
+__all__ = ["arquivo_de_trava", "exigir_rodada_permitida", "ler_registro", "registrar_execucao"]
 
 logger = logging.getLogger(__name__)
+
+
+def arquivo_de_trava(registro: Path) -> Path:
+    """Arquivo de trava entre processos, ao lado do registro."""
+    return registro.with_name(f"{registro.name}.trava")
+
+
+@contextlib.contextmanager
+def _travado(registro: Path) -> Iterator[None]:
+    """Trava exclusiva entre processos em `arquivo_de_trava(registro)`, solta ao sair."""
+    registro.parent.mkdir(parents=True, exist_ok=True)
+    with arquivo_de_trava(registro).open("a") as arquivo:
+        fcntl.flock(arquivo.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(arquivo.fileno(), fcntl.LOCK_UN)
 
 
 def _sha(texto: str) -> str:
@@ -115,28 +136,15 @@ def exigir_rodada_permitida(
         _exigir_unica_rodada(entradas, modo, freeze_id)
 
 
-def registrar_execucao(
-    registro: Path,
+def _nova_entrada(
+    entradas: list[dict[str, Any]],
     relatorio: EvaluationReport,
+    agora: datetime,
     *,
-    corrige: str | None = None,
-    declaracao: str | None = None,
-    relogio: Callable[[], datetime] | None = None,
+    corrige: str | None,
+    declaracao: str | None,
 ) -> dict[str, Any]:
-    """Acrescenta uma entrada; nunca reescreve nem apaga as anteriores.
-
-    Raises:
-        FalhaOperacionalErro: registro existente adulterado.
-        ValueError: correção sem declaração, ou cujo alvo não existe, não é relatório
-            confirmatório ou é de outro congelamento.
-        PortaoRecusado: segunda rodada confirmatória do mesmo congelamento sem correção.
-    """
-    entradas = ler_registro(registro)
-    _exigir_correcao_valida(entradas, corrige, declaracao, relatorio.freeze_id)
-    if corrige is None:
-        _exigir_unica_rodada(entradas, relatorio.modo, relatorio.freeze_id)
-    agora = (relogio or (lambda: datetime.now(UTC)))()
-    entrada: dict[str, Any] = {
+    return {
         "seq": len(entradas),
         "anterior": _sha(_canonico(entradas[-1])) if entradas else None,
         "registrado_em": agora.isoformat(),
@@ -151,9 +159,37 @@ def registrar_execucao(
         "corrige": corrige,
         "declaracao": declaracao,
     }
-    registro.parent.mkdir(parents=True, exist_ok=True)
-    with registro.open("a", encoding="utf-8") as arquivo:
-        arquivo.write(_canonico(_com_hash(entrada)) + "\n")
+
+
+def registrar_execucao(
+    registro: Path,
+    relatorio: EvaluationReport,
+    *,
+    corrige: str | None = None,
+    declaracao: str | None = None,
+    relogio: Callable[[], datetime] | None = None,
+) -> dict[str, Any]:
+    """Acrescenta uma entrada; nunca reescreve nem apaga as anteriores.
+
+    A releitura do registro, a checagem de unicidade e o append correm sob a trava exclusiva
+    entre processos (`arquivo_de_trava`), solta também na recusa; quem chega depois espera e
+    relê o registro já com a entrada do outro.
+
+    Raises:
+        FalhaOperacionalErro: registro existente adulterado.
+        ValueError: correção sem declaração, ou cujo alvo não existe, não é relatório
+            confirmatório ou é de outro congelamento.
+        PortaoRecusado: segunda rodada confirmatória do mesmo congelamento sem correção.
+    """
+    with _travado(registro):
+        entradas = ler_registro(registro)
+        _exigir_correcao_valida(entradas, corrige, declaracao, relatorio.freeze_id)
+        if corrige is None:
+            _exigir_unica_rodada(entradas, relatorio.modo, relatorio.freeze_id)
+        agora = (relogio or (lambda: datetime.now(UTC)))()
+        entrada = _nova_entrada(entradas, relatorio, agora, corrige=corrige, declaracao=declaracao)
+        with registro.open("a", encoding="utf-8") as arquivo:
+            arquivo.write(_canonico(_com_hash(entrada)) + "\n")
     logger.info("execucao_registrada report=%s seq=%d", relatorio.report_id, entrada["seq"])
     return entrada
 

@@ -37,6 +37,7 @@ Cada linha física do SIA-PA recebe no máximo um motivo de exclusão, na ordem:
 
 | Motivo | Condição |
 |---|---|
+| `versoes_concorrentes` | arquivo de competência em que alguma parte tem mais de uma versão de conteúdo (seção abaixo); todas as linhas, deletadas inclusive |
 | `deletado` | marcador de exclusão do DBF |
 | `municipio_estabelecimento_ausente` | município do estabelecimento nulo após a normalização |
 | `fora_do_territorio` | município fora de `municipios_ibge6` do território da coorte |
@@ -51,6 +52,23 @@ então `pertenca=HISTORICA` é recusada (`ConfigInvalida` `pertenca_historica_na
 saída 2, antes de qualquer saída) até haver pertença versionada (item 19 de
 `docs/pendencias/T05.md`). Incluídas mais excluídas somam as linhas físicas dos conjuntos
 canônicos (`fracao_registros_incluidos`, numerador = incluídas, denominador = físicas).
+
+## Versões concorrentes do SIA-PA
+
+O `ingest` normaliza uma `sia_pa.v1` por versão de conteúdo. Se a mesma (UF, competência do
+arquivo, parte) tem mais de uma versão, somar as tabelas contaria cada republicação como registros
+distintos e inflaria contagens, ausências, rótulos e denominadores. O relatório não escolhe versão
+(AGENTS.md): tira da população todas as linhas dos arquivos daquela competência (todas as partes e
+versões, deletadas inclusive), conta-as em `versoes_concorrentes` de `piloto_exclusoes.v1` e as
+mantém no denominador físico de `fracao_registros_incluidos`.
+
+A competência fica incompleta na disponibilidade (`sia_pa_incompleto competencia=… motivo=…`, também
+nas competências de processamento das linhas excluídas; a marca da ingestão prevalece na mesma
+competência) e cada (competência, parte) ganha uma nota `versoes_concorrentes competencia=… uf=…
+parte=… versoes=<ids>`. A chave de cada artefato (UF, competência do arquivo e parte) vem do
+manifesto lido pela ingestão (`chaves` de `build_pilot_report`); sem ela a biblioteca não detecta
+nada. O mesmo conteúdo observado duas vezes é uma versão só e não muda a população. Qual versão vale,
+ou como combiná-las, é decisão humana (item 20 de `docs/pendencias/T05.md`).
 
 ## Tabelas
 
@@ -104,10 +122,10 @@ relatório. É o mesmo recálculo que o `validate --ingest` (#27) faz.
 
 Competência com linha de produção nos conjuntos `sia_pa.v1` da ingestão (ao menos uma linha não
 deletada com aquela competência de processamento) e nenhuma linha incluída (todas fora do
-território, do intervalo ou dos instrumentos) não vira fonte ausente: a célula fica INSUFICIENTE
-com `populacao_vazia_no_recorte competencia=…` (`build_coverage(..., sia_pa_presente_em=...)`). É
-limitação amostral do recorte, não ausência estrutural; as exclusões ficam em
-`piloto_exclusoes.v1`.
+território, do intervalo ou dos instrumentos, ou excluídas como `versoes_concorrentes`) não vira
+fonte ausente: a célula fica INSUFICIENTE com `populacao_vazia_no_recorte competencia=…`
+(`build_coverage(..., sia_pa_presente_em=...)`). É limitação amostral do recorte, não ausência
+estrutural; as exclusões ficam em `piloto_exclusoes.v1`.
 
 A presença sai dos conjuntos ingeridos, nunca do texto do motivo da cobertura. Competência sem
 conjunto legível (arquivo ausente, truncado ou em quarentena) continua AUSENTE, com o motivo

@@ -211,6 +211,7 @@ def executar_pilot_report(args: argparse.Namespace, config: RunConfig) -> int:
         saida,
         observacoes=observacoes,
         runtime=config.runtime,
+        chaves={artefato: versao.chave for artefato, versao in lido.versoes.items()},
     )
     destino = saida / "relatorio.json"
     temporario = destino.with_name(f".{destino.name}.tmp")

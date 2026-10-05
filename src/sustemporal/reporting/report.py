@@ -9,14 +9,16 @@ estabelecimento não está em `municipios_ibge6` do território da coorte são e
 `fora_do_territorio`. A disponibilidade das tabelas vem da cobertura recalculada só com as linhas
 incluídas (`report_cobertura.py`). A pertença é a lista atual do território, sem versão por
 competência: `pertenca=HISTORICA` é recusada (`pertenca_historica_nao_implementada`) até haver
-pertença versionada. Toda razão sai com numerador e denominador; o relatório é sempre exploratório
-(pré-G0) e nunca libera portão.
+pertença versionada. Competência com versões de conteúdo concorrentes do SIA-PA sai da população
+(`versoes_concorrentes`, `report_republicacao.py`): o relatório não escolhe versão. Toda razão sai
+com numerador e denominador; o relatório é sempre exploratório (pré-G0) e nunca libera portão.
 """
 
 from __future__ import annotations
 
 import logging
 from contextlib import closing
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -31,6 +33,12 @@ from sustemporal.errors import ConfigInvalida
 from sustemporal.ingest.territorio import carregar_territorio, municipios_ibge6
 from sustemporal.reporting.report_cobertura import recalcular_cobertura
 from sustemporal.reporting.report_publicacao import publicar_tabelas
+from sustemporal.reporting.report_republicacao import (
+    artefatos_excluidos,
+    marcas_de_concorrencia,
+    notas_de_concorrencia,
+    versoes_concorrentes,
+)
 from sustemporal.reporting.report_selecao import carregar_disponibilidade, carregar_inconclusivos
 from sustemporal.reporting.report_tabelas import (
     carregar_registros_piloto,
@@ -43,7 +51,8 @@ if TYPE_CHECKING:
 
     import duckdb
 
-    from sustemporal.contracts import CohortSpec, DatasetRef, ResultadoTentativa
+    from sustemporal.contracts import ChaveArtefato, CohortSpec, DatasetRef, ResultadoTentativa
+    from sustemporal.reporting.report_republicacao import VersoesConcorrentes
 
 __all__ = ["build_pilot_report", "exigir_pertenca_implementada"]
 
@@ -128,27 +137,98 @@ def _metricas(con: duckdb.DuckDBPyConnection, fisicas: int) -> list[ValorMetrica
     return metricas
 
 
-def _notas(
-    origem: OrigemDados, cohort: CohortSpec, municipios: frozenset[str], *, selecoes: int
-) -> list[str]:
+@dataclass(frozen=True)
+class _Insumos:
+    """Entradas validadas do relatório e o que as tabelas e as notas precisam saber delas."""
+
+    datasets: list[DatasetRef]
+    cohort: CohortSpec
+    out: Path
+    origem: OrigemDados
+    ingestao: DatasetRef
+    municipios: frozenset[str]
+    concorrentes: list[VersoesConcorrentes]
+    observacoes: Mapping[str, ResultadoTentativa]
+    runtime: RuntimeConfig
+
+
+def _insumos(
+    datasets: list[DatasetRef],
+    cohort: CohortSpec,
+    out: Path,
+    *,
+    observacoes: Mapping[str, ResultadoTentativa] | None,
+    runtime: RuntimeConfig | None,
+    chaves: Mapping[str, ChaveArtefato] | None,
+) -> _Insumos:
+    """Valida a coorte e as entradas antes de qualquer I/O de relatório e reúne o que usam."""
+    origem, ingestao = _entradas_validas(datasets, cohort)
+    municipios = municipios_ibge6(carregar_territorio(Path(cohort.territorio), uf=cohort.uf))
+    concorrentes = versoes_concorrentes(datasets, chaves or {})
+    return _Insumos(
+        datasets,
+        cohort,
+        out,
+        origem,
+        ingestao,
+        municipios,
+        concorrentes,
+        observacoes or {},
+        runtime or RuntimeConfig(),
+    )
+
+
+def _notas(insumos: _Insumos) -> list[str]:
+    cohort = insumos.cohort
     notas = [AVISO_PRE_G0]
-    if origem is OrigemDados.SINTETICO:
+    if insumos.origem is OrigemDados.SINTETICO:
         notas.insert(0, AVISO_SINTETICO)
     notas.append(
-        f"recorte_territorial territorio={cohort.territorio} municipios={len(municipios)} "
+        f"recorte_territorial territorio={cohort.territorio} municipios={len(insumos.municipios)} "
         f"criterio={cohort.criterio_geografico.value} pertenca={cohort.pertenca.value}"
     )
-    if not selecoes:
+    notas.extend(notas_de_concorrencia(insumos.concorrentes))
+    if not any(d.schema_id == "selecao_versoes.v1" for d in insumos.datasets):
         notas.append("selecao_ausente: sem selecao_versoes.v1, inconclusivos não classificados")
     return notas
 
 
-def _report_id(datasets: Sequence[DatasetRef], cohort: CohortSpec) -> str:
-    conteudo = {
-        "datasets": sorted(d.dataset_id for d in datasets),
-        "coorte": cohort.model_dump(mode="json"),
+def _report_id(insumos: _Insumos) -> str:
+    conteudo: dict[str, object] = {
+        "datasets": sorted(d.dataset_id for d in insumos.datasets),
+        "coorte": insumos.cohort.model_dump(mode="json"),
     }
+    excluidos = artefatos_excluidos(insumos.concorrentes)
+    if excluidos:
+        conteudo["versoes_concorrentes"] = excluidos
     return f"piloto_{hash_canonico(conteudo)[:24]}"
+
+
+def _tabelas(
+    con: duckdb.DuckDBPyConnection, insumos: _Insumos
+) -> tuple[list[DatasetRef], DatasetRef, list[ValorMetrica], int]:
+    """Carrega a população, recalcula a cobertura e publica as tabelas (e as linhas físicas)."""
+    i = insumos
+    sia_pa = [d for d in i.datasets if d.schema_id == "sia_pa.v1"]
+    selecoes = [d for d in i.datasets if d.schema_id == "selecao_versoes.v1"]
+    fisicas = carregar_registros_piloto(con, sia_pa)
+    excluidos = artefatos_excluidos(i.concorrentes)
+    criar_tabelas_registros(con, i.cohort, i.municipios, concorrentes=excluidos)
+    cobertura = recalcular_cobertura(
+        con,
+        i.datasets,
+        i.cohort,
+        i.out,
+        ingest=i.ingestao,
+        runtime=i.runtime,
+        origem=i.origem,
+        incompletas=marcas_de_concorrencia(con, i.concorrentes),
+    )
+    carregar_rotulos(con, sia_pa, i.out, runtime=i.runtime)
+    carregar_inconclusivos(con, selecoes, i.observacoes)
+    carregar_disponibilidade(con, cobertura, i.cohort)
+    tabelas = publicar_tabelas(con, i.out, i.datasets, i.origem)
+    return tabelas, cobertura, _metricas(con, fisicas), fisicas
 
 
 def build_pilot_report(
@@ -159,37 +239,31 @@ def build_pilot_report(
     observacoes: Mapping[str, ResultadoTentativa] | None = None,
     runtime: RuntimeConfig | None = None,
     relogio: Callable[[], datetime] = _agora,
+    chaves: Mapping[str, ChaveArtefato] | None = None,
 ) -> EvaluationReport:
     """Produz contagens, ausências, defasagens, rótulos, inconclusivos e disponibilidade.
+
+    `chaves` (id do artefato → chave com UF, competência do arquivo e parte) permite achar versões
+    de conteúdo concorrentes do SIA-PA, que saem da população (`report_republicacao.py`); sem ela
+    nada é detectado.
 
     Raises:
         ValueError: conjuntos de origens diferentes ou divergentes do `DatasetRef`.
         ConfigInvalida: coorte com pertença histórica ou território inválido, entrada sem
             `cobertura.v1` ou coorte sem nenhuma competência na cobertura (nada é gravado em `out`).
     """
-    origem, ingestao = _entradas_validas(datasets, cohort)
-    municipios = municipios_ibge6(carregar_territorio(Path(cohort.territorio), uf=cohort.uf))
-    sia_pa = [d for d in datasets if d.schema_id == "sia_pa.v1"]
-    selecoes = [d for d in datasets if d.schema_id == "selecao_versoes.v1"]
-    execucao = runtime or RuntimeConfig()
-    with closing(conectar(execucao)) as con:
-        fisicas = carregar_registros_piloto(con, sia_pa)
-        criar_tabelas_registros(con, cohort, municipios)
-        cobertura = recalcular_cobertura(
-            con, datasets, cohort, out, ingest=ingestao, runtime=execucao, origem=origem
-        )
-        carregar_rotulos(con, sia_pa, out, runtime=execucao)
-        carregar_inconclusivos(con, selecoes, observacoes or {})
-        carregar_disponibilidade(con, cobertura, cohort)
-        tabelas = publicar_tabelas(con, out, datasets, origem)
-        metricas = _metricas(con, fisicas)
+    insumos = _insumos(
+        datasets, cohort, out, observacoes=observacoes, runtime=runtime, chaves=chaves
+    )
+    with closing(conectar(insumos.runtime)) as con:
+        tabelas, cobertura, metricas, fisicas = _tabelas(con, insumos)
     relatorio = EvaluationReport(
-        report_id=_report_id(datasets, cohort),
+        report_id=_report_id(insumos),
         modo=ModoExecucao.EXPLORATORIO,
-        origem_dados=origem,
+        origem_dados=insumos.origem,
         metricas=tuple(metricas),
         tabelas=(*tabelas, cobertura),
-        notas=tuple(_notas(origem, cohort, municipios, selecoes=len(selecoes))),
+        notas=tuple(_notas(insumos)),
         criado_em=relogio(),
     )
     logger.info(

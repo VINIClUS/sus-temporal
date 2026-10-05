@@ -105,7 +105,8 @@ Mudou a UF, o corte de observação, as famílias, `sources.yaml` ou o leiaute d
 `ingest`? O `pilot-report` recusa (saída 2, `ingest_com_configuracao_divergente campo=…`): rode o
 `ingest` de novo com a configuração atual.
 Revise `resultados.jsonl` (quarentenas, `FORA_DO_RECORTE`, `FORA_DO_CORTE`) antes de ler o
-relatório.
+relatório. Competência com republicação de conteúdo divergente (`versoes_concorrentes` em
+`piloto_exclusoes.v1` e nas notas) fica fora da população até a decisão humana de qual versão vale.
 
 ## 4. Registrar a execução
 

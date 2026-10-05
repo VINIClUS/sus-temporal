@@ -1,9 +1,11 @@
 """Tabelas do relatório do piloto no DuckDB: recorte, contagens, campos, defasagem e rótulos.
 
-Cada linha física do SIA-PA recebe no máximo um motivo de exclusão, na ordem: deletado, município
-do estabelecimento ausente, fora do território, competência de processamento ausente, fora do
-intervalo da coorte, instrumento fora da coorte. As demais são as incluídas; incluídas mais
-excluídas reconciliam com as linhas dos conjuntos canônicos.
+Cada linha física do SIA-PA recebe no máximo um motivo de exclusão, na ordem: versões concorrentes
+(arquivo de competência com mais de uma versão de conteúdo numa parte, ver
+`report_republicacao.py`), deletado, município do estabelecimento ausente, fora do território,
+competência de processamento ausente, fora do intervalo da coorte, instrumento fora da coorte. As
+demais são as incluídas; incluídas mais excluídas reconciliam com as linhas dos conjuntos
+canônicos.
 
 `campos` conta o nulo de cada campo que o G0 manda verificar, sobre as linhas incluídas:
 identificação, competências, procedimento, CBO, instrumento, quantidades e valores apresentados e
@@ -41,6 +43,7 @@ SELECT row_id, cnes, municipio_estabelecimento, competencia_atendimento,
        quantidade_apresentada, quantidade_aprovada, valor_apresentado, valor_aprovado,
        pa_indica, pa_codoco, pa_flqt, pa_fler,
        CASE
+         WHEN list_contains($concorrentes, artifact_id) THEN 'versoes_concorrentes'
          WHEN deletado THEN 'deletado'
          WHEN municipio_estabelecimento IS NULL THEN 'municipio_estabelecimento_ausente'
          WHEN NOT list_contains($municipios, municipio_estabelecimento) THEN 'fora_do_territorio'
@@ -56,7 +59,8 @@ FROM pa
 
 _SQL_PA_VAZIO = """
 CREATE TABLE pa (
-  row_id VARCHAR, deletado BOOLEAN, cnes VARCHAR, municipio_estabelecimento VARCHAR,
+  row_id VARCHAR, artifact_id VARCHAR, deletado BOOLEAN, cnes VARCHAR,
+  municipio_estabelecimento VARCHAR,
   competencia_atendimento VARCHAR, competencia_processamento VARCHAR, instrumento VARCHAR,
   procedimento VARCHAR, cbo VARCHAR, quantidade_apresentada BIGINT, quantidade_aprovada BIGINT,
   valor_apresentado DECIMAL(18, 2), valor_aprovado DECIMAL(18, 2), pa_indica VARCHAR,
@@ -156,12 +160,20 @@ def carregar_registros_piloto(
 
 
 def criar_tabelas_registros(
-    con: duckdb.DuckDBPyConnection, cohort: CohortSpec, municipios: frozenset[str]
+    con: duckdb.DuckDBPyConnection,
+    cohort: CohortSpec,
+    municipios: frozenset[str],
+    *,
+    concorrentes: Sequence[str] = (),
 ) -> None:
-    """`base` com o motivo de exclusão e as tabelas de contagens, exclusões, defasagem e campos."""
+    """`base` com o motivo de exclusão e as tabelas de contagens, exclusões, defasagem e campos.
+
+    `concorrentes` lista as versões (ids) cujas linhas saem como `versoes_concorrentes`.
+    """
     con.execute(
         _SQL_BASE,
         {
+            "concorrentes": list(concorrentes),
             "municipios": sorted(municipios),
             "inicio": cohort.inicio.valor,
             "fim": cohort.fim.valor,

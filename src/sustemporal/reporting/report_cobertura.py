@@ -4,7 +4,8 @@ A cobertura da ingestão é estadual: um registro de outro município com atendi
 a célula INSUFICIENTE para todo o DRS XI. O relatório publica um `sia_pa.v1` só com as linhas
 incluídas (a mesma população dos denominadores) e chama `build_coverage` sobre ele, com os mesmos
 auxiliares e as competências da cobertura da ingestão no intervalo da coorte. As marcas
-`sia_pa_incompleto` da ingestão continuam valendo. Competência com linha de produção nos conjuntos
+`sia_pa_incompleto` da ingestão continuam valendo, e o relatório acrescenta as suas (versões
+concorrentes, `report_republicacao.py`). Competência com linha de produção nos conjuntos
 `sia_pa.v1` ingeridos e nenhuma linha incluída fica `populacao_vazia_no_recorte` (limitação
 amostral), nunca `sia_pa_ausente`. A presença sai desses conjuntos, nunca do texto do motivo da
 cobertura: competência sem conjunto legível continua ausente, com o motivo original. Coorte sem
@@ -25,7 +26,7 @@ from sustemporal.ingest.sia_pa import carregar_conferido, gravar_parquet, produt
 from sustemporal.rules.catalog import carregar_esquema
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
 
     import duckdb
@@ -108,8 +109,12 @@ def recalcular_cobertura(
     ingest: DatasetRef,
     runtime: RuntimeConfig,
     origem: OrigemDados,
+    incompletas: Mapping[str, str] | None = None,
 ) -> DatasetRef:
     """`cobertura.v1` da população incluída, recalculada a partir da cobertura `ingest`.
+
+    `incompletas` (competência → motivo) acrescenta marcas `sia_pa_incompleto` às da ingestão, que
+    prevalecem na mesma competência.
 
     Raises:
         ConfigInvalida: nenhuma competência da cobertura `ingest` no intervalo da coorte;
@@ -128,6 +133,6 @@ def recalcular_cobertura(
         destino,
         runtime=runtime,
         origem_dados=origem,
-        sia_pa_incompleto=marcas,
+        sia_pa_incompleto={**(incompletas or {}), **marcas},
         sia_pa_presente_em=_competencias_com_producao(con),
     )

@@ -6,21 +6,28 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf
-from tests.fixtures.piloto_conjuntos import registro
+from tests.fixtures.piloto_conjuntos import cobertura_sintetica, conjunto_sia_pa, registro
 from tests.fixtures.piloto_ingest import config_ingest, fontes_ingest
 from tests.fixtures.piloto_manifesto import registrar_versoes
-from tests.fixtures.piloto_relatorio import linhas_tabela, metrica, relatorio_gravado
+from tests.fixtures.piloto_relatorio import (
+    coorte_piloto,
+    linhas_tabela,
+    metrica,
+    relatorio_gravado,
+)
 from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa
 from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
 from tests.integration.test_pilot_report import PF
 
 from sustemporal import cli
+from sustemporal.contracts import CanalPublicacao, ChaveArtefato, FamiliaFonte
 from sustemporal.errors import ExitCode
+from sustemporal.reporting.report import build_pilot_report
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from sustemporal.contracts import ArtifactVersion, EvaluationReport
+    from sustemporal.contracts import ArtifactVersion, DatasetRef, EvaluationReport
 
 OUTRO_INSTANTE = datetime(2026, 10, 2, 12, 0, tzinfo=UTC)
 
@@ -98,3 +105,71 @@ def test_mesmo_conteudo_observado_duas_vezes_mantem_a_populacao(tmp_path: Path) 
     incluidos = metrica(relatorio, "fracao_registros_incluidos")
     assert (incluidos.numerador, incluidos.denominador) == (2, 3)
     assert not [nota for nota in relatorio.notas if nota.startswith("versoes_concorrentes")]
+
+
+def _chave(competencia: str, parte: str) -> ChaveArtefato:
+    return ChaveArtefato(
+        fonte=FamiliaFonte.SIA_PA,
+        uf="SP",
+        competencia_arquivo=competencia,
+        parte=parte,
+        canal=CanalPublicacao.ATUAL,
+        nome_original=f"PASP{competencia[2:]}{parte}.dbc",
+    )
+
+
+def _versoes_publicadas(pasta: Path) -> tuple[list[DatasetRef], dict[str, ChaveArtefato]]:
+    """Duas versões divergentes de 201801/a (uma com linha de 201712) e uma de 201802/a."""
+    primeira = conjunto_sia_pa(
+        pasta, [registro("C", "201801", "201801"), registro("C", "201712", "201712")]
+    )
+    segunda = conjunto_sia_pa(pasta, [registro("C", "201801", "201801", PA_INDICA="6")])
+    outra = conjunto_sia_pa(pasta, [registro("I", "201802", "201802")], competencia="201802")
+    chaves = {
+        primeira.artifact_ids[0]: _chave("201801", "a"),
+        segunda.artifact_ids[0]: _chave("201801", "a"),
+        outra.artifact_ids[0]: _chave("201802", "a"),
+    }
+    return [primeira, segunda, outra], chaves
+
+
+def _publicar(
+    pasta: Path, nome: str, entradas: list[DatasetRef], **opcoes: dict[str, ChaveArtefato]
+) -> EvaluationReport:
+    saida = pasta / nome
+    saida.mkdir()
+    return build_pilot_report(
+        entradas, coorte_piloto(inicio="201712", fim="201812"), saida, **opcoes
+    )
+
+
+def test_chaves_decidem_a_deteccao_e_mudam_o_id_do_relatorio(tmp_path: Path) -> None:
+    sia_pa, chaves = _versoes_publicadas(tmp_path)
+    cobertura = cobertura_sintetica(tmp_path, sia_pa, ("201712", "201801", "201802"))
+    sem = _publicar(tmp_path, "sem_chaves", [*sia_pa, cobertura])
+    com = _publicar(tmp_path, "com_chaves", [*sia_pa, cobertura], chaves=chaves)
+    assert _exclusoes(sem) == {}
+    assert _exclusoes(com) == {"versoes_concorrentes": 3}
+    sem_deteccao = metrica(sem, "fracao_registros_incluidos")
+    assert (sem_deteccao.numerador, sem_deteccao.denominador) == (4, 4)
+    com_deteccao = metrica(com, "fracao_registros_incluidos")
+    assert (com_deteccao.numerador, com_deteccao.denominador) == (1, 4)
+    assert sem.report_id != com.report_id
+
+
+def test_competencias_das_linhas_excluidas_ficam_incompletas_na_disponibilidade(
+    tmp_path: Path,
+) -> None:
+    sia_pa, chaves = _versoes_publicadas(tmp_path)
+    cobertura = cobertura_sintetica(tmp_path, sia_pa, ("201712", "201801", "201802"))
+    relatorio = _publicar(tmp_path, "relatorio", [*sia_pa, cobertura], chaves=chaves)
+    motivos: dict[str, set[str]] = {}
+    for linha in linhas_tabela(relatorio, "piloto_disponibilidade.v1"):
+        motivos.setdefault(str(linha["competencia"]), set()).add(str(linha["motivo"]))
+    for competencia in ("201712", "201801"):
+        marca = (
+            f"sia_pa_incompleto competencia={competencia} "
+            "motivo=versoes_concorrentes competencia_arquivo=201801 partes=a"
+        )
+        assert all(motivo.startswith(marca) for motivo in motivos[competencia])
+    assert not any("versoes_concorrentes" in motivo for motivo in motivos["201802"])

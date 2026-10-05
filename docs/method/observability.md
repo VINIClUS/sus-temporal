@@ -85,6 +85,12 @@ artefatos das entradas):
 | `piloto_inconclusivos.v1` | classe e linhas da seleção por regra, fonte, base e estado |
 | `piloto_disponibilidade.v1` | a cobertura recalculada (abaixo) no intervalo e nos instrumentos da coorte |
 
+Cada tabela tem esquema canônico em `catalog/schemas/<nome>.yaml`, com as colunas na ordem do
+hash lógico, tipo, nulabilidade e chave. `piloto_contagens`, `piloto_rotulos` e
+`piloto_defasagem` publicam a categoria nula como uma linha própria, e a chave a admite
+(`chave_com_nulo`). `tests/unit/test_catalogo_esquemas_publicados.py` recalcula o hash lógico
+a partir desses esquemas.
+
 Os rótulos aqui servem só para descrever a distribuição antes e depois do pré-processamento. O
 classificador nunca recebe rótulo, campos de erro nem quantidades ou valores aprovados.
 

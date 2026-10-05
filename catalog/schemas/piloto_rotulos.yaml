@@ -1,0 +1,30 @@
+schema_id: piloto_rotulos.v1
+descricao: >-
+  Rótulos do SIA-PA antes e depois do pré-processamento, nas linhas incluídas do relatório do
+  piloto (T05), aprovações inclusive: ANTES é o texto de PA_INDICA como lido (pa_indica_bruto de
+  sia_pa_rotulos.v1; nulo quando o campo não existe no arquivo) e DEPOIS é o rótulo normalizado
+  pelo codebook versionado (rotulo de sia_pa_rotulos.v1). O valor nulo é uma categoria própria,
+  com uma única linha por etapa, e por isso a chave admite nulo em valor. Descreve a distribuição:
+  nenhum rótulo é filtrado e nenhum alimenta o classificador. Tabela derivada do código do
+  relatório (reporting/report_tabelas.py), sem leiaute oficial; exploratória pré-G0 e A_CONFIRMAR.
+  Os códigos do codebook herdam a proveniência de sia_pa_rotulos.v1 (SECUNDARIA; cobertura
+  uniforme em 2018 a 2025 A_CONFIRMAR).
+chave: [etapa, valor]
+chave_com_nulo: [valor]
+colunas:
+  - nome: etapa
+    tipo: TEXTO
+    papel: CHAVE
+    anulavel: false
+    descricao: ANTES ou DEPOIS do pré-processamento do rótulo.
+  - nome: valor
+    tipo: TEXTO
+    papel: CHAVE
+    descricao: >-
+      Etapa ANTES: texto de PA_INDICA como lido; etapa DEPOIS: CodigoRotulo (NAO_APROVADO,
+      APROVADO_TOTAL, APROVADO_PARCIAL ou DESCONHECIDO). Nulo só em ANTES.
+  - nome: linhas
+    tipo: INTEIRO
+    papel: DIAGNOSTICO
+    anulavel: false
+    descricao: Linhas incluídas com esse valor naquela etapa.

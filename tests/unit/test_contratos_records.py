@@ -194,6 +194,45 @@ def test_esquema_rejeita_chave_anulavel() -> None:
         _esquema(colunas=colunas)
 
 
+def _frequencias(**campos: object) -> EsquemaCanonico:
+    colunas = (
+        _coluna("dimensao", PapelColuna.CHAVE, anulavel=False),
+        _coluna("valor", PapelColuna.CHAVE),
+        _coluna("linhas", PapelColuna.DIAGNOSTICO, anulavel=False),
+    )
+    base = {"chave": ("dimensao", "valor"), "chave_com_nulo": ("valor",), "colunas": colunas}
+    return _esquema(**(base | campos))
+
+
+def test_esquema_nasce_sem_chave_com_nulo() -> None:
+    assert "chave_com_nulo" in EsquemaCanonico.model_fields
+    assert _esquema().chave_com_nulo == ()
+
+
+def test_esquema_aceita_chave_anulavel_declarada_em_chave_com_nulo() -> None:
+    esquema = _frequencias()
+    assert (esquema.chave, esquema.chave_com_nulo) == (("dimensao", "valor"), ("valor",))
+
+
+def test_esquema_rejeita_chave_anulavel_fora_de_chave_com_nulo() -> None:
+    with pytest.raises(ValidationError, match="esquema_chave_anulavel"):
+        _frequencias(chave_com_nulo=())
+
+
+@pytest.mark.parametrize(
+    ("chave_com_nulo", "erro"),
+    [
+        (("linhas",), "esquema_chave_com_nulo_fora_da_chave"),
+        (("dimensao", "valor"), "esquema_chave_com_nulo_em_coluna_nao_anulavel"),
+    ],
+)
+def test_esquema_rejeita_chave_com_nulo_incoerente(
+    chave_com_nulo: tuple[str, ...], erro: str
+) -> None:
+    with pytest.raises(ValidationError, match=erro):
+        _frequencias(chave_com_nulo=chave_com_nulo)
+
+
 def test_esquema_rejeita_coluna_repetida() -> None:
     colunas = (_coluna("row_id", PapelColuna.CHAVE, anulavel=False), _coluna("idade"))
     with pytest.raises(ValidationError, match="esquema_coluna_repetida"):

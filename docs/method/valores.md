@@ -85,8 +85,10 @@ A governança vem do catálogo de operações do T09 (`Governanca`: `MUNICIPAL_D
 Uma linha por estrato e categoria: `run_id`, `estrato`, `categoria`, `aditiva`, `ocorrencias`,
 `valor_apresentado`, `valor_aprovado`, `diferenca` (somas dos valores conhecidos; nulas sem
 nenhum valor conhecido), `razao`. Hash lógico sobre as nove colunas, na ordem; `linhas` é a
-contagem real. O esquema está declarado em `evaluation/values.py` até ser promovido a
-`catalog/schemas/` pelo orquestrador.
+contagem real. O esquema canônico está em `catalog/schemas/valores_p3.yaml` (chave `run_id`,
+`estrato` e `categoria`; `ocorrencias`, os três valores e a razão são anuláveis). `_TIPOS` em
+`evaluation/values.py` segue como a definição de publicação, e
+`tests/unit/test_catalogo_esquemas_publicados.py` confere as duas contra o Parquet gravado.
 
 ## Falhas
 Antes de qualquer agregação, cada entrada (rótulos, `agregados_registro.v1`, `avaliacoes.v1`,

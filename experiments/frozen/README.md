@@ -21,6 +21,11 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
   código 2 (`congelamento_ausente`, `congelamento_ilegivel`, `congelamento_invalido`). Avalia só
   o TESTE e emite as razões do TOTAL, do domínio comum e, por valor, de competência,
   instrumento e estabelecimento (CNES); só o TOTAL e as diferenças pareadas levam intervalo.
+  Cada métrica com intervalo (cobertura de rejeições, cobertura de verificabilidade, precisão
+  dos alertas e falsos alertas em aprovações), por método, traz dois: o do TOTAL, que sorteia
+  estabelecimentos inteiros, e o do estrato `sensibilidade_blocos_temporais`, que sorteia
+  competências inteiras (a mesma estimativa, a mesma máquina e a semente do manifesto); a
+  diferença pareada já trazia os dois.
   As execuções vêm de `<raiz_saidas>/runs/<run_id>/`: o
   `run_result.json` do motor de regras (`validate` grava ali por padrão, `raiz_execucoes(config)`)
   ou o `run.json` do baseline; os dois no mesmo diretório são recusados (`execucao_ambigua`). Entram só as

@@ -208,8 +208,9 @@ vêm antes de gravar qualquer arquivo:
 - `datasets.jsonl`: cada `DatasetRef` conferido como no motor (linhas, hash lógico, tipo físico de
   todas as colunas do esquema, `DECIMAL` e `DATA` inclusive) e pela linhagem: toda linha tem
   `artifact_id` declarado pelo próprio conjunto, senão saída 2 (`linhagem_divergente`), o que impede
-  trocar uma versão por outra na união;
-  `origem_dados` igual em todos;
+  trocar uma versão por outra na união; produção sem a coluna `deletado`, ou com `deletado` nulo em
+  alguma linha → saída 2 (`entrada_fora_do_esquema`), porque a situação da linha seria desconhecida
+  e ela passaria por ativa; `origem_dados` igual em todos;
 - produção: união de todos os `sia_pa.v1`, cada linha física preservada (sem deduplicar; uma linha
   repetida em duas partes conta duas vezes), `artifact_ids` = união ordenada, hash por
   `hash_logico_relacao`. Republicação concorrente → saída 2, nunca escolha automática: duas versões

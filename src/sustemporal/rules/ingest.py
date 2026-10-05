@@ -34,6 +34,7 @@ from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.coverage import build_coverage
 from sustemporal.rules.catalog import carregar_esquema, requisito_auxiliar
 from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
+from sustemporal.rules.ingest_conformidade import exigir_colunas_obrigatorias
 from sustemporal.rules.preparo import conferir_tipos_fisicos
 from sustemporal.temporal.registry import RegistroTemporal
 from sustemporal.temporal.selector import (
@@ -280,11 +281,12 @@ def _exigir_linhagem(con: duckdb.DuckDBPyConnection, ref: DatasetRef) -> None:
 
 
 def _conferir(con: duckdb.DuckDBPyConnection, refs: list[DatasetRef]) -> set[str]:
-    """Conteúdo, tipo físico e linhagem de cada conjunto; devolve as colunas físicas presentes."""
+    """Conteúdo, tipo, colunas obrigatórias e linhagem de cada conjunto; devolve as presentes."""
     fisicas: set[str] = set()
     for ref in refs:
         verificar_conteudo(con, ref)
         presentes = conferir_tipos_fisicos(con, ref)
+        exigir_colunas_obrigatorias(con, ref, presentes)
         if "artifact_id" in presentes:
             _exigir_linhagem(con, ref)
         fisicas |= presentes
@@ -376,8 +378,6 @@ def _recortar_populacao(
     valores = {"m": sorted(municipios), "c": sorted(competencias)}
     exclusoes: dict[str, int] = {}
     for motivo, condicao in _EXCLUSOES:
-        if motivo == "registro_deletado" and "deletado" not in colunas:
-            continue
         parametros = {k: v for k, v in valores.items() if f"${k}" in condicao}
         consulta = f"SELECT count(*) FROM {_UNIAO} WHERE {condicao}"  # noqa: S608
         quantidade = int(con.execute(consulta, parametros).fetchall()[0][0])
@@ -464,7 +464,8 @@ def preparar_insumos_ingest(
             parte selecionada ausente da pasta, artefato fora do registro ou observado só depois
             do corte.
         FalhaOperacionalErro: `row_id` repetido na união da produção.
-        ValueError: conteúdo ou tipo físico divergente do `DatasetRef`.
+        ValueError: conteúdo ou tipo físico divergente do `DatasetRef`; `deletado` da produção
+            ausente ou nulo (`ConteudoDivergente`, antes de gravar).
     """
     config, registro, municipios = contexto
     producao, auxiliares, cobertura = _classificar(datasets, regras)

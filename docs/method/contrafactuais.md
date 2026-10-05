@@ -95,8 +95,10 @@ vêm da pasta exata de `bundle.run_id` (`contexto_da_execucao`, §3.1); sem eles
 
 `sustemporal counterfactual --run RUN_ID --row ROW_ID` (`explanation/counterfactual_cli.py`):
 
-1. resolve a pasta exata da execução (`<raiz_saidas>/runs/<run_id>` ou
-   `<raiz_saidas>/validacao/<run_id>`), nunca um diretório "latest";
+1. resolve a pasta exata da execução, `<raiz_saidas>/runs/<run_id>`: o único lugar das execuções do
+   `validate` (`sustemporal.execucoes`, o mesmo leitor `ler_execucao` do `explain`), nunca um
+   diretório "latest" nem `validacao/`. `run_result.json` e `entrada_validacao.json` só são lidos
+   dessa pasta; uma execução que o `validate --saida` gravou fora de `runs/` não é descoberta;
 2. recompõe o bundle pelo `explain` real (T08), que reexecuta as evidências;
 3. lê `entrada_validacao.json`, que o `validate` grava nos modos `--entrada` e `--ingest` (a
    `EntradaValidacao` da execução: conjunto SIA-PA, `SnapshotSet`, auxiliares, seleção,

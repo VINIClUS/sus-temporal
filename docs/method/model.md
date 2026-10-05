@@ -270,7 +270,8 @@ de todo conjunto) vêm antes de gravar qualquer arquivo:
   `OBTIDO` (falha de coleta com bytes) deixa a versão `NAO_VERIFICADO`, nunca `OK`. Com
   `corte_observacao`, só contam as observações até o corte e só entram versões observadas até ele.
 
-Toda execução do `validate` (`--entrada` ou `--ingest`) grava `out/<run_id>/entrada_validacao.json`
+Toda execução do `validate` (`--entrada` ou `--ingest`) grava
+`<raiz_saidas>/runs/<run_id>/entrada_validacao.json`
 (`rules/entrada.py::EntradaValidacao`): conjunto SIA-PA, `SnapshotSet`, auxiliares, seleção,
 cobertura, integridade, a política resolvida e a `identidade_adicional` (hash do território), com os
 mesmos `DatasetRef` de `RunResult.entradas`; reexecutar com `--entrada` sobre esse arquivo reproduz o
@@ -282,7 +283,10 @@ nessa pré-checagem segue para o motor e vira falha operacional (saída 5, `falh
 
 A política é a de `politica_da_execucao` com o método de `--policy`; a avaliação é
 `avaliar_com_registro`, e as saídas ficam em `<raiz_saidas>/runs/<run_id>/` (relações derivadas em
-`runs/entradas/`, seleções em `runs/selecoes/`).
+`runs/entradas/`, seleções em `runs/selecoes/`). Esse é o lugar único das execuções
+(`sustemporal.execucoes.raiz_execucoes`): `--entrada` e `--ingest` gravam ali por padrão e os
+consumidores (`explain`, `counterfactual`) só descobrem execuções ali, pelo `run_id` exato; com
+`validate --saida` fora de `runs/`, a execução não é descoberta por eles.
 
 Sem registro temporal, o motor aceita uma tabela `selecao_versoes.v1` pronta ou deriva a seleção
 do `SnapshotSet` por correspondência exata: para `(r, g, f)`, com critério `(base, deslocamento)`

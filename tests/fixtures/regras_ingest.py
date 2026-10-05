@@ -49,6 +49,10 @@ _PARTES = ("a", "b")
 MUNICIPIOS = ("350010", "350020")
 MUNICIPIO_FORA = "359990"
 _Item = tuple["ArtifactObservation", "ArtifactVersion | None"]
+_COLUNAS_OMITIDAS = {
+    "sem_coluna_municipio": "municipio_estabelecimento",
+    "sem_coluna_deletado": "deletado",
+}
 
 
 @dataclass(frozen=True)
@@ -119,6 +123,7 @@ def _linha(artefato: str, indice: int, **campos: object) -> dict[str, object]:
     base: dict[str, object] = {
         "row_id": f"{artefato}#{indice}",
         "artifact_id": artefato,
+        "deletado": False,
         "instrumento": "C",
         "procedimento": _PROCEDIMENTO,
         "cbo": _CBO,
@@ -128,6 +133,10 @@ def _linha(artefato: str, indice: int, **campos: object) -> dict[str, object]:
         "municipio_estabelecimento": MUNICIPIOS[0],
     }
     return base | campos
+
+
+def _colunas_ausentes(opcoes: dict[str, bool]) -> frozenset[str]:
+    return frozenset(coluna for opcao, coluna in _COLUNAS_OMITIDAS.items() if opcoes[opcao])
 
 
 def _producao(artefato: str, parte: str, opcoes: dict[str, bool]) -> list[dict[str, object]]:
@@ -154,6 +163,8 @@ def _producao(artefato: str, parte: str, opcoes: dict[str, bool]) -> list[dict[s
             )
         if opcoes["municipio_nulo"]:
             linhas.append(_linha(artefato, 3, municipio_estabelecimento=None))
+        if opcoes["deletado_nulo"]:
+            linhas.append(_linha(artefato, 7, deletado=None))
     return linhas
 
 
@@ -221,8 +232,8 @@ def _datasets(pasta: Path, itens: dict[str, _Item], opcoes: dict[str, bool]) -> 
         artefato, chave = versao.artifact_id, versao.chave
         if chave.fonte is FamiliaFonte.SIA_PA:
             linhas = _producao(artefato, str(chave.parte), opcoes)
-            sem = frozenset({"municipio_estabelecimento"} if opcoes["sem_coluna_municipio"] else ())
             destino = pasta / f"{nome}.sia_pa.parquet"
+            sem = _colunas_ausentes(opcoes)
             refs.append(_gravar_completo(destino, "sia_pa.v1", linhas, (artefato,), sem=sem))
             continue
         competencia = str(chave.competencia_arquivo)
@@ -386,6 +397,8 @@ def montar_ingest(
     cobertura_motivo_malformado: bool = False,
     producao_com_artefato_cnes: bool = False,
     parte_b_so_no_registro: bool = False,
+    deletado_nulo: bool = False,
+    sem_coluna_deletado: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -410,12 +423,14 @@ def montar_ingest(
         "deletado_no_territorio": deletado_no_territorio,
         "deletado_fora": deletado_fora,
         "linha_fora_do_piloto": linha_fora_do_piloto,
+        "deletado_nulo": deletado_nulo,
+        "sem_coluna_deletado": sem_coluna_deletado,
     }
     na_pasta = {k: v for k, v in itens.items() if not (no_registro and k == "pa_a2")}
     refs = _datasets(pasta, na_pasta, opcoes)
     if cnes_fev_com_perda:
         refs = _com_perda(refs, itens["cnes_fev"][1])
-    if not (sem_cobertura or sem_coluna_municipio):
+    if not (sem_cobertura or _colunas_ausentes(opcoes)):
         refs.append(_cobertura(pasta, refs, sia_pa_incompleto))
     if producao_com_artefato_cnes:
         refs.append(_producao_de_outra_fonte(pasta, itens["cnes_fev"][1], opcoes))

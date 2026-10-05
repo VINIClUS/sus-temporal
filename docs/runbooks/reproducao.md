@@ -180,10 +180,11 @@ que exige dados reais e G2.
 
 `evaluate`, `annotation-export` e `reproduce` pedem um congelamento existente e saem com **2**
 (`congelamento_ausente`) sem ele. Congelar também exige as partições do protocolo
-(DESENVOLVIMENTO, CALIBRACAO e TESTE) e os insumos de validação de cada política, e nenhum
-comando da CLI os prepara (pendência T11 #27, em `docs/pendencias/T11.md`): o fluxo pequeno, de
-um só mês, não os tem. A seção 4.5 os produz com `sustemporal.reporting.reproduce_etapas`, o
-mesmo código que o `reproduce` usa.
+(DESENVOLVIMENTO, CALIBRACAO e TESTE) em `<raiz_saidas>/split` e, por política, os insumos de
+validação em `<raiz_saidas>/split/insumos/<politica_id>.json` (a `EntradaValidacao` inteira, que o
+manifesto congela por política; seção 6), e nenhum comando da CLI os prepara (pendência T11 #27,
+em `docs/pendencias/T11.md`): o fluxo pequeno, de um só mês, não os tem. A seção 4.5 os produz com
+`sustemporal.reporting.reproduce_etapas`, o mesmo código que o `reproduce` usa para as partições.
 
 ### 4.5 Fluxo completo sintético: do `acquire` ao `freeze`
 
@@ -251,7 +252,9 @@ imprime o `freeze_id` e o código de saída de cada comando:
 A união do SIA-PA, os rótulos e as partições vêm de `derivar_protocolo` e os `validate --ingest`
 rodam sobre a janela de cada partição (`janela_do_ingest`); o `validate --ingest` exige que toda
 a produção da pasta seja do recorte do piloto, e a janela é a pasta do `ingest` só com o SIA-PA
-dos arquivos das competências pedidas. O código do `freeze` lê a versão do código por `git`, e o
+dos arquivos das competências pedidas. Os insumos que o `freeze` exige ficam em
+`$MUNDO/saidas/split/insumos/<politica_id>.json`, um por política (seção 6): o script copia para lá
+a `entrada_validacao.json` das execuções sobre a janela TESTE. O código do `freeze` lê a versão do código por `git`, e o
 mundo não é um repositório: o script usa a versão de código de teste (`CODIGO_LIMPO`), que o
 `reproduce` reporta como observação (seção 5).
 
@@ -307,7 +310,7 @@ congelamento usou a versão de código de teste (seção 4.5); ela não é diver
 |---|---|---|
 | `conjunto:sia_pa.v1` e `conjunto:sia_pa_rotulos.v1` | linhas e hash lógico da união e dos rótulos refeitos | o declarado no manifesto e, se o arquivo original existe, o arquivo |
 | `split:split_id`, `split:particao:<P>` e `split:rotulos:<P>` | id do split e linhas e hash lógico de cada partição e dos rótulos dela | o split do manifesto |
-| `insumos:<politica>` | cada campo da entrada de validação do TESTE refeita | `entradas_validacao` do manifesto |
+| `insumos:<politica>` | cada campo da `EntradaValidacao` do TESTE refeita (`dataset`, `snapshots`, `auxiliares`, `selecoes`, `cobertura`, `integridade`, `politica_documentada`, `politica` e `identidade_adicional`), pela identidade de cada campo | `entradas_validacao` do manifesto, gravada de `split/insumos/<politica_id>.json` |
 | `saida:<METODO>:<esquema>` | linhas e hash lógico das cinco saídas de cada método, **sem a coluna `run_id`** | as saídas da execução original |
 | `metricas` | cada métrica por nome e estrato (numerador, denominador, valor e intervalo) | o relatório da rodada registrada |
 | `notas` | as notas do relatório (recorte, especificação do bootstrap e cobertura dos resultados), como multiconjunto | as notas do relatório da rodada registrada |
@@ -353,8 +356,9 @@ outros caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit>
 - Os comandos rodam da raiz do clone (ou de um diretório com cópia de `catalog/` e `config/`):
   `config/splits.yaml`, `catalog/schemas/selecao_versoes.yaml` e `experiments/decisions` são
   relativos ao diretório de trabalho.
-- Não há comando de CLI que prepare a união, os rótulos, as partições e os insumos antes do
-  `freeze` com dados reais (T11 #27, T14-14); `reproduce_etapas` os refaz para o fluxo pequeno.
+- Não há comando de CLI que prepare a união, os rótulos, as partições e os insumos por política
+  (`<raiz_saidas>/split/insumos/<politica_id>.json`) antes do `freeze` com dados reais (T11 #27,
+  T14-14); `reproduce_etapas` refaz as partições e as entradas do TESTE para o fluxo pequeno.
 - A guarda de rede vale para o processo inteiro: a reprodução não convive com outro trabalho de
   rede no mesmo processo.
 - Nada aqui mede escala (SP) nem é resultado empírico: a reprodução sintética é teste de software.
@@ -403,11 +407,26 @@ constante própria; trocá-la por `raiz_execucoes(config)` é do PR de integraç
 (ORQ-28 em `docs/PENDENCIAS.md`).
 
 **Entradas do `freeze` e do `evaluate`.** Eles leem as partições em `<raiz_saidas>/split`
-(`spl_*.json` e `<split_id>.entradas.json`) e os insumos de validação do TESTE em
-`<raiz_saidas>/split/insumos/<politica_id>.json`. Nenhum comando da CLI os produz (T11 #27); o
-fluxo sintético da seção 4.5 grava as partições com `derivar_protocolo`
-(`sustemporal.reporting.reproduce_etapas`) e copia para `insumos/` a `entrada_validacao.json` da
-execução sobre o TESTE; o `reproduce` refaz as partições em `<saida>/split`.
+(`spl_*.json` e `<split_id>.entradas.json`). O `freeze` lê também, **por política**,
+`<raiz_saidas>/split/insumos/<politica_id>.json`: a `entrada_validacao.json` da execução de regras
+daquela política sobre a partição TESTE (`EntradaValidacao`: `dataset`, `snapshots`, `auxiliares`,
+`selecoes`, `cobertura`, `integridade`, `politica_documentada`, `politica` e
+`identidade_adicional`). O manifesto congela a entrada inteira por `politica_id`
+(`entradas_validacao`: a identidade de cada campo, sem caminhos) e a conferência compara cada
+campo. Sem a pasta o `freeze` sai com 2 (`freeze_sem_insumos_das_execucoes`), e arquivo ilegível ou
+de outra população também sai com 2 (`freeze_insumos_ilegiveis`,
+`congelamento_insumos_de_outra_populacao`). Nenhum comando da CLI produz as partições nem os
+insumos: são preparados à mão antes do G2 (T11 #27, em `docs/pendencias/T11.md`; detalhe em
+`experiments/frozen/README.md`, seção "Entrada de validação das execuções de regras").
+
+No fluxo sintético da seção 4.5, `derivar_protocolo` (`sustemporal.reporting.reproduce_etapas`)
+grava as partições em `<raiz_saidas>/split`, e a etapa `derivar`, em
+`tests/fixtures/reproducao_fluxo.py`, copia para `split/insumos/<politica_id>.json` a
+`entrada_validacao.json` (`<raiz_saidas>/runs/<run_id>/entrada_validacao.json`) de cada uma das
+três políticas (`m_temp_nao_resolvida`, `b_atend_exploratoria` e `b_proc_exploratoria`),
+escolhendo a execução de `validate --ingest` cuja entrada é a população da partição TESTE. O
+`reproduce` refaz as partições em `<saida>/split` e as entradas do TESTE em `<saida>/runs`, e
+compara cada política com o congelado (`insumos:<politica_id>`, seção 5.2).
 
 ## 7. O que exige rede ou dados reais
 

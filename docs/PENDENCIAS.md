@@ -26,11 +26,11 @@ ou de decisão humana foi fechada. Nada aqui é resultado empírico.
 | Pesquisador | 12 | 73 |
 | Orientação | 9 | 37 |
 | Avaliadores | 3 | 3 |
-| Engenharia | 24 | 95 |
+| Engenharia | 24 | 96 |
 | Fechadas | 3 | 36 |
 | Orquestrador (seção 5) | 33 linhas `ORQ` | fora dos arquivos T*.md |
 
-Total de itens dos arquivos T*.md: 244 em 14 arquivos.
+Total de itens dos arquivos T*.md: 245 em 14 arquivos.
 
 **Manutenção.** Quem registrar pendência nova em `docs/pendencias/TNN.md` avisa o orquestrador ou
 a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arquivo). O teste
@@ -367,7 +367,8 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 ### EN-02 — Âncora de integridade dos registros append-only
 
 - **Itens:** T02-5 (âncora do manifesto ao lado dele: apagar os dois não é detectado); T11-11
-  (o registro de rodadas do congelamento não detecta truncamento do sufixo)
+  (o registro de rodadas do congelamento não detecta truncamento do sufixo); T11-30 (arquivo de
+  trava do registro fora do .gitignore e leitura sem a trava)
 - **Ferramenta pronta:** `EstadoManifesto.cabeca_sha256`
   (`src/sustemporal/acquisition/manifest.py`) e `ler_registro`
   (`src/sustemporal/evaluation/freeze_registro.py`).
@@ -752,7 +753,7 @@ for o mesmo, o teste exige que os itens dele sejam exatamente estes.
 | T08 | i1-i13 | 13 | 99e9ab502bd9e767bcd3163b954dd7fd7bf86a03bfa1bae7d7bd9a888d245af3 |
 | T09 | i1-i18 | 18 | 5c1cd767168e80543a75299aee2349ae0076f0a3056f099fe430ac8ea767c7a6 |
 | T10 | 1-10 | 10 | 7a8463fc7a1040d43b621c45f97bdb4fb2c2502979d33532807fbc53c49abbf4 |
-| T11 | 1-29 | 29 | 8903f96fae8392bde6935aa286f378350f01502d36977d72b80a3967579c0d4f |
+| T11 | 1-30 | 30 | b12f79f362d973e24a411a6726e201c5a5d6c06627dac5dd10bbabe96a3fd00a |
 | T12 | i1-i7 | 7 | f6454780722eb379be317e9853861ef3bbf5ca3f8889802fcfa48f35ada1543c |
 | T13 | 1-6, 8, b1-b5 | 12 | 73d222a03774e97c9698daad4678de33e52906d918061b7b3ba751f12fd0ba15 |
 | T14 | 1-15 | 15 | 3682caca4ee3f69e137c1bbcadb1dcc99b9830e3d6255e0cd707648d11de3e48 |

@@ -2,9 +2,10 @@
 
 Entradas por convenção, sempre resolvidas por id exato e nunca por "latest":
 `<raiz_saidas>/split/<split_id>.json` (único) com `<split_id>.entradas.json` (dataset e rótulos
-completos), execuções em `<raiz_saidas>/runs/<run_id>/run.json` e congelamentos em
-`<dir_congelamentos>/<freeze_id>.json`. O registro append-only fica em
-`<dir_congelamentos>/registro_execucoes.jsonl`.
+completos), execuções em `<raiz_saidas>/runs/<run_id>/` e congelamentos em
+`<dir_congelamentos>/<freeze_id>.json`. A execução é o `run_result.json` que o motor de regras
+grava (`validate --saida <raiz_saidas>/runs`) ou o `run.json` do baseline, nunca os dois no mesmo
+diretório. O registro append-only fica em `<dir_congelamentos>/registro_execucoes.jsonl`.
 """
 
 from __future__ import annotations
@@ -54,6 +55,7 @@ __all__ = ["REGISTRO", "executar_evaluate", "executar_freeze", "versao_codigo"]
 logger = logging.getLogger(__name__)
 
 REGISTRO = "registro_execucoes.jsonl"
+_ARQUIVOS_DA_EXECUCAO = ("run.json", "run_result.json")
 
 
 def _split_e_entradas(raiz: Path) -> tuple[SplitManifest, DatasetRef, DatasetRef]:
@@ -120,9 +122,22 @@ def executar_freeze(args: argparse.Namespace, config: RunConfig) -> int:
     return int(ExitCode.OK)
 
 
+def _arquivo_da_execucao(diretorio: Path) -> Path | None:
+    existentes = [
+        diretorio / nome for nome in _ARQUIVOS_DA_EXECUCAO if (diretorio / nome).is_file()
+    ]
+    if len(existentes) > 1:
+        nomes = ",".join(arquivo.name for arquivo in existentes)
+        raise ConfigInvalida(f"execucao_ambigua pasta={diretorio} arquivos={nomes}")
+    return existentes[0] if existentes else None
+
+
 def _runs(pasta: Path, modo: ModoExecucao, freeze_id: str) -> list[RunResult]:
     runs = []
-    for caminho in sorted(pasta.glob("*/run.json")):
+    for diretorio in sorted(pasta.glob("*")):
+        caminho = _arquivo_da_execucao(diretorio)
+        if caminho is None:
+            continue
         run = RunResult.model_validate_json(caminho.read_text(encoding="utf-8"))
         confirmatoria = modo is ModoExecucao.CONFIRMATORIO
         if run.modo is modo and (not confirmatoria or run.freeze_id == freeze_id):

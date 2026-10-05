@@ -3,7 +3,8 @@
 `carregar_freeze` só protegia o contrato (`ValidationError`): bytes que não são UTF-8 levantavam
 `UnicodeDecodeError` e um erro do sistema de arquivos (`OSError`, como a permissão negada)
 escapava da CLI com traceback. Os dois passam a sair como `ConfigInvalida` (código 2), com o
-mesmo formato `chave=valor` das demais recusas do módulo. Nenhum resultado empírico.
+mesmo formato `chave=valor` das demais recusas do módulo. O `annotation-export` carrega o
+manifesto por `carregar_freeze` e recusa do mesmo jeito. Nenhum resultado empírico.
 """
 
 from __future__ import annotations
@@ -104,5 +105,37 @@ def test_cli_evaluate_com_manifesto_que_o_sistema_nega_ler_sai_com_codigo_2(
     caminho = _manifesto(tmp_path / "frozen", b"{}")
     _negar(monkeypatch, "read_text", caminho)
     assert _avaliar(tmp_path) == ExitCode.CONFIG_INVALIDA
+    erro = capsys.readouterr().err
+    assert f"congelamento_ilegivel freeze={FREEZE} motivo=PermissionError" in erro
+
+
+def _exportar(raiz: Path) -> int | str:
+    """Código de saída do `annotation-export`; uma exceção que escapa da CLI vira texto."""
+    argumentos = ["annotation-export", "--config", str(config_yaml(raiz)), "--freeze", FREEZE]
+    try:
+        return executar_cli(argumentos)
+    except Exception as erro:
+        return f"excecao={type(erro).__name__}"
+
+
+@pytest.mark.parametrize("nome", ["utf8_invalido", "json_truncado"])
+def test_cli_annotation_export_com_manifesto_ilegivel_sai_com_codigo_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], nome: str
+) -> None:
+    _manifesto(tmp_path / "frozen", CONTEUDOS[nome])
+    assert _exportar(tmp_path) == ExitCode.CONFIG_INVALIDA
+    assert f"congelamento_invalido freeze={FREEZE}" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("operacao", ["is_file", "read_text"])
+def test_cli_annotation_export_com_manifesto_que_o_sistema_nega_ler_sai_com_codigo_2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    operacao: str,
+) -> None:
+    caminho = _manifesto(tmp_path / "frozen", b"{}")
+    _negar(monkeypatch, operacao, caminho)
+    assert _exportar(tmp_path) == ExitCode.CONFIG_INVALIDA
     erro = capsys.readouterr().err
     assert f"congelamento_ilegivel freeze={FREEZE} motivo=PermissionError" in erro

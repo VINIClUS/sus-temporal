@@ -110,7 +110,8 @@ def validar_ingest(pasta: Path, metodo: MetodoId, config: RunConfig, saida: Path
     """Confere a pasta e o registro antes de gravar qualquer coisa; depois avalia em lote.
 
     Raises:
-        ConfigInvalida: catálogo, política, manifesto, território ou pasta do ingest inválidos.
+        ConfigInvalida: catálogo, política, manifesto, território ou pasta do ingest inválidos, ou
+            execução já gravada com outro código (`evaluate_rules`: a execução é imutável).
         FalhaOperacionalErro: `row_id` repetido na produção.
     """
     try:

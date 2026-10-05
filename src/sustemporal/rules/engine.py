@@ -11,6 +11,7 @@ from sustemporal.contracts.base import hash_canonico
 from sustemporal.contracts.experiment import EstadoExecucao, RunResult, TipoExecucao
 from sustemporal.contracts.temporal import TipoPolitica
 from sustemporal.duck import conectar, identificador_seguro
+from sustemporal.errors import ConfigInvalida
 from sustemporal.gates import exigir_confirmatorio_valido, exigir_politicas_resolvidas
 from sustemporal.rules.auxiliares import preparar_auxiliar, preparar_conjuntos
 from sustemporal.rules.catalog import (
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
 
     import duckdb
 
-    from sustemporal.contracts import DatasetRef, RuleSpec, RunConfig, SnapshotSet
+    from sustemporal.contracts import CodeVersion, DatasetRef, RuleSpec, RunConfig, SnapshotSet
     from sustemporal.contracts.temporal import PoliticaTemporal
     from sustemporal.rules.auxiliares import Auxiliar
 
@@ -62,7 +63,10 @@ def calcular_run_id(
     config: RunConfig,
     insumos: InsumosAvaliacao,
 ) -> str:
-    """Identificador derivado do conteúdo dos insumos; independe de threads e memória."""
+    """Identificador derivado do conteúdo dos insumos; independe de threads e memória.
+
+    Não inclui a versão do código: `evaluate_rules` recusa regravar a execução com outro código.
+    """
     politica = politica_da_execucao(insumos, config, regras)
     conteudo = {
         "dataset": dataset.dataset_id,
@@ -216,7 +220,8 @@ def _exigir_portoes(
 
 
 _ANEXO = re.compile(r"[a-z][a-z0-9_]*\.json")
-_RESERVADOS = frozenset({"run_result.json"})
+_ARQUIVO_RESULTADO = "run_result.json"
+_RESERVADOS = frozenset({_ARQUIVO_RESULTADO})
 
 
 def _gravar_anexos(destino: Path, anexos: Mapping[str, str]) -> None:
@@ -226,6 +231,45 @@ def _gravar_anexos(destino: Path, anexos: Mapping[str, str]) -> None:
         temporario = destino / f".{nome}.tmp"
         temporario.write_text(conteudo, encoding="utf-8")
         temporario.replace(destino / nome)
+
+
+def _exigir_execucao_imutavel(destino: Path, run_id: str, codigo: CodeVersion) -> None:
+    """Recusa regravar `destino` se o `run_result.json` dele é de outro código ou ilegível."""
+    try:
+        texto = (destino / _ARQUIVO_RESULTADO).read_text(encoding="utf-8")
+        gravado = RunResult.model_validate_json(texto).codigo
+    except (FileNotFoundError, NotADirectoryError):
+        return
+    except (OSError, ValueError) as erro:
+        raise ConfigInvalida(f"execucao_existente_ilegivel run={run_id}") from erro
+    if gravado != codigo:
+        raise ConfigInvalida(f"execucao_existente_com_outro_codigo run={run_id}")
+
+
+def _preparar_avaliacao(
+    dataset: DatasetRef,
+    rules: list[RuleSpec],
+    config: RunConfig,
+    insumos: InsumosAvaliacao,
+    iniciado: datetime,
+) -> tuple[list[RuleSpec], PoliticaTemporal]:
+    """Regras únicas e política da execução, depois dos portões e da conferência de origem."""
+    regras = _exigir_regras_unicas(rules)
+    politica = politica_da_execucao(insumos, config, regras)
+    _exigir_portoes(config, dataset, insumos, politica, iniciado)
+    _exigir_mesma_origem(dataset, insumos)
+    return regras, politica
+
+
+def _preparar_destino(
+    out: Path, run_id: str, codigo: CodeVersion, anexos: Mapping[str, str]
+) -> Path:
+    """Cria `out/<run_id>` e grava os anexos, só depois de conferir a execução já existente."""
+    destino = out / run_id
+    _exigir_execucao_imutavel(destino, run_id, codigo)
+    destino.mkdir(parents=True, exist_ok=True)
+    _gravar_anexos(destino, anexos)
+    return destino
 
 
 def evaluate_rules(
@@ -244,22 +288,22 @@ def evaluate_rules(
     `anexos` (nome de arquivo → texto) são gravados atomicamente em `out/<run_id>/` antes de
     qualquer saída, então `run_result.json` nunca existe sem eles.
 
+    Execução imutável: `out/<run_id>/` já gravado com outro código (`versao_codigo`) ou com
+    `run_result.json` ilegível é recusado antes de qualquer escrita; o mesmo código regrava.
+
     Falha de programa vira `FalhaOperacional` (`falhas.v1`), nunca `INCONCLUSIVO`.
 
     Raises:
         PortaoRecusado: política não resolvida ou documental pendente no confirmatório.
+        ConfigInvalida: `out/<run_id>` gravado com outro código ou com `run_result.json` ilegível.
         ValueError: regras repetidas, método inválido ou insumos de outra origem de dados.
     """
     insumos = insumos or InsumosAvaliacao()
     iniciado = relogio()
-    regras = _exigir_regras_unicas(rules)
-    politica = politica_da_execucao(insumos, config, regras)
-    _exigir_portoes(config, dataset, insumos, politica, iniciado)
-    _exigir_mesma_origem(dataset, insumos)
+    regras, politica = _preparar_avaliacao(dataset, rules, config, insumos, iniciado)
     run_id = calcular_run_id(dataset, snapshots, regras, config, insumos)
-    destino = out / run_id
-    destino.mkdir(parents=True, exist_ok=True)
-    _gravar_anexos(destino, anexos or {})
+    codigo = versao_codigo(insumos.raiz_codigo)
+    destino = _preparar_destino(out, run_id, codigo, anexos or {})
     contexto = ContextoSaida(
         run_id=run_id,
         dataset=dataset,
@@ -273,7 +317,9 @@ def evaluate_rules(
         "validacao_iniciada run=%s metodo=%s regras=%d", run_id, politica.metodo, len(regras)
     )
     saidas, preparado = _avaliar_e_gravar(contexto, snapshots, config)
-    return _resultado(contexto, snapshots, config, saidas, iniciado=iniciado, preparado=preparado)
+    return _resultado(
+        contexto, snapshots, config, saidas, codigo=codigo, iniciado=iniciado, preparado=preparado
+    )
 
 
 def _avaliar_e_gravar(
@@ -293,6 +339,7 @@ def _resultado(
     config: RunConfig,
     saidas: tuple[DatasetRef, ...],
     *,
+    codigo: CodeVersion,
     iniciado: datetime,
     preparado: bool,
 ) -> RunResult:
@@ -309,7 +356,7 @@ def _resultado(
         politica_id=contexto.politica.politica_id,
         modo=config.modo,
         config_hash=config.config_hash,
-        codigo=versao_codigo(insumos.raiz_codigo),
+        codigo=codigo,
         ambiente=ambiente(insumos.raiz_codigo),
         snapshot_set_id=snapshots.snapshot_id,
         catalogo_regras_sha256=catalogo_sha256(contexto.regras),
@@ -322,7 +369,7 @@ def _resultado(
         freeze_id=config.freeze_id,
         origem_dados=contexto.dataset.origem_dados,
     )
-    (contexto.destino / "run_result.json").write_text(
+    (contexto.destino / _ARQUIVO_RESULTADO).write_text(
         resultado.model_dump_json(indent=2), encoding="utf-8"
     )
     logger.info(

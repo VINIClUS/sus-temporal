@@ -2,7 +2,8 @@
 
 As regras exigem o CNES PF e o SIGTAP; as precondições das operações de `catalog/operations.yaml`
 leem também o CNES ST. Quando a pasta do ingest traz CNES ST, ele entra nos auxiliares da execução
-(e no `entrada_validacao.json`), sem mudar o resultado das regras.
+(e no `entrada_validacao.json`), sem mudar o resultado das regras, desde que o registro e o corte o
+confirmem como confirmam a produção; o que não passa fica fora, sem recusar o `validate`.
 """
 
 from __future__ import annotations
@@ -25,14 +26,22 @@ from tests.fixtures.regras_ingest import montar_ingest
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from sustemporal.contracts.records import DatasetRef
     from tests.fixtures.regras_ingest import MundoIngest
 
 _ST = "cnes_estabelecimento.v1"
+_CORTE = "2026-01-02T12:00:00+00:00"
+_IGNORADO = f"cadastro_do_contexto_ignorado schema={_ST}"
 
 
 def _validar(mundo: MundoIngest, politica: str = "processamento") -> int:
     argumentos = ["validate", "--config", str(mundo.config), "--policy", politica]
     return cli.main([*argumentos, "--ingest", str(mundo.pasta), "--saida", str(mundo.saida)])
+
+
+def _avisos(capsys: pytest.CaptureFixture[str]) -> list[str]:
+    """Linhas de log de cadastro ignorado, um por conjunto de CNES ST fora do contexto."""
+    return [linha for linha in capsys.readouterr().err.splitlines() if _IGNORADO in linha]
 
 
 def _gravados(mundo: MundoIngest) -> list[tuple[RunResult, EntradaValidacao]]:
@@ -66,6 +75,18 @@ def _sem_st_na_pasta(mundo: MundoIngest) -> None:
     mantidas = [linha for linha in linhas if linha["schema_id"] != _ST]
     assert len(mantidas) < len(linhas)
     _regravar(mundo, mantidas)
+
+
+def _st_do_contexto(entrada: EntradaValidacao) -> list[DatasetRef]:
+    return [d for d in entrada.auxiliares if d.schema_id == _ST]
+
+
+def _revalidar_sem_o_st_da_pasta(mundo: MundoIngest) -> None:
+    """Mesma config e registro, pasta sem o CNES ST: o `run_id` continua o mesmo (uma só pasta)."""
+    antes = {run.run_id for run, _ in _gravados(mundo)}
+    _sem_st_na_pasta(mundo)
+    assert _validar(mundo) == ExitCode.OK
+    assert {run.run_id for run, _ in _gravados(mundo)} == antes
 
 
 def _conteudo(run: RunResult, schema_id: str) -> list[str]:
@@ -142,6 +163,80 @@ def test_cnes_st_divergente_do_dataset_recusa_o_ingest_sem_gravar_nada(tmp_path:
 
     assert not list(mundo.saida.glob("*/run_result.json"))
     assert not (mundo.saida / "entradas").exists()
+
+
+def test_cnes_st_observado_apos_o_corte_fica_fora_do_contexto_e_do_run_id(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mundo = montar_ingest(tmp_path, com_cnes_st=True, cnes_st_dias=(3, 3), corte=_CORTE)
+
+    assert _validar(mundo) == ExitCode.OK
+
+    _, entrada = _gravado(mundo)
+    assert _st_do_contexto(entrada) == []
+    avisos = _avisos(capsys)
+    assert len(avisos) == 2
+    assert all("motivo=selecao_nao_aceita" in aviso for aviso in avisos)
+    assert all("estado=FORA_DO_CORTE" in aviso for aviso in avisos)
+    _revalidar_sem_o_st_da_pasta(mundo)
+
+
+def test_cnes_st_fora_do_manifesto_fica_fora_do_contexto_e_do_run_id(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mundo = montar_ingest(tmp_path, com_cnes_st=True, cnes_st_fora_do_manifesto=True)
+
+    assert _validar(mundo) == ExitCode.OK
+
+    _, entrada = _gravado(mundo)
+    assert _st_do_contexto(entrada) == []
+    avisos = _avisos(capsys)
+    assert len(avisos) == 2
+    assert all("motivo=fora_do_registro" in aviso for aviso in avisos)
+    _revalidar_sem_o_st_da_pasta(mundo)
+
+
+def test_cnes_st_observado_ate_o_corte_entra_no_contexto(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mundo = montar_ingest(tmp_path, com_cnes_st=True, corte=_CORTE)
+
+    assert _validar(mundo) == ExitCode.OK
+
+    run, entrada = _gravado(mundo)
+    (st,) = _st_do_contexto(entrada)
+    assert st.linhas == 2
+    assert st.dataset_id in {e.dataset_id for e in run.entradas}
+    assert not _avisos(capsys)
+
+
+def test_so_o_cnes_st_confirmado_pelo_corte_entra_no_contexto(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    mundo = montar_ingest(tmp_path, com_cnes_st=True, cnes_st_dias=(1, 3), corte=_CORTE)
+
+    assert _validar(mundo) == ExitCode.OK
+
+    _, entrada = _gravado(mundo)
+    (st,) = _st_do_contexto(entrada)
+    linhas = pq.read_table(st.caminho).to_pylist()
+    assert {linha["competencia_arquivo"] for linha in linhas} == {"202301"}
+    (aviso,) = _avisos(capsys)
+    assert "competencia=202302" in aviso
+
+
+def test_cnes_st_ignorado_nao_e_conferido_nem_recusa_o_validate(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, com_cnes_st=True, cnes_st_dias=(3, 3), corte=_CORTE)
+    linhas = _linhas_da_pasta(mundo)
+    for linha in linhas:
+        if linha["schema_id"] == _ST:
+            linha["linhas"] += 1
+    _regravar(mundo, linhas)
+
+    assert _validar(mundo) == ExitCode.OK
+
+    _, entrada = _gravado(mundo)
+    assert _st_do_contexto(entrada) == []
 
 
 def test_cadastros_do_contexto_cobrem_o_que_as_operacoes_do_catalogo_alteram() -> None:

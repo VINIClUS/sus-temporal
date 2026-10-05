@@ -33,6 +33,7 @@ from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.coverage import build_coverage
 from sustemporal.rules.catalog import carregar_esquema, requisito_auxiliar
 from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
+from sustemporal.rules.ingest_cadastros import CADASTROS_DO_CONTEXTO
 from sustemporal.rules.ingest_conformidade import exigir_colunas_obrigatorias
 from sustemporal.rules.ingest_selecao import exigir_versao_selecionavel, marcas_de_incompletude
 from sustemporal.rules.preparo import conferir_tipos_fisicos
@@ -62,7 +63,6 @@ logger = logging.getLogger(__name__)
 
 PRODUCAO = "sia_pa.v1"
 COBERTURA = "cobertura.v1"
-CADASTROS_DO_CONTEXTO = ("cnes_estabelecimento.v1",)
 _UNIAO = "uniao_ingest"
 _EXCLUSOES = (
     ("registro_deletado", "deletado IS TRUE"),

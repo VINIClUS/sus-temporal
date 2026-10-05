@@ -45,6 +45,7 @@ if TYPE_CHECKING:
 
 _ESTAB_CBO = "ESTAB_CBO_CNES"
 _INCLUIR = "INCLUIR_CBO_NO_ESTABELECIMENTO"
+_CORTE = "2026-01-02T12:00:00+00:00"
 
 
 @pytest.fixture(autouse=True)
@@ -185,10 +186,11 @@ def test_ingest_real_violacao_usa_o_contexto_gravado_pelo_validate(
     assert instantaneo(tmp_path, sem=execucao.contrafactuais) == antes
 
 
+@pytest.mark.parametrize("corte", [None, _CORTE])
 def test_ingest_real_com_cnes_st_ganha_hipotese_do_catalogo_revalidada_no_motor(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, corte: str | None
 ) -> None:
-    execucao = validar_ingest_pela_cli(tmp_path, "processamento", com_cnes_st=True)
+    execucao = validar_ingest_pela_cli(tmp_path, "processamento", com_cnes_st=True, corte=corte)
     linha = execucao.linha_com_violacao()
     alvos = execucao.regras_em(linha, "VIOLACAO")
     assert alvos == {_ESTAB_CBO}
@@ -203,6 +205,27 @@ def test_ingest_real_com_cnes_st_ganha_hipotese_do_catalogo_revalidada_no_motor(
     assert _INCLUIR in {operacao.op_id for s in resultado.solucoes for operacao in s.operacoes}
     assert resultado.motivo_parada is not MotivoParada.SEM_OPERACAO_ADMISSIVEL
     _reavaliou_no_motor(chamadas, linha, alvos)
+    assert instantaneo(tmp_path, sem=execucao.contrafactuais) == antes
+
+
+def test_ingest_real_com_cnes_st_observado_apos_o_corte_segue_sem_operacao_admissivel(
+    tmp_path: Path,
+) -> None:
+    execucao = validar_ingest_pela_cli(
+        tmp_path, "processamento", com_cnes_st=True, cnes_st_dias=(3, 3), corte=_CORTE
+    )
+    linha = execucao.linha_com_violacao()
+    antes = instantaneo(tmp_path, sem=execucao.contrafactuais)
+
+    assert _contrafactual(execucao, linha) == 0
+
+    resultado = _publicado(execucao).resultado
+    assert set(resultado.regras_alvo) == execucao.regras_em(linha, "VIOLACAO")
+    assert resultado.solucoes == ()
+    assert resultado.candidatos_avaliados == 0
+    assert resultado.motivo_parada is MotivoParada.SEM_OPERACAO_ADMISSIVEL
+    assert resultado.minimalidade is Minimalidade.BUSCA_INCONCLUSIVA
+    assert resultado.aprovacao_garantida is False
     assert instantaneo(tmp_path, sem=execucao.contrafactuais) == antes
 
 

@@ -17,7 +17,7 @@ import pyarrow.parquet as pq
 
 from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import Manifesto
-from sustemporal.contracts.artifacts import ResultadoTentativa
+from sustemporal.contracts.artifacts import EstadoIntegridade, ResultadoTentativa
 from sustemporal.contracts.base import FamiliaFonte, OrigemDados
 from sustemporal.contracts.records import (
     DatasetRef,
@@ -106,11 +106,17 @@ def _itens(
     concorrente: bool,
     concorrente_dia: int = 2,
     partes: tuple[str, ...] = _PARTES,
+    em_quarentena: bool = False,
 ) -> dict[str, _Item]:
     sem = ResultadoTentativa.NAO_ENCONTRADO
     itens = {
         f"pa_{p}": observar(FamiliaFonte.SIA_PA, FEVEREIRO, f"pa-{p}", 1, parte=p) for p in partes
     }
+    if em_quarentena:
+        quarentena = EstadoIntegridade.QUARENTENA_CHECKSUM
+        itens["pa_a"] = observar(
+            FamiliaFonte.SIA_PA, FEVEREIRO, "pa-a", 1, parte="a", integridade_observada=quarentena
+        )
     if concorrente:
         itens["pa_a2"] = observar(
             FamiliaFonte.SIA_PA, FEVEREIRO, "pa-a-outra", concorrente_dia, parte="a"
@@ -431,6 +437,7 @@ def montar_ingest(
     sem_parte_b: bool = False,
     linha_de_janeiro: bool = False,
     partes_sem_declaracao: bool = False,
+    producao_em_quarentena: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -443,6 +450,7 @@ def montar_ingest(
         concorrente=concorrente or no_registro,
         concorrente_dia=concorrente_so_no_registro or 2,
         partes=_PARTES[:1] if sem_parte_b else _PARTES,
+        em_quarentena=producao_em_quarentena,
     )
     manifesto = manifestos / NOME_MANIFESTO_AQUISICAO
     if not sem_manifesto:

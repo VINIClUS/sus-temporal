@@ -16,9 +16,12 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
   (seção "Entrada de validação das execuções de regras").
 - `sustemporal evaluate --freeze <id>`: confirmatório. Exige config confirmatória com dados
   REAIS, G2 humano para o `freeze_id` e o manifesto conferido por inteiro (tabela abaixo) antes
-  de ler qualquer dado. Avalia só o TESTE e emite as razões do TOTAL, do domínio comum e, por
-  valor, de competência, instrumento e estabelecimento (CNES); só o TOTAL e as diferenças
-  pareadas levam intervalo. As execuções vêm de `<raiz_saidas>/runs/<run_id>/`: o
+  de ler qualquer dado. A carga do manifesto (`carregar_freeze`) recusa o ausente, o que o
+  sistema nega ler e o adulterado (UTF-8 inválido, JSON truncado ou fora do contrato) com
+  código 2 (`congelamento_ausente`, `congelamento_ilegivel`, `congelamento_invalido`). Avalia só
+  o TESTE e emite as razões do TOTAL, do domínio comum e, por valor, de competência,
+  instrumento e estabelecimento (CNES); só o TOTAL e as diferenças pareadas levam intervalo.
+  As execuções vêm de `<raiz_saidas>/runs/<run_id>/`: o
   `run_result.json` do motor de regras (`validate` grava ali por padrão, `raiz_execucoes(config)`)
   ou o `run.json` do baseline; os dois no mesmo diretório são recusados (`execucao_ambigua`). Entram só as
   execuções confirmatórias do mesmo `freeze_id`; as demais são ignoradas

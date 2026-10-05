@@ -210,14 +210,16 @@ class SplitManifest(ContratoBase):
     ) -> None:
         if set(rotulos) != declaradas:
             raise ValueError(f"split_rotulos_particoes_divergentes split={self.split_id}")
-        refs = list(rotulos.values())
-        distintos = len({r.dataset_id for r in refs}) == len(refs) and len(
-            {r.caminho for r in refs}
-        ) == len(refs)
-        linhas_iguais = self.particoes is not None and all(
-            rotulos[p].linhas == self.particoes[p].linhas for p in declaradas
+        cheios = [r for r in rotulos.values() if r.linhas > 0]
+        distintos = len(cheios) == len({r.dataset_id for r in cheios})
+        distintos &= len(cheios) == len({r.caminho for r in cheios})
+        populacao = self.particoes or {}
+        presos = bool(populacao) and all(
+            (rotulos[p].linhas, set(rotulos[p].artifact_ids))
+            == (populacao[p].linhas, set(populacao[p].artifact_ids))
+            for p in declaradas
         )
-        if not (distintos and linhas_iguais):
+        if not (distintos and presos):
             raise ValueError(f"split_rotulos_nao_presos_as_particoes split={self.split_id}")
 
     def _particoes_coerentes(
@@ -247,15 +249,8 @@ class Atributo(ContratoBase):
     transformacao: str
 
 
-_ROTULOS_E_ERROS = (
-    "pa_indica",
-    "rotulo",
-    "contradicoes",
-    "pa_codoco",
-    "pa_flqt",
-    "pa_fler",
-    "pa_flidade",
-)
+_ROTULOS = ("pa_indica", "rotulo", "contradicoes")
+_CAMPOS_DE_ERRO = ("pa_codoco", "pa_flqt", "pa_fler", "pa_flidade")
 _VALORES_DO_PROCESSAMENTO = (
     "quantidade_aprovada",
     "valor_aprovado",
@@ -269,7 +264,7 @@ _VALORES_DO_PROCESSAMENTO = (
 )
 COLUNAS_PROIBIDAS_EM_ATRIBUTOS = frozenset(
     f"{nome}{sufixo}"
-    for nome in (*_ROTULOS_E_ERROS, *_VALORES_DO_PROCESSAMENTO)
+    for nome in (*_ROTULOS, *_CAMPOS_DE_ERRO, *_VALORES_DO_PROCESSAMENTO)
     for sufixo in ("", "_bruto", "_motivo")
 )
 
@@ -429,6 +424,9 @@ class FreezeManifest(ContratoBase):
     comparacoes_primarias: tuple[str, ...] = Field(min_length=1)
     margens: dict[str, DecimalExato] = Field(default_factory=dict)
     decisao_g0: ReferenciaDecisao
+    catalogo_regras_sha256: Sha256Hex | None = None
+    politicas_sha256: dict[str, Sha256Hex] | None = None
+    entradas_validacao: dict[str, dict[str, str]] | None = None
 
     @classmethod
     def calcular_id(cls, conteudo: dict[str, Any]) -> str:

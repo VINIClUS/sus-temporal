@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -81,6 +82,9 @@ def auditar_features(
     """
     if not features.atributos:
         raise ValueError(f"feature_spec_vazia feature_set={features.feature_set_id}")
+    contagem = Counter((a.schema_id, a.coluna) for a in features.atributos)
+    if repetidas := sorted(coluna for (_, coluna), n in contagem.items() if n > 1):
+        raise ValueError(f"coluna_de_origem_repetida colunas={','.join(repetidas)}")
     esquemas = tuple(esquemas)
     for atributo in features.atributos:
         _exigir_permitido(atributo)

@@ -947,6 +947,19 @@
    "bootstrap": {
     "$ref": "#/$defs/BootstrapSpec"
    },
+   "catalogo_regras_sha256": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Catalogo Regras Sha256"
+   },
    "catalogos_sha256": {
     "additionalProperties": {
      "pattern": "^[0-9a-f]{64}$",
@@ -990,6 +1003,24 @@
     "title": "Decisao G0",
     "type": "string"
    },
+   "entradas_validacao": {
+    "anyOf": [
+     {
+      "additionalProperties": {
+       "additionalProperties": {
+        "type": "string"
+       },
+       "type": "object"
+      },
+      "type": "object"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Entradas Validacao"
+   },
    "features": {
     "$ref": "#/$defs/FeatureSpec"
    },
@@ -1019,6 +1050,22 @@
     "minItems": 1,
     "title": "Metricas",
     "type": "array"
+   },
+   "politicas_sha256": {
+    "anyOf": [
+     {
+      "additionalProperties": {
+       "pattern": "^[0-9a-f]{64}$",
+       "type": "string"
+      },
+      "type": "object"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Politicas Sha256"
    },
    "split": {
     "$ref": "#/$defs/SplitManifest"

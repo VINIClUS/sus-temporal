@@ -7,8 +7,10 @@ Entradas: os `DatasetRef` do `ingest` (SIA-PA, auxiliares e `cobertura.v1`) e, q
 como evidência ausente. O recorte territorial é explícito: linhas do SIA-PA cujo município do
 estabelecimento não está em `municipios_ibge6` do território da coorte são excluídas com motivo
 `fora_do_territorio`. A disponibilidade das tabelas vem da cobertura recalculada só com as linhas
-incluídas (`report_cobertura.py`). Toda razão sai com numerador e denominador; o relatório é
-sempre exploratório (pré-G0) e nunca libera portão.
+incluídas (`report_cobertura.py`). A pertença é a lista atual do território, sem versão por
+competência: `pertenca=HISTORICA` é recusada (`pertenca_historica_nao_implementada`) até haver
+pertença versionada. Toda razão sai com numerador e denominador; o relatório é sempre exploratório
+(pré-G0) e nunca libera portão.
 """
 
 from __future__ import annotations
@@ -23,7 +25,7 @@ from typing import TYPE_CHECKING
 from sustemporal.contracts import EvaluationReport, OrigemDados, RuntimeConfig
 from sustemporal.contracts.base import hash_canonico
 from sustemporal.contracts.evaluation import ValorMetrica
-from sustemporal.contracts.experiment import ModoExecucao
+from sustemporal.contracts.experiment import ModoExecucao, PertencaGeografica
 from sustemporal.duck import conectar
 from sustemporal.errors import ConfigInvalida
 from sustemporal.ingest.territorio import carregar_territorio, municipios_ibge6
@@ -43,7 +45,7 @@ if TYPE_CHECKING:
 
     from sustemporal.contracts import CohortSpec, DatasetRef, ResultadoTentativa
 
-__all__ = ["build_pilot_report"]
+__all__ = ["build_pilot_report", "exigir_pertenca_implementada"]
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +63,19 @@ def _agora() -> datetime:
     return datetime.now(UTC)
 
 
+def exigir_pertenca_implementada(cohort: CohortSpec) -> None:
+    """Recusa `pertenca=HISTORICA`: há uma lista de municípios por território, sem versão.
+
+    Raises:
+        ConfigInvalida: coorte com pertença histórica.
+    """
+    if cohort.pertenca is PertencaGeografica.HISTORICA:
+        raise ConfigInvalida(
+            f"pertenca_historica_nao_implementada coorte={cohort.cohort_id} "
+            f"territorio={cohort.territorio}"
+        )
+
+
 def _origem(datasets: Sequence[DatasetRef]) -> OrigemDados:
     origens = {dataset.origem_dados for dataset in datasets}
     if len(origens) > 1:
@@ -75,6 +90,14 @@ def _cobertura_da_ingestao(datasets: Sequence[DatasetRef]) -> DatasetRef:
             f"relatorio_sem_cobertura esquema=cobertura.v1 datasets={len(datasets)}"
         )
     return ingest
+
+
+def _entradas_validas(
+    datasets: Sequence[DatasetRef], cohort: CohortSpec
+) -> tuple[OrigemDados, DatasetRef]:
+    """Origem única e `cobertura.v1` da ingestão; recusa coorte e entradas antes de qualquer I/O."""
+    exigir_pertenca_implementada(cohort)
+    return _origem(datasets), _cobertura_da_ingestao(datasets)
 
 
 def _razao(nome: str, numerador: int, denominador: int, estrato: str = "TOTAL") -> ValorMetrica:
@@ -141,11 +164,10 @@ def build_pilot_report(
 
     Raises:
         ValueError: conjuntos de origens diferentes ou divergentes do `DatasetRef`.
-        ConfigInvalida: território da coorte inválido, entrada sem `cobertura.v1` ou coorte sem
-            nenhuma competência na cobertura (nada é gravado em `out`).
+        ConfigInvalida: coorte com pertença histórica ou território inválido, entrada sem
+            `cobertura.v1` ou coorte sem nenhuma competência na cobertura (nada é gravado em `out`).
     """
-    origem = _origem(datasets)
-    ingestao = _cobertura_da_ingestao(datasets)
+    origem, ingestao = _entradas_validas(datasets, cohort)
     municipios = municipios_ibge6(carregar_territorio(Path(cohort.territorio), uf=cohort.uf))
     sia_pa = [d for d in datasets if d.schema_id == "sia_pa.v1"]
     selecoes = [d for d in datasets if d.schema_id == "selecao_versoes.v1"]

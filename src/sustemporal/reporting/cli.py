@@ -28,7 +28,7 @@ from sustemporal.ingest.cli import (
     NOME_POSICAO_MANIFESTO,
     configuracao_do_ingest,
 )
-from sustemporal.reporting.report import build_pilot_report
+from sustemporal.reporting.report import build_pilot_report, exigir_pertenca_implementada
 from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.insumos import InsumosAvaliacao
 from sustemporal.rules.lote import selecionar_em_lote
@@ -54,8 +54,13 @@ ARQUIVOS_DA_INGESTAO = ("datasets.jsonl", NOME_POSICAO_MANIFESTO, NOME_CONFIGURA
 
 
 def _coorte(config: RunConfig, piloto: PilotSpec) -> CohortSpec:
-    """A coorte da configuração; sem ela, a do piloto (UF, território e competências)."""
+    """A coorte da configuração; sem ela, a do piloto (UF, território e competências).
+
+    Raises:
+        ConfigInvalida: coorte explícita com pertença histórica.
+    """
     if config.coorte is not None:
+        exigir_pertenca_implementada(config.coorte)
         return config.coorte
     competencias = sorted(c.valor for c in piloto.competencias_processamento)
     return CohortSpec.model_validate(
@@ -176,12 +181,14 @@ def executar_pilot_report(args: argparse.Namespace, config: RunConfig) -> int:
     """Lê a última execução completa do `ingest`, seleciona as versões e grava o relatório.
 
     Raises:
-        ConfigInvalida: configuração sem piloto, território inválido, nenhuma execução completa
-            do `ingest` em `raiz_saidas`, configuração do `ingest` ilegível ou diferente da atual
-            ou posição do manifesto lida pela ingestão ilegível ou divergente do manifesto atual.
+        ConfigInvalida: configuração sem piloto, coorte explícita com pertença histórica,
+            território inválido, nenhuma execução completa do `ingest` em `raiz_saidas`,
+            configuração do `ingest` ilegível ou diferente da atual ou posição do manifesto lida
+            pela ingestão ilegível ou divergente do manifesto atual.
     """
     if config.piloto is None:
         raise ConfigInvalida("pilot_report_exige_piloto")
+    coorte = _coorte(config, config.piloto)
     raiz_saidas = Path(config.runtime.raiz_saidas)
     ingestao = _ultima_ingestao(raiz_saidas)
     _conferir_configuracao(ingestao, config)
@@ -193,7 +200,7 @@ def executar_pilot_report(args: argparse.Namespace, config: RunConfig) -> int:
     observacoes = {o.observation_id: o.resultado for o in lido.observacoes}
     relatorio = build_pilot_report(
         [*datasets, *selecoes],
-        _coorte(config, config.piloto),
+        coorte,
         saida,
         observacoes=observacoes,
         runtime=config.runtime,

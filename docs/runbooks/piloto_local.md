@@ -14,8 +14,9 @@ Copie `config/pilot.yaml` para fora do repositório (ex.: `$SUSTEMPORAL_REAL_DAT
 defina `runtime.raiz_dados`, `runtime.raiz_manifestos` e `runtime.raiz_saidas` sob
 `$SUSTEMPORAL_REAL_DATA_DIR`. Ajuste `duckdb_memoria` e `duckdb_threads` à memória física. A rede
 só é permitida na aquisição (`rede_permitida: true` no perfil do piloto). Para uma coorte explícita,
-acrescente o bloco `coorte` de `config/cohort.yaml`; sem ele, o relatório usa a UF, o território e o
-intervalo das competências do `piloto`.
+acrescente o bloco `coorte` de `config/cohort.yaml` (`pertenca: HISTORICA` é recusada: ainda não há
+pertença versionada); sem ele, o relatório usa a UF, o território e o intervalo das competências do
+`piloto`.
 
 ## 1. Aquisição
 

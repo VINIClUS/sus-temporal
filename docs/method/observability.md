@@ -43,8 +43,11 @@ Cada linha física do SIA-PA recebe no máximo um motivo de exclusão, na ordem:
 
 O critério geográfico é o município do estabelecimento (`criterio_geografico` da coorte). A
 pertença fixa ou histórica (`pertenca`) segue `A_DEFINIR` e fica citada na nota
-`recorte_territorial`. Incluídas mais excluídas somam as linhas físicas dos conjuntos canônicos
-(`fracao_registros_incluidos`, numerador = incluídas, denominador = físicas).
+`recorte_territorial`. O relatório aplica a lista atual do território a todas as competências,
+então `pertenca=HISTORICA` é recusada (`ConfigInvalida` `pertenca_historica_nao_implementada`,
+saída 2, antes de qualquer saída) até haver pertença versionada (item 19 de
+`docs/pendencias/T05.md`). Incluídas mais excluídas somam as linhas físicas dos conjuntos
+canônicos (`fracao_registros_incluidos`, numerador = incluídas, denominador = físicas).
 
 ## Tabelas
 

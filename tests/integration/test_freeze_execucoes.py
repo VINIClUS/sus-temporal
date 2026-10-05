@@ -15,6 +15,7 @@ from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO
 from tests.fixtures.protocolo_confirmatorio import (
     CONFIG_PROTOCOLO,
     Confirmatorio,
+    como_real,
     config_confirmatoria,
     montar_confirmatorio,
     politicas_do_catalogo,
@@ -26,6 +27,7 @@ from tests.fixtures.protocolo_dados import cenario_baseline
 from sustemporal.contracts.base import conteudo_identidade, hash_canonico
 from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.experiment import (
+    EstadoExecucao,
     FreezeManifest,
     ModoExecucao,
     Particao,
@@ -94,6 +96,11 @@ def test_execucoes_compativeis_com_o_manifesto_sao_avaliadas(
     assert "sigtap_procedimento.v1" in esquemas
 
 
+def _particao(conf: Confirmatorio, particao: Particao) -> Any:
+    assert conf.cenario.split.particoes is not None
+    return como_real(conf.cenario.split.particoes[particao])
+
+
 def _divergencias(conf: Confirmatorio, raiz: Path) -> dict[str, Callable[[], dict[str, Any]]]:
     teste = conf.runs[M_TEMP].entradas[0]
     return {
@@ -114,6 +121,16 @@ def _divergencias(conf: Confirmatorio, raiz: Path) -> dict[str, Callable[[], dic
             "entradas": (teste, conf.rotulos.model_copy(update={"hash_logico": OUTRO_HASH}))
         },
         "sem_entradas": lambda: {"entradas": ()},
+        "so_a_particao_de_calibracao": lambda: {
+            "entradas": (_particao(conf, Particao.CALIBRACAO),)
+        },
+        "so_a_particao_de_desenvolvimento": lambda: {
+            "entradas": (_particao(conf, Particao.DESENVOLVIMENTO),)
+        },
+        "calibracao_com_rotulos_do_teste": lambda: {
+            "entradas": (_particao(conf, Particao.CALIBRACAO), conf.rotulos)
+        },
+        "dataset_completo_sem_a_particao": lambda: {"entradas": (como_real(conf.cenario.dataset),)},
     }
 
 
@@ -129,6 +146,10 @@ CASOS = [
     ("entrada_desconhecida_junto_da_valida", "entradas"),
     ("rotulos_de_outro_conteudo", "entradas"),
     ("sem_entradas", "entradas"),
+    ("so_a_particao_de_calibracao", "entradas"),
+    ("so_a_particao_de_desenvolvimento", "entradas"),
+    ("calibracao_com_rotulos_do_teste", "entradas"),
+    ("dataset_completo_sem_a_particao", "entradas"),
 ]
 
 
@@ -214,6 +235,56 @@ def test_baseline_ajustado_no_confirmatorio_passa_na_conferencia_do_manifesto(
     )
     assert run.tipo is TipoExecucao.BASELINE_ML
     verificar_execucao(conf.manifesto, run, config=config)
+
+
+def _baseline_com(conf: Confirmatorio, particoes: tuple[Particao, ...]) -> RunResult:
+    entradas = tuple(_particao(conf, particao) for particao in particoes)
+    return conf.runs[B_ML].model_copy(update={"entradas": entradas})
+
+
+def test_baseline_com_varias_particoes_passa_quando_inclui_a_de_teste(
+    confirmatorio: Confirmatorio,
+) -> None:
+    todas = (Particao.DESENVOLVIMENTO, Particao.CALIBRACAO, Particao.TESTE)
+    baseline = _baseline_com(confirmatorio, todas)
+    verificar_execucao(confirmatorio.manifesto, baseline, config=confirmatorio.config)
+
+
+@pytest.mark.parametrize(
+    "particoes",
+    [(Particao.DESENVOLVIMENTO, Particao.CALIBRACAO), (Particao.CALIBRACAO,)],
+    ids=["treino_e_calibracao", "so_calibracao"],
+)
+def test_baseline_sem_a_particao_de_teste_e_recusado(
+    confirmatorio: Confirmatorio, particoes: tuple[Particao, ...]
+) -> None:
+    baseline = _baseline_com(confirmatorio, particoes)
+    with pytest.raises(PortaoRecusado, match=_mensagem(baseline, "entradas", confirmatorio)):
+        verificar_execucao(confirmatorio.manifesto, baseline, config=confirmatorio.config)
+
+
+@pytest.mark.parametrize(
+    ("estado", "falhas"),
+    [
+        (EstadoExecucao.PARCIAL, 2),
+        (EstadoExecucao.FALHOU, 1),
+        (EstadoExecucao.PARCIAL, 0),
+        (EstadoExecucao.CONCLUIDA, 1),
+    ],
+)
+def test_confirmatorio_recusa_execucao_que_nao_concluiu_ou_tem_falhas(
+    tmp_path: Path, confirmatorio: Confirmatorio, estado: EstadoExecucao, falhas: int
+) -> None:
+    alvo = confirmatorio.runs[B_PROC]
+    incompleta = alvo.model_copy(update={"estado": estado, "falhas": falhas})
+    runs = [*confirmatorio.runs[:B_PROC], incompleta, *confirmatorio.runs[B_PROC + 1 :]]
+    mensagem = (
+        f"execucao_incompleta_no_confirmatorio run={alvo.run_id} estado={estado.value} "
+        f"falhas={falhas}"
+    )
+    with pytest.raises(PortaoRecusado, match=f"^{re.escape(mensagem)}$"):
+        _avaliar(confirmatorio, tmp_path / "av", runs)
+    assert not (tmp_path / "av").exists()
 
 
 def test_divergencia_acusa_todos_os_campos_na_ordem_do_protocolo(

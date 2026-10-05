@@ -22,12 +22,13 @@ from tests.fixtures.protocolo_cli import (
     nome_do_arquivo_da_execucao,
     runs_da_cli,
 )
-from tests.fixtures.protocolo_confirmatorio import run_compativel
+from tests.fixtures.protocolo_confirmatorio import como_real, run_compativel
 from tests.fixtures.protocolo_dados import cenario_baseline
 
 from sustemporal.cli import main
 from sustemporal.config import load_config
 from sustemporal.contracts.evaluation import EvaluationReport
+from sustemporal.contracts.experiment import EstadoExecucao, Particao
 from sustemporal.contracts.temporal import MetodoId
 from sustemporal.errors import ExitCode
 from sustemporal.evaluation.freeze_registro import ler_registro, registrar_execucao
@@ -119,6 +120,40 @@ def test_cli_recusa_o_confirmatorio_sem_execucao_de_b_proc_e_nao_registra_rodada
     assert main(argumentos) == ExitCode.OK
     (entrada,) = ler_registro(tmp_path / "frozen" / REGISTRO)
     assert len(entrada["runs"]) == len(runs)
+
+
+def test_cli_recusa_o_confirmatorio_com_execucao_do_motor_sobre_outra_particao(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cenario, freeze = congelar_pela_cli(tmp_path, monkeypatch)
+    runs = runs_da_cli(tmp_path, cenario, freeze)
+    assert cenario.split.particoes is not None
+    calibracao = como_real(cenario.split.particoes[Particao.CALIBRACAO])
+    runs[M_TEMP] = runs[M_TEMP].model_copy(update={"entradas": (calibracao,)})
+    gravar_runs(tmp_path, runs)
+    config = config_confirmatoria_yaml(tmp_path, freeze)
+    codigo = main(["evaluate", "--config", str(config), "--freeze", freeze])
+    assert codigo == ExitCode.PORTAO_RECUSADO
+    esperado = f"run_incompativel_com_congelamento run={runs[M_TEMP].run_id} campo=entradas"
+    assert esperado in capsys.readouterr().err
+    assert not (tmp_path / "frozen" / REGISTRO).exists()
+    assert not (tmp_path / "saidas" / "avaliacao").exists()
+
+
+def test_cli_recusa_o_confirmatorio_com_execucao_parcial_e_nao_registra_rodada(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cenario, freeze = congelar_pela_cli(tmp_path, monkeypatch)
+    runs = runs_da_cli(tmp_path, cenario, freeze)
+    runs[M_TEMP] = runs[M_TEMP].model_copy(update={"estado": EstadoExecucao.PARCIAL, "falhas": 1})
+    gravar_runs(tmp_path, runs)
+    config = config_confirmatoria_yaml(tmp_path, freeze)
+    codigo = main(["evaluate", "--config", str(config), "--freeze", freeze])
+    assert codigo == ExitCode.PORTAO_RECUSADO
+    esperado = f"execucao_incompleta_no_confirmatorio run={runs[M_TEMP].run_id} estado=PARCIAL"
+    assert esperado in capsys.readouterr().err
+    assert not (tmp_path / "frozen" / REGISTRO).exists()
+    assert not (tmp_path / "saidas" / "avaliacao").exists()
 
 
 def test_cli_freeze_com_catalogo_de_regras_ilegivel_sai_como_config_invalida(

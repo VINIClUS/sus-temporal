@@ -219,6 +219,34 @@ def test_politica_sem_insumos_congelados_recusa_so_as_execucoes_dela(
         verificar_execucao(conf.manifesto, conf.runs[B_PROC], config=conf.config)
 
 
+def test_manifesto_sem_insumos_recusa_tambem_a_execucao_sem_snapshot(
+    tmp_path: Path, cenario: Cenario
+) -> None:
+    conf = montar_confirmatorio(tmp_path, cenario, insumos={})
+    run = conf.runs[M_TEMP].model_copy(update={"snapshot_set_id": None})
+    mensagem = _mensagem(run, "auxiliares,snapshots", conf)
+    with pytest.raises(PortaoRecusado, match=mensagem):
+        verificar_execucao(conf.manifesto, run, config=conf.config)
+
+
+def test_insumos_sem_selecoes_nem_cobertura_congelam_so_o_que_existe(
+    tmp_path: Path, cenario: Cenario
+) -> None:
+    sem_opcionais = entrada_da_politica(cenario, "B_ATEND")
+    sem_opcionais = sem_opcionais.model_copy(update={"selecoes": None, "cobertura": None})
+    insumos = {**insumos_do_teste(cenario), "B_ATEND": sem_opcionais}
+    conf = montar_confirmatorio(tmp_path, cenario, insumos=insumos)
+    assert (conf.manifesto.auxiliares or {})["B_ATEND"] == _ids_nao_populacionais(sem_opcionais)
+    assert len((conf.manifesto.auxiliares or {})["B_ATEND"]) == len(sem_opcionais.auxiliares)
+    sem = tuple(
+        d
+        for d in conf.runs[B_ATEND].entradas
+        if d.schema_id not in {ESQUEMA_SELECAO, ESQUEMA_COBERTURA}
+    )
+    run = conf.runs[B_ATEND].model_copy(update={"entradas": sem})
+    verificar_execucao(conf.manifesto, run, config=conf.config)
+
+
 def test_manifesto_sem_insumos_nao_leva_os_campos_novos_na_identidade(
     tmp_path: Path, cenario: Cenario
 ) -> None:

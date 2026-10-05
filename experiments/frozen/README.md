@@ -27,13 +27,13 @@ O arquivo nunca é sobrescrito; outro conteúdo com o mesmo id é recusado. Um m
   - `codigo`: mesmo commit e árvore limpa;
   - `config`: o `config_hash` da execução é o da config confirmatória, cujo protocolo
     (`hash_protocolo`, sem `modo` e `freeze_id`) confere com o manifesto;
-  - `catalogo` e `politica` (execuções de validação): `catalogo_regras_sha256` igual ao
-    congelado e `politica_id` entre as políticas congeladas;
+  - `catalogo` e `politica` (toda execução, menos a de baseline): `catalogo_regras_sha256`
+    igual ao congelado e `politica_id` entre as políticas congeladas;
   - `entradas`: toda entrada `sia_pa.v1` ou de rótulos é do congelamento, e ao menos uma existe;
     auxiliares, seleções e cobertura não entram no manifesto e não são conferidos.
 
   Divergência recusa com `run_incompativel_com_congelamento run=<id> campo=<campos>` (saída 4).
-  Manifesto sem catálogo ou políticas recusa as execuções de validação; as de baseline só
+  Manifesto sem catálogo ou políticas recusa as execuções que usam regras; as de baseline só
   repetem código, config e entradas.
 - `sustemporal evaluate --freeze <id> --exploratory`: explícito. Avalia só a CALIBRACAO e
   registra a divergência do manifesto em vez de recusar.

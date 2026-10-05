@@ -105,8 +105,8 @@ def referencia_decisao(diretorio: Path, decisao: DecisaoPortao) -> str:
 class Protocolo:
     """O que se congela: config, split, atributos, entradas, catálogos, regras e políticas.
 
-    `regras` e `politicas` dão a identidade que cada execução de validação precisa repetir; sem
-    elas o manifesto não as registra e a conferência recusa a execução de validação.
+    `regras` e `politicas` dão a identidade que cada execução que usa regras precisa repetir; sem
+    elas o manifesto não as registra e a conferência recusa essas execuções.
     """
 
     config: RunConfig
@@ -279,14 +279,14 @@ def _config_divergente(manifesto: FreezeManifest, run: RunResult, config: RunCon
 
 
 def _catalogo_divergente(manifesto: FreezeManifest, run: RunResult) -> bool:
-    if run.tipo is not TipoExecucao.VALIDACAO:
+    if run.tipo is TipoExecucao.BASELINE_ML:
         return False
     congelado = manifesto.catalogo_regras_sha256
     return congelado is None or run.catalogo_regras_sha256 != congelado
 
 
 def _politica_divergente(manifesto: FreezeManifest, run: RunResult) -> bool:
-    if run.tipo is not TipoExecucao.VALIDACAO:
+    if run.tipo is TipoExecucao.BASELINE_ML:
         return False
     return run.politica_id is None or run.politica_id not in (manifesto.politicas_sha256 or {})
 
@@ -303,8 +303,8 @@ def verificar_execucao(manifesto: FreezeManifest, run: RunResult, *, config: Run
 
     `config` é a config confirmatória do congelamento: o protocolo dela confere com o manifesto
     (`hash_protocolo`) e o `config_hash` da execução é o dela, com `modo` e `freeze_id`. Catálogo
-    de regras e política valem para execuções de validação; as demais só repetem código, config e
-    entradas. Só as entradas `sia_pa.v1` e de rótulos são congeladas; auxiliares, seleções e
+    de regras e política valem para toda execução, menos a de baseline (`BASELINE_ML`), que não
+    usa regras. Só as entradas `sia_pa.v1` e de rótulos são congeladas; auxiliares, seleções e
     cobertura não entram no manifesto.
 
     Raises:

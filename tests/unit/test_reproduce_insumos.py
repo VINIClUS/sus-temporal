@@ -20,6 +20,7 @@ from sustemporal.reporting.reproduce_comparacao import (
     observacoes_dos_insumos,
 )
 from sustemporal.reporting.reproduce_etapas import entradas_congeladas
+from sustemporal.temporal.politicas import carregar_politica
 from tests.fixtures.protocolo_dados import artefato
 from tests.fixtures.protocolo_insumos import conjunto_sintetico, entrada_da_politica
 
@@ -146,6 +147,24 @@ def test_entrada_original_alterada_depois_do_congelamento_fica_de_fora(tmp_path:
     (tmp_path / "insumos" / f"{POLITICA}.json").write_text(
         outra.model_dump_json(), encoding="utf-8"
     )
+    assert entradas_congeladas(tmp_path / "insumos", congeladas) == {}
+
+
+def test_entrada_sem_a_politica_resolvida_confere_pela_politica_do_catalogo(tmp_path: Path) -> None:
+    entrada = _entrada(_conjunto("cnes_estab_cbo.v1", A1))
+    assert entrada.politica is None
+    congeladas = _congelada(tmp_path, entrada)
+    congeladas[POLITICA]["politica"] = "hash-da-politica-do-catalogo"
+    assert entradas_congeladas(tmp_path / "insumos", congeladas) == {POLITICA: entrada}
+
+
+def test_entrada_com_a_politica_resolvida_diferente_da_congelada_fica_de_fora(
+    tmp_path: Path,
+) -> None:
+    politica = carregar_politica("M_TEMP_PADRAO")
+    entrada = _entrada(_conjunto("cnes_estab_cbo.v1", A1)).model_copy(update={"politica": politica})
+    congeladas = _congelada(tmp_path, entrada)
+    congeladas[POLITICA]["politica"] = "hash-de-outra-politica"
     assert entradas_congeladas(tmp_path / "insumos", congeladas) == {}
 
 

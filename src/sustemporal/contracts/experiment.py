@@ -16,6 +16,7 @@ from sustemporal.contracts.base import (
     Confirmacao,
     ContratoBase,
     Data,
+    DatasetId,
     DecimalExato,
     DocRef,
     HashLogico,
@@ -426,6 +427,8 @@ class FreezeManifest(ContratoBase):
     decisao_g0: ReferenciaDecisao
     catalogo_regras_sha256: Sha256Hex | None = None
     politicas_sha256: dict[str, Sha256Hex] | None = None
+    auxiliares: dict[str, tuple[DatasetId, ...]] | None = None
+    snapshots: dict[str, str] | None = None
 
     @classmethod
     def calcular_id(cls, conteudo: dict[str, Any]) -> str:

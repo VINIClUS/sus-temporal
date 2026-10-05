@@ -13,6 +13,7 @@ from tests.fixtures.protocolo_avaliacao import (
     relogio,
     run_agregados,
 )
+from tests.fixtures.protocolo_cli import gravar_insumos
 from tests.fixtures.protocolo_dados import Cenario, cenario_baseline
 
 from sustemporal.cli import main
@@ -439,6 +440,7 @@ def test_cli_congela_e_avalia_exploratorio(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.chdir(raiz)
     monkeypatch.setattr("sustemporal.evaluation.cli.versao_codigo", lambda _: CODIGO_LIMPO)
     escrever_decisao(raiz / "experiments" / "decisions", "G0", "CONTINUAR")
+    gravar_insumos(raiz, cenario)
     assert main(["freeze", "--config", str(config)]) == ExitCode.OK
     (manifesto,) = sorted((raiz / "frozen").glob("frz_*.json"))
     freeze = manifesto.stem

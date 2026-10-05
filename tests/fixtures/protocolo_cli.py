@@ -16,6 +16,7 @@ from sustemporal.errors import ExitCode
 from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO, escrever_decisao
 from tests.fixtures.protocolo_confirmatorio import (
     CATALOGO_SIA_PA,
+    insumos_do_teste,
     reescrever_split_como_real,
     runs_compativeis,
 )
@@ -73,14 +74,30 @@ def config_confirmatoria_yaml(raiz: Path, freeze: str) -> Path:
     return config_yaml(raiz, modo="CONFIRMATORIO", freeze_id=freeze)
 
 
-def congelar_pela_cli(raiz: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Cenario, str]:
-    """Constrói o split, congela pela CLI (G0) e abre o teste (G2); devolve o `freeze_id`."""
+def preparar_cli(raiz: Path, monkeypatch: pytest.MonkeyPatch) -> Cenario:
+    """Constrói o split REAL e o G0, de dentro de `raiz`, sem os insumos das execuções."""
     cenario = cenario_baseline(raiz / "saidas", competencias=("202001", "202301", "202401"))
     reescrever_split_como_real(raiz / "saidas" / "split")
     monkeypatch.chdir(raiz)
     monkeypatch.setattr("sustemporal.evaluation.cli.versao_codigo", lambda _: CODIGO_LIMPO)
+    escrever_decisao(raiz / "experiments" / "decisions", "G0", "CONTINUAR")
+    return cenario
+
+
+def gravar_insumos(raiz: Path, cenario: Cenario) -> Path:
+    """`<raiz_saidas>/split/insumos/<politica_id>.json`: a entrada de validação de cada política."""
+    pasta = raiz / "saidas" / "split" / "insumos"
+    pasta.mkdir(parents=True, exist_ok=True)
+    for politica, entrada in insumos_do_teste(cenario).items():
+        (pasta / f"{politica}.json").write_text(entrada.model_dump_json(indent=2), encoding="utf-8")
+    return pasta
+
+
+def congelar_pela_cli(raiz: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Cenario, str]:
+    """Constrói o split, congela pela CLI (G0) e abre o teste (G2); devolve o `freeze_id`."""
+    cenario = preparar_cli(raiz, monkeypatch)
+    gravar_insumos(raiz, cenario)
     decisoes = raiz / "experiments" / "decisions"
-    escrever_decisao(decisoes, "G0", "CONTINUAR")
     assert main(["freeze", "--config", str(config_yaml(raiz))]) == ExitCode.OK
     (manifesto,) = sorted((raiz / "frozen").glob("frz_*.json"))
     escrever_decisao(decisoes, "G2", "ABRIR_TESTE", freeze_id=manifesto.stem)

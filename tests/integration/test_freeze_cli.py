@@ -17,6 +17,7 @@ from tests.fixtures.protocolo_cli import (
     config_yaml,
     congelar_pela_cli,
     executar_cli,
+    gravar_insumos,
     gravar_runs,
     manifesto_da_cli,
     nome_do_arquivo_da_execucao,
@@ -159,7 +160,7 @@ def test_cli_recusa_o_confirmatorio_com_execucao_parcial_e_nao_registra_rodada(
 def test_cli_freeze_com_catalogo_de_regras_ilegivel_sai_como_config_invalida(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    cenario_baseline(tmp_path / "saidas")
+    gravar_insumos(tmp_path, cenario_baseline(tmp_path / "saidas"))
     monkeypatch.chdir(tmp_path)
     escrever_decisao(tmp_path / "experiments" / "decisions", "G0", "CONTINUAR")
 

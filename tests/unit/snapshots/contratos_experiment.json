@@ -944,6 +944,25 @@
    "ambiente": {
     "$ref": "#/$defs/Ambiente"
    },
+   "auxiliares": {
+    "anyOf": [
+     {
+      "additionalProperties": {
+       "items": {
+        "pattern": "^ds_[0-9a-f]{64}$",
+        "type": "string"
+       },
+       "type": "array"
+      },
+      "type": "object"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Auxiliares"
+   },
    "bootstrap": {
     "$ref": "#/$defs/BootstrapSpec"
    },
@@ -1048,6 +1067,21 @@
     ],
     "default": null,
     "title": "Politicas Sha256"
+   },
+   "snapshots": {
+    "anyOf": [
+     {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "type": "object"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Snapshots"
    },
    "split": {
     "$ref": "#/$defs/SplitManifest"

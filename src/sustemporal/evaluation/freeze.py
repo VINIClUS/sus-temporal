@@ -39,6 +39,7 @@ if TYPE_CHECKING:
         SplitManifest,
     )
     from sustemporal.contracts.temporal import PoliticaTemporal
+    from sustemporal.rules.entrada import EntradaValidacao
 
 __all__ = [
     "COMPARACOES_PRIMARIAS",
@@ -101,7 +102,10 @@ class Protocolo:
     `catalogos` são os que `config.catalogos` declara (os digests são recalculados por esses
     caminhos na conferência). `regras` e `politicas` dão a identidade que cada execução que usa
     regras precisa repetir; sem elas o manifesto não as registra e a conferência recusa essas
-    execuções.
+    execuções. `insumos` traz, por `politica_id`, a entrada de validação (`entrada_validacao.json`)
+    sobre o TESTE que as execuções dessa política devem usar: dos auxiliares, das seleções, da
+    cobertura e do `SnapshotSet` o manifesto grava as identidades; sem elas a conferência recusa
+    toda execução de regras.
     """
 
     config: RunConfig
@@ -113,6 +117,7 @@ class Protocolo:
     margens: Mapping[str, Decimal] = field(default_factory=dict)
     regras: Sequence[RuleSpec] = ()
     politicas: Sequence[PoliticaTemporal] = ()
+    insumos: Mapping[str, EntradaValidacao] = field(default_factory=dict)
 
 
 def congelar(

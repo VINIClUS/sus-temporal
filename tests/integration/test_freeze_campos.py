@@ -17,11 +17,15 @@ import pytest
 from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO
 from tests.fixtures.protocolo_confirmatorio import (
     CATALOGO_SIA_PA,
+    ESQUEMA_SIGTAP,
     MUTACOES_DO_AMBIENTE,
     OUTRO_SHA,
     Confirmatorio,
+    com_conjunto_trocado,
+    conjunto_sintetico,
     montar_confirmatorio,
     sia_pa_desconhecido,
+    snapshots_sinteticos,
 )
 from tests.fixtures.protocolo_dados import cenario_baseline
 
@@ -233,6 +237,10 @@ def _cenarios_da_execucao(
         return runs, _mensagem_da_execucao(alvo, campo, conf)
 
     outro_ambiente = MUTACOES_DO_AMBIENTE["pacotes"](alvo.ambiente)
+    outro_sigtap = com_conjunto_trocado(
+        alvo, ESQUEMA_SIGTAP, conjunto_sintetico(ESQUEMA_SIGTAP, "x")
+    )
+    outro_snapshot = snapshots_sinteticos("outro").snapshot_id
     sem_b_proc = [run for run in conf.runs if run.metodo is not MetodoId.B_PROC]
     faltam = (
         "avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias metodos=B_PROC "
@@ -245,6 +253,8 @@ def _cenarios_da_execucao(
         "catalogo": lambda: com("catalogo", catalogo_regras_sha256=OUTRO_SHA),
         "politica": lambda: com("politica", politica_id="politica_inventada"),
         "entradas": lambda: com("entradas", entradas=()),
+        "auxiliares": lambda: com("auxiliares", entradas=outro_sigtap.entradas),
+        "snapshots": lambda: com("snapshots", snapshot_set_id=outro_snapshot),
         "metodos": lambda: (sem_b_proc, f"^{re.escape(faltam)}$"),
     }
 

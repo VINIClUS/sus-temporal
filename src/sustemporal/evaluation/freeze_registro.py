@@ -24,9 +24,14 @@ if TYPE_CHECKING:
 
     from sustemporal.contracts import EvaluationReport
 
-__all__ = ["exigir_rodada_permitida", "ler_registro", "registrar_execucao"]
+__all__ = ["arquivo_de_trava", "exigir_rodada_permitida", "ler_registro", "registrar_execucao"]
 
 logger = logging.getLogger(__name__)
+
+
+def arquivo_de_trava(registro: Path) -> Path:
+    """Arquivo de trava entre processos, ao lado do registro."""
+    return registro.with_name(f"{registro.name}.trava")
 
 
 def _sha(texto: str) -> str:

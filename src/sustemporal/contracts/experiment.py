@@ -349,6 +349,7 @@ class CodeVersion(ContratoBase):
     commit: str
     sujo: Booleano
     versao_pacote: str
+    diff_sha256: Sha256Hex | None = None
 
 
 class Ambiente(ContratoBase):

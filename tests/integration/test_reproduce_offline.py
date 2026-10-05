@@ -21,6 +21,7 @@ from tests.fixtures.reproducao_fluxo import (
     Fluxo,
     Reproducao,
     adquirir_e_ingerir,
+    artefatos_do_sia_pa,
     congelar_e_avaliar,
     derivar,
     iniciar,
@@ -37,7 +38,13 @@ from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts import FamiliaFonte
 from sustemporal.contracts.counterfactual import CounterfactualSearchResult, MotivoParada
 from sustemporal.contracts.evaluation import EvaluationReport
-from sustemporal.contracts.experiment import FreezeManifest, ModoExecucao, Particao, RunResult
+from sustemporal.contracts.experiment import (
+    FreezeManifest,
+    ModoExecucao,
+    Particao,
+    RunResult,
+    SplitManifest,
+)
 from sustemporal.errors import ExitCode
 from sustemporal.evaluation.freeze_registro import ler_registro
 from sustemporal.explanation.cli import diretorio_explicacao
@@ -79,7 +86,7 @@ def fluxo(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Fluxo]:
         estado = iniciar(tmp_path_factory.mktemp("reproduz"), mp)
         adquirir_e_ingerir(estado)
         validar_janelas(estado)
-        derivar(estado)
+        derivar(estado, inspecionados=artefatos_do_sia_pa(estado, "dev"))
         congelar_e_avaliar(estado)
         yield estado
 
@@ -275,6 +282,19 @@ def _manifesto(fluxo: Fluxo) -> FreezeManifest:
 
 def _original_do_congelamento(fluxo: Fluxo, schema_id: str) -> Path:
     return Path(next(d for d in _manifesto(fluxo).datasets if d.schema_id == schema_id).caminho)
+
+
+def test_reproduce_refaz_o_split_com_os_artefatos_inspecionados_do_congelamento(
+    fluxo: Fluxo, reproducao: Reproducao
+) -> None:
+    inspecionados = artefatos_do_sia_pa(fluxo, "dev")
+    assert len(inspecionados) == 2
+    assert _manifesto(fluxo).split.artefatos_inspecionados == inspecionados
+    item = reproducao.itens["split:split_id"]
+    assert item["situacao"] == "IGUAL"
+    refeito = reproducao.out / "split" / f"{item['obtido']}.json"
+    split = SplitManifest.model_validate_json(refeito.read_text(encoding="utf-8"))
+    assert split.artefatos_inspecionados == inspecionados
 
 
 def test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual(

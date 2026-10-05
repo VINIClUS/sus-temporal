@@ -37,7 +37,7 @@ from sustemporal.rules.insumos import METODOS_DE_VALIDACAO
 from sustemporal.rules.validate_ingest import validar_ingest
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Mapping
+    from collections.abc import Collection, Iterable, Mapping
 
     from sustemporal.contracts.config import RunConfig
     from sustemporal.contracts.experiment import RunResult, SplitManifest, SplitSpec
@@ -178,7 +178,12 @@ def _fonte_por_artefato(config: RunConfig) -> dict[str, str]:
 
 
 def derivar_protocolo(
-    config: RunConfig, pasta: Path, destino: Path, *, spec: SplitSpec
+    config: RunConfig,
+    pasta: Path,
+    destino: Path,
+    *,
+    spec: SplitSpec,
+    inspecionados: Iterable[str] = (),
 ) -> Derivado:
     """União do SIA-PA do ingest, rótulos pelo codebook e partições do split, em `destino`.
 
@@ -190,6 +195,8 @@ def derivar_protocolo(
     """
     if config.coorte is None:
         raise ConfigInvalida("derivar_protocolo_exige_coorte")
+    if tuple(inspecionados):
+        raise NotImplementedError("derivar_protocolo_inspecionados")
     producao = [ref for ref in ler_datasets(pasta) if ref.schema_id == SCHEMA_ENTRADA]
     if not producao:
         raise ConfigInvalida("ingest_sem_producao schema=sia_pa.v1")

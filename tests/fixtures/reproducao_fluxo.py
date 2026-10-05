@@ -16,11 +16,18 @@ from typing import TYPE_CHECKING, Any
 
 import pyarrow.parquet as pq
 
+from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
+from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.config import load_config
 from sustemporal.contracts.experiment import Particao, RunResult, SplitManifest
-from sustemporal.evaluation.split import carregar_spec
+from sustemporal.evaluation.split import SUFIXO_ENTRADAS, build_splits, carregar_spec
 from sustemporal.execucoes import raiz_execucoes
-from sustemporal.reporting.reproduce_etapas import derivar_protocolo, janela_do_ingest
+from sustemporal.reporting.reproduce_etapas import (
+    Derivado,
+    competencias_da_particao,
+    derivar_protocolo,
+    janela_do_ingest,
+)
 from sustemporal.rules.ingest import ler_datasets
 from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO, escrever_decisao
 from tests.fixtures.reproducao_mundo import (
@@ -34,7 +41,7 @@ from tests.fixtures.reproducao_mundo import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Collection, Mapping
 
     import pytest
 
@@ -128,20 +135,74 @@ def linha_do_ingest(
     return str(achados[0])
 
 
-def derivar(fluxo: Fluxo) -> SplitManifest:
-    """União, rótulos e partições em `<raiz_saidas>/split`, com os insumos do TESTE ao lado."""
+def artefatos_do_sia_pa(fluxo: Fluxo, janela: str) -> tuple[str, ...]:
+    """`artifact_id` (ordenados) dos arquivos do SIA-PA que a janela (`dev`, `cal`, `teste`) lê."""
+    assert fluxo.ingest is not None
+    competencias = set(JANELAS[janela])
+    return tuple(
+        sorted(
+            artefato
+            for ref in ler_datasets(fluxo.ingest)
+            if ref.schema_id == "sia_pa.v1" and set(competencias_da_particao(ref)) <= competencias
+            for artefato in ref.artifact_ids
+        )
+    )
+
+
+def _fontes_por_artefato(fluxo: Fluxo) -> dict[str, str]:
+    """Fonte lógica de cada versão do manifesto, no formato do protocolo (entra no `split_id`)."""
+    manifesto = Manifesto(fluxo.mundo.raiz / "manifestos" / NOME_MANIFESTO_AQUISICAO)
+    return {
+        artefato: "|".join(
+            str(valor)
+            for valor in (v.chave.fonte, v.chave.uf, v.chave.competencia_arquivo, v.chave.parte)
+        )
+        for artefato, v in manifesto.ler().versoes.items()
+    }
+
+
+def _com_inspecionados(
+    fluxo: Fluxo, derivado: Derivado, inspecionados: Collection[str]
+) -> SplitManifest:
+    """O split do mesmo protocolo, mas com os artefatos inspecionados, direto no `build_splits`."""
+    config = fluxo.config("teste")
+    assert config.coorte is not None
+    destino = fluxo.mundo.saidas / "split"
+    anterior = derivado.split.split_id
+    (destino / f"{anterior}.json").unlink()
+    (destino / f"{anterior}{SUFIXO_ENTRADAS}").unlink()
+    return build_splits(
+        derivado.uniao,
+        config.coorte,
+        destino,
+        spec=derivado.split.spec,
+        fonte_por_artefato=_fontes_por_artefato(fluxo),
+        inspecionados=inspecionados,
+        rotulos=derivado.rotulos,
+    )
+
+
+def derivar(fluxo: Fluxo, *, inspecionados: Collection[str] = ()) -> SplitManifest:
+    """União, rótulos e partições em `<raiz_saidas>/split`, com os insumos do TESTE ao lado.
+
+    Os `inspecionados` entram no split direto pelo `build_splits`, sem passar pelo
+    `derivar_protocolo`: o original que a reprodução refaz não depende do código que ela exerce.
+    """
     assert fluxo.ingest is not None
     destino = fluxo.mundo.saidas / "split"
     config = fluxo.config("teste")
     derivado = derivar_protocolo(config, fluxo.ingest, destino, spec=carregar_spec(SPLITS))
-    fluxo.split = derivado.split
-    teste = derivado.split.hash_por_particao[Particao.TESTE]
+    split = derivado.split
+    if inspecionados:
+        split = _com_inspecionados(fluxo, derivado, inspecionados)
+    fluxo.split = split
+    teste = split.hash_por_particao[Particao.TESTE]
     (destino / "insumos").mkdir(exist_ok=True)
     for (janela, _), run in fluxo.execucoes.items():
         if janela == "teste" and run.entradas[0].hash_logico == teste:
             origem = raiz_execucoes(config) / run.run_id / "entrada_validacao.json"
             shutil.copyfile(origem, destino / "insumos" / f"{run.politica_id}.json")
-    return derivado.split
+    return split
 
 
 def congelar_e_avaliar(fluxo: Fluxo) -> None:

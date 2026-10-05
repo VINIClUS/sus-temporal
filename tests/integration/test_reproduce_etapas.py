@@ -15,6 +15,7 @@ import pytest
 from tests.fixtures.reproducao_fluxo import (
     Fluxo,
     adquirir_e_ingerir,
+    artefatos_do_sia_pa,
     derivar,
     iniciar,
     validar_janelas,
@@ -39,6 +40,8 @@ from sustemporal.rules.ingest import ler_datasets
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
+
+    from sustemporal.contracts.experiment import SplitManifest
 
 pytestmark = pytest.mark.slow
 
@@ -261,3 +264,45 @@ def test_derivar_protocolo_recusa_ingest_com_origens_diferentes(
     assert spec is not None
     with pytest.raises(ConfigInvalida, match=r"^ingest_com_origens_diferentes origens="):
         derivar_protocolo(derivado.config("teste"), misturado, tmp_path / "split", spec=spec)
+
+
+def _derivar(fluxo: Fluxo, destino: Path, inspecionados: tuple[str, ...] = ()) -> SplitManifest:
+    assert fluxo.ingest is not None
+    assert fluxo.split is not None
+    config = fluxo.config("teste")
+    spec = fluxo.split.spec
+    return derivar_protocolo(
+        config, fluxo.ingest, destino, spec=spec, inspecionados=inspecionados
+    ).split
+
+
+def test_derivar_protocolo_grava_os_artefatos_inspecionados_no_split(
+    derivado: Fluxo, tmp_path: Path
+) -> None:
+    inspecionados = artefatos_do_sia_pa(derivado, "dev")
+    assert len(inspecionados) == 2
+    com = _derivar(derivado, tmp_path / "com", inspecionados)
+    sem = _derivar(derivado, tmp_path / "sem")
+    assert com.artefatos_inspecionados == inspecionados
+    assert sem.artefatos_inspecionados == ()
+    assert com.split_id != sem.split_id
+    assert com.hash_por_particao == sem.hash_por_particao
+
+
+def test_derivar_protocolo_recusa_inspecionado_que_cairia_no_teste(
+    derivado: Fluxo, tmp_path: Path
+) -> None:
+    do_teste = artefatos_do_sia_pa(derivado, "teste")
+    assert len(do_teste) == 1
+    with pytest.raises(ValueError, match="teste_contem_artefato_inspecionado"):
+        _derivar(derivado, tmp_path / "teste", do_teste)
+
+
+def test_derivar_protocolo_recusa_inspecionado_sem_fonte_no_manifesto(
+    derivado: Fluxo, tmp_path: Path
+) -> None:
+    fora = "art_" + "0" * 64
+    with pytest.raises(
+        ValueError, match=r"^split_sem_fonte_para_artefato inspecionados=1 primeiro="
+    ):
+        _derivar(derivado, tmp_path / "fora", (fora,))

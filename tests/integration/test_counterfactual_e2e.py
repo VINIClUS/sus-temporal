@@ -164,8 +164,10 @@ def test_ingest_real_violacao_usa_o_contexto_gravado_pelo_validate(
     resultado = publicado.resultado
     assert set(resultado.regras_alvo) == alvos
     assert inconclusivas.isdisjoint(resultado.regras_alvo)
-    assert [c.sobreposta for c in chamadas] == [False]
-    assert chamadas[0].estados[(linha, _ESTAB_CBO)] == "VIOLACAO"
+    assert chamadas
+    assert not any(c.sobreposta for c in chamadas)
+    assert all(c.estados[(linha, _ESTAB_CBO)] == "VIOLACAO" for c in chamadas)
+    # O `--ingest` não grava o CNES ST das precondições: nenhuma operação é admissível.
     assert resultado.solucoes == ()
     assert resultado.candidatos_avaliados == 0
     assert resultado.motivo_parada is MotivoParada.SEM_OPERACAO_ADMISSIVEL

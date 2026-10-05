@@ -48,6 +48,9 @@ if TYPE_CHECKING:
 
 _INCLUIR = "INCLUIR_CBO_NO_ESTABELECIMENTO"
 _AS_OF = "202610"
+_FIM_DE_FEVEREIRO = datetime(2020, 2, 29, 23, 59, 59, tzinfo=UTC)
+_INICIO_DE_MARCO = datetime(2020, 3, 1, 0, 0, 0, tzinfo=UTC)
+_FIM_DE_MARCO = datetime(2020, 3, 31, 23, 59, 59, tzinfo=UTC)
 
 
 @pytest.fixture(scope="module")
@@ -58,6 +61,12 @@ def execucao(tmp_path_factory: pytest.TempPathFactory) -> Execucao:
 def _rodar(execucao: Execucao, row: str, run: str | None = None) -> int:
     args = argparse.Namespace(run=run or execucao.run_id, row=row)
     return executar_counterfactual(args, execucao.config, relogio=relogio)
+
+
+def _arquivos(pasta: Path) -> dict[str, bytes]:
+    return {
+        str(p.relative_to(pasta)): p.read_bytes() for p in sorted(pasta.rglob("*")) if p.is_file()
+    }
 
 
 def _saidas(execucao: Execucao) -> Path:
@@ -303,8 +312,8 @@ def test_catalogo_lido_uma_vez_define_identidade_e_busca(
 @pytest.mark.parametrize(
     ("instante", "as_of", "esperado"),
     [
-        (datetime(2020, 2, 29, 23, 59, 59, tzinfo=UTC), "202002", Executabilidade.INDETERMINADO),
-        (datetime(2020, 3, 1, 0, 0, 0, tzinfo=UTC), "202003", Executabilidade.HIPOTESE_PASSADA),
+        (_FIM_DE_FEVEREIRO, "202002", Executabilidade.INDETERMINADO),
+        (_INICIO_DE_MARCO, "202003", Executabilidade.HIPOTESE_PASSADA),
     ],
 )
 def test_relogio_injetado_decide_a_executabilidade(
@@ -315,17 +324,6 @@ def test_relogio_injetado_decide_a_executabilidade(
     assert executar_counterfactual(args, execucao.config, relogio=lambda: instante) == 0
     resultado = _resultado(execucao, execucao.ausencia, as_of)
     assert resultado.solucoes[0].executabilidade is esperado
-
-
-_FIM_DE_FEVEREIRO = datetime(2020, 2, 29, 23, 59, 59, tzinfo=UTC)
-_INICIO_DE_MARCO = datetime(2020, 3, 1, 0, 0, 0, tzinfo=UTC)
-_FIM_DE_MARCO = datetime(2020, 3, 31, 23, 59, 59, tzinfo=UTC)
-
-
-def _arquivos(pasta: Path) -> dict[str, bytes]:
-    return {
-        str(p.relative_to(pasta)): p.read_bytes() for p in sorted(pasta.rglob("*")) if p.is_file()
-    }
 
 
 def test_competencia_as_of_diferente_publica_outro_resultado_e_preserva_o_anterior(

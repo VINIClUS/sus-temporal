@@ -2,12 +2,13 @@
 
 Entradas: os `DatasetRef` do `ingest` (SIA-PA, auxiliares e `cobertura.v1`) e, quando houver, a
 `selecao_versoes.v1` de cada conjunto SIA-PA. Sem `cobertura.v1` a entrada é recusada
-(`relatorio_sem_cobertura`): disponibilidade vazia seria lida como resultado, não como evidência
-ausente. O recorte territorial é explícito: linhas do SIA-PA cujo município do estabelecimento não
-está em `municipios_ibge6` do território da coorte são excluídas com motivo `fora_do_territorio`. A
-disponibilidade das tabelas vem da cobertura recalculada só com as linhas incluídas
-(`report_cobertura.py`). Toda razão sai com numerador e denominador; o relatório é sempre
-exploratório (pré-G0) e nunca libera portão.
+(`relatorio_sem_cobertura`), assim como a coorte sem nenhuma competência na cobertura
+(`coorte_sem_competencias_na_cobertura`): disponibilidade vazia seria lida como resultado, não
+como evidência ausente. O recorte territorial é explícito: linhas do SIA-PA cujo município do
+estabelecimento não está em `municipios_ibge6` do território da coorte são excluídas com motivo
+`fora_do_territorio`. A disponibilidade das tabelas vem da cobertura recalculada só com as linhas
+incluídas (`report_cobertura.py`). Toda razão sai com numerador e denominador; o relatório é
+sempre exploratório (pré-G0) e nunca libera portão.
 """
 
 from __future__ import annotations
@@ -140,7 +141,8 @@ def build_pilot_report(
 
     Raises:
         ValueError: conjuntos de origens diferentes ou divergentes do `DatasetRef`.
-        ConfigInvalida: território da coorte inválido ou entrada sem `cobertura.v1`.
+        ConfigInvalida: território da coorte inválido, entrada sem `cobertura.v1` ou coorte sem
+            nenhuma competência na cobertura (nada é gravado em `out`).
     """
     origem = _origem(datasets)
     ingestao = _cobertura_da_ingestao(datasets)
@@ -151,11 +153,11 @@ def build_pilot_report(
     with closing(conectar(execucao)) as con:
         fisicas = carregar_registros_piloto(con, sia_pa)
         criar_tabelas_registros(con, cohort, municipios)
-        carregar_rotulos(con, sia_pa, out, runtime=execucao)
-        carregar_inconclusivos(con, selecoes, observacoes or {})
         cobertura = recalcular_cobertura(
             con, datasets, cohort, out, ingest=ingestao, runtime=execucao, origem=origem
         )
+        carregar_rotulos(con, sia_pa, out, runtime=execucao)
+        carregar_inconclusivos(con, selecoes, observacoes or {})
         carregar_disponibilidade(con, cobertura, cohort)
         tabelas = publicar_tabelas(con, out, datasets, origem)
         metricas = _metricas(con, fisicas)

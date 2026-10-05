@@ -7,7 +7,9 @@ auxiliares e as competências da cobertura da ingestão no intervalo da coorte. 
 `sia_pa_incompleto` da ingestão continuam valendo. Competência com linha de produção nos conjuntos
 `sia_pa.v1` ingeridos e nenhuma linha incluída fica `populacao_vazia_no_recorte` (limitação
 amostral), nunca `sia_pa_ausente`. A presença sai desses conjuntos, nunca do texto do motivo da
-cobertura: competência sem conjunto legível continua ausente, com o motivo original.
+cobertura: competência sem conjunto legível continua ausente, com o motivo original. Coorte sem
+nenhuma competência na cobertura da ingestão é recusada (`coorte_sem_competencias_na_cobertura`):
+disponibilidade vazia seria lida como resultado, não como ingestão que não cobre a coorte.
 """
 
 from __future__ import annotations
@@ -16,6 +18,7 @@ from typing import TYPE_CHECKING
 
 from sustemporal.contracts import DatasetRef
 from sustemporal.contracts.records import calcular_dataset_id
+from sustemporal.errors import ConfigInvalida
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.coverage import build_coverage, marcas_sia_pa_incompleto
 from sustemporal.ingest.sia_pa import carregar_conferido, gravar_parquet, produtor
@@ -64,15 +67,27 @@ def _publicar_recorte(
 def _marcas_e_competencias(
     con: duckdb.DuckDBPyConnection, cobertura: DatasetRef, cohort: CohortSpec
 ) -> tuple[dict[str, str], list[str]]:
+    """Marcas de incompletude e competências da cobertura da ingestão dentro da coorte.
+
+    Raises:
+        ConfigInvalida: nenhuma competência da cobertura no intervalo da coorte.
+    """
     carregar_conferido(con, cobertura, carregar_esquema("cobertura.v1"), "cobertura_ingest")
     motivos = con.execute("SELECT DISTINCT motivo FROM cobertura_ingest").fetchall()
-    competencias = con.execute(
-        "SELECT DISTINCT competencia FROM cobertura_ingest "
-        "WHERE competencia BETWEEN $inicio AND $fim ORDER BY competencia",
+    na_cobertura = con.execute(
+        "SELECT DISTINCT competencia, competencia BETWEEN $inicio AND $fim AS dentro "
+        "FROM cobertura_ingest WHERE competencia IS NOT NULL ORDER BY competencia",
         {"inicio": cohort.inicio.valor, "fim": cohort.fim.valor},
     ).fetchall()
+    competencias = [str(c) for c, dentro in na_cobertura if dentro]
+    if not competencias:
+        raise ConfigInvalida(
+            f"coorte_sem_competencias_na_cobertura coorte={cohort.cohort_id} "
+            f"inicio={cohort.inicio.valor} fim={cohort.fim.valor} "
+            f"cobertura={','.join(str(c) for c, _ in na_cobertura) or '-'}"
+        )
     marcas = marcas_sia_pa_incompleto(str(m) for (m,) in motivos if m is not None)
-    return marcas, [str(c) for (c,) in competencias]
+    return marcas, competencias
 
 
 def _competencias_com_producao(con: duckdb.DuckDBPyConnection) -> list[str]:
@@ -94,7 +109,12 @@ def recalcular_cobertura(
     runtime: RuntimeConfig,
     origem: OrigemDados,
 ) -> DatasetRef:
-    """`cobertura.v1` da população incluída, recalculada a partir da cobertura `ingest`."""
+    """`cobertura.v1` da população incluída, recalculada a partir da cobertura `ingest`.
+
+    Raises:
+        ConfigInvalida: nenhuma competência da cobertura `ingest` no intervalo da coorte;
+            recusa antes de gravar qualquer arquivo em `out`.
+    """
     marcas, competencias = _marcas_e_competencias(con, ingest, cohort)
     sia_pa = [d for d in datasets if d.schema_id == "sia_pa.v1"]
     recortes = [_publicar_recorte(con, sia_pa, out / "recorte", origem)] if sia_pa else []

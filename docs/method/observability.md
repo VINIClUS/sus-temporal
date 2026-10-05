@@ -102,6 +102,13 @@ A presença sai dos conjuntos ingeridos, nunca do texto do motivo da cobertura. 
 conjunto legível (arquivo ausente, truncado ou em quarentena) continua AUSENTE, com o motivo
 original: `sia_pa_incompleto competencia=…; sia_pa_ausente competencia=…`.
 
+Coorte (explícita ou derivada do `piloto`) cujo intervalo não tem nenhuma competência na cobertura
+da ingestão é recusada (`ConfigInvalida` `coorte_sem_competencias_na_cobertura coorte=… inicio=…
+fim=… cobertura=…`, saída 2), antes de gravar qualquer arquivo do relatório: uma
+`piloto_disponibilidade.v1` vazia seria lida como resultado, e a ingestão de outras competências
+não se distinguiria de um resultado vazio. Com sobreposição parcial, as competências do intervalo
+que a cobertura não tem ficam fora da disponibilidade.
+
 ## Instantâneo do manifesto
 
 O `ingest` grava `manifesto_lido.json` (número de linhas e hash encadeado da última linha do

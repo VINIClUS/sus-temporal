@@ -11,8 +11,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
 from sustemporal.contracts.counterfactual import OperationSpec
-from sustemporal.yamlio import carregar_yaml
+from sustemporal.yamlio import YamlInvalido, carregar_texto_yaml
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -26,6 +28,7 @@ __all__ = [
     "aplicar",
     "carregar_operacoes",
     "instancias",
+    "operacoes_dos_bytes",
     "ordem_de_aplicacao",
     "ordenar_por_dependencia",
     "validar_operacoes",
@@ -135,6 +138,26 @@ _EFEITOS = {
 }
 
 
+def _validar_precondicoes(op: OperationSpec, efeito: _Efeito) -> None:
+    """Precondições conhecidas, todas as obrigatórias e só as que o `op_id` admite."""
+    declaradas = set(op.precondicoes)
+    desconhecidas = declaradas - set(_PRECONDICOES)
+    if desconhecidas:
+        raise CatalogoOperacoesInvalido(
+            f"precondicao_desconhecida op={op.op_id} nomes={sorted(desconhecidas)}"
+        )
+    if not efeito.precondicoes <= declaradas:
+        faltando = sorted(efeito.precondicoes - declaradas)
+        raise CatalogoOperacoesInvalido(
+            f"precondicao_obrigatoria_ausente op={op.op_id} nomes={faltando}"
+        )
+    incompativeis = declaradas - efeito.precondicoes
+    if incompativeis:
+        raise CatalogoOperacoesInvalido(
+            f"precondicao_incompativel_com_operacao op={op.op_id} nomes={sorted(incompativeis)}"
+        )
+
+
 def _validar_operacao(op: OperationSpec) -> None:
     """Efeito conhecido, mesmo alvo e precondições/dependências obrigatórias do `op_id`."""
     efeito = _EFEITOS.get(op.op_id)
@@ -142,18 +165,9 @@ def _validar_operacao(op: OperationSpec) -> None:
         raise CatalogoOperacoesInvalido(f"operacao_sem_efeito op={op.op_id}")
     if efeito.schema_id != op.alvo.schema_id:
         raise CatalogoOperacoesInvalido(f"operacao_alvo_incoerente op={op.op_id}")
-    desconhecidas = set(op.precondicoes) - set(_PRECONDICOES)
-    if desconhecidas:
-        raise CatalogoOperacoesInvalido(
-            f"precondicao_desconhecida op={op.op_id} nomes={sorted(desconhecidas)}"
-        )
+    _validar_precondicoes(op, efeito)
     if set(op.depende_de) - set(_EFEITOS):
         raise CatalogoOperacoesInvalido(f"dependencia_desconhecida op={op.op_id}")
-    if not efeito.precondicoes <= set(op.precondicoes):
-        faltando = sorted(efeito.precondicoes - set(op.precondicoes))
-        raise CatalogoOperacoesInvalido(
-            f"precondicao_obrigatoria_ausente op={op.op_id} nomes={faltando}"
-        )
     if not efeito.depende_de <= set(op.depende_de):
         faltando = sorted(efeito.depende_de - set(op.depende_de))
         raise CatalogoOperacoesInvalido(
@@ -206,15 +220,42 @@ def ordenar_por_dependencia(operacoes: Sequence[OperationSpec]) -> dict[str, int
 
 
 def carregar_operacoes(caminho: Path = CATALOGO_OPERACOES) -> tuple[OperationSpec, ...]:
-    """Operações do catálogo, validadas pelo contrato e pelos efeitos conhecidos.
+    """Operações do catálogo em `caminho` (lido uma vez); ver `operacoes_dos_bytes`.
 
     Raises:
-        CatalogoOperacoesInvalido: catálogo sem versão 1 ou com operação fora do catálogo fechado.
+        CatalogoOperacoesInvalido: arquivo ilegível ou catálogo inválido.
     """
-    conteudo = carregar_yaml(caminho)
+    try:
+        bruto = caminho.read_bytes()
+    except OSError as erro:
+        raise CatalogoOperacoesInvalido(
+            f"catalogo_operacoes_invalido caminho={caminho} erro={erro}"
+        ) from erro
+    return operacoes_dos_bytes(bruto, origem=str(caminho))
+
+
+def operacoes_dos_bytes(bruto: bytes, *, origem: str = "-") -> tuple[OperationSpec, ...]:
+    """Operações validadas pelo contrato e pelos efeitos conhecidos, a partir dos bytes lidos.
+
+    Raises:
+        CatalogoOperacoesInvalido: texto não UTF-8, YAML inválido, operação que viola o
+            contrato, catálogo sem versão 1 ou com operação fora do catálogo fechado.
+    """
+    caminho = origem
+    try:
+        conteudo = carregar_texto_yaml(bruto.decode("utf-8"))
+    except (UnicodeDecodeError, YamlInvalido) as erro:
+        raise CatalogoOperacoesInvalido(
+            f"catalogo_operacoes_invalido caminho={caminho} erro={erro}"
+        ) from erro
     if not isinstance(conteudo, dict) or conteudo.get("versao") != "1":
         raise CatalogoOperacoesInvalido(f"catalogo_operacoes_sem_versao caminho={caminho}")
-    operacoes = [OperationSpec.model_validate(item) for item in conteudo.get("operacoes") or []]
+    try:
+        operacoes = [OperationSpec.model_validate(i) for i in conteudo.get("operacoes") or []]
+    except ValidationError as erro:
+        raise CatalogoOperacoesInvalido(
+            f"catalogo_operacoes_invalido caminho={caminho} erros={erro.error_count()}"
+        ) from erro
     validadas = validar_operacoes(operacoes)
     logger.info("catalogo_operacoes_carregado operacoes=%d", len(validadas))
     return validadas

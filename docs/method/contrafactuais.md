@@ -98,20 +98,28 @@ vêm da pasta exata de `bundle.run_id` (`contexto_da_execucao`, §3.1); sem eles
 1. resolve a pasta exata da execução (`<raiz_saidas>/runs/<run_id>` ou
    `<raiz_saidas>/validacao/<run_id>`), nunca um diretório "latest";
 2. recompõe o bundle pelo `explain` real (T08), que reexecuta as evidências;
-3. lê `entrada_validacao.json` (a `EntradaValidacao` da execução: conjunto SIA-PA,
-   `SnapshotSet`, auxiliares, seleção, cobertura, integridade, política documentada), monta a
-   mesma política que `validate` usa para o método gravado e recalcula o `run_id`
-   (`calcular_run_id`: conjunto, seleção, regras, política, configuração sem `runtime`,
-   auxiliares e integridade). Divergência é recusa (`contrafactual_contexto_diverge_da_execucao`).
-   O CNES ST das precondições é o auxiliar `cnes_estabelecimento.v1` gravado na entrada; a
+3. lê `entrada_validacao.json`, que o `validate` grava nos modos `--entrada` e `--ingest` (a
+   `EntradaValidacao` da execução: conjunto SIA-PA, `SnapshotSet`, auxiliares, seleção,
+   cobertura, integridade, política resolvida e identidade adicional), usa a política gravada (sem
+   ela, a que `validate` usa para o método) e recalcula o `run_id` (`calcular_run_id`: conjunto,
+   seleção, regras, política, configuração sem `runtime`, auxiliares, integridade e identidade
+   adicional, como o recorte territorial do `--ingest`). Divergência é recusa
+   (`contrafactual_contexto_diverge_da_execucao`). O CNES ST das precondições é o auxiliar
+   `cnes_estabelecimento.v1` gravado na entrada: o `validate --ingest` só grava os auxiliares que
+   as regras exigem, então sobre uma execução `--ingest` não há CNES ST, as operações ficam
+   inadmissíveis e a busca sai `SEM_OPERACAO_ADMISSIVEL`, nunca com operação suposta. A
    competência aberta fica `None` (só fontes históricas; executabilidade nunca potencial);
 4. publica `contrafactual.json` e `identidade.json` em
    `<raiz_saidas>/contrafactuais/<run_id>/id_<identidade>/row_<sha256(row_id)[:32]>/`, de forma
    atômica (diretório temporário renomeado). A identidade deriva do SHA-256 de
-   `catalog/operations.yaml` e da versão do código: outro catálogo ou outro código publica em
-   outro diretório e nunca sobrescreve uma hipótese já publicada.
+   `catalog/operations.yaml`, da versão do código e da competência as-of (AAAAMM do mês do
+   relógio, lido uma vez no início e usado em toda a busca: ele decide competência fechada e
+   executabilidade). Outro catálogo, outro código ou outro mês publica em outro diretório e nunca
+   sobrescreve uma hipótese já publicada; instantes do mesmo mês compartilham o destino.
+   `identidade.json` registra `competencia_as_of`.
 
-Saída 0 com resultado publicado; 2 para argumento, execução, linha ou insumos ausentes ou
+Saída 0 com resultado publicado; 2 para argumento, execução, linha ou insumos ausentes,
+ilegíveis (inclusive `run_result.json` ou `entrada_validacao.json` com bytes que não são UTF-8) ou
 divergentes e para linha sem violação (nada a buscar; a recusa remove o resultado anterior);
 5 para falha operacional (evidência divergente, cadastro ilegível, linha de base que não
 reproduz a violação, motor sem concluir): o resultado anterior é removido antes de gravar

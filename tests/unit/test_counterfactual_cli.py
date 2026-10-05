@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
+from sustemporal.contracts.base import hash_canonico
 from sustemporal.contracts.counterfactual import CounterfactualSearchResult, Executabilidade
 from sustemporal.contracts.experiment import EstadoExecucao
 from sustemporal.explanation import counterfactual_sobreposicao
@@ -34,6 +35,8 @@ from sustemporal.explanation.counterfactual_operacoes import (
 )
 from sustemporal.explanation.explain import montar_explicacao
 from sustemporal.rules.cli import EntradaValidacao
+from sustemporal.runtime_info import versao_codigo
+from tests.fixtures.contrafactual_cenario import relogio
 from tests.fixtures.contrafactual_execucao import (
     ARQUIVO_ENTRADA,
     Execucao,
@@ -44,6 +47,7 @@ if TYPE_CHECKING:
     from sustemporal.contracts.experiment import RunResult
 
 _INCLUIR = "INCLUIR_CBO_NO_ESTABELECIMENTO"
+_AS_OF = "202610"
 
 
 @pytest.fixture(scope="module")
@@ -53,20 +57,20 @@ def execucao(tmp_path_factory: pytest.TempPathFactory) -> Execucao:
 
 def _rodar(execucao: Execucao, row: str, run: str | None = None) -> int:
     args = argparse.Namespace(run=run or execucao.run_id, row=row)
-    return executar_counterfactual(args, execucao.config)
+    return executar_counterfactual(args, execucao.config, relogio=relogio)
 
 
 def _saidas(execucao: Execucao) -> Path:
     return Path(execucao.config.runtime.raiz_saidas)
 
 
-def _destino(execucao: Execucao, row: str) -> Path:
-    identidade = identidade_contrafactual()
+def _destino(execucao: Execucao, row: str, as_of: str = _AS_OF) -> Path:
+    identidade = identidade_contrafactual(as_of=as_of)
     return diretorio_contrafactual(_saidas(execucao), execucao.run_id, row, identidade)
 
 
-def _resultado(execucao: Execucao, row: str) -> CounterfactualSearchResult:
-    texto = (_destino(execucao, row) / "contrafactual.json").read_text(encoding="utf-8")
+def _resultado(execucao: Execucao, row: str, as_of: str = _AS_OF) -> CounterfactualSearchResult:
+    texto = (_destino(execucao, row, as_of) / "contrafactual.json").read_text(encoding="utf-8")
     return CounterfactualSearchResult.model_validate_json(texto)
 
 
@@ -87,9 +91,15 @@ def test_saida_e_imutavel_e_derivada_de_run_e_row(execucao: Execucao) -> None:
     assert _rodar(execucao, execucao.ausencia) == 0
     assert {p.name: p.read_bytes() for p in destino.iterdir()} == antes
     assert destino.parent.parent == _saidas(execucao) / "contrafactuais" / execucao.run_id
-    assert destino.parent.name == f"id_{identidade_contrafactual()}"
+    assert destino.parent.name == f"id_{identidade_contrafactual(as_of=_AS_OF)}"
     identidade = json.loads((destino / "identidade.json").read_text(encoding="utf-8"))
-    assert set(identidade) == {"catalogo_operacoes_sha256", "codigo", "identidade"}
+    assert set(identidade) == {
+        "catalogo_operacoes_sha256",
+        "codigo",
+        "competencia_as_of",
+        "identidade",
+    }
+    assert identidade["competencia_as_of"] == _AS_OF
     assert not list(destino.parent.glob(".*parcial*"))
 
 
@@ -161,13 +171,18 @@ def test_catalogo_de_operacoes_diferente_gera_outro_destino(
     catalogo = tmp_path / "operations.yaml"
     texto = CATALOGO_OPERACOES.read_text(encoding="utf-8")
     catalogo.write_text(texto.replace('custo: "1"', 'custo: "2"', 1), encoding="utf-8")
-    assert identidade_contrafactual(catalogo) != identidade_contrafactual()
+    assert identidade_contrafactual(catalogo, as_of=_AS_OF) != identidade_contrafactual(
+        as_of=_AS_OF
+    )
     assert _rodar(execucao, execucao.ausencia) == 0
     original = (_destino(execucao, execucao.ausencia) / "contrafactual.json").read_bytes()
     args = argparse.Namespace(run=execucao.run_id, row=execucao.ausencia)
-    assert executar_counterfactual(args, execucao.config, catalogo=catalogo) == 0
+    assert executar_counterfactual(args, execucao.config, catalogo=catalogo, relogio=relogio) == 0
     outro = diretorio_contrafactual(
-        _saidas(execucao), execucao.run_id, execucao.ausencia, identidade_contrafactual(catalogo)
+        _saidas(execucao),
+        execucao.run_id,
+        execucao.ausencia,
+        identidade_contrafactual(catalogo, as_of=_AS_OF),
     )
     assert outro != _destino(execucao, execucao.ausencia)
     resultado = CounterfactualSearchResult.model_validate_json(
@@ -286,19 +301,20 @@ def test_catalogo_lido_uma_vez_define_identidade_e_busca(
 
 
 @pytest.mark.parametrize(
-    ("instante", "esperado"),
+    ("instante", "as_of", "esperado"),
     [
-        (datetime(2020, 2, 29, 23, 59, 59, tzinfo=UTC), Executabilidade.INDETERMINADO),
-        (datetime(2020, 3, 1, 0, 0, 0, tzinfo=UTC), Executabilidade.HIPOTESE_PASSADA),
+        (datetime(2020, 2, 29, 23, 59, 59, tzinfo=UTC), "202002", Executabilidade.INDETERMINADO),
+        (datetime(2020, 3, 1, 0, 0, 0, tzinfo=UTC), "202003", Executabilidade.HIPOTESE_PASSADA),
     ],
 )
 def test_relogio_injetado_decide_a_executabilidade(
-    tmp_path: Path, instante: datetime, esperado: Executabilidade
+    tmp_path: Path, instante: datetime, as_of: str, esperado: Executabilidade
 ) -> None:
     execucao = executar_validacao_sintetica(tmp_path)
     args = argparse.Namespace(run=execucao.run_id, row=execucao.ausencia)
     assert executar_counterfactual(args, execucao.config, relogio=lambda: instante) == 0
-    assert _resultado(execucao, execucao.ausencia).solucoes[0].executabilidade is esperado
+    resultado = _resultado(execucao, execucao.ausencia, as_of)
+    assert resultado.solucoes[0].executabilidade is esperado
 
 
 _FIM_DE_FEVEREIRO = datetime(2020, 2, 29, 23, 59, 59, tzinfo=UTC)
@@ -340,3 +356,16 @@ def test_instantes_do_mesmo_mes_as_of_mantem_a_identidade(tmp_path: Path) -> Non
     assert executar_counterfactual(args, execucao.config, relogio=lambda: _INICIO_DE_MARCO) == 0
     assert executar_counterfactual(args, execucao.config, relogio=lambda: _FIM_DE_MARCO) == 0
     assert len(list(raiz.iterdir())) == 1
+
+
+def test_identidade_sem_as_of_e_a_de_antes() -> None:
+    conteudo = {
+        "catalogo_operacoes_sha256": hashlib.sha256(CATALOGO_OPERACOES.read_bytes()).hexdigest(),
+        "codigo": versao_codigo(CATALOGO_OPERACOES.parents[1]).model_dump(mode="json"),
+    }
+    assert identidade_contrafactual() == hash_canonico(conteudo)[:32]
+
+
+def test_identidade_muda_com_a_competencia_as_of() -> None:
+    sem, fevereiro, marco = (identidade_contrafactual(as_of=m) for m in (None, "202002", "202003"))
+    assert len({sem, fevereiro, marco}) == 3

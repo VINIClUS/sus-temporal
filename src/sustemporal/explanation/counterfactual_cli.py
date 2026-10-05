@@ -4,8 +4,8 @@ O `run_id` resolve a pasta exata da execução (`<raiz_saidas>/runs/<run_id>` ou
 `<raiz_saidas>/validacao/<run_id>`), nunca um diretório "latest". O bundle vem do `explain` real
 e os insumos de `entrada_validacao.json`, conferidos pelo `run_id` recalculado. A saída fica em
 `<raiz_saidas>/contrafactuais/<run_id>/id_<identidade>/row_<sha256(row_id)[:32]>/`, com
-`contrafactual.json` e `identidade.json` (SHA-256 de `catalog/operations.yaml` e versão do
-código).
+`contrafactual.json` e `identidade.json` (SHA-256 de `catalog/operations.yaml`, versão do
+código e competência AAAAMM do relógio, a as-of, lida uma vez e usada em toda a busca).
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from sustemporal.explanation.counterfactual_contexto import (
     contexto_da_execucao,
     execucao_legivel,
 )
+from sustemporal.explanation.counterfactual_executabilidade import competencia_do_relogio
 from sustemporal.explanation.counterfactual_operacoes import (
     CATALOGO_OPERACOES,
     CatalogoOperacoesInvalido,
@@ -103,7 +104,7 @@ class _CatalogoLido:
         return str(self.identidade["identidade"])
 
 
-def _ler_catalogo(catalogo: Path) -> _CatalogoLido:
+def _ler_catalogo(catalogo: Path, as_of: str | None) -> _CatalogoLido:
     """Raises: CatalogoOperacoesInvalido para arquivo ilegível ou catálogo inválido."""
     try:
         bruto = catalogo.read_bytes()
@@ -112,24 +113,30 @@ def _ler_catalogo(catalogo: Path) -> _CatalogoLido:
             f"catalogo_operacoes_invalido caminho={catalogo} erro={erro}"
         ) from erro
     operacoes = operacoes_dos_bytes(bruto, origem=str(catalogo))
-    return _CatalogoLido(operacoes, _identidade(hashlib.sha256(bruto).hexdigest()))
+    return _CatalogoLido(operacoes, _identidade(hashlib.sha256(bruto).hexdigest(), as_of))
 
 
-def _identidade(catalogo_sha256: str) -> dict[str, object]:
+def _identidade(catalogo_sha256: str, as_of: str | None) -> dict[str, object]:
     conteudo: dict[str, object] = {
         "catalogo_operacoes_sha256": catalogo_sha256,
         "codigo": versao_codigo(_RAIZ_CODIGO).model_dump(mode="json"),
     }
+    if as_of is not None:
+        conteudo["competencia_as_of"] = as_of
     return conteudo | {"identidade": hash_canonico(conteudo)[:32]}
 
 
-def identidade_contrafactual(catalogo: Path = CATALOGO_OPERACOES) -> str:
-    """Identidade do catálogo de operações e do código que produzem o resultado.
+def identidade_contrafactual(
+    catalogo: Path = CATALOGO_OPERACOES, *, as_of: str | None = None
+) -> str:
+    """Identidade do catálogo de operações, do código e da competência as-of do resultado.
 
-    Outro catálogo ou outra versão do código gera outro destino: uma hipótese já publicada
-    nunca é sobrescrita por outra produzida com regras de busca diferentes.
+    Outro catálogo, outra versão do código ou outro mês do relógio gera outro destino: uma
+    hipótese já publicada nunca é sobrescrita por outra produzida com regras de busca ou
+    executabilidade diferentes. Sem `as_of` a identidade é a de antes (catálogo e código), então
+    ids já emitidos continuam válidos.
     """
-    return _ler_catalogo(catalogo).chave
+    return _ler_catalogo(catalogo, as_of).chave
 
 
 def diretorio_contrafactual(raiz: Path, run_id: str, row_id: str, identidade: str) -> Path:
@@ -213,6 +220,9 @@ def executar_counterfactual(
 ) -> int:
     """Publica `contrafactual.json` do registro; hipótese, nunca aprovação garantida.
 
+    O instante de `relogio` é lido uma vez: o mês dele entra na identidade do destino e o mesmo
+    instante decide competência fechada e executabilidade em toda a busca.
+
     Returns:
         0; 2 para argumento, execução, linha ou insumos inexistentes ou incoerentes, ou linha
         sem violação (recusa remove o resultado anterior); 5 para falha operacional (evidência
@@ -220,11 +230,12 @@ def executar_counterfactual(
     """
     raiz = Path(config.runtime.raiz_saidas)
     destino: Path | None = None
+    agora = relogio()
     try:
         run_id, row_id = _validar_argumentos(args)
-        lido = _ler_catalogo(catalogo)
+        lido = _ler_catalogo(catalogo, competencia_do_relogio(agora))
         destino = diretorio_contrafactual(raiz, run_id, row_id, lido.chave)
-        _publicar(destino, _buscar(raiz, (run_id, row_id), config, lido, relogio))
+        _publicar(destino, _buscar(raiz, (run_id, row_id), config, lido, lambda: agora))
     except _RECUSAS as erro:
         _remover(destino)
         logger.error("counterfactual_recusado erro=%s", erro)

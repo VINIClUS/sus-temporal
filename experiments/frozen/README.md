@@ -22,10 +22,14 @@ O arquivo nunca é sobrescrito; outro conteúdo com o mesmo id é recusado. Um m
   `A_DEFINIR`, código sujo e catálogo ausente.
 - `sustemporal evaluate --freeze <id>`: confirmatório. Exige config confirmatória com dados
   REAIS, G2 humano para o `freeze_id` e código, split, atributos, config e entradas idênticos ao
-  manifesto. Avalia só o TESTE. As execuções vêm de `<raiz_saidas>/runs/<run_id>/`: o
-  `run_result.json` do motor de regras (`validate --saida <raiz_saidas>/runs`) ou o `run.json` do
-  baseline; os dois no mesmo diretório são recusados (`execucao_ambigua`). Antes de ler qualquer
-  dado, confere cada execução contra o manifesto carregado, não só pelo `freeze_id`:
+  manifesto. O split de `<raiz_saidas>/split` é comparado por inteiro (partições, rótulos e demais
+  campos), não só pelo `split_id`, que não deriva do conteúdo: arquivo editado com o mesmo id sai
+  como `freeze_incompativel campos=split` (código 4), antes de ler qualquer dado, e a biblioteca
+  repete a conferência (`split_incompativel_com_congelamento`). Avalia só o TESTE. As execuções
+  vêm de `<raiz_saidas>/runs/<run_id>/`: o `run_result.json` do motor de regras
+  (`validate --saida <raiz_saidas>/runs`) ou o `run.json` do baseline; os dois no mesmo diretório
+  são recusados (`execucao_ambigua`). Antes de ler qualquer dado, confere cada execução contra o
+  manifesto carregado, não só pelo `freeze_id`:
   - `codigo`: mesmo commit e árvore limpa;
   - `config`: o `config_hash` da execução é o da config confirmatória, cujo protocolo
     (`hash_protocolo`, sem `modo` e `freeze_id`) confere com o manifesto;

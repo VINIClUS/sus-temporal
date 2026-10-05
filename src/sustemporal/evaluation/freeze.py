@@ -2,9 +2,10 @@
 
 O manifesto é único por conteúdo (`freeze_id` deriva do conteúdo) e nunca é sobrescrito. O
 `config_hash` congelado é a identidade do protocolo sem `modo` e `freeze_id`, de modo que a
-config confirmatória que só abre o teste confere com a config congelada. Cada execução
-confirmatória é conferida contra o manifesto: código, config, catálogo de regras, política e
-entradas.
+config confirmatória que só abre o teste confere com a config congelada. O split lido do
+disco é comparado por inteiro com o congelado, porque o `split_id` não deriva do conteúdo. Cada
+execução confirmatória é conferida contra o manifesto: código, config, catálogo de regras,
+política e entradas.
 """
 
 from __future__ import annotations
@@ -62,6 +63,7 @@ __all__ = [
     "verificar_compatibilidade",
     "verificar_execucao",
     "verificar_execucao_concluida",
+    "verificar_split_congelado",
 ]
 
 logger = logging.getLogger(__name__)
@@ -247,6 +249,10 @@ def _codigo_divergente(codigo: CodeVersion, manifesto: FreezeManifest) -> bool:
     return codigo.sujo or codigo.commit != manifesto.codigo.commit
 
 
+def _split_divergente(split: SplitManifest, manifesto: FreezeManifest) -> bool:
+    return split != manifesto.split
+
+
 def verificar_compatibilidade(
     manifesto: FreezeManifest,
     *,
@@ -258,13 +264,15 @@ def verificar_compatibilidade(
 ) -> None:
     """Recusa código, split, atributos, config ou entradas fora do congelamento.
 
+    O split é comparado por inteiro, não só pelo `split_id`, que não deriva do conteúdo.
+
     Raises:
         PortaoRecusado: `freeze_incompativel campos=...` com cada identidade divergente.
     """
     permitidos = _hashes_congelados(manifesto)
     divergencias = {
         "codigo": _codigo_divergente(codigo, manifesto),
-        "split": split.split_id != manifesto.split.split_id,
+        "split": _split_divergente(split, manifesto),
         "features": features != manifesto.features,
         "config": hash_protocolo(config) != manifesto.config_hash,
         "entradas": any(d.hash_logico not in permitidos for d in datasets),
@@ -272,6 +280,21 @@ def verificar_compatibilidade(
     if campos := [nome for nome, divergente in divergencias.items() if divergente]:
         raise PortaoRecusado(
             f"freeze_incompativel campos={','.join(campos)} freeze={manifesto.freeze_id}"
+        )
+
+
+def verificar_split_congelado(manifesto: FreezeManifest, split: SplitManifest) -> None:
+    """Recusa o split de conteúdo diferente do congelado, mesmo com o mesmo `split_id`.
+
+    A população e os rótulos que a avaliação lê vêm do split, e o id não deriva do conteúdo.
+
+    Raises:
+        PortaoRecusado: `split_incompativel_com_congelamento split=... freeze=...`
+    """
+    if _split_divergente(split, manifesto):
+        raise PortaoRecusado(
+            f"split_incompativel_com_congelamento split={split.split_id} "
+            f"freeze={manifesto.freeze_id}"
         )
 
 

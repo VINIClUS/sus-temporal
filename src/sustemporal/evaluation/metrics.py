@@ -24,6 +24,7 @@ from sustemporal.evaluation.freeze import (
     verificar_comparacoes_primarias,
     verificar_execucao,
     verificar_execucao_concluida,
+    verificar_split_congelado,
 )
 from sustemporal.evaluation.metrics_calculo import (
     LinhaAvaliada,
@@ -110,14 +111,15 @@ def _particao_dos_rotulos(split: SplitManifest, labels: DatasetRef) -> Particao:
     return candidatas[0]
 
 
-def _exigir_execucoes_do_congelamento(
-    runs: Sequence[RunResult], congelamento: ReferenciaCongelamento
+def _exigir_congelamento_cumprido(
+    runs: Sequence[RunResult], split: SplitManifest, congelamento: ReferenciaCongelamento
 ) -> None:
     manifesto, config = congelamento.manifesto, congelamento.config
     if manifesto is None or config is None or manifesto.freeze_id != congelamento.freeze_id:
         raise PortaoRecusado(
             f"avaliacao_confirmatoria_sem_manifesto_do_freeze freeze={congelamento.freeze_id}"
         )
+    verificar_split_congelado(manifesto, split)
     for run in runs:
         verificar_execucao(manifesto, run, config=config)
         verificar_execucao_concluida(run)
@@ -125,7 +127,10 @@ def _exigir_execucoes_do_congelamento(
 
 
 def _modo(
-    runs: Sequence[RunResult], particao: Particao, congelamento: ReferenciaCongelamento | None
+    runs: Sequence[RunResult],
+    split: SplitManifest,
+    particao: Particao,
+    congelamento: ReferenciaCongelamento | None,
 ) -> ModoExecucao:
     modos = {run.modo for run in runs}
     if len(modos) != 1:
@@ -143,7 +148,7 @@ def _modo(
             f"avaliacao_confirmatoria_com_execucao_de_outro_freeze freeze={freeze_id}"
         )
     exigir_portao(congelamento.decisoes, Portao.G2, freeze_id=freeze_id)
-    _exigir_execucoes_do_congelamento(runs, congelamento)
+    _exigir_congelamento_cumprido(runs, split, congelamento)
     return modo
 
 
@@ -215,10 +220,11 @@ def _diferencas(
 def _ler(
     runs: Sequence[RunResult],
     labels: DatasetRef,
-    populacao: DatasetRef,
+    split: SplitManifest,
     particao: Particao,
     causas: Mapping[str, str],
 ) -> tuple[list[LinhaAvaliada], list[str]]:
+    populacao = (split.particoes or {})[particao]
     con = conectar(RuntimeConfig(duckdb_threads=1))
     try:
         verificar_entrada(con, populacao)
@@ -260,7 +266,7 @@ class ReferenciaCongelamento:
     """Congelamento avaliado.
 
     No confirmatório, além da decisão G2 humana que abriu o teste, traz o manifesto carregado e
-    a config confirmatória do congelamento, contra os quais cada execução é conferida.
+    a config confirmatória do congelamento, contra os quais o split e cada execução são conferidos.
     """
 
     freeze_id: str
@@ -285,18 +291,18 @@ def evaluate_runs(
 
     Raises:
         ValueError: sem execuções, rótulos fora do split, modos/origens misturados ou método
-            repetido. PortaoRecusado: exploratório no TESTE; confirmatório fora dele, sem G2 ou
-            sem manifesto e config, ou com execução incompatível, incompleta ou sem método primário.
+            repetido. PortaoRecusado: exploratório no TESTE; confirmatório fora dele, sem G2,
+            sem manifesto e config, com split diferente do congelado ou com execução
+            incompatível, incompleta ou sem método primário.
         FalhaOperacionalErro: entrada ilegível ou diferente do `DatasetRef`.
     """
     if not runs:
         raise ValueError("avaliacao_sem_execucoes")
     particao = _particao_dos_rotulos(split, labels)
     freeze_id = congelamento.freeze_id if congelamento else None
-    modo = _modo(runs, particao, congelamento)
+    modo = _modo(runs, split, particao, congelamento)
     origem = _origem(runs, labels)
-    populacao = (split.particoes or {})[particao]
-    linhas, metodos = _ler(runs, labels, populacao, particao, causas or {})
+    linhas, metodos = _ler(runs, labels, split, particao, causas or {})
     spec = bootstrap or BootstrapSpec()
     conteudo = {
         "runs": sorted(run.run_id for run in runs),

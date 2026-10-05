@@ -208,9 +208,9 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     """Avalia as execuções do congelamento e acrescenta o resultado ao registro.
 
     O confirmatório (já liberado por G2 na CLI) avalia o TESTE e recusa qualquer divergência
-    do manifesto, inclusive a de cada execução (código, config, catálogo de regras, política e
-    entradas); o exploratório explícito avalia a CALIBRACAO e só registra a divergência. A
-    segunda rodada confirmatória exige `--corrige` e `--declaracao`, os dois juntos.
+    do manifesto, inclusive a do split por inteiro e a de cada execução (código, config, catálogo
+    de regras, política e entradas); o exploratório explícito avalia a CALIBRACAO e só registra a
+    divergência. A segunda rodada confirmatória exige `--corrige` e `--declaracao`, os dois juntos.
 
     Raises:
         ConfigInvalida: congelamento ou split ausente ou inválido, ou correção incompleta,

@@ -54,6 +54,7 @@ __all__ = [
     "EstadoAtual",
     "ambiente_divergente",
     "campos_sem_classificacao",
+    "declara_outras_particoes",
     "verificar_comparacoes_primarias",
     "verificar_congelamento_completo",
     "verificar_execucao",
@@ -272,6 +273,12 @@ def _politica_divergente(manifesto: FreezeManifest, run: RunResult) -> bool:
     if run.tipo is TipoExecucao.BASELINE_ML:
         return False
     return run.politica_id is None or run.politica_id not in (manifesto.politicas_sha256 or {})
+
+
+def declara_outras_particoes(manifesto: FreezeManifest, run: RunResult) -> bool:
+    """A execução traz como entrada a população de alguma partição congelada além do TESTE."""
+    outras = {h for p, h in manifesto.split.hash_por_particao.items() if p is not Particao.TESTE}
+    return any(d.hash_logico in outras for d in run.entradas)
 
 
 def _entradas_divergentes(manifesto: FreezeManifest, run: RunResult) -> bool:

@@ -1,8 +1,10 @@
 """Métricas pareadas com denominadores explícitos (T11).
 
 A população é a partição do split identificada pelos rótulos recebidos; o TESTE só é avaliado
-no confirmatório. Linha sem saída de um método conta como abstenção desse método, e toda a
-população fica nos denominadores de cobertura.
+no confirmatório. No confirmatório o método precisa ter resultado de toda a população, ou a
+avaliação é recusada (`metrics_cobertura`); no exploratório a linha sem saída de um método conta
+como abstenção desse método e as contagens vão nas notas. Toda a população fica nos denominadores
+de cobertura.
 """
 
 from __future__ import annotations
@@ -25,6 +27,12 @@ from sustemporal.evaluation.metrics_calculo import (
     LinhaAvaliada,
     calcular_metricas,
     indicadores,
+)
+from sustemporal.evaluation.metrics_cobertura import (
+    Cobertura,
+    calcular_coberturas,
+    exigir_cobertura_completa,
+    notas_de_cobertura,
 )
 from sustemporal.evaluation.metrics_leitura import (
     ler_populacao,
@@ -214,14 +222,14 @@ def _ler(
     split: SplitManifest,
     particao: Particao,
     causas: Mapping[str, str],
-) -> tuple[list[LinhaAvaliada], list[str]]:
+) -> tuple[list[LinhaAvaliada], list[Cobertura]]:
     populacao = (split.particoes or {})[particao]
     con = conectar(RuntimeConfig(duckdb_threads=1))
     try:
         verificar_entrada(con, populacao)
         verificar_entrada(con, labels)
         base = ler_populacao(con, populacao, labels, causas)
-        situacoes = ler_situacoes(con, runs, particao)
+        situacoes, execucoes = ler_situacoes(con, runs, particao)
     finally:
         con.close()
     linhas = [
@@ -230,7 +238,17 @@ def _ler(
         )
         for linha in base
     ]
-    return linhas, list(situacoes)
+    return linhas, calcular_coberturas((linha.row_id for linha in base), situacoes, execucoes)
+
+
+def _exigir_cobertura(
+    modo: ModoExecucao,
+    coberturas: Sequence[Cobertura],
+    congelamento: ReferenciaCongelamento | None,
+) -> None:
+    manifesto = congelamento.manifesto if congelamento else None
+    if modo is ModoExecucao.CONFIRMATORIO and manifesto is not None:
+        exigir_cobertura_completa(coberturas, manifesto)
 
 
 def _metricas(
@@ -284,6 +302,37 @@ def _bootstrap(
     return manifesto.bootstrap
 
 
+def _id_do_relatorio(
+    runs: Sequence[RunResult],
+    labels: DatasetRef,
+    split: SplitManifest,
+    *,
+    causas: Mapping[str, str],
+    spec: BootstrapSpec,
+    freeze_id: str | None,
+) -> str:
+    conteudo = {
+        "runs": sorted(run.run_id for run in runs),
+        "rotulos": labels.hash_logico,
+        "split": split.split_id,
+        "freeze": freeze_id,
+        "causas": dict(sorted(causas.items())),
+        "bootstrap": spec.model_dump(mode="json"),
+    }
+    return f"rep_{hash_canonico(conteudo)}"
+
+
+def _notas(
+    particao: Particao, spec: BootstrapSpec, coberturas: Sequence[Cobertura]
+) -> tuple[str, ...]:
+    return (
+        *NOTAS,
+        f"particao={particao.value}",
+        f"reamostragens={spec.reamostragens}",
+        *notas_de_cobertura(coberturas),
+    )
+
+
 def evaluate_runs(
     runs: list[RunResult],
     labels: DatasetRef,
@@ -301,7 +350,8 @@ def evaluate_runs(
         ValueError: sem execuções, rótulos fora do split, modos/origens misturados ou método
             repetido. PortaoRecusado: exploratório no TESTE; confirmatório fora dele, sem G2,
             sem manifesto e estado do avaliador, ou com bootstrap, split, estado ou execução
-            incompatível com o congelamento, execução incompleta ou sem método primário.
+            incompatível com o congelamento, execução incompleta, sem método primário ou que
+            não cobre todos os registros do TESTE.
         FalhaOperacionalErro: entrada ilegível ou diferente do `DatasetRef`.
     """
     if not runs:
@@ -311,24 +361,19 @@ def evaluate_runs(
     modo = _modo(runs, split, particao, congelamento)
     origem = _origem(runs, labels)
     spec = _bootstrap(bootstrap, modo, congelamento)
-    linhas, metodos = _ler(runs, labels, split, particao, causas or {})
-    conteudo = {
-        "runs": sorted(run.run_id for run in runs),
-        "rotulos": labels.hash_logico,
-        "split": split.split_id,
-        "freeze": freeze_id,
-        "causas": dict(sorted((causas or {}).items())),
-        "bootstrap": spec.model_dump(mode="json"),
-    }
+    linhas, coberturas = _ler(runs, labels, split, particao, causas or {})
+    _exigir_cobertura(modo, coberturas, congelamento)
     relatorio = EvaluationReport(
-        report_id=f"rep_{hash_canonico(conteudo)}",
+        report_id=_id_do_relatorio(
+            runs, labels, split, causas=causas or {}, spec=spec, freeze_id=freeze_id
+        ),
         modo=modo,
         origem_dados=origem,
         freeze_id=freeze_id,
         decisao_g2=congelamento.decisao_g2 if congelamento else None,
         runs=tuple(run.run_id for run in runs),
-        metricas=tuple(_metricas(linhas, metodos, spec)),
-        notas=(*NOTAS, f"particao={particao.value}", f"reamostragens={spec.reamostragens}"),
+        metricas=tuple(_metricas(linhas, [c.metodo for c in coberturas], spec)),
+        notas=_notas(particao, spec, coberturas),
         criado_em=(relogio or (lambda: datetime.now(UTC)))(),
     )
     _gravar_sem_sobrescrever(out / f"{relatorio.report_id}.json", relatorio)

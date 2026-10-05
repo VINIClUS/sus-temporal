@@ -138,19 +138,36 @@ def _consulta(
 
 def ler_situacoes(
     con: duckdb.DuckDBPyConnection, runs: Sequence[RunResult], particao: Particao
-) -> dict[str, dict[str, Situacao]]:
-    """Situação por método e row_id, a partir de `agregados_registro.v1` ou das predições.
+) -> tuple[dict[str, dict[str, Situacao]], dict[str, RunResult]]:
+    """Situação por método e row_id, e a execução de cada método.
+
+    Lê `agregados_registro.v1` ou as predições; o método que as predições declaram entra mesmo
+    sem resultado na partição lida, para a cobertura vê-lo sem nenhum.
 
     Raises:
         ValueError: execução sem saída avaliável, método repetido ou resultado desconhecido.
     """
     situacoes: dict[str, dict[str, Situacao]] = {}
+    execucoes: dict[str, RunResult] = {}
     for run in runs:
         da_execucao = _da_execucao(con, run, particao)
         if repetidos := sorted(set(da_execucao) & set(situacoes)):
             raise ValueError(f"metodo_repetido metodos={','.join(repetidos)}")
         situacoes.update(da_execucao)
-    return situacoes
+        execucoes.update(dict.fromkeys(da_execucao, run))
+    return situacoes, execucoes
+
+
+def _metodos_declarados(
+    con: duckdb.DuckDBPyConnection, dataset: DatasetRef, run: RunResult
+) -> list[str]:
+    if dataset.schema_id != SCHEMA_PREDICOES.schema_id:
+        return []
+    cursor = con.execute(
+        "SELECT DISTINCT metodo FROM read_parquet($c) WHERE run_id = $r ORDER BY metodo",
+        {"c": dataset.caminho, "r": run.run_id},
+    )
+    return [str(metodo) for (metodo,) in cursor.fetchall()]
 
 
 def _da_execucao(
@@ -165,6 +182,8 @@ def _da_execucao(
         situacoes[run.metodo.value] = {}
     for dataset in saidas:
         verificar_entrada(con, dataset)
+        for declarado in _metodos_declarados(con, dataset, run):
+            situacoes.setdefault(declarado, {})
         sql, parametros = _consulta(dataset, run, particao)
         for metodo, row_id, resultado in con.execute(sql, parametros).fetchall():
             if resultado not in _SITUACOES:

@@ -8,7 +8,9 @@ contagens e métricas (`reproduce_comparacao`). Nada é lido da rede e nada do o
 
 Só a rodada exploratória é reproduzida: o confirmatório exige dados reais e o G2 humano, e a
 conferência do manifesto compara a config inteira, inclusive os caminhos de `runtime` (pendência
-T14-9). O que a reprodução relata fica em `<saida>/reproducao.json`.
+T14-9). O que a reprodução relata fica em `<saida>/reproducao.json`; a saída é 0 só quando todo
+item saiu igual (ou com bytes diferentes e hash lógico igual), e 5 quando algum diverge ou ficou
+sem original para comparar.
 """
 
 from __future__ import annotations
@@ -36,7 +38,8 @@ from sustemporal.reporting.reproduce_comparacao import (
     comparar_metricas,
     comparar_referencia,
     comparar_saida,
-    divergentes,
+    exigir_conferido,
+    resultado_geral,
 )
 from sustemporal.reporting.reproduce_etapas import (
     Derivado,
@@ -95,7 +98,7 @@ def _exigir_reprodutivel(config: RunConfig) -> str:
 
 
 def _exigir_destino_novo(out: Path) -> None:
-    if out.exists() and any(out.iterdir()):
+    if out.exists() and (not out.is_dir() or any(out.iterdir())):
         raise ConfigInvalida(f"reproduce_destino_nao_vazio caminho={out}")
     out.mkdir(parents=True, exist_ok=True)
 
@@ -267,13 +270,6 @@ def _observacoes(config: RunConfig, manifesto: FreezeManifest) -> list[str]:
     return observacoes
 
 
-def _resultado(itens: list[Comparacao]) -> Situacao:
-    situacoes = {item.situacao for item in itens}
-    if Situacao.DIVERGENTE in situacoes:
-        return Situacao.DIVERGENTE
-    return Situacao.INCONCLUSIVO if Situacao.INCONCLUSIVO in situacoes else Situacao.IGUAL
-
-
 def _gravar(
     out: Path,
     manifesto: FreezeManifest,
@@ -285,7 +281,7 @@ def _gravar(
         "freeze_id": manifesto.freeze_id,
         "modo": relatorio.modo.value,
         "origem_dados": relatorio.origem_dados.value,
-        "resultado": _resultado(itens).value,
+        "resultado": resultado_geral(itens).value,
         "relatorio_refeito": relatorio.report_id,
         "observacoes": observacoes,
         "comparacoes": [item.como_dict() for item in itens],
@@ -302,7 +298,8 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
         ConfigInvalida: config sem `freeze_id`, confirmatória, `out` já usado ou entradas locais
             ausentes ou inválidas.
         RedeProibida: config com `rede_permitida` ou qualquer tentativa de conexão.
-        FalhaOperacionalErro: conteúdo refeito diferente do congelado ou do original.
+        FalhaOperacionalErro: conteúdo refeito diferente do congelado ou do original, ou item
+            sem original para comparar; o `reproducao.json` já está gravado em `out`.
     """
     freeze_id = _exigir_reprodutivel(config)
     manifesto = carregar_freeze(Path(config.runtime.dir_congelamentos), freeze_id)
@@ -323,11 +320,10 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
         ]
         observacoes = _observacoes(config, manifesto)
     _gravar(out, manifesto, refeito.relatorio, itens, observacoes)
-    erradas = divergentes(itens)
-    if erradas:
-        nomes = ",".join(item.item for item in erradas[:5])
-        raise FalhaOperacionalErro(f"reproducao_divergente itens={len(erradas)} primeiros={nomes}")
-    logger.info("reproducao_concluida freeze=%s resultado=%s", freeze_id, _resultado(itens).value)
+    exigir_conferido(itens)
+    logger.info(
+        "reproducao_concluida freeze=%s resultado=%s", freeze_id, resultado_geral(itens).value
+    )
     return refeito.relatorio
 
 

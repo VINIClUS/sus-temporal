@@ -42,7 +42,6 @@ __all__ = [
     "comparar_metricas",
     "comparar_referencia",
     "comparar_saida",
-    "divergentes",
     "exigir_conferido",
     "identidade_do_arquivo",
     "resultado_geral",
@@ -216,15 +215,28 @@ def comparar_insumos(
     )
 
 
-def divergentes(comparacoes: Iterable[Comparacao]) -> list[Comparacao]:
-    return [c for c in comparacoes if c.situacao is Situacao.DIVERGENTE]
+_PIOR_PRIMEIRO = (Situacao.DIVERGENTE, Situacao.INCONCLUSIVO, Situacao.BYTES_DIFERENTES)
+_FALHAS = (
+    (Situacao.DIVERGENTE, "reproducao_divergente"),
+    (Situacao.INCONCLUSIVO, "reproducao_inconclusiva"),
+)
 
 
 def resultado_geral(comparacoes: Iterable[Comparacao]) -> Situacao:
     """A pior situação dos itens: divergente, inconclusivo, bytes diferentes ou igual."""
-    raise NotImplementedError
+    presentes = {comparacao.situacao for comparacao in comparacoes}
+    return next((s for s in _PIOR_PRIMEIRO if s in presentes), Situacao.IGUAL)
 
 
 def exigir_conferido(comparacoes: Sequence[Comparacao]) -> None:
-    """Falha se algum item diverge ou ficou sem original para comparar."""
-    raise NotImplementedError
+    """Falha se algum item diverge ou ficou sem original para comparar.
+
+    Raises:
+        FalhaOperacionalErro: `reproducao_divergente` (conteúdo diferente) ou
+            `reproducao_inconclusiva` (sem original), com a contagem e os primeiros itens.
+    """
+    for situacao, chave in _FALHAS:
+        itens = [comparacao.item for comparacao in comparacoes if comparacao.situacao is situacao]
+        if itens:
+            nomes = ",".join(itens[:_MAX_NOMES])
+            raise FalhaOperacionalErro(f"{chave} itens={len(itens)} primeiros={nomes}")

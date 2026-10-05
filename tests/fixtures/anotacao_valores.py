@@ -43,6 +43,7 @@ class Linha:
     contradicoes: str = ""
     inconclusivas: tuple[str, ...] = field(default_factory=tuple)
     estado_avaliacao: str | None = None
+    insumos_completos: bool | None = None
 
     def estado(self) -> str:
         if self.estado_avaliacao is not None:
@@ -90,6 +91,9 @@ def _agregados(linhas: list[Linha]) -> list[dict[str, object]]:
 
 
 def _avaliacao(linha: Linha, regra: str, politica: str, versao: str) -> dict[str, object]:
+    estado = linha.estado()
+    inconclusivo = estado == "INCONCLUSIVO"
+    completos = not inconclusivo if linha.insumos_completos is None else linha.insumos_completos
     return {
         "run_id": RUN_ID,
         "row_id": linha.row_id,
@@ -97,10 +101,31 @@ def _avaliacao(linha: Linha, regra: str, politica: str, versao: str) -> dict[str
         "versao": versao,
         "politica_id": politica,
         "metodo": MetodoId.M_TEMP.value,
-        "estado": linha.estado(),
-        "motivos": "",
-        "evidence_ids": "",
+        "estado": estado,
+        "aplicabilidade": "APLICAVEL",
+        "insumos_completos": completos,
+        "incompatibilidade_demonstrada": None if inconclusivo else estado == "VIOLACAO",
+        "motivos": "CAMPO_INSUFICIENTE" if inconclusivo else "",
+        "evidence_ids": f"ev_{regra.lower()}" if estado == "VIOLACAO" else "",
     }
+
+
+def _selecoes(avaliacoes: list[dict[str, object]]) -> list[dict[str, object]]:
+    return [
+        {
+            "run_id": a["run_id"],
+            "row_id": a["row_id"],
+            "rule_id": a["rule_id"],
+            "fonte": "CNES_PF",
+            "base": "ATENDIMENTO",
+            "competencia_requerida": "202403",
+            "estado": "SELECIONADA",
+            "artifact_ids": ARTEFATO_TESTE,
+            "observation_ids": "",
+            "motivo": "",
+        }
+        for a in avaliacoes
+    ]
 
 
 def _avaliacoes(
@@ -126,6 +151,7 @@ def montar_valores(
     politicas: tuple[str, ...] = (POLITICA,),
     estado: EstadoExecucao = EstadoExecucao.CONCLUIDA,
     versao_regras: str = "0.1.0",
+    sem_avaliacoes: bool = False,
 ) -> CenarioValores:
     raiz.mkdir(parents=True, exist_ok=True)
     artefatos = (ARTEFATO_TESTE,)
@@ -136,11 +162,12 @@ def montar_valores(
     agregados = gravar_dataset(
         raiz / "agregados.parquet", "agregados_registro.v1", _agregados(linhas), artefatos
     )
+    linhas_avaliacao = [] if sem_avaliacoes else _avaliacoes(linhas, politicas, versao_regras)
     avaliacoes = gravar_dataset(
-        raiz / "avaliacoes.parquet",
-        "avaliacoes.v1",
-        _avaliacoes(linhas, politicas, versao_regras),
-        artefatos,
+        raiz / "avaliacoes.parquet", "avaliacoes.v1", linhas_avaliacao, artefatos
+    )
+    selecoes = gravar_dataset(
+        raiz / "selecoes.parquet", "selecao_versoes.v1", _selecoes(linhas_avaliacao), artefatos
     )
     run = RunResult(
         run_id=RUN_ID,
@@ -152,7 +179,7 @@ def montar_valores(
         catalogo_regras_sha256=catalogo_sha256(carregar_regras()),
         codigo=CodeVersion(commit="abc", sujo=False, versao_pacote="0.1"),
         ambiente=Ambiente(python="3.12", plataforma="linux"),
-        saidas=(avaliacoes, agregados),
+        saidas=(avaliacoes, agregados, selecoes),
         estado=estado,
         falhas=0,
         iniciado_em=datetime(2026, 1, 1, tzinfo=UTC),

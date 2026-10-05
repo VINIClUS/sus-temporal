@@ -427,3 +427,42 @@ def test_inconclusivo_e_recorte_sobreposto_mesmo_sem_valor_ou_negativo(tmp_path:
     assert tabela[(REJ, "DIFERENCA_NEGATIVA")]["ocorrencias"] == 1
     assert tabela[(REJ, "ABSTENCAO_ELEGIVEL")]["ocorrencias"] == 1
     assert tabela[(REJ, "DENOMINADOR")]["diferenca"] == D("4")
+
+
+def test_avaliacao_incoerente_com_o_contrato_e_falha_operacional(tmp_path: Path) -> None:
+    linhas = [Linha("r1", REJ, D("5.00"), D("0.00"), ("ESTAB_CBO_CNES",), insumos_completos=False)]
+    with pytest.raises(FalhaOperacionalErro, match="valores_avaliacao_incoerente"):
+        _resumir(tmp_path, linhas)
+
+
+def test_nulo_em_coluna_nao_anulavel_e_falha_operacional(tmp_path: Path) -> None:
+    cenario = montar_valores(tmp_path / "dados", [Linha("r1", REJ, D("5.00"), D("0.00"))])
+    tabela = pq.read_table(cenario.labels.caminho)
+    indice = tabela.column_names.index("contradicoes")
+    nulos = pa.array([None] * tabela.num_rows, pa.string())
+    pq.write_table(tabela.set_column(indice, "contradicoes", nulos), cenario.labels.caminho)
+    cenario = replace(cenario, labels=reemitir(cenario.labels))
+    with pytest.raises(
+        FalhaOperacionalErro, match=r"valores_nulo_em_coluna_nao_anulavel .*coluna=contradicoes"
+    ):
+        _executar(cenario, tmp_path)
+
+
+def test_sem_selecao_de_versoes_e_falha_operacional(tmp_path: Path) -> None:
+    linhas = [Linha("r1", REJ, D("5.00"), D("0.00"), resultado="ABSTENCAO")]
+    cenario = montar_valores(tmp_path / "dados", linhas, sem_avaliacoes=True)
+    with pytest.raises(FalhaOperacionalErro, match="valores_sem_selecao_de_versoes"):
+        _executar(cenario, tmp_path)
+
+
+def test_mapa_de_governanca_incompleto_deixa_resultado_indeterminado(tmp_path: Path) -> None:
+    linhas = [
+        Linha("r1", REJ, D("5.00"), D("0.00"), ("ESTAB_CBO_CNES",)),
+        Linha("r2", REJ, D("3.00"), D("0.00"), ("PROC_CBO_SIGTAP",)),
+    ]
+    governanca = {FamiliaRegra.ESTABELECIMENTO_CBO: Governanca.MUNICIPAL_DOCUMENTADA}
+    _, tabela = _resumir(tmp_path, linhas, governanca=governanca)
+    assert tabela[(REJ, "NUMERADOR")]["ocorrencias"] is None
+    assert tabela[(REJ, "NUMERADOR")]["diferenca"] is None
+    assert tabela[(REJ, "RAZAO")]["razao"] is None
+    assert tabela[(REJ, "DENOMINADOR")]["diferenca"] == D("8")

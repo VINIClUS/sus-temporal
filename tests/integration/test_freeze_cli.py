@@ -271,3 +271,12 @@ def test_cli_recusa_correcao_na_avaliacao_exploratoria(
     extra = ["--exploratory", "--corrige", "rep_x", "--declaracao", "x"]
     assert executar_cli([*argumentos, *extra]) == ExitCode.CONFIG_INVALIDA
     assert "correcao_so_no_confirmatorio" in capsys.readouterr().err
+
+
+def test_cli_freeze_nao_aceita_as_opcoes_de_correcao(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    extra = ["--corrige", "rep_x", "--declaracao", "x"]
+    codigo = executar_cli(["freeze", "--config", str(config_yaml(tmp_path)), *extra])
+    assert codigo == ExitCode.CONFIG_INVALIDA
+    assert "unrecognized arguments" in capsys.readouterr().err

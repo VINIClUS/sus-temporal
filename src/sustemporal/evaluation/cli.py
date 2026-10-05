@@ -6,6 +6,10 @@ completos), execuções em `<raiz_saidas>/runs/<run_id>/` e congelamentos em
 `<dir_congelamentos>/<freeze_id>.json`. A execução é o `run_result.json` que o motor de regras
 grava (`validate --saida <raiz_saidas>/runs`) ou o `run.json` do baseline, nunca os dois no mesmo
 diretório. O registro append-only fica em `<dir_congelamentos>/registro_execucoes.jsonl`.
+
+Depois da abertura do teste, a segunda rodada confirmatória só entra como correção declarada:
+`evaluate --corrige <report_id> --declaracao <texto>`, os dois juntos, com alvo confirmatório
+do mesmo congelamento.
 """
 
 from __future__ import annotations
@@ -50,7 +54,13 @@ if TYPE_CHECKING:
     from sustemporal.contracts import FreezeManifest, RuleSpec, RunConfig
     from sustemporal.contracts.temporal import PoliticaTemporal
 
-__all__ = ["REGISTRO", "executar_evaluate", "executar_freeze", "versao_codigo"]
+__all__ = [
+    "REGISTRO",
+    "configurar_parser",
+    "executar_evaluate",
+    "executar_freeze",
+    "versao_codigo",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +85,12 @@ def _split_e_entradas(raiz: Path) -> tuple[SplitManifest, DatasetRef, DatasetRef
     except (OSError, ValueError, KeyError, ValidationError) as erro:
         raise ConfigInvalida(f"split_ilegivel pasta={pasta} erro={erro}") from erro
     return split, dataset, rotulos
+
+
+def configurar_parser(parser: argparse.ArgumentParser) -> None:
+    if parser.prog.endswith("evaluate"):
+        parser.add_argument("--corrige", metavar="REPORT_ID", default=None)
+        parser.add_argument("--declaracao", metavar="TEXTO", default=None)
 
 
 def _regras_do_catalogo() -> list[RuleSpec]:
@@ -166,24 +182,50 @@ def _conferir(
         logger.warning("evaluate_exploratorio_divergente_do_freeze erro=%s", erro)
 
 
+def _correcao(args: argparse.Namespace, config: RunConfig) -> tuple[str | None, str | None]:
+    corrige = getattr(args, "corrige", None)
+    declaracao = getattr(args, "declaracao", None)
+    if (corrige is None) != (declaracao is None):
+        raise ConfigInvalida("correcao_exige_corrige_e_declaracao")
+    if corrige is not None and config.modo is not ModoExecucao.CONFIRMATORIO:
+        raise ConfigInvalida("correcao_so_no_confirmatorio")
+    return corrige, declaracao
+
+
+def _exigir_rodada(
+    registro: Path, config: RunConfig, freeze: str, correcao: tuple[str | None, str | None]
+) -> None:
+    corrige, declaracao = correcao
+    try:
+        exigir_rodada_permitida(
+            registro, config.modo, freeze, corrige=corrige, declaracao=declaracao
+        )
+    except ValueError as erro:
+        raise ConfigInvalida(f"correcao_invalida erro={erro}") from erro
+
+
 def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     """Avalia as execuções do congelamento e acrescenta o resultado ao registro.
 
     O confirmatório (já liberado por G2 na CLI) avalia o TESTE e recusa qualquer divergência
     do manifesto, inclusive a de cada execução (código, config, catálogo de regras, política e
-    entradas); o exploratório explícito avalia a CALIBRACAO e só registra a divergência.
+    entradas); o exploratório explícito avalia a CALIBRACAO e só registra a divergência. A
+    segunda rodada confirmatória exige `--corrige` e `--declaracao`, os dois juntos.
 
     Raises:
-        ConfigInvalida: congelamento ou split ausente ou inválido.
-        PortaoRecusado: confirmatório ou execução incompatível com o congelamento, ou sem G2.
+        ConfigInvalida: congelamento ou split ausente ou inválido, ou correção incompleta,
+            inválida ou pedida fora do confirmatório.
+        PortaoRecusado: confirmatório ou execução incompatível com o congelamento, sem G2 ou
+            segunda rodada sem correção declarada.
     """
+    correcao = _correcao(args, config)
     diretorio = Path(config.runtime.dir_congelamentos)
     manifesto = carregar_freeze(diretorio, args.freeze)
     raiz = Path(config.runtime.raiz_saidas)
     entradas = _split_e_entradas(raiz)
     _conferir(manifesto, config, entradas)
     split = entradas[0]
-    exigir_rodada_permitida(diretorio / REGISTRO, config.modo, args.freeze)
+    _exigir_rodada(diretorio / REGISTRO, config, args.freeze, correcao)
     confirmatorio = config.modo is ModoExecucao.CONFIRMATORIO
     particao = Particao.TESTE if confirmatorio else Particao.CALIBRACAO
     congelamento = ReferenciaCongelamento(args.freeze)
@@ -200,6 +242,7 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
         bootstrap=manifesto.bootstrap,
         congelamento=congelamento,
     )
-    registrar_execucao(diretorio / REGISTRO, relatorio)
+    corrige, declaracao = correcao
+    registrar_execucao(diretorio / REGISTRO, relatorio, corrige=corrige, declaracao=declaracao)
     logger.info("evaluate_registrado report=%s freeze=%s", relatorio.report_id, args.freeze)
     return int(ExitCode.OK)

@@ -22,8 +22,10 @@ O arquivo nunca é sobrescrito; outro conteúdo com o mesmo id é recusado. Um m
   `A_DEFINIR`, código sujo e catálogo ausente.
 - `sustemporal evaluate --freeze <id>`: confirmatório. Exige config confirmatória com dados
   REAIS, G2 humano para o `freeze_id` e código, split, atributos, config e entradas idênticos ao
-  manifesto. Avalia só o TESTE. Antes de ler qualquer dado, confere cada execução contra o
-  manifesto carregado, não só pelo `freeze_id`:
+  manifesto. Avalia só o TESTE. As execuções vêm de `<raiz_saidas>/runs/<run_id>/`: o
+  `run_result.json` do motor de regras (`validate --saida <raiz_saidas>/runs`) ou o `run.json` do
+  baseline; os dois no mesmo diretório são recusados (`execucao_ambigua`). Antes de ler qualquer
+  dado, confere cada execução contra o manifesto carregado, não só pelo `freeze_id`:
   - `codigo`: mesmo commit e árvore limpa;
   - `config`: o `config_hash` da execução é o da config confirmatória, cujo protocolo
     (`hash_protocolo`, sem `modo` e `freeze_id`) confere com o manifesto;
@@ -43,9 +45,12 @@ O arquivo nunca é sobrescrito; outro conteúdo com o mesmo id é recusado. Um m
 - `registro_execucoes.jsonl`: registro append-only, em que cada linha leva o próprio hash e o
   da anterior. Toda avaliação entra, inclusive a de resultado nulo. Depois da abertura do teste,
   nova rodada confirmatória do mesmo congelamento exige `corrige` + `declaracao`, e a rodada
-  anterior permanece. `corrige` só aponta para relatório confirmatório já registrado do mesmo
-  congelamento; alvo de outro congelamento, exploratório ou inexistente é recusado e não reabre
-  o teste.
+  anterior permanece. Na CLI: `sustemporal evaluate --freeze <id> --corrige <report_id>
+  --declaracao <texto>`, os dois juntos; sem eles a segunda rodada sai com código 4. `corrige`
+  só aponta para relatório confirmatório já registrado do mesmo congelamento; alvo de outro
+  congelamento, exploratório ou inexistente é recusado (código 2) e não reabre o teste, e a
+  correção só vale no confirmatório. A correção precisa de execuções diferentes das da rodada
+  anterior: o `report_id` deriva das execuções, e o relatório nunca é sobrescrito.
 
 Dados sintéticos nunca são confirmatórios. Nenhum congelamento real existe neste repositório
 enquanto o projeto estiver antes do G0.

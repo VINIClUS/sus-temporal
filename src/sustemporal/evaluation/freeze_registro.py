@@ -93,14 +93,26 @@ def _exigir_unica_rodada(
         raise PortaoRecusado(f"reabertura_do_teste_sem_correcao_declarada freeze={freeze_id}")
 
 
-def exigir_rodada_permitida(registro: Path, modo: ModoExecucao, freeze_id: str | None) -> None:
-    """Recusa, antes de avaliar, a segunda rodada confirmatória sem correção declarada.
+def exigir_rodada_permitida(
+    registro: Path,
+    modo: ModoExecucao,
+    freeze_id: str | None,
+    *,
+    corrige: str | None = None,
+    declaracao: str | None = None,
+) -> None:
+    """Recusa, antes de avaliar, a segunda rodada confirmatória sem correção declarada válida.
 
     Raises:
-        PortaoRecusado: já existe rodada confirmatória para o congelamento.
+        PortaoRecusado: já existe rodada confirmatória para o congelamento e não há correção.
+        ValueError: correção sem declaração, ou cujo alvo não existe, não é relatório
+            confirmatório ou é de outro congelamento.
         FalhaOperacionalErro: registro adulterado.
     """
-    _exigir_unica_rodada(ler_registro(registro), modo, freeze_id)
+    entradas = ler_registro(registro)
+    _exigir_correcao_valida(entradas, corrige, declaracao, freeze_id)
+    if corrige is None:
+        _exigir_unica_rodada(entradas, modo, freeze_id)
 
 
 def registrar_execucao(

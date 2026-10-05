@@ -4,6 +4,12 @@ Cada linha física do SIA-PA recebe no máximo um motivo de exclusão, na ordem:
 do estabelecimento ausente, fora do território, competência de processamento ausente, fora do
 intervalo da coorte, instrumento fora da coorte. As demais são as incluídas; incluídas mais
 excluídas reconciliam com as linhas dos conjuntos canônicos.
+
+`campos` conta o nulo de cada campo que o G0 manda verificar, sobre as linhas incluídas:
+identificação, competências, procedimento, CBO, instrumento, quantidades e valores apresentados e
+aprovados, PA_INDICA e os campos de erro. Nos campos sem normalização (PA_INDICA e os de erro), nulo
+é coluna fora do arquivo; texto em branco é valor lido e não conta como ausente. Campo de erro só
+entra nessa tabela de observabilidade, nunca em contagem nem em atributo de classificação.
 """
 
 from __future__ import annotations
@@ -31,8 +37,9 @@ __all__ = [
 _SQL_BASE = """
 CREATE TABLE base AS
 SELECT row_id, cnes, municipio_estabelecimento, competencia_atendimento,
-       competencia_processamento, instrumento, procedimento, cbo, quantidade_aprovada,
-       valor_aprovado,
+       competencia_processamento, instrumento, procedimento, cbo,
+       quantidade_apresentada, quantidade_aprovada, valor_apresentado, valor_aprovado,
+       pa_indica, pa_codoco, pa_flqt, pa_fler,
        CASE
          WHEN deletado THEN 'deletado'
          WHEN municipio_estabelecimento IS NULL THEN 'municipio_estabelecimento_ausente'
@@ -51,35 +58,45 @@ _SQL_PA_VAZIO = """
 CREATE TABLE pa (
   row_id VARCHAR, deletado BOOLEAN, cnes VARCHAR, municipio_estabelecimento VARCHAR,
   competencia_atendimento VARCHAR, competencia_processamento VARCHAR, instrumento VARCHAR,
-  procedimento VARCHAR, cbo VARCHAR, quantidade_aprovada BIGINT, valor_aprovado DECIMAL(18, 2)
+  procedimento VARCHAR, cbo VARCHAR, quantidade_apresentada BIGINT, quantidade_aprovada BIGINT,
+  valor_apresentado DECIMAL(18, 2), valor_aprovado DECIMAL(18, 2), pa_indica VARCHAR,
+  pa_codoco VARCHAR, pa_flqt VARCHAR, pa_fler VARCHAR
 )
 """
 
 _SQL_CAMPOS = """
 CREATE TABLE campos AS
+WITH incluidas AS (SELECT * FROM base WHERE exclusao IS NULL)
 SELECT campo, ausentes, denominador FROM (
   SELECT 1 AS ordem, 'cnes' AS campo, count(*) FILTER (WHERE cnes IS NULL) AS ausentes,
-         count(*) AS denominador FROM base WHERE exclusao IS NULL
+         count(*) AS denominador FROM incluidas
   UNION ALL SELECT 2, 'municipio_estabelecimento',
-         count(*) FILTER (WHERE municipio_estabelecimento IS NULL), count(*)
-         FROM base WHERE exclusao IS NULL
+         count(*) FILTER (WHERE municipio_estabelecimento IS NULL), count(*) FROM incluidas
   UNION ALL SELECT 3, 'competencia_atendimento',
-         count(*) FILTER (WHERE competencia_atendimento IS NULL), count(*)
-         FROM base WHERE exclusao IS NULL
+         count(*) FILTER (WHERE competencia_atendimento IS NULL), count(*) FROM incluidas
   UNION ALL SELECT 4, 'competencia_processamento',
-         count(*) FILTER (WHERE competencia_processamento IS NULL), count(*)
-         FROM base WHERE exclusao IS NULL
+         count(*) FILTER (WHERE competencia_processamento IS NULL), count(*) FROM incluidas
   UNION ALL SELECT 5, 'procedimento', count(*) FILTER (WHERE procedimento IS NULL), count(*)
-         FROM base WHERE exclusao IS NULL
+         FROM incluidas
   UNION ALL SELECT 6, 'instrumento', count(*) FILTER (WHERE instrumento IS NULL), count(*)
-         FROM base WHERE exclusao IS NULL
-  UNION ALL SELECT 7, 'cbo', count(*) FILTER (WHERE cbo IS NULL), count(*)
-         FROM base WHERE exclusao IS NULL
+         FROM incluidas
+  UNION ALL SELECT 7, 'cbo', count(*) FILTER (WHERE cbo IS NULL), count(*) FROM incluidas
   UNION ALL SELECT 8, 'quantidade_aprovada',
-         count(*) FILTER (WHERE quantidade_aprovada IS NULL), count(*)
-         FROM base WHERE exclusao IS NULL
+         count(*) FILTER (WHERE quantidade_aprovada IS NULL), count(*) FROM incluidas
   UNION ALL SELECT 9, 'valor_aprovado', count(*) FILTER (WHERE valor_aprovado IS NULL),
-         count(*) FROM base WHERE exclusao IS NULL
+         count(*) FROM incluidas
+  UNION ALL SELECT 10, 'quantidade_apresentada',
+         count(*) FILTER (WHERE quantidade_apresentada IS NULL), count(*) FROM incluidas
+  UNION ALL SELECT 11, 'valor_apresentado',
+         count(*) FILTER (WHERE valor_apresentado IS NULL), count(*) FROM incluidas
+  UNION ALL SELECT 12, 'pa_indica', count(*) FILTER (WHERE pa_indica IS NULL), count(*)
+         FROM incluidas
+  UNION ALL SELECT 13, 'pa_codoco', count(*) FILTER (WHERE pa_codoco IS NULL), count(*)
+         FROM incluidas
+  UNION ALL SELECT 14, 'pa_flqt', count(*) FILTER (WHERE pa_flqt IS NULL), count(*)
+         FROM incluidas
+  UNION ALL SELECT 15, 'pa_fler', count(*) FILTER (WHERE pa_fler IS NULL), count(*)
+         FROM incluidas
 ) ORDER BY ordem
 """
 

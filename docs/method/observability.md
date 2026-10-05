@@ -50,7 +50,7 @@ artefatos das entradas):
 |---|---|
 | `piloto_contagens.v1` | linhas por competência de processamento, instrumento e estabelecimento (CNES) |
 | `piloto_exclusoes.v1` | linhas excluídas por motivo |
-| `piloto_campos.v1` | ausentes e denominador por campo exigido pelas famílias |
+| `piloto_campos.v1` | ausentes e denominador por campo exigido pelas famílias e pelo G0 |
 | `piloto_defasagem.v1` | linhas por defasagem em meses (processamento − atendimento); nula quando falta uma |
 | `piloto_rotulos.v1` | `ANTES`: PA_INDICA bruto; `DEPOIS`: rótulo do codebook; aprovações incluídas |
 | `piloto_inconclusivos.v1` | classe e linhas da seleção por regra, fonte, base e estado |
@@ -58,6 +58,23 @@ artefatos das entradas):
 
 Os rótulos aqui servem só para descrever a distribuição antes e depois do pré-processamento. O
 classificador nunca recebe rótulo, campos de erro nem quantidades ou valores aprovados.
+
+### Campos verificados
+
+`piloto_campos.v1` e a razão `taxa_ausencia_campo` (um estrato por campo) contam o valor nulo sobre
+as linhas incluídas, com numerador e denominador. Os campos são os que as famílias exigem (`cnes`,
+`municipio_estabelecimento`, as duas competências, `procedimento`, `instrumento`, `cbo`) e os que o
+plano manda verificar antes do G0: `quantidade_apresentada`, `quantidade_aprovada`,
+`valor_apresentado`, `valor_aprovado`, `pa_indica` e os campos de erro `pa_codoco`, `pa_flqt` e
+`pa_fler`. Campo de erro entra só nessa tabela de observabilidade, nunca em contagem nem em atributo.
+
+Nos campos normalizados, nulo é ausência, vazio ou valor inválido (o motivo fica no conjunto
+canônico). Em `pa_indica` e nos de erro, sem normalização, nulo é a coluna fora do arquivo; texto em
+branco é valor lido e não conta como ausente, pois o domínio deles é desconhecido
+(`docs/references/inventario_campos.md`). O leiaute atual os exige: arquivo sem a coluna vai para
+`QUARENTENA_LEIAUTE` e aparece como `sia_pa_incompleto` na disponibilidade, não nesta tabela; a taxa
+de coluna ausente só vale para leiaute que os declare opcionais depois da conferência com cabeçalhos
+reais.
 
 ## Disponibilidade das tabelas
 

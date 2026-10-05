@@ -36,15 +36,21 @@ from sustemporal.reporting.reproduce_comparacao import (
     Situacao,
     comparar_insumos,
     comparar_metricas,
+    comparar_notas,
+    comparar_originais,
     comparar_referencia,
     comparar_saida,
+    comparar_split,
     exigir_conferido,
+    observacoes_do_ambiente,
     resultado_geral,
+    rodada_registrada,
 )
 from sustemporal.reporting.reproduce_etapas import (
     Derivado,
     competencias_da_particao,
     derivar_protocolo,
+    estados_do_ingest,
     janela_do_ingest,
     validar_janela,
 )
@@ -155,8 +161,7 @@ def _avaliar(
     )
 
 
-def _refazer(config: RunConfig, manifesto: FreezeManifest) -> Refeito:
-    pasta = _ingerir(config)
+def _refazer(config: RunConfig, manifesto: FreezeManifest, pasta: Path) -> Refeito:
     destino = Path(config.runtime.raiz_saidas) / "split"
     derivado = derivar_protocolo(config, pasta, destino, spec=manifesto.split.spec)
     avaliadas = _validar_particao(config, pasta, derivado, Particao.CALIBRACAO)
@@ -166,15 +171,10 @@ def _refazer(config: RunConfig, manifesto: FreezeManifest) -> Refeito:
 
 
 def _original(config: RunConfig, freeze_id: str) -> Original:
-    registro = Path(config.runtime.dir_congelamentos) / REGISTRO
-    rodadas = [
-        entrada
-        for entrada in ler_registro(registro)
-        if entrada["freeze_id"] == freeze_id and entrada["modo"] == config.modo.value
-    ]
-    if not rodadas:
+    registro = ler_registro(Path(config.runtime.dir_congelamentos) / REGISTRO)
+    ultima = rodada_registrada(registro, freeze_id, config.modo.value)
+    if ultima is None:
         return Original(None, {})
-    ultima = rodadas[-1]
     caminho = (
         Path(config.runtime.raiz_saidas) / "avaliacao" / freeze_id / f"{ultima['report_id']}.json"
     )
@@ -209,25 +209,6 @@ def _comparar_conjuntos(manifesto: FreezeManifest, derivado: Derivado) -> list[C
     return itens
 
 
-def _comparar_split(manifesto: FreezeManifest, derivado: Derivado) -> list[Comparacao]:
-    congelado, refeito = manifesto.split, derivado.split
-    igual = congelado.split_id == refeito.split_id
-    situacao = Situacao.IGUAL if igual else Situacao.DIVERGENTE
-    itens = [Comparacao("split:split_id", situacao, congelado.split_id, refeito.split_id)]
-    for nome, esperadas, obtidas in (
-        ("particao", congelado.particoes, refeito.particoes),
-        ("rotulos", congelado.rotulos_por_particao, refeito.rotulos_por_particao),
-    ):
-        for particao, esperada in (esperadas or {}).items():
-            obtida = (obtidas or {}).get(particao)
-            item = f"split:{nome}:{particao.value}"
-            if obtida is None:
-                itens.append(Comparacao(item, Situacao.DIVERGENTE, esperada.hash_logico, None))
-            else:
-                itens.append(comparar_referencia(item, esperada, obtida))
-    return itens
-
-
 def _comparar_insumos(
     config: RunConfig, manifesto: FreezeManifest, teste: Mapping[MetodoId, RunResult]
 ) -> list[Comparacao]:
@@ -254,36 +235,46 @@ def _comparar_execucoes(
 
 
 def _observacoes(config: RunConfig, manifesto: FreezeManifest) -> list[str]:
-    observacoes = []
-    if hash_protocolo(config) != manifesto.config_hash:
-        observacoes.append("config_diferente_da_congelada")
-    codigo = versao_codigo(Path.cwd())
-    if (codigo.commit, codigo.sujo) != (manifesto.codigo.commit, manifesto.codigo.sujo):
-        congelado = manifesto.codigo.commit
-        observacoes.append(
-            f"codigo_diferente_do_congelado congelado={congelado} atual={codigo.commit}"
-        )
-    pacotes = ambiente(Path.cwd()).pacotes
-    diferentes = sorted(p for p, v in manifesto.ambiente.pacotes.items() if pacotes.get(p) != v)
-    if diferentes:
-        observacoes.append(f"pacotes_diferentes_do_congelado pacotes={','.join(diferentes)}")
-    return observacoes
+    return observacoes_do_ambiente(
+        config_igual=hash_protocolo(config) == manifesto.config_hash,
+        codigo=versao_codigo(Path.cwd()),
+        congelado=manifesto.codigo,
+        pacotes=ambiente(Path.cwd()).pacotes,
+        congelados=manifesto.ambiente.pacotes,
+    )
 
 
-def _gravar(
+def _comparar(
+    config: RunConfig, manifesto: FreezeManifest, original: Original, refeito: Refeito
+) -> list[Comparacao]:
+    antigo = original.relatorio
+    return [
+        *_comparar_conjuntos(manifesto, refeito.derivado),
+        *comparar_split(manifesto.split, refeito.derivado.split),
+        *_comparar_insumos(config, manifesto, refeito.teste),
+        *_comparar_execucoes(original, refeito.avaliadas),
+        comparar_metricas(
+            "metricas", antigo.metricas if antigo else None, refeito.relatorio.metricas
+        ),
+        comparar_notas("notas", antigo.notas if antigo else None, refeito.relatorio.notas),
+    ]
+
+
+def _registrar(
+    config: RunConfig,
     out: Path,
     manifesto: FreezeManifest,
-    relatorio: EvaluationReport,
+    relatorio: EvaluationReport | None,
     itens: list[Comparacao],
-    observacoes: list[str],
 ) -> None:
+    origem = config.origem_dados
     conteudo = {
         "freeze_id": manifesto.freeze_id,
-        "modo": relatorio.modo.value,
-        "origem_dados": relatorio.origem_dados.value,
+        "modo": config.modo.value,
+        "origem_dados": origem.value if origem else None,
         "resultado": resultado_geral(itens).value,
-        "relatorio_refeito": relatorio.report_id,
-        "observacoes": observacoes,
+        "relatorio_refeito": relatorio.report_id if relatorio else None,
+        "observacoes": _observacoes(config, manifesto),
         "comparacoes": [item.como_dict() for item in itens],
     }
     (out / RELATORIO).write_text(
@@ -299,27 +290,23 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
             ausentes ou inválidas.
         RedeProibida: config com `rede_permitida` ou qualquer tentativa de conexão.
         FalhaOperacionalErro: conteúdo refeito diferente do congelado ou do original, ou item
-            sem original para comparar; o `reproducao.json` já está gravado em `out`.
+            sem original para comparar (inclusive artefato do SIA-PA que o ingest não normalizou);
+            o `reproducao.json` já está gravado em `out`.
     """
     freeze_id = _exigir_reprodutivel(config)
     manifesto = carregar_freeze(Path(config.runtime.dir_congelamentos), freeze_id)
     _exigir_destino_novo(out)
+    em_out = _config_em(config, out)
     with sem_rede():
         original = _original(config, freeze_id)
-        refeito = _refazer(_config_em(config, out), manifesto)
-        itens = [
-            *_comparar_conjuntos(manifesto, refeito.derivado),
-            *_comparar_split(manifesto, refeito.derivado),
-            *_comparar_insumos(_config_em(config, out), manifesto, refeito.teste),
-            *_comparar_execucoes(original, refeito.avaliadas),
-            comparar_metricas(
-                "metricas",
-                original.relatorio.metricas if original.relatorio else None,
-                refeito.relatorio.metricas,
-            ),
-        ]
-        observacoes = _observacoes(config, manifesto)
-    _gravar(out, manifesto, refeito.relatorio, itens, observacoes)
+        pasta = _ingerir(em_out)
+        indisponiveis = comparar_originais(manifesto.datasets, estados_do_ingest(pasta))
+        if indisponiveis:
+            _registrar(config, out, manifesto, None, indisponiveis)
+            exigir_conferido(indisponiveis)
+        refeito = _refazer(em_out, manifesto, pasta)
+        itens = _comparar(em_out, manifesto, original, refeito)
+        _registrar(config, out, manifesto, refeito.relatorio, itens)
     exigir_conferido(itens)
     logger.info(
         "reproducao_concluida freeze=%s resultado=%s", freeze_id, resultado_geral(itens).value

@@ -11,6 +11,7 @@ violação.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from contextlib import closing
 from dataclasses import dataclass
 from enum import StrEnum
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
     from collections.abc import Collection, Iterable, Mapping, Sequence
 
     from sustemporal.contracts.evaluation import ValorMetrica
-    from sustemporal.contracts.experiment import CodeVersion, SplitManifest
+    from sustemporal.contracts.experiment import CodeVersion, Particao, SplitManifest
     from sustemporal.contracts.records import DatasetRef
     from sustemporal.rules.entrada import EntradaValidacao
 
@@ -58,6 +59,10 @@ logger = logging.getLogger(__name__)
 _TABELA = "reproducao_conferencia"
 _RUNTIME = RuntimeConfig(duckdb_threads=1)
 _MAX_NOMES = 5
+_MAX_TEXTO = 80
+_NORMALIZADO = "NORMALIZADO"
+_AUSENTE_DO_INGEST = "AUSENTE_DO_INGEST"
+_SEM_PARTICAO = "particao_ausente"
 
 
 class Situacao(StrEnum):
@@ -248,23 +253,77 @@ def exigir_conferido(comparacoes: Sequence[Comparacao]) -> None:
             raise FalhaOperacionalErro(f"{chave} itens={len(itens)} primeiros={nomes}")
 
 
+def _por_particao(
+    nome: str, esperadas: Mapping[Particao, DatasetRef], obtidas: Mapping[Particao, DatasetRef]
+) -> list[Comparacao]:
+    itens = []
+    for particao, ref in esperadas.items():
+        item = f"split:{nome}:{particao.value}"
+        novo = obtidas.get(particao)
+        if novo is None:
+            itens.append(
+                Comparacao(item, Situacao.DIVERGENTE, ref.hash_logico, None, _SEM_PARTICAO)
+            )
+        else:
+            itens.append(comparar_referencia(item, ref, novo))
+    return itens
+
+
 def comparar_split(esperado: SplitManifest, obtido: SplitManifest) -> list[Comparacao]:
     """Id do split e, por partição, a população e os rótulos refeitos contra os congelados."""
-    raise NotImplementedError
+    igual = esperado.split_id == obtido.split_id
+    situacao = Situacao.IGUAL if igual else Situacao.DIVERGENTE
+    itens = [Comparacao("split:split_id", situacao, esperado.split_id, obtido.split_id)]
+    itens += _por_particao("particao", esperado.particoes or {}, obtido.particoes or {})
+    itens += _por_particao(
+        "rotulos", esperado.rotulos_por_particao or {}, obtido.rotulos_por_particao or {}
+    )
+    return itens
 
 
 def comparar_originais(
     congelados: Sequence[DatasetRef], estados: Mapping[str, str]
 ) -> list[Comparacao]:
-    """Um item inconclusivo por conjunto congelado cujo artefato o ingest refeito não normalizou."""
-    raise NotImplementedError
+    """Um item inconclusivo por conjunto congelado cujo artefato o ingest refeito não normalizou.
+
+    `estados` é o estado de cada artefato no ingest refeito (`NORMALIZADO`, `ARQUIVOAUSENTE`,
+    `QUARENTENA_*`...); o artefato ausente da lista conta como `AUSENTE_DO_INGEST`. Original
+    ausente, truncado ou com leiaute incompatível é inconclusão, não conteúdo divergente.
+    """
+    itens = []
+    for conjunto in congelados:
+        falta = {
+            artefato: estados.get(artefato, _AUSENTE_DO_INGEST)
+            for artefato in conjunto.artifact_ids
+            if estados.get(artefato) != _NORMALIZADO
+        }
+        if falta:
+            nomes = ",".join(sorted(set(falta.values())))
+            detalhe = f"originais_indisponiveis artefatos={len(falta)} estados={nomes}"
+            declarado = f"{conjunto.linhas}:{conjunto.hash_logico}"
+            item = f"conjunto:{conjunto.schema_id}"
+            itens.append(Comparacao(item, Situacao.INCONCLUSIVO, declarado, None, detalhe))
+    return itens
 
 
 def comparar_notas(
     item: str, esperadas: Sequence[str] | None, obtidas: Sequence[str]
 ) -> Comparacao:
-    """As notas do relatório refeito contra as da rodada registrada, como multiconjunto."""
-    raise NotImplementedError
+    """As notas do relatório refeito contra as da rodada registrada, como multiconjunto.
+
+    As notas trazem o recorte, a especificação do bootstrap e a cobertura dos resultados.
+    """
+    if esperadas is None:
+        return Comparacao(item, Situacao.INCONCLUSIVO, None, str(len(obtidas)), "original_ausente")
+    antigas, novas = Counter(esperadas), Counter(obtidas)
+    faltando = sorted((antigas - novas).elements())
+    sobrando = sorted((novas - antigas).elements())
+    esperado, obtido = str(len(esperadas)), str(len(obtidas))
+    if not (faltando or sobrando):
+        return Comparacao(item, Situacao.IGUAL, esperado, obtido)
+    primeira = (faltando or sobrando)[0][:_MAX_TEXTO]
+    detalhe = f"faltando={len(faltando)} sobrando={len(sobrando)} primeira={primeira}"
+    return Comparacao(item, Situacao.DIVERGENTE, esperado, obtido, detalhe)
 
 
 def observacoes_do_ambiente(
@@ -275,12 +334,26 @@ def observacoes_do_ambiente(
     pacotes: Mapping[str, str],
     congelados: Mapping[str, str],
 ) -> list[str]:
-    """O que difere no ambiente sem ser divergência de conteúdo: config, código e pacotes."""
-    raise NotImplementedError
+    """O que difere no ambiente sem ser divergência de conteúdo: config, código e pacotes.
+
+    Só os pacotes do congelamento são conferidos; pacote a mais no ambiente atual não conta.
+    """
+    observacoes = []
+    if not config_igual:
+        observacoes.append("config_diferente_da_congelada")
+    if (codigo.commit, codigo.sujo) != (congelado.commit, congelado.sujo):
+        observacoes.append(
+            f"codigo_diferente_do_congelado congelado={congelado.commit} atual={codigo.commit}"
+        )
+    diferentes = sorted(nome for nome, versao in congelados.items() if pacotes.get(nome) != versao)
+    if diferentes:
+        observacoes.append(f"pacotes_diferentes_do_congelado pacotes={','.join(diferentes)}")
+    return observacoes
 
 
 def rodada_registrada(
     registro: Sequence[Mapping[str, Any]], freeze_id: str, modo: str
 ) -> Mapping[str, Any] | None:
     """A última rodada registrada do congelamento e do modo, se houver."""
-    raise NotImplementedError
+    rodadas = [e for e in registro if e["freeze_id"] == freeze_id and e["modo"] == modo]
+    return rodadas[-1] if rodadas else None

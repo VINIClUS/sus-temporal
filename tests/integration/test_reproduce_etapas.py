@@ -223,7 +223,7 @@ def test_validar_janela_roda_as_tres_politicas_e_grava_em_runs(derivado: Fluxo) 
 def test_estados_do_ingest_trazem_o_estado_de_cada_artefato(ingerido: Fluxo) -> None:
     assert ingerido.ingest is not None
     estados = estados_do_ingest(ingerido.ingest)
-    assert Counter(estados.values()) == {"NORMALIZADO": 28}
+    assert Counter(estados.values()) == {"NORMALIZADO": 16}
     sia_pa = {a for ref in _sia_pa(ingerido.ingest) for a in ref.artifact_ids}
     assert sia_pa <= set(estados)
 

@@ -10,6 +10,7 @@ para estas etapas; elas valem para o fluxo pequeno e para o que o `freeze` conso
 
 from __future__ import annotations
 
+import json
 import logging
 from contextlib import closing
 from dataclasses import dataclass
@@ -22,7 +23,7 @@ from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.duck import conectar, identificador_seguro
-from sustemporal.errors import ConfigInvalida
+from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
 from sustemporal.evaluation.labels import CODEBOOK_PA, label_pa
 from sustemporal.evaluation.split import SCHEMA_ENTRADA, build_splits
 from sustemporal.execucoes import raiz_execucoes
@@ -215,5 +216,17 @@ def validar_janela(
 
 
 def estados_do_ingest(pasta: Path) -> dict[str, str]:
-    """Estado de cada artefato no `resultados.jsonl` do ingest (`NORMALIZADO`, `ARQUIVOAUSENTE`)."""
-    raise NotImplementedError
+    """Estado de cada artefato no `resultados.jsonl` do ingest (`NORMALIZADO`, `ARQUIVOAUSENTE`).
+
+    Raises:
+        FalhaOperacionalErro: `resultados.jsonl` ausente, ilegível ou fora do formato.
+    """
+    caminho = pasta / "resultados.jsonl"
+    try:
+        texto = caminho.read_text(encoding="utf-8")
+        resultados = [json.loads(linha) for linha in texto.splitlines() if linha.strip()]
+        return {str(r["artifact_id"]): str(r["estado"]) for r in resultados}
+    except (OSError, ValueError, KeyError, TypeError) as erro:
+        raise FalhaOperacionalErro(
+            f"ingest_ilegivel caminho={caminho} erro={type(erro).__name__}"
+        ) from erro

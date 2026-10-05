@@ -118,7 +118,6 @@ class Confirmatorio:
             "decisao_g2": self.g2,
             "decisoes": self.decisoes,
             "manifesto": self.manifesto,
-            "config": self.config,
             "estado": self.estado,
         }
         return ReferenciaCongelamento(**{**campos, **trocas})

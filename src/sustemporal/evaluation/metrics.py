@@ -20,12 +20,7 @@ from sustemporal.contracts.experiment import BootstrapSpec, ModoExecucao, Partic
 from sustemporal.duck import conectar
 from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.bootstrap import intervalo_diferenca, intervalo_razao
-from sustemporal.evaluation.freeze_conferencia import (
-    verificar_comparacoes_primarias,
-    verificar_execucao,
-    verificar_execucao_concluida,
-    verificar_split_congelado,
-)
+from sustemporal.evaluation.freeze_conferencia import verificar_congelamento_completo
 from sustemporal.evaluation.metrics_calculo import (
     LinhaAvaliada,
     calcular_metricas,
@@ -45,7 +40,6 @@ if TYPE_CHECKING:
     from sustemporal.contracts import (
         DatasetRef,
         FreezeManifest,
-        RunConfig,
         RunResult,
         SplitManifest,
     )
@@ -115,16 +109,12 @@ def _particao_dos_rotulos(split: SplitManifest, labels: DatasetRef) -> Particao:
 def _exigir_congelamento_cumprido(
     runs: Sequence[RunResult], split: SplitManifest, congelamento: ReferenciaCongelamento
 ) -> None:
-    manifesto, config = congelamento.manifesto, congelamento.config
-    if manifesto is None or config is None or manifesto.freeze_id != congelamento.freeze_id:
+    manifesto, estado = congelamento.manifesto, congelamento.estado
+    if manifesto is None or estado is None or manifesto.freeze_id != congelamento.freeze_id:
         raise PortaoRecusado(
             f"avaliacao_confirmatoria_sem_manifesto_do_freeze freeze={congelamento.freeze_id}"
         )
-    verificar_split_congelado(manifesto, split)
-    for run in runs:
-        verificar_execucao(manifesto, run, config=config)
-        verificar_execucao_concluida(run)
-    verificar_comparacoes_primarias(manifesto, runs)
+    verificar_congelamento_completo(manifesto, replace(estado, split=split), runs)
 
 
 def _modo(
@@ -266,16 +256,32 @@ def _gravar_sem_sobrescrever(caminho: Path, relatorio: EvaluationReport) -> None
 class ReferenciaCongelamento:
     """Congelamento avaliado.
 
-    No confirmatório, além da decisão G2 humana que abriu o teste, traz o manifesto carregado e
-    a config confirmatória do congelamento, contra os quais o split e cada execução são conferidos.
+    No confirmatório, além da decisão G2 humana que abriu o teste, traz o manifesto carregado e o
+    estado atual do avaliador (com a config confirmatória do congelamento), contra os quais o
+    split avaliado e cada execução são conferidos.
     """
 
     freeze_id: str
     decisao_g2: str | None = None
     decisoes: Path = DIR_DECISOES
     manifesto: FreezeManifest | None = None
-    config: RunConfig | None = None
     estado: EstadoAtual | None = None
+
+
+def _bootstrap(
+    bootstrap: BootstrapSpec | None,
+    modo: ModoExecucao,
+    congelamento: ReferenciaCongelamento | None,
+) -> BootstrapSpec:
+    manifesto = congelamento.manifesto if congelamento else None
+    if modo is not ModoExecucao.CONFIRMATORIO or manifesto is None:
+        return bootstrap or BootstrapSpec()
+    if bootstrap is not None and bootstrap != manifesto.bootstrap:
+        raise PortaoRecusado(
+            "avaliacao_confirmatoria_com_bootstrap_diferente_do_congelado "
+            f"freeze={manifesto.freeze_id}"
+        )
+    return manifesto.bootstrap
 
 
 def evaluate_runs(
@@ -294,8 +300,8 @@ def evaluate_runs(
     Raises:
         ValueError: sem execuções, rótulos fora do split, modos/origens misturados ou método
             repetido. PortaoRecusado: exploratório no TESTE; confirmatório fora dele, sem G2,
-            sem manifesto e config, com split diferente do congelado ou com execução
-            incompatível, incompleta ou sem método primário.
+            sem manifesto e estado do avaliador, ou com bootstrap, split, estado ou execução
+            incompatível com o congelamento, execução incompleta ou sem método primário.
         FalhaOperacionalErro: entrada ilegível ou diferente do `DatasetRef`.
     """
     if not runs:
@@ -304,8 +310,8 @@ def evaluate_runs(
     freeze_id = congelamento.freeze_id if congelamento else None
     modo = _modo(runs, split, particao, congelamento)
     origem = _origem(runs, labels)
+    spec = _bootstrap(bootstrap, modo, congelamento)
     linhas, metodos = _ler(runs, labels, split, particao, causas or {})
-    spec = bootstrap or BootstrapSpec()
     conteudo = {
         "runs": sorted(run.run_id for run in runs),
         "rotulos": labels.hash_logico,

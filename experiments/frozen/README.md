@@ -1,55 +1,25 @@
 # experiments/frozen — congelamentos do protocolo (T11)
 
 Cada arquivo `frz_<sha256>.json` é um `FreezeManifest` único: o `freeze_id` deriva do conteúdo.
-O arquivo nunca é sobrescrito; outro conteúdo com o mesmo id é recusado. Um manifesto fixa:
-- `config_hash`: identidade do protocolo, sem `modo` e `freeze_id`;
-- versão do código, que precisa estar limpa, e ambiente;
-- hashes dos catálogos;
-- `catalogo_regras_sha256`: identidade do catálogo de regras (a mesma que as execuções de
-  validação registram) e `politicas_sha256`: hash canônico de cada política, por `politica_id`.
-  `sustemporal freeze` registra as regras de `catalog/rules`, as políticas de `catalog/policies`
-  e as padrão dos baselines; sem esses campos o manifesto não prova catálogo nem política;
-- datasets completos (`sia_pa.v1` e rótulos);
-- split, com partições e rótulos por partição;
-- lista positiva de atributos;
-- bootstrap (reamostragens, semente e correção por multiplicidade);
-- métricas;
-- comparações primárias (`M_TEMP_x_B_ATEND`, `M_TEMP_x_B_PROC`);
-- margens;
-- a decisão G0 humana que liberou o congelamento.
+O arquivo nunca é sobrescrito; outro conteúdo com o mesmo id é recusado. O manifesto fixa a
+identidade do protocolo (config, código limpo, ambiente, catálogos, regras e políticas), os
+datasets completos, o split, a lista positiva de atributos, o bootstrap, as métricas, as
+comparações primárias, as margens e a decisão G0 humana que liberou o congelamento.
+
+## Comandos
 
 - `sustemporal freeze --config <cfg>`: exige G0 humano em `experiments/decisions/`. Recusa
-  `A_DEFINIR`, código sujo e catálogo ausente.
+  `A_DEFINIR`, código sujo, catálogo ausente e catálogo que a config não declara em
+  `config.catalogos`. Registra o catálogo de regras de `catalog/rules`, as políticas de
+  `catalog/policies` e as padrão dos baselines; sem esses campos o manifesto não prova catálogo
+  nem política.
 - `sustemporal evaluate --freeze <id>`: confirmatório. Exige config confirmatória com dados
-  REAIS, G2 humano para o `freeze_id` e código, split, atributos, config e entradas idênticos ao
-  manifesto. O split de `<raiz_saidas>/split` é comparado por inteiro (partições, rótulos e demais
-  campos), não só pelo `split_id`, que não deriva do conteúdo: arquivo editado com o mesmo id sai
-  como `freeze_incompativel campos=split` (código 4), antes de ler qualquer dado, e a biblioteca
-  repete a conferência (`split_incompativel_com_congelamento`). Avalia só o TESTE e emite as
-  razões do TOTAL, do domínio comum e, por valor, de competência, instrumento e estabelecimento
-  (CNES); só o TOTAL e as diferenças pareadas levam intervalo. As execuções vêm de
-  `<raiz_saidas>/runs/<run_id>/`: o `run_result.json` do motor de regras
-  (`validate --saida <raiz_saidas>/runs`) ou o `run.json` do baseline; os dois no mesmo diretório
-  são recusados (`execucao_ambigua`). Antes de ler qualquer dado, confere cada execução contra o
-  manifesto carregado, não só pelo `freeze_id`:
-  - `codigo`: mesmo commit e árvore limpa;
-  - `config`: o `config_hash` da execução é o da config confirmatória, cujo protocolo
-    (`hash_protocolo`, sem `modo` e `freeze_id`) confere com o manifesto;
-  - `catalogo` e `politica` (toda execução, menos a de baseline): `catalogo_regras_sha256`
-    igual ao congelado e `politica_id` entre as políticas congeladas;
-  - `entradas`: toda entrada `sia_pa.v1` ou de rótulos é do congelamento e a população da
-    partição TESTE está entre elas (o baseline pode trazer outras partições); execução sobre
-    outra partição ou sobre o dataset completo é recusada. Auxiliares, seleções e cobertura não
-    entram no manifesto e não são conferidos;
-
-  Divergência recusa com `run_incompativel_com_congelamento run=<id> campo=<campos>` (saída 4).
-  Execução PARCIAL ou FALHOU, ou com falhas registradas, também é recusada
-  (`execucao_incompleta_no_confirmatorio`): o que faltou viraria abstenção do método.
-  Manifesto sem catálogo ou políticas recusa as execuções que usam regras; as de baseline só
-  repetem código, config e entradas. O confirmatório também exige execução de cada método das
-  comparações primárias do manifesto (M_TEMP, B_ATEND e B_PROC); se falta alguma, recusa
-  (`avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias`) antes de avaliar, e nada entra
-  no registro.
+  REAIS, G2 humano para o `freeze_id` e o manifesto conferido por inteiro (tabela abaixo) antes
+  de ler qualquer dado. Avalia só o TESTE e emite as razões do TOTAL, do domínio comum e, por
+  valor, de competência, instrumento e estabelecimento (CNES); só o TOTAL e as diferenças
+  pareadas levam intervalo. As execuções vêm de `<raiz_saidas>/runs/<run_id>/`: o
+  `run_result.json` do motor de regras (`validate --saida <raiz_saidas>/runs`) ou o `run.json` do
+  baseline; os dois no mesmo diretório são recusados (`execucao_ambigua`).
 - `sustemporal evaluate --freeze <id> --exploratory`: explícito. Avalia só a CALIBRACAO e
   registra a divergência do manifesto em vez de recusar.
 - `registro_execucoes.jsonl`: registro append-only, em que cada linha leva o próprio hash e o
@@ -61,6 +31,41 @@ O arquivo nunca é sobrescrito; outro conteúdo com o mesmo id é recusado. Um m
   congelamento, exploratório ou inexistente é recusado (código 2) e não reabre o teste, e a
   correção só vale no confirmatório. A correção precisa de execuções diferentes das da rodada
   anterior: o `report_id` deriva das execuções, e o relatório nunca é sobrescrito.
+
+## Como cada campo do manifesto é conferido
+
+A comparação é uma só, `verificar_congelamento_completo` (`evaluation/freeze_conferencia.py`),
+e `CAMPOS_DO_MANIFESTO` classifica todo campo: conferido contra o estado atual do avaliador
+(divergência: `freeze_incompativel campos=<campos>`, saída 4), contra cada execução
+(`run_incompativel_com_congelamento run=<id> campo=<campos>`) ou informativo, com o motivo. O
+teste `tests/integration/test_freeze_campos.py` percorre `FreezeManifest.model_fields` e falha
+se um campo novo ficar sem classificação ou se um campo conferido não tiver cenário de
+divergência. A biblioteca (`evaluate_runs`) repete a conferência antes de ler dados.
+
+| Campo | Estado atual do avaliador | Cada execução | Observação |
+|---|---|---|---|
+| `freeze_id` | informativo | informativo | derivado do conteúdo e recomputado ao carregar (`carregar_freeze`) |
+| `criado_em` | informativo | informativo | instante do congelamento; entra no id, sem par no estado atual |
+| `config_hash` | `config` | `config` | estado: protocolo da config do avaliador (`hash_protocolo`, sem `modo` e `freeze_id`); execução: `config_hash` da config confirmatória |
+| `codigo` | `codigo` | `codigo` | mesmo commit e árvore limpa; `versao_pacote` (coberto por `ambiente.pacotes`) e `diff_sha256` (só em código sujo) são informativos |
+| `ambiente` | `ambiente` | `ambiente` | Python, dependências (`pacotes`) e `uv_lock_sha256`; a `plataforma` é informativa (inclui a versão do kernel, que muda sem mudar as versões travadas) |
+| `catalogos_sha256` | `catalogos` | não se aplica | digest recalculado dos arquivos de `config.catalogos`, pelos mesmos caminhos e a mesma função do `congelar`; arquivo ausente ou alterado diverge |
+| `datasets` | `entradas` | `entradas` | estado: cada dataset do avaliador é do congelamento; execução: entradas `sia_pa.v1` e de rótulos congeladas, com a população da partição TESTE entre elas (o baseline pode trazer outras partições); auxiliares, seleções e cobertura não entram no manifesto |
+| `split` | `split` | não se aplica | comparado por inteiro, não só pelo `split_id`, que não deriva do conteúdo |
+| `features` | `features` | não se aplica | lista positiva de atributos |
+| `bootstrap` | `bootstrap` | não se aplica | o `evaluate_runs` confirmatório usa o do manifesto e recusa outro (`avaliacao_confirmatoria_com_bootstrap_diferente_do_congelado`) |
+| `metricas` | `metricas` | não se aplica | as métricas do avaliador (`METRICAS_PROTOCOLO`) |
+| `comparacoes_primarias` | `comparacoes` | `metodos` | as do avaliador; o confirmatório exige a execução de cada método (M_TEMP, B_ATEND e B_PROC) e, se falta algum, recusa (`avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias`) |
+| `margens` | informativo | informativo | a avaliação não usa margens de relevância prática (pendência T11 #2) |
+| `decisao_g0` | informativo | informativo | G0 só autoriza congelar (exigido em `congelar`); no teste vale o G2 do `freeze_id` |
+| `catalogo_regras_sha256` | `catalogo` | `catalogo` | digest do catálogo de regras; na execução vale para toda menos a de baseline |
+| `politicas_sha256` | `politica` | `politica` | hash de cada política do avaliador; na execução, o `politica_id` entre as congeladas (menos baseline) |
+
+Outras recusas, antes de ler dados, com a mesma conferência: execução PARCIAL, FALHOU ou com
+falhas registradas (`execucao_incompleta_no_confirmatorio`), porque o que faltou viraria
+abstenção do método; e manifesto sem catálogo de regras ou políticas, que recusa as execuções
+que usam regras (as de baseline só repetem código, ambiente, config e entradas). Nada disso
+entra no registro de rodadas.
 
 Dados sintéticos nunca são confirmatórios. Nenhum congelamento real existe neste repositório
 enquanto o projeto estiver antes do G0.

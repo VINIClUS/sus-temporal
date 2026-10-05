@@ -35,7 +35,7 @@ from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.baselines_modelo import Ajuste, Linha, Predicao, ajustar, prever
 from sustemporal.evaluation.features import OrigemAtributo, auditar_features
 from sustemporal.evaluation.freeze import carregar_freeze
-from sustemporal.evaluation.freeze_conferencia import verificar_compatibilidade
+from sustemporal.evaluation.freeze_conferencia import EstadoAtual, verificar_congelamento_completo
 from sustemporal.gates import DIR_DECISOES, exigir_confirmatorio_valido
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.sia_pa import gravar_parquet, produtor
@@ -289,14 +289,16 @@ def _conferir_congelamento(
     if config.freeze_id is None:
         raise PortaoRecusado("confirmatorio_exige_freeze_id")
     manifesto = carregar_freeze(Path(config.runtime.dir_congelamentos), config.freeze_id)
-    verificar_compatibilidade(
-        manifesto,
+    raiz = Path.cwd()
+    estado = EstadoAtual(
         config=config,
         split=split,
         features=features,
         datasets=entradas,
-        codigo=codigo if codigo is not None else versao_codigo(Path.cwd()),
+        codigo=codigo if codigo is not None else versao_codigo(raiz),
+        ambiente=ambiente(raiz),
     )
+    verificar_congelamento_completo(manifesto, estado)
 
 
 def fit_baseline(
@@ -318,8 +320,9 @@ def fit_baseline(
     Raises:
         ValueError: sem rótulos, atributo proibido, esquema inesperado ou treino sem as duas
             classes.
-        PortaoRecusado: confirmatório com código, split, atributos, config ou entradas fora do
-            `FreezeManifest`, sem G2 ou sem dados reais; tudo conferido antes de abrir arquivos.
+        PortaoRecusado: confirmatório com código, ambiente, catálogos, split, atributos, config
+            ou entradas fora do `FreezeManifest`, sem G2 ou sem dados reais; tudo conferido antes
+            de abrir arquivos.
         ConfigInvalida: confirmatório sem o manifesto do `freeze_id`.
         FalhaOperacionalErro: entrada ilegível ou diferente do `DatasetRef`.
     """

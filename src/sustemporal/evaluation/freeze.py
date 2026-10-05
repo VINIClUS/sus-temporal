@@ -46,7 +46,10 @@ __all__ = [
     "Protocolo",
     "carregar_freeze",
     "congelar",
+    "hash_das_regras",
     "hash_protocolo",
+    "hashes_das_politicas",
+    "hashes_dos_catalogos",
     "referencia_decisao",
 ]
 
@@ -95,8 +98,10 @@ def referencia_decisao(diretorio: Path, decisao: DecisaoPortao) -> str:
 class Protocolo:
     """O que se congela: config, split, atributos, entradas, catálogos, regras e políticas.
 
-    `regras` e `politicas` dão a identidade que cada execução que usa regras precisa repetir; sem
-    elas o manifesto não as registra e a conferência recusa essas execuções.
+    `catalogos` são os que `config.catalogos` declara (os digests são recalculados por esses
+    caminhos na conferência). `regras` e `politicas` dão a identidade que cada execução que usa
+    regras precisa repetir; sem elas o manifesto não as registra e a conferência recusa essas
+    execuções.
     """
 
     config: RunConfig
@@ -124,7 +129,7 @@ def congelar(
     Raises:
         PortaoRecusado: G0 ausente ou que não libera.
         ConfigInvalida: protocolo incoerente, com valor A_DEFINIR, código sujo, catálogo
-            ausente ou política repetida com conteúdo diferente.
+            ausente ou que a config não declara, ou política repetida com conteúdo diferente.
         FalhaOperacionalErro: já existe outro conteúdo sob o mesmo `freeze_id`.
     """
     g0 = exigir_portao(decisoes, Portao.G0, hoje=hoje)
@@ -136,9 +141,9 @@ def congelar(
             config_hash=hash_protocolo(protocolo.config),
             codigo=codigo if codigo is not None else versao_codigo(raiz),
             ambiente=ambiente(raiz),
-            catalogos_sha256=_hashes_dos_catalogos(protocolo.catalogos),
-            catalogo_regras_sha256=_hash_das_regras(protocolo.regras),
-            politicas_sha256=_hashes_das_politicas(protocolo.politicas),
+            catalogos_sha256=hashes_dos_catalogos(protocolo.catalogos),
+            catalogo_regras_sha256=hash_das_regras(protocolo.regras),
+            politicas_sha256=hashes_das_politicas(protocolo.politicas),
             datasets=(protocolo.dataset, protocolo.rotulos),
             split=protocolo.split,
             features=protocolo.features,
@@ -167,22 +172,36 @@ def _exigir_coerencia(protocolo: Protocolo) -> None:
         raise ConfigInvalida(f"congelamento_split_de_outro_dataset split={split.split_id}")
     if protocolo.rotulos.schema_id != "sia_pa_rotulos.v1":
         raise ConfigInvalida(f"congelamento_rotulos_invalidos schema={protocolo.rotulos.schema_id}")
+    declarados = {nome: Path(caminho) for nome, caminho in protocolo.config.catalogos.items()}
+    if declarados != {nome: Path(caminho) for nome, caminho in protocolo.catalogos.items()}:
+        raise ConfigInvalida(f"congelamento_catalogos_fora_da_config config={sorted(declarados)}")
     esquemas = {carregar_esquema(a.schema_id) for a in protocolo.features.atributos}
     auditar_features(protocolo.features, esquemas)
 
 
-def _hashes_dos_catalogos(catalogos: Mapping[str, Path]) -> dict[str, str]:
+def hashes_dos_catalogos(catalogos: Mapping[str, Path]) -> dict[str, str]:
+    """SHA-256 de cada catálogo por nome; `congelar` e a conferência usam esta função.
+
+    Raises:
+        ConfigInvalida: sem catálogos ou com algum arquivo ausente.
+    """
     ausentes = sorted(nome for nome, caminho in catalogos.items() if not Path(caminho).is_file())
     if ausentes or not catalogos:
         raise ConfigInvalida(f"congelamento_catalogo_ausente catalogos={','.join(ausentes)}")
     return {nome: sha256_arquivo(Path(caminho)) for nome, caminho in sorted(catalogos.items())}
 
 
-def _hash_das_regras(regras: Sequence[RuleSpec]) -> str | None:
+def hash_das_regras(regras: Sequence[RuleSpec]) -> str | None:
+    """Identidade do catálogo de regras (a que as execuções registram); None sem regras."""
     return catalogo_sha256(list(regras)) if regras else None
 
 
-def _hashes_das_politicas(politicas: Sequence[PoliticaTemporal]) -> dict[str, str] | None:
+def hashes_das_politicas(politicas: Sequence[PoliticaTemporal]) -> dict[str, str] | None:
+    """Hash canônico de cada política por `politica_id`; None sem políticas.
+
+    Raises:
+        ConfigInvalida: política repetida com conteúdo diferente.
+    """
     hashes: dict[str, str] = {}
     for politica in politicas:
         conteudo = hash_canonico(politica.model_dump(mode="json"))

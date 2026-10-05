@@ -33,7 +33,7 @@ from sustemporal.contracts.temporal import MetodoId
 from sustemporal.errors import ConfigInvalida, ExitCode, PortaoRecusado
 from sustemporal.evaluation.features import FEATURES_PADRAO
 from sustemporal.evaluation.freeze import Protocolo, carregar_freeze, congelar, referencia_decisao
-from sustemporal.evaluation.freeze_conferencia import verificar_compatibilidade
+from sustemporal.evaluation.freeze_conferencia import EstadoAtual, verificar_congelamento_completo
 from sustemporal.evaluation.freeze_registro import exigir_rodada_permitida, registrar_execucao
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 from sustemporal.evaluation.split import SUFIXO_ENTRADAS
@@ -157,23 +157,29 @@ def _runs(pasta: Path, modo: ModoExecucao, freeze_id: str) -> list[RunResult]:
     return runs
 
 
-def _conferir(
-    manifesto: FreezeManifest,
-    config: RunConfig,
-    entradas: tuple[SplitManifest, DatasetRef, DatasetRef],
-) -> None:
+def _estado_atual(
+    config: RunConfig, entradas: tuple[SplitManifest, DatasetRef, DatasetRef]
+) -> EstadoAtual:
+    """O que o avaliador observa agora: a config, o split, o código, o ambiente e o catálogo."""
     split, dataset, rotulos = entradas
+    regras = _regras_do_catalogo()
+    return EstadoAtual(
+        config=config,
+        split=split,
+        features=FEATURES_PADRAO,
+        datasets=[dataset, rotulos],
+        codigo=versao_codigo(Path.cwd()),
+        ambiente=ambiente(Path.cwd()),
+        regras=regras,
+        politicas=_politicas_do_catalogo(regras),
+    )
+
+
+def _conferir(manifesto: FreezeManifest, estado: EstadoAtual) -> None:
     try:
-        verificar_compatibilidade(
-            manifesto,
-            config=config,
-            split=split,
-            features=FEATURES_PADRAO,
-            datasets=[dataset, rotulos],
-            codigo=versao_codigo(Path.cwd()),
-        )
+        verificar_congelamento_completo(manifesto, estado)
     except PortaoRecusado as erro:
-        if config.modo is ModoExecucao.CONFIRMATORIO:
+        if estado.config.modo is ModoExecucao.CONFIRMATORIO:
             raise
         logger.warning("evaluate_exploratorio_divergente_do_freeze erro=%s", erro)
 
@@ -204,9 +210,9 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     """Avalia as execuções do congelamento e acrescenta o resultado ao registro.
 
     O confirmatório (já liberado por G2 na CLI) avalia o TESTE e recusa qualquer divergência
-    do manifesto, inclusive a do split por inteiro e a de cada execução (código, config, catálogo
-    de regras, política e entradas); o exploratório explícito avalia a CALIBRACAO e só registra a
-    divergência. A segunda rodada confirmatória exige `--corrige` e `--declaracao`, os dois juntos.
+    do manifesto contra o estado atual (código, ambiente, catálogos, split por inteiro, ...) e
+    contra cada execução (`freeze_conferencia`); o exploratório explícito avalia a CALIBRACAO e só
+    registra a divergência. A segunda rodada confirmatória exige `--corrige` e `--declaracao`.
 
     Raises:
         ConfigInvalida: congelamento ou split ausente ou inválido, ou correção incompleta,
@@ -219,7 +225,8 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     manifesto = carregar_freeze(diretorio, args.freeze)
     raiz = Path(config.runtime.raiz_saidas)
     entradas = _split_e_entradas(raiz)
-    _conferir(manifesto, config, entradas)
+    estado = _estado_atual(config, entradas)
+    _conferir(manifesto, estado)
     split = entradas[0]
     _exigir_rodada(diretorio / REGISTRO, config, args.freeze, correcao)
     confirmatorio = config.modo is ModoExecucao.CONFIRMATORIO
@@ -228,7 +235,7 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     if confirmatorio:
         g2 = exigir_portao(DIR_DECISOES, Portao.G2, freeze_id=args.freeze)
         congelamento = ReferenciaCongelamento(
-            args.freeze, referencia_decisao(DIR_DECISOES, g2), manifesto=manifesto, config=config
+            args.freeze, referencia_decisao(DIR_DECISOES, g2), manifesto=manifesto, estado=estado
         )
     relatorio = evaluate_runs(
         _runs(raiz / "runs", config.modo, args.freeze),

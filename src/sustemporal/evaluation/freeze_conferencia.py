@@ -2,29 +2,41 @@
 
 Todo campo do manifesto está em `CAMPOS_DO_MANIFESTO`, classificado como conferido contra o
 estado atual do avaliador, contra cada execução ou informativo, com o motivo. Um teste percorre
-`FreezeManifest.model_fields` e falha se um campo novo ficar sem classificação.
+`FreezeManifest.model_fields` e falha se um campo novo ficar sem classificação; código e
+ambiente têm subcampos informativos (`SUBCAMPOS_INFORMATIVOS`) e todo o resto deles é conferido.
+`verificar_congelamento_completo` é a única comparação: estado em `freeze_incompativel
+campos=...`, execução em `run_incompativel_com_congelamento run=... campo=...`.
 """
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sustemporal.contracts.experiment import (
+    Ambiente,
     EstadoExecucao,
     FreezeManifest,
     ModoExecucao,
     Particao,
     TipoExecucao,
 )
-from sustemporal.errors import PortaoRecusado
-from sustemporal.evaluation.freeze import hash_protocolo
+from sustemporal.errors import ConfigInvalida, PortaoRecusado
+from sustemporal.evaluation.freeze import (
+    COMPARACOES_PRIMARIAS,
+    METRICAS_PROTOCOLO,
+    hash_das_regras,
+    hash_protocolo,
+    hashes_das_politicas,
+    hashes_dos_catalogos,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
 
     from sustemporal.contracts import (
-        Ambiente,
         CodeVersion,
         DatasetRef,
         FeatureSpec,
@@ -43,12 +55,12 @@ __all__ = [
     "ambiente_divergente",
     "campos_sem_classificacao",
     "verificar_comparacoes_primarias",
-    "verificar_compatibilidade",
     "verificar_congelamento_completo",
     "verificar_execucao",
     "verificar_execucao_concluida",
-    "verificar_split_congelado",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -56,7 +68,7 @@ class Campo:
     """Como um campo do manifesto é conferido; sem `estado` nem `execucao`, é informativo.
 
     `estado` e `execucao` são os nomes que a divergência leva em `freeze_incompativel campos=` e
-    em `run_incompativel_com_congelamento campo=`.
+    em `run_incompativel_com_congelamento campo=` (ou `metodos`, a falta de execução de método).
     """
 
     estado: str | None = None
@@ -97,12 +109,15 @@ SUBCAMPOS_INFORMATIVOS = {
 
 def campos_sem_classificacao(nomes: Iterable[str]) -> set[str]:
     """Campos de `nomes` que `CAMPOS_DO_MANIFESTO` não classifica."""
-    raise NotImplementedError
+    return {nome for nome in nomes if nome not in CAMPOS_DO_MANIFESTO}
 
 
 @dataclass(frozen=True)
 class EstadoAtual:
-    """O que o avaliador observa agora; `regras` e `politicas` só valem para quem as usa."""
+    """O que o avaliador observa agora; `regras` e `politicas` só valem para quem as usa.
+
+    Os catálogos vêm de `config.catalogos`, os mesmos caminhos que o congelamento usou.
+    """
 
     config: RunConfig
     split: SplitManifest
@@ -114,16 +129,16 @@ class EstadoAtual:
     politicas: Sequence[PoliticaTemporal] | None = None
 
 
+def _informativos(modelo: str) -> set[str]:
+    prefixo = f"{modelo}."
+    nomes = (nome for nome in SUBCAMPOS_INFORMATIVOS if nome.startswith(prefixo))
+    return {nome.removeprefix(prefixo) for nome in nomes}
+
+
 def ambiente_divergente(congelado: Ambiente, observado: Ambiente) -> bool:
-    """Ambientes que diferem em qualquer campo que não seja informativo."""
-    raise NotImplementedError
-
-
-def verificar_congelamento_completo(
-    manifesto: FreezeManifest, estado: EstadoAtual, runs: Sequence[RunResult] = ()
-) -> None:
-    """Confere o manifesto inteiro contra o estado atual e, se dadas, contra cada execução."""
-    raise NotImplementedError
+    """Ambientes que diferem em qualquer campo que não seja informativo (hoje, a plataforma)."""
+    conferidos = set(Ambiente.model_fields) - _informativos("ambiente")
+    return any(getattr(congelado, nome) != getattr(observado, nome) for nome in conferidos)
 
 
 def _hashes_congelados(manifesto: FreezeManifest) -> set[str]:
@@ -138,53 +153,73 @@ def _codigo_divergente(codigo: CodeVersion, manifesto: FreezeManifest) -> bool:
     return codigo.sujo or codigo.commit != manifesto.codigo.commit
 
 
-def _split_divergente(split: SplitManifest, manifesto: FreezeManifest) -> bool:
-    return split != manifesto.split
+def _catalogos_divergentes(manifesto: FreezeManifest, config: RunConfig) -> bool:
+    caminhos = {nome: Path(caminho) for nome, caminho in config.catalogos.items()}
+    try:
+        return hashes_dos_catalogos(caminhos) != manifesto.catalogos_sha256
+    except ConfigInvalida as erro:
+        logger.warning("catalogos_nao_conferidos erro=%s", erro)
+        return True
 
 
-def verificar_compatibilidade(
-    manifesto: FreezeManifest,
-    *,
-    config: RunConfig,
-    split: SplitManifest,
-    features: FeatureSpec,
-    datasets: Sequence[DatasetRef],
-    codigo: CodeVersion,
+def _regras_divergentes(manifesto: FreezeManifest, regras: Sequence[RuleSpec] | None) -> bool:
+    return regras is not None and hash_das_regras(regras) != manifesto.catalogo_regras_sha256
+
+
+def _politicas_divergentes(
+    manifesto: FreezeManifest, politicas: Sequence[PoliticaTemporal] | None
+) -> bool:
+    if politicas is None:
+        return False
+    try:
+        return hashes_das_politicas(politicas) != manifesto.politicas_sha256
+    except ConfigInvalida:
+        return True
+
+
+def _divergencias_do_estado(manifesto: FreezeManifest, estado: EstadoAtual) -> dict[str, bool]:
+    permitidos = _hashes_congelados(manifesto)
+    return {
+        "codigo": _codigo_divergente(estado.codigo, manifesto),
+        "ambiente": ambiente_divergente(manifesto.ambiente, estado.ambiente),
+        "split": estado.split != manifesto.split,
+        "features": estado.features != manifesto.features,
+        "config": hash_protocolo(estado.config) != manifesto.config_hash,
+        "catalogos": _catalogos_divergentes(manifesto, estado.config),
+        "catalogo": _regras_divergentes(manifesto, estado.regras),
+        "politica": _politicas_divergentes(manifesto, estado.politicas),
+        "bootstrap": estado.config.bootstrap != manifesto.bootstrap,
+        "metricas": manifesto.metricas != METRICAS_PROTOCOLO,
+        "comparacoes": manifesto.comparacoes_primarias != COMPARACOES_PRIMARIAS,
+        "entradas": any(d.hash_logico not in permitidos for d in estado.datasets),
+    }
+
+
+def verificar_congelamento_completo(
+    manifesto: FreezeManifest, estado: EstadoAtual, runs: Sequence[RunResult] = ()
 ) -> None:
-    """Recusa código, split, atributos, config ou entradas fora do congelamento.
+    """Confere o manifesto inteiro contra o estado atual e, se dadas, contra cada execução.
 
-    O split é comparado por inteiro, não só pelo `split_id`, que não deriva do conteúdo.
+    O split é comparado por inteiro (o `split_id` não deriva do conteúdo), os catálogos pelo
+    digest recalculado e o ambiente pelo Python e pelas dependências. Com `runs`, cada execução
+    é conferida e precisa ter concluído sem falhas, e o conjunto precisa trazer os métodos das
+    comparações primárias.
 
     Raises:
-        PortaoRecusado: `freeze_incompativel campos=...` com cada identidade divergente.
+        PortaoRecusado: `freeze_incompativel campos=...` para o estado; para as execuções,
+            `run_incompativel_com_congelamento`, `execucao_incompleta_no_confirmatorio` e
+            `avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias`.
     """
-    permitidos = _hashes_congelados(manifesto)
-    divergencias = {
-        "codigo": _codigo_divergente(codigo, manifesto),
-        "split": _split_divergente(split, manifesto),
-        "features": features != manifesto.features,
-        "config": hash_protocolo(config) != manifesto.config_hash,
-        "entradas": any(d.hash_logico not in permitidos for d in datasets),
-    }
+    divergencias = _divergencias_do_estado(manifesto, estado)
     if campos := [nome for nome, divergente in divergencias.items() if divergente]:
         raise PortaoRecusado(
             f"freeze_incompativel campos={','.join(campos)} freeze={manifesto.freeze_id}"
         )
-
-
-def verificar_split_congelado(manifesto: FreezeManifest, split: SplitManifest) -> None:
-    """Recusa o split de conteúdo diferente do congelado, mesmo com o mesmo `split_id`.
-
-    A população e os rótulos que a avaliação lê vêm do split, e o id não deriva do conteúdo.
-
-    Raises:
-        PortaoRecusado: `split_incompativel_com_congelamento split=... freeze=...`
-    """
-    if _split_divergente(split, manifesto):
-        raise PortaoRecusado(
-            f"split_incompativel_com_congelamento split={split.split_id} "
-            f"freeze={manifesto.freeze_id}"
-        )
+    for run in runs:
+        verificar_execucao(manifesto, run, config=estado.config)
+        verificar_execucao_concluida(run)
+    if runs:
+        verificar_comparacoes_primarias(manifesto, runs)
 
 
 def verificar_execucao_concluida(run: RunResult) -> None:
@@ -252,18 +287,20 @@ def verificar_execucao(manifesto: FreezeManifest, run: RunResult, *, config: Run
     """Recusa a execução cuja identidade registrada difere da congelada.
 
     `config` é a config confirmatória do congelamento: o protocolo dela confere com o manifesto
-    (`hash_protocolo`) e o `config_hash` da execução é o dela, com `modo` e `freeze_id`. Catálogo
-    de regras e política valem para toda execução, menos a de baseline (`BASELINE_ML`), que não
-    usa regras. Só as entradas `sia_pa.v1` e de rótulos são congeladas, e a população da
-    partição TESTE precisa estar entre elas (o baseline pode trazer outras partições); auxiliares,
-    seleções e cobertura não entram no manifesto.
+    (`hash_protocolo`) e o `config_hash` da execução é o dela, com `modo` e `freeze_id`. O
+    ambiente (Python e dependências) é o congelado, para toda execução. Catálogo de regras e
+    política valem para toda execução, menos a de baseline (`BASELINE_ML`), que não usa regras.
+    Só as entradas `sia_pa.v1` e de rótulos são congeladas, e a população da partição TESTE
+    precisa estar entre elas (o baseline pode trazer outras partições); auxiliares, seleções e
+    cobertura não entram no manifesto.
 
     Raises:
         PortaoRecusado: `run_incompativel_com_congelamento run=... campo=...`, com cada identidade
-            divergente na ordem código, config, catálogo, política e entradas.
+            divergente na ordem código, ambiente, config, catálogo, política e entradas.
     """
     divergencias = {
         "codigo": _codigo_divergente(run.codigo, manifesto),
+        "ambiente": ambiente_divergente(manifesto.ambiente, run.ambiente),
         "config": _config_divergente(manifesto, run, config),
         "catalogo": _catalogo_divergente(manifesto, run),
         "politica": _politica_divergente(manifesto, run),

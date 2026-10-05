@@ -20,6 +20,7 @@ import yaml
 from sustemporal.contracts.experiment import Portao
 from sustemporal.errors import PortaoRecusado
 from sustemporal.gates import carregar_decisoes, exigir_portao
+from tests.fixtures.reproducao_alegacoes import DIR_ALEGACOES, ESTADOS, problemas_de_decisoes
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -38,7 +39,6 @@ CAMPOS_OBRIGATORIOS = (
     "Estado",
     "Limites",
 )
-ESTADOS = ("PENDENTE", "EXPLORATORIA", "CONFIRMADA", "NAO_CONFIRMADA")
 ESTADOS_COM_RESULTADO = ("CONFIRMADA", "NAO_CONFIRMADA")
 NATUREZAS = ("DESCRITIVA", "EXPLORATORIA", "CONFIRMATORIA")
 PORTOES = ("G0", "G1", "G2")
@@ -232,7 +232,12 @@ def validar_alegacoes(
         problemas += _problemas_de_resultado(
             alegacao, decisoes, esboco_preservado=esboco_preservado
         )
-    return problemas
+    estados = {
+        alegacao.id: alegacao.campos["Estado"]
+        for alegacao in alegacoes
+        if alegacao.id and alegacao.campos.get("Estado") in ESTADOS
+    }
+    return problemas + problemas_de_decisoes(estados, decisoes / DIR_ALEGACOES)
 
 
 def _esboco_preservado() -> bool:

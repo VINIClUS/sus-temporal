@@ -281,10 +281,13 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 ### OR-08 — Revisar cada conclusão contra a evidência
 
 - **Itens:** T14-8 (revisar cada conclusão contra a evidência ao redigir)
-- **Ferramenta pronta:** `docs/method/claims.md` e `tests/unit/test_alegacoes.py`.
-- **Runbook:** `docs/runbooks/reproducao.md` §8.
+- **Ferramenta pronta:** `docs/method/claims.md`, `tests/unit/test_alegacoes.py` e
+  `tests/unit/test_alegacoes_decisoes.py`.
+- **Runbook:** `docs/runbooks/reproducao.md` §3 e §6.
 - **Estado:** aberta (decisão humana)
-- **Nota:** O estado de uma alegação só muda por PR de humano com a decisão registrada.
+- **Nota:** O estado de uma alegação só muda por PR de humano com a decisão da alegação em
+  `experiments/decisions/alegacoes/<AAAA-MM-DD>.yaml` (regra 2 de `docs/method/claims.md`) e, em
+  CONFIRMADA e NAO_CONFIRMADA, a decisão de cada portão.
 
 ## 3. Avaliadores
 
@@ -624,4 +627,4 @@ for o mesmo, o teste exige que os itens dele sejam exatamente estes.
 | T10 | 1-8 | 8 | cea4697cfa0ff9560eaa99dff1d0540e7a301fdbf0529d728ccd7c832a50fdb5 |
 | T12 | i1-i7 | 7 | f6454780722eb379be317e9853861ef3bbf5ca3f8889802fcfa48f35ada1543c |
 | T13 | 1-6, 8, b1-b5 | 12 | 73d222a03774e97c9698daad4678de33e52906d918061b7b3ba751f12fd0ba15 |
-| T14 | 1-12 | 12 | ea23c9e8625ba3da57019aecfe784c14acb18241b6fe1968dfca14b1734bed5e |
+| T14 | 1-12 | 12 | f4d208f98623e9be0abbb46d79239edb9ca2b43476fd355c5feb9e234c255a1f |

@@ -9,7 +9,8 @@ nenhum deles é um resultado.
 ## Estado atual
 
 - O repositório está em pré-G0. Nenhum dado real foi processado aqui e `experiments/decisions/` só
-  traz o modelo `MODELO_G0.yaml`, que nunca libera portão: não existe decisão G0, G1 ou G2.
+  traz o modelo `MODELO_G0.yaml`, que nunca libera portão: não existe decisão G0, G1 ou G2, nem
+  decisão sobre alguma alegação.
 - O esboço (`docs/spec/esboco_original.pdf`) está PENDENTE em `docs/spec/manifest.yaml` e prevalece
   sobre o plano quanto ao escopo científico. Os enunciados de P1, P2 e P3 seguem o plano e precisam
   ser conferidos contra o esboço antes de qualquer redação final.
@@ -46,7 +47,8 @@ Cada alegação é um bloco `### AL-NN — título` com os campos abaixo.
   orientação); ESBOCO (conferência com o esboço original, hoje PENDENTE).
 - **Estado:** PENDENTE (sem a evidência nem o portão), EXPLORATORIA (há resultado exploratório com
   dados reais, sem congelamento), CONFIRMADA ou NAO_CONFIRMADA (resultado sob os portões exigidos; o
-  resultado nulo também se registra).
+  resultado nulo também se registra). Todo estado diferente de PENDENTE exige a decisão humana da
+  regra 2 de "Regras de atualização".
 - **Limites:** o que não se conclui mesmo com a evidência.
 - **Ferramentas** e **Pendências:** os comandos e módulos previstos para produzir a evidência (nem
   todos estão em `main` ainda: ver as ações EN-14, EN-16 e EN-18 de `docs/PENDENCIAS.md`) e as
@@ -54,20 +56,40 @@ Cada alegação é um bloco `### AL-NN — título` com os campos abaixo.
 
 ## Regras de atualização
 
-Verificadas por `tests/unit/test_alegacoes.py`:
+O estado de uma alegação só muda com decisão humana que a cite. Verificadas por
+`tests/unit/test_alegacoes.py` e `tests/unit/test_alegacoes_decisoes.py`:
 
 1. Toda alegação tem conclusão possível, natureza, evidência exigida, dependência (um portão ou dado
    real), estado e limites, com os valores do vocabulário acima.
-2. Só um humano muda o estado, por PR em `humano/*`, anexando a evidência e a decisão; agentes nunca
-   criam decisões G0, G1 ou G2.
-3. CONFIRMADA e NAO_CONFIRMADA exigem decisão humana, em `experiments/decisions/`, que libere cada
-   portão citado em `Depende de`; o modelo `MODELO_*` nunca libera.
+2. Todo estado diferente de PENDENTE aparece, com o id da alegação e o mesmo estado, na decisão mais
+   recente que a cita: arquivo `experiments/decisions/alegacoes/<AAAA-MM-DD>.yaml`, com a chave
+   `alegacoes` (`AL-NN: ESTADO`), `data`, `responsaveis` e `evidencias` (listas não vazias) e
+   `registrado_por_humano: true`. Reprovam: estado sem decisão que cite a alegação; estado diferente
+   do decidido (inclusive PENDENTE depois de decidida); arquivo de decisão inválido; duas decisões
+   da mesma data com estados diferentes; decisão sobre alegação que não existe. Não contam arquivo
+   `MODELO_*` nem decisão fora desse subdiretório. A decisão da alegação não substitui a do
+   portão, nem o contrário.
+3. CONFIRMADA e NAO_CONFIRMADA exigem também a decisão humana de cada portão (G0, G1 ou G2) citado
+   em `Depende de`, em `experiments/decisions/`; o modelo `MODELO_*` nunca libera.
 4. Alegação CONFIRMATORIA depende de G2 e de DADOS_REAIS.
 5. Alegação que depende do ESBOCO não é CONFIRMADA nem NAO_CONFIRMADA enquanto o esboço estiver
    PENDENTE.
 6. O texto não usa a linguagem que o AGENTS.md proíbe (Restrições globais e
    `docs/process/revisao.md`, item 7).
 7. Os caminhos do repositório citados existem.
+
+O que o teste não garante, e quem garante:
+
+- **Quem escreveu a decisão.** A autoridade humana vem do caminho: em `docs/process/propriedade.yaml`,
+  `experiments/decisions/` é só de humanos (menos `MODELO_*` e `README.md` no nível superior) e o CI
+  de propriedade, que lê o mapa da base do PR, reprova PR de agente que crie, altere ou apague
+  arquivo ali. O teste confere só que o mapa continua tratando os arquivos de
+  `experiments/decisions/alegacoes/*.yaml` como só de humanos, para todos os donos.
+- **O mérito da evidência.** O teste confere que a decisão cita a alegação e traz responsáveis e
+  evidências preenchidos; ler a evidência e decidir é da revisão humana.
+- **O local da decisão.** Fica num subdiretório porque `sustemporal.gates` lê todo `*.yaml` de
+  `experiments/decisions/` como decisão de portão (`DecisaoPortao`), que recusa campos extras; o
+  teste confere que o subdiretório não entra nesse carregamento.
 
 ## Alegações
 

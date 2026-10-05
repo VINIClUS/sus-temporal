@@ -50,6 +50,12 @@ Recortes úteis: `uv run pytest tests/unit -q` (rápido) e `uv run pytest tests/
 (CLI e FTP local). O `pytest` exclui por padrão os marcadores `network`, `real_data` e `perf`, e o
 `pytest-socket` só permite loopback: nenhum teste acessa a rede externa nem dados reais.
 
+O `pytest` também audita o registro de alegações (`docs/method/claims.md`,
+`tests/unit/test_alegacoes.py` e `tests/unit/test_alegacoes_decisoes.py`): todo estado diferente de
+PENDENTE exige a decisão humana que cite a alegação, em `experiments/decisions/alegacoes/`
+(só de humanos no mapa de propriedade). Hoje todas as alegações estão PENDENTE e o diretório não
+existe.
+
 ## 4. Fluxo sintético pela CLI
 
 Os dados vêm de fábricas de `tests/fixtures/` (um SIA-PA, um CNES PF e um SIGTAP mínimos, com
@@ -206,6 +212,7 @@ diretório de trabalho e ficam fora do Git (`.gitignore`: `data/*`, `outputs/*`)
 | Saídas | `raiz_saidas` | `outputs/` | `ingest/`, `pilot/`, `runs/`, `validacao/`, `explicacoes/`, `anotacao/` |
 | Congelamentos | `dir_congelamentos` | `experiments/frozen/` | `<freeze_id>.json`, resolvido pelo id |
 | Decisões G0, G1, G2 | fixo | `experiments/decisions/` | só humanos; `MODELO_*` nunca libera portão |
+| Decisões sobre alegações | fixo | `experiments/decisions/alegacoes/` | só humanos; vale a decisão mais recente de cada alegação |
 
 Cada execução grava sob um id que resolve artefatos exatos (`execucao_<instante>_<id>`,
 `val_<hash>`), sem diretório "latest" mutável. O manifesto de aquisição guarda cada observação,

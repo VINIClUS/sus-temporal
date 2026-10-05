@@ -108,11 +108,13 @@ vêm da pasta exata de `bundle.run_id` (`contexto_da_execucao`, §3.1); sem eles
    adicional, como o recorte territorial do `--ingest`). Divergência é recusa
    (`contrafactual_contexto_diverge_da_execucao`). O CNES ST das precondições é o auxiliar
    `cnes_estabelecimento.v1` gravado na entrada: o `validate --ingest` o grava quando a pasta do
-   ingest o traz (`rules/ingest.py::CADASTROS_DO_CONTEXTO`: nenhuma regra o lê, mas ele entra nos
-   auxiliares e no `run_id` da execução). Sem CNES ST na pasta (família fora da config do piloto ou
-   versão ausente), as operações ficam inadmissíveis e a busca sai `SEM_OPERACAO_ADMISSIVEL`,
-   nunca com operação suposta. A competência aberta fica `None` (só fontes históricas;
-   executabilidade nunca potencial);
+   ingest o traz e o registro e o corte o confirmam como à produção
+   (`rules/ingest_cadastros.py::CADASTROS_DO_CONTEXTO`: nenhuma regra o lê, mas ele entra nos
+   auxiliares e no `run_id` da execução). Sem CNES ST no contexto (família fora da config do
+   piloto, versão ausente, fora do manifesto ou observada só depois do `corte_observacao`), as
+   operações ficam inadmissíveis e a busca sai `SEM_OPERACAO_ADMISSIVEL`, nunca com operação
+   suposta. A competência aberta fica `None` (só fontes históricas; executabilidade nunca
+   potencial);
 4. publica `contrafactual.json` e `identidade.json` em
    `<raiz_saidas>/contrafactuais/<run_id>/id_<identidade>/row_<sha256(row_id)[:32]>/`, de forma
    atômica (diretório temporário renomeado). A identidade deriva do SHA-256 de

@@ -246,12 +246,22 @@ de todo conjunto) vêm antes de gravar qualquer arquivo:
 - auxiliares: por esquema exigido pelas regras, uma relação derivada com as linhas de todos os
   artefatos daquele esquema, cada linha com o seu `artifact_id`; nada é deduplicado entre artefatos,
   porque a seleção decide quais versões valem e a avaliação junta por `artifact_id`. Além deles, os
-  cadastros do contexto (`rules/ingest.py::CADASTROS_DO_CONTEXTO`, hoje o CNES ST,
+  cadastros do contexto (`rules/ingest_cadastros.py::CADASTROS_DO_CONTEXTO`, hoje o CNES ST,
   `cnes_estabelecimento.v1`): nenhuma regra os lê, mas as precondições das operações do
-  `counterfactual` sim. Se a pasta os traz, viram a mesma relação derivada, conferida como os
-  demais antes de gravar (divergente do `DatasetRef` → saída 2), e entram nos auxiliares da
-  execução (`RunResult.entradas`, `entrada_validacao.json` e `run_id`), sem mudar o resultado das
-  regras; a cobertura recalculada não os usa. Pasta sem CNES ST: nada muda, nem o `run_id`;
+  `counterfactual` sim. Como a produção, cada artefato deles precisa estar no registro e, por
+  competência do arquivo, o seletor do T06 até o `corte_observacao` tem de escolhê-los com
+  exatamente os artefatos da pasta. Ao contrário da produção, só a seleção completa
+  (`SELECIONADA`) vale: a produção aceita `INCOMPLETA` e a marca na cobertura, mas ausência
+  cadastral não pode vir de arquivo parcial. O conjunto que não passa (fora do manifesto,
+  observado só depois do corte, em quarentena, republicação divergente, seleção incompleta,
+  versão que o seletor não escolheu ou competência da pasta que não confere) fica fora do
+  contexto gravado, com um log `cadastro_do_contexto_ignorado schema=… dataset=… motivo=…`: não é
+  conferido nem recusa o `validate`, que não depende dele. O que passa vira a mesma relação
+  derivada, conferida como os demais antes de gravar (divergente do `DatasetRef` → saída 2), e
+  entra nos auxiliares da execução (`RunResult.entradas`, `entrada_validacao.json` e `run_id`),
+  sem mudar o resultado das regras; a cobertura recalculada não os usa. Pasta sem CNES ST, ou
+  com todo o CNES ST ignorado: nada muda, nem o `run_id` (o motivo fica só no log, porque a
+  `EntradaValidacao` não tem campo para ele);
 - cobertura: no máximo um `cobertura.v1` (mais de um → saída 2); nenhum → matriz não fornecida.
   Com um, a cobertura avaliada é recalculada por `ingest.coverage.build_coverage` sobre a
   produção territorial e os conjuntos auxiliares originais da ingestão (com `reconciliacao`, então

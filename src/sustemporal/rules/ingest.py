@@ -5,9 +5,11 @@ território do piloto; cada esquema auxiliar exigido vira uma relação derivada
 os artefatos (a seleção do T06 decide quais valem); a integridade por versão vem do registro.
 
 Os esquemas de `CADASTROS_DO_CONTEXTO` (CNES ST) não são lidos por regra alguma, mas as precondições
-das operações dos contrafactuais (`catalog/operations.yaml`) os leem: se a pasta os traz, viram
-relações derivadas, conferidas como os demais auxiliares, e entram nos auxiliares da execução e no
-`entrada_validacao.json`, sem mudar o resultado das regras. Fora da cobertura recalculada.
+das operações dos contrafactuais (`catalog/operations.yaml`) os leem: se a pasta os traz e o
+registro e o corte os confirmam como confirmam a produção (`ingest_cadastros`), viram relações
+derivadas, conferidas como os demais auxiliares, e entram nos auxiliares da execução e no
+`entrada_validacao.json`, sem mudar o resultado das regras; os que não passam ficam fora do
+contexto. Fora da cobertura recalculada.
 """
 
 from __future__ import annotations
@@ -33,7 +35,7 @@ from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.coverage import build_coverage
 from sustemporal.rules.catalog import carregar_esquema, requisito_auxiliar
 from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
-from sustemporal.rules.ingest_cadastros import CADASTROS_DO_CONTEXTO
+from sustemporal.rules.ingest_cadastros import CADASTROS_DO_CONTEXTO, cadastros_aceitos
 from sustemporal.rules.ingest_conformidade import exigir_colunas_obrigatorias
 from sustemporal.rules.ingest_selecao import exigir_versao_selecionavel, marcas_de_incompletude
 from sustemporal.rules.preparo import conferir_tipos_fisicos
@@ -83,7 +85,8 @@ _NAO_INTEGRAS = {
 class InsumosIngest:
     """Produção no território, auxiliares por esquema, cobertura e exclusões contadas.
 
-    `auxiliares` traz também os cadastros do contexto (`CADASTROS_DO_CONTEXTO`) presentes na pasta.
+    `auxiliares` traz também os cadastros do contexto (`CADASTROS_DO_CONTEXTO`) da pasta que o
+    registro e o corte confirmam.
     `cobertura` é a recalculada sobre a produção territorial (a que é avaliada), só com os
     auxiliares das regras; `cobertura_da_ingestao` fica registrada como origem.
     """
@@ -435,10 +438,13 @@ def preparar_insumos_ingest(
         FalhaOperacionalErro: `row_id` repetido na união da produção.
         ValueError: conteúdo ou tipo físico divergente do `DatasetRef`; coluna não anulável do
             esquema ausente ou nula em qualquer conjunto (`ConteudoDivergente`, antes de gravar).
+
+    Cadastro do contexto que o registro ou o corte não confirmam fica fora, com log, sem recusa.
     """
     config, registro, municipios = contexto
     producao, auxiliares, cobertura = _classificar(datasets, regras)
     incompletas = _exigir_producao_coerente(producao, registro, config)
+    auxiliares = cadastros_aceitos(auxiliares, registro, config)
     grupos = [producao, *(refs for refs in auxiliares.values() if refs)]
     fisicas = [_conferir(con, refs) for refs in grupos]
     if cobertura is not None:

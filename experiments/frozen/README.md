@@ -31,8 +31,10 @@ O arquivo nunca é sobrescrito; outro conteúdo com o mesmo id é recusado. Um m
     (`hash_protocolo`, sem `modo` e `freeze_id`) confere com o manifesto;
   - `catalogo` e `politica` (toda execução, menos a de baseline): `catalogo_regras_sha256`
     igual ao congelado e `politica_id` entre as políticas congeladas;
-  - `entradas`: toda entrada `sia_pa.v1` ou de rótulos é do congelamento, e ao menos uma existe;
-    auxiliares, seleções e cobertura não entram no manifesto e não são conferidos.
+  - `entradas`: toda entrada `sia_pa.v1` ou de rótulos é do congelamento e a população da
+    partição TESTE está entre elas (o baseline pode trazer outras partições); execução sobre
+    outra partição ou sobre o dataset completo é recusada. Auxiliares, seleções e cobertura não
+    entram no manifesto e não são conferidos;
 
   Divergência recusa com `run_incompativel_com_congelamento run=<id> campo=<campos>` (saída 4).
   Manifesto sem catálogo ou políticas recusa as execuções que usam regras; as de baseline só

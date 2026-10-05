@@ -22,6 +22,7 @@ from sustemporal.contracts.experiment import (
     DecisaoPortao,
     FreezeManifest,
     ModoExecucao,
+    Particao,
     Portao,
     TipoExecucao,
 )
@@ -312,7 +313,9 @@ def _entradas_divergentes(manifesto: FreezeManifest, run: RunResult) -> bool:
     esquemas = {d.schema_id for d in manifesto.datasets}
     congeladas = [d for d in run.entradas if d.schema_id in esquemas]
     permitidos = _hashes_congelados(manifesto)
-    return not congeladas or any(d.hash_logico not in permitidos for d in congeladas)
+    teste = manifesto.split.hash_por_particao[Particao.TESTE]
+    sem_o_teste = not any(d.hash_logico == teste for d in congeladas)
+    return sem_o_teste or any(d.hash_logico not in permitidos for d in congeladas)
 
 
 def verificar_execucao(manifesto: FreezeManifest, run: RunResult, *, config: RunConfig) -> None:
@@ -321,8 +324,9 @@ def verificar_execucao(manifesto: FreezeManifest, run: RunResult, *, config: Run
     `config` é a config confirmatória do congelamento: o protocolo dela confere com o manifesto
     (`hash_protocolo`) e o `config_hash` da execução é o dela, com `modo` e `freeze_id`. Catálogo
     de regras e política valem para toda execução, menos a de baseline (`BASELINE_ML`), que não
-    usa regras. Só as entradas `sia_pa.v1` e de rótulos são congeladas; auxiliares, seleções e
-    cobertura não entram no manifesto.
+    usa regras. Só as entradas `sia_pa.v1` e de rótulos são congeladas, e a população da
+    partição TESTE precisa estar entre elas (o baseline pode trazer outras partições); auxiliares,
+    seleções e cobertura não entram no manifesto.
 
     Raises:
         PortaoRecusado: `run_incompativel_com_congelamento run=... campo=...`, com cada identidade

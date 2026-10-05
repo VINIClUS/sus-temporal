@@ -2,10 +2,10 @@
 
 Entradas por convenção, sempre resolvidas por id exato e nunca por "latest":
 `<raiz_saidas>/split/<split_id>.json` (único) com `<split_id>.entradas.json` (dataset e rótulos
-completos), execuções em `<raiz_saidas>/runs/<run_id>/` e congelamentos em
-`<dir_congelamentos>/<freeze_id>.json`. A execução é o `run_result.json` que o motor de regras
-grava (`validate --saida <raiz_saidas>/runs`) ou o `run.json` do baseline, nunca os dois no mesmo
-diretório. O registro append-only fica em `<dir_congelamentos>/registro_execucoes.jsonl`.
+completos), execuções em `raiz_execucoes(config)` = `<raiz_saidas>/runs/<run_id>/` e congelamentos
+em `<dir_congelamentos>/<freeze_id>.json`. A execução é o `run_result.json` que o motor de regras
+grava por padrão ali (`validate`) ou o `run.json` do baseline, nunca os dois no mesmo diretório.
+O registro append-only fica em `<dir_congelamentos>/registro_execucoes.jsonl`.
 
 Depois da abertura do teste, a segunda rodada confirmatória só entra como correção declarada:
 `evaluate --corrige <report_id> --declaracao <texto>`, os dois juntos, com alvo confirmatório
@@ -41,6 +41,7 @@ from sustemporal.evaluation.freeze_conferencia import (
 from sustemporal.evaluation.freeze_registro import exigir_rodada_permitida, registrar_execucao
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 from sustemporal.evaluation.split import SUFIXO_ENTRADAS
+from sustemporal.execucoes import raiz_execucoes
 from sustemporal.gates import DIR_DECISOES, exigir_portao
 from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.insumos import politica_padrao
@@ -262,7 +263,7 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
             args.freeze, referencia_decisao(DIR_DECISOES, g2), manifesto=manifesto, estado=estado
         )
     relatorio = evaluate_runs(
-        _runs(raiz / "runs", config, manifesto),
+        _runs(raiz_execucoes(config), config, manifesto),
         (split.rotulos_por_particao or {})[particao],
         split,
         raiz / "avaliacao" / args.freeze,

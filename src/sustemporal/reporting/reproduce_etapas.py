@@ -1,17 +1,43 @@
-"""Etapas do fluxo pequeno que a reprodução refaz: janelas do ingest, rótulos e partições (T14)."""
+"""Etapas do fluxo pequeno que a reprodução refaz: janelas do ingest, rótulos e partições (T14).
+
+O `validate --ingest` exige que a produção da pasta do ingest seja toda do recorte do piloto, e o
+protocolo avalia partições (DESENVOLVIMENTO, CALIBRACAO e TESTE) de uma série maior. A janela é a
+pasta do ingest com só o SIA-PA dos arquivos das competências pedidas: o `validate` sobre ela lê a
+mesma população da partição (o hash lógico confere, e `reproduce` o compara). Não há comando de CLI
+para estas etapas; elas valem para o fluxo pequeno e para o que o `freeze` consome em
+`<raiz_saidas>/split` (pendência T11 #27).
+"""
 
 from __future__ import annotations
 
+import logging
+from contextlib import closing
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pyarrow.parquet as pq
+
+from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
+from sustemporal.acquisition.manifest import Manifesto
+from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
+from sustemporal.duck import conectar, identificador_seguro
+from sustemporal.errors import ConfigInvalida
+from sustemporal.evaluation.labels import CODEBOOK_PA, label_pa
+from sustemporal.evaluation.split import SCHEMA_ENTRADA, build_splits
+from sustemporal.execucoes import raiz_execucoes
+from sustemporal.hashing import hash_logico_relacao
+from sustemporal.ingest.sia_pa import gravar_parquet, produtor
+from sustemporal.rules.catalog import carregar_esquema
+from sustemporal.rules.ingest import ler_datasets
+from sustemporal.rules.insumos import METODOS_DE_VALIDACAO
+from sustemporal.rules.validate_ingest import validar_ingest
+
 if TYPE_CHECKING:
-    from collections.abc import Collection
-    from pathlib import Path
+    from collections.abc import Collection, Mapping
 
     from sustemporal.contracts.config import RunConfig
     from sustemporal.contracts.experiment import RunResult, SplitManifest, SplitSpec
-    from sustemporal.contracts.records import DatasetRef
     from sustemporal.contracts.temporal import MetodoId
 
 __all__ = [
@@ -21,6 +47,10 @@ __all__ = [
     "janela_do_ingest",
     "validar_janela",
 ]
+
+logger = logging.getLogger(__name__)
+
+_UNIAO = "uniao_sia_pa"
 
 
 @dataclass(frozen=True)
@@ -32,27 +62,152 @@ class Derivado:
     split: SplitManifest
 
 
+def _manifesto(config: RunConfig) -> Manifesto:
+    return Manifesto(Path(config.runtime.raiz_manifestos) / NOME_MANIFESTO_AQUISICAO)
+
+
+def _competencias_do_dataset(
+    ref: DatasetRef, competencia_por_artefato: Mapping[str, str]
+) -> set[str]:
+    faltantes = [a for a in ref.artifact_ids if a not in competencia_por_artefato]
+    if faltantes:
+        raise ConfigInvalida(f"janela_artefato_fora_do_manifesto artefato={faltantes[0]}")
+    return {competencia_por_artefato[a] for a in ref.artifact_ids}
+
+
+def _na_janela(
+    ref: DatasetRef, competencia_por_artefato: Mapping[str, str], pedidas: set[str]
+) -> bool:
+    if ref.schema_id != SCHEMA_ENTRADA:
+        return True
+    do_dataset = _competencias_do_dataset(ref, competencia_por_artefato)
+    if do_dataset <= pedidas:
+        return True
+    if do_dataset & pedidas:
+        raise ConfigInvalida(f"janela_com_dataset_misto dataset={ref.dataset_id}")
+    return False
+
+
 def janela_do_ingest(
     config: RunConfig, pasta: Path, destino: Path, competencias: Collection[str]
 ) -> Path:
-    """Pasta com o `datasets.jsonl` do ingest sem o SIA-PA dos arquivos de fora da janela."""
-    raise NotImplementedError
+    """Pasta com o `datasets.jsonl` do ingest sem o SIA-PA dos arquivos de fora da janela.
+
+    Os conjuntos que não são SIA-PA (CNES, SIGTAP, cobertura) ficam todos: as regras buscam as
+    competências de que precisam e a falta delas segue inconclusiva. A janela é por competência do
+    arquivo, a mesma que `validate --ingest` confere contra o piloto.
+
+    Raises:
+        ConfigInvalida: ingest ilegível, artefato fora do manifesto ou conjunto SIA-PA com
+            arquivos de janelas diferentes.
+    """
+    pedidas = {str(c) for c in competencias}
+    versoes = _manifesto(config).ler().versoes
+    competencia_por_artefato = {
+        a: str(v.chave.competencia_arquivo)
+        for a, v in versoes.items()
+        if v.chave.competencia_arquivo
+    }
+    refs = [
+        ref for ref in ler_datasets(pasta) if _na_janela(ref, competencia_por_artefato, pedidas)
+    ]
+    linhas = [ref.model_dump_json() for ref in refs]
+    destino.mkdir(parents=True, exist_ok=True)
+    (destino / "datasets.jsonl").write_text("".join(f"{linha}\n" for linha in linhas), "utf-8")
+    logger.info("janela_do_ingest destino=%s competencias=%s", destino, sorted(pedidas))
+    return destino
 
 
 def competencias_da_particao(particao: DatasetRef) -> tuple[str, ...]:
     """Competências de processamento (distintas, em ordem) das linhas da partição."""
-    raise NotImplementedError
+    tabela = pq.read_table(particao.caminho, columns=["competencia_processamento"])
+    valores = {str(v) for v in tabela.column(0).to_pylist() if v is not None}
+    return tuple(sorted(valores))
+
+
+def _unir_sia_pa(refs: list[DatasetRef], destino: Path, config: RunConfig) -> DatasetRef:
+    colunas = [c.nome for c in carregar_esquema(SCHEMA_ENTRADA).colunas]
+    projecao = ", ".join(identificador_seguro(nome, colunas) for nome in colunas)
+    origens = {ref.origem_dados for ref in refs}
+    if len(origens) > 1:
+        raise ConfigInvalida(f"ingest_com_origens_diferentes origens={sorted(map(str, origens))}")
+    with closing(conectar(config.runtime)) as con:
+        con.execute(
+            f"CREATE TEMP TABLE {_UNIAO} AS SELECT {projecao} "  # noqa: S608
+            "FROM read_parquet($c, union_by_name = true) ORDER BY row_id",
+            {"c": [ref.caminho for ref in refs]},
+        )
+        hash_logico = hash_logico_relacao(con, _UNIAO, colunas)
+        linhas = int(con.execute(f"SELECT count(*) FROM {_UNIAO}").fetchall()[0][0])  # noqa: S608
+        artefatos = tuple(sorted({a for ref in refs for a in ref.artifact_ids}))
+        dataset_id = calcular_dataset_id(SCHEMA_ENTRADA, hash_logico, artefatos)
+        destino.mkdir(parents=True, exist_ok=True)
+        arquivo = destino / f"{dataset_id}.parquet"
+        gravar_parquet(con, _UNIAO, arquivo)
+    return DatasetRef(
+        dataset_id=dataset_id,
+        schema_id=SCHEMA_ENTRADA,
+        caminho=str(arquivo),
+        hash_logico=hash_logico,
+        linhas=linhas,
+        artifact_ids=artefatos,
+        origem_dados=origens.pop(),
+        produzido_por=produtor("reporting.reproduce_etapas.derivar_protocolo"),
+    )
+
+
+def _fonte_por_artefato(config: RunConfig) -> dict[str, str]:
+    """Fonte lógica de cada versão (família, UF, competência do arquivo e parte).
+
+    As versões de uma mesma fonte (republicações) ficam na mesma partição do split.
+    """
+    versoes = _manifesto(config).ler().versoes
+    return {
+        artefato: "|".join(
+            str(valor)
+            for valor in (v.chave.fonte, v.chave.uf, v.chave.competencia_arquivo, v.chave.parte)
+        )
+        for artefato, v in versoes.items()
+    }
 
 
 def derivar_protocolo(
     config: RunConfig, pasta: Path, destino: Path, *, spec: SplitSpec
 ) -> Derivado:
-    """União do SIA-PA do ingest, rótulos pelo codebook e partições do split, em `destino`."""
-    raise NotImplementedError
+    """União do SIA-PA do ingest, rótulos pelo codebook e partições do split, em `destino`.
+
+    O split sai direto em `destino` (`spl_*.json`, `<split_id>.entradas.json` e as partições),
+    onde o `freeze` e o `evaluate` o procuram (`<raiz_saidas>/split`).
+
+    Raises:
+        ConfigInvalida: config sem `coorte`, ingest sem SIA-PA ou com origens misturadas.
+    """
+    if config.coorte is None:
+        raise ConfigInvalida("derivar_protocolo_exige_coorte")
+    producao = [ref for ref in ler_datasets(pasta) if ref.schema_id == SCHEMA_ENTRADA]
+    if not producao:
+        raise ConfigInvalida("ingest_sem_producao schema=sia_pa.v1")
+    uniao = _unir_sia_pa(producao, destino / "entradas", config)
+    (destino / "rotulos").mkdir(parents=True, exist_ok=True)
+    rotulos = label_pa(uniao, CODEBOOK_PA, destino / "rotulos", runtime=config.runtime)
+    split = build_splits(
+        uniao,
+        config.coorte,
+        destino,
+        spec=spec,
+        fonte_por_artefato=_fonte_por_artefato(config),
+        rotulos=rotulos,
+    )
+    return Derivado(uniao, rotulos, split)
 
 
 def validar_janela(
-    config: RunConfig, janela: Path, metodos: Collection[MetodoId] | None = None
+    config: RunConfig, janela: Path, metodos: Collection[MetodoId] = METODOS_DE_VALIDACAO
 ) -> dict[MetodoId, RunResult]:
-    """`validate --ingest` da janela, um método por vez, gravado em `raiz_execucoes(config)`."""
-    raise NotImplementedError
+    """`validate --ingest` da janela, um método por vez, gravado em `raiz_execucoes(config)`.
+
+    Raises:
+        ConfigInvalida: catálogo, política, manifesto, território ou pasta inválidos.
+    """
+    saida = raiz_execucoes(config)
+    return {metodo: validar_ingest(janela, metodo, config, saida) for metodo in metodos}

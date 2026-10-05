@@ -6,33 +6,40 @@ Nenhum resultado empírico.
 
 from __future__ import annotations
 
+import shutil
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO, escrever_decisao
+from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO, escrever_decisao, relogio
 from tests.fixtures.protocolo_cli import (
     REGISTRO,
     config_confirmatoria_yaml,
     config_yaml,
     congelar_pela_cli,
+    executar_cli,
     gravar_runs,
     manifesto_da_cli,
     nome_do_arquivo_da_execucao,
     runs_da_cli,
 )
+from tests.fixtures.protocolo_confirmatorio import run_compativel
 from tests.fixtures.protocolo_dados import cenario_baseline
 
 from sustemporal.cli import main
+from sustemporal.config import load_config
+from sustemporal.contracts.evaluation import EvaluationReport
 from sustemporal.contracts.temporal import MetodoId
 from sustemporal.errors import ExitCode
-from sustemporal.evaluation.freeze_registro import ler_registro
+from sustemporal.evaluation.freeze_registro import ler_registro, registrar_execucao
 from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     import pytest
+    from tests.fixtures.protocolo_dados import Cenario
 
-    from sustemporal.contracts import RuleSpec
+    from sustemporal.contracts import RuleSpec, RunResult
 
 OUTRO_CODIGO = CODIGO_LIMPO.model_copy(update={"commit": "b" * 40})
 M_TEMP = 0
@@ -144,3 +151,123 @@ def test_cli_recusa_o_confirmatorio_com_execucao_de_outro_codigo(
     assert esperado in capsys.readouterr().err
     assert not (tmp_path / "frozen" / REGISTRO).exists()
     assert not (tmp_path / "saidas" / "avaliacao").exists()
+
+
+@dataclass(frozen=True)
+class PrimeiraRodada:
+    """Protocolo congelado, rodada confirmatória já registrada e as execuções avaliadas."""
+
+    cenario: Cenario
+    argumentos: list[str]
+    freeze: str
+    report_id: str
+    runs: list[RunResult]
+
+
+def _primeira_rodada(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> PrimeiraRodada:
+    cenario, freeze = congelar_pela_cli(tmp_path, monkeypatch)
+    runs = runs_da_cli(tmp_path, cenario, freeze)
+    gravar_runs(tmp_path, runs)
+    config = config_confirmatoria_yaml(tmp_path, freeze)
+    argumentos = ["evaluate", "--config", str(config), "--freeze", freeze]
+    assert executar_cli(argumentos) == ExitCode.OK
+    (entrada,) = ler_registro(tmp_path / "frozen" / REGISTRO)
+    return PrimeiraRodada(cenario, argumentos, freeze, entrada["report_id"], runs)
+
+
+def _trocar_b_proc(tmp_path: Path, rodada: PrimeiraRodada) -> RunResult:
+    """Substitui a execução do B_PROC por outra com resultado diferente (outro `run_id`)."""
+    (antiga,) = [run for run in rodada.runs if run.metodo is MetodoId.B_PROC]
+    config = load_config(config_confirmatoria_yaml(tmp_path, rodada.freeze))
+    manifesto = manifesto_da_cli(tmp_path, rodada.freeze)
+    saidas = tmp_path / "saidas" / "runs"
+    corrigida = run_compativel(
+        rodada.cenario, manifesto, config, saidas, MetodoId.B_PROC, uniforme="ALERTA"
+    )
+    assert corrigida.run_id != antiga.run_id
+    shutil.rmtree(saidas / antiga.run_id)
+    gravar_runs(tmp_path, [corrigida])
+    return corrigida
+
+
+def test_cli_recusa_a_segunda_rodada_confirmatoria_sem_correcao_declarada(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rodada = _primeira_rodada(tmp_path, monkeypatch)
+    _trocar_b_proc(tmp_path, rodada)
+    capsys.readouterr()
+    assert executar_cli(rodada.argumentos) == ExitCode.PORTAO_RECUSADO
+    assert "reabertura_do_teste_sem_correcao_declarada" in capsys.readouterr().err
+    assert len(ler_registro(tmp_path / "frozen" / REGISTRO)) == 1
+
+
+def test_cli_aceita_a_correcao_declarada_e_registra_a_relacao(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rodada = _primeira_rodada(tmp_path, monkeypatch)
+    corrigida = _trocar_b_proc(tmp_path, rodada)
+    declaracao = "bug na leitura do B_PROC corrigido; rodada anterior preservada"
+    extra = ["--corrige", rodada.report_id, "--declaracao", declaracao]
+    assert executar_cli([*rodada.argumentos, *extra]) == ExitCode.OK
+    anterior, correcao = ler_registro(tmp_path / "frozen" / REGISTRO)
+    assert anterior["report_id"] == rodada.report_id
+    assert correcao["report_id"] != rodada.report_id
+    assert (correcao["corrige"], correcao["declaracao"]) == (rodada.report_id, declaracao)
+    assert corrigida.run_id in correcao["runs"]
+    assert corrigida.run_id not in anterior["runs"]
+
+
+def test_cli_recusa_correcao_com_so_um_dos_argumentos(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rodada = _primeira_rodada(tmp_path, monkeypatch)
+    _trocar_b_proc(tmp_path, rodada)
+    for extra in (["--corrige", rodada.report_id], ["--declaracao", "bug"]):
+        capsys.readouterr()
+        assert executar_cli([*rodada.argumentos, *extra]) == ExitCode.CONFIG_INVALIDA
+        assert "correcao_exige_corrige_e_declaracao" in capsys.readouterr().err
+    assert len(ler_registro(tmp_path / "frozen" / REGISTRO)) == 1
+
+
+def _registrar_confirmatorio_de_outro_freeze(tmp_path: Path) -> str:
+    outro = EvaluationReport.model_validate(
+        {
+            "report_id": "rep_de_outro_freeze",
+            "modo": "CONFIRMATORIO",
+            "origem_dados": "REAL",
+            "freeze_id": f"frz_{'9' * 64}",
+            "decisao_g2": "experiments/decisions/g2_teste.yaml",
+            "criado_em": "2026-01-01T00:00:00Z",
+        }
+    )
+    registrar_execucao(tmp_path / "frozen" / REGISTRO, outro, relogio=relogio)
+    return outro.report_id
+
+
+def test_cli_recusa_correcao_de_alvo_inexistente_ou_de_outro_congelamento(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rodada = _primeira_rodada(tmp_path, monkeypatch)
+    _trocar_b_proc(tmp_path, rodada)
+    de_outro_freeze = _registrar_confirmatorio_de_outro_freeze(tmp_path)
+    alvos = {
+        "rep_inexistente": "correcao_de_execucao_inexistente",
+        de_outro_freeze: "correcao_de_outro_congelamento",
+    }
+    for alvo, motivo in alvos.items():
+        capsys.readouterr()
+        codigo = executar_cli([*rodada.argumentos, "--corrige", alvo, "--declaracao", "bug"])
+        assert codigo == ExitCode.CONFIG_INVALIDA
+        assert motivo in capsys.readouterr().err
+    assert len(ler_registro(tmp_path / "frozen" / REGISTRO)) == 2
+
+
+def test_cli_recusa_correcao_na_avaliacao_exploratoria(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _, freeze = congelar_pela_cli(tmp_path, monkeypatch)
+    argumentos = ["evaluate", "--config", str(config_yaml(tmp_path)), "--freeze", freeze]
+    capsys.readouterr()
+    extra = ["--exploratory", "--corrige", "rep_x", "--declaracao", "x"]
+    assert executar_cli([*argumentos, *extra]) == ExitCode.CONFIG_INVALIDA
+    assert "correcao_so_no_confirmatorio" in capsys.readouterr().err

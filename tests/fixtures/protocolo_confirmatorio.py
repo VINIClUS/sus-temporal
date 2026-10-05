@@ -118,11 +118,23 @@ def _resultados(cenario: Cenario, metodo: MetodoId) -> dict[str, str]:
     return {lp.row_id: resultado for lp in teste}
 
 
-def runs_compativeis(
-    cenario: Cenario, manifesto: FreezeManifest, config: RunConfig, out: Path
-) -> list[RunResult]:
-    """Três execuções de validação e uma de baseline, todas iguais ao protocolo congelado."""
+def run_compativel(
+    cenario: Cenario,
+    manifesto: FreezeManifest,
+    config: RunConfig,
+    out: Path,
+    metodo: MetodoId,
+    *,
+    uniforme: str | None = None,
+) -> RunResult:
+    """Execução do método sobre o TESTE, igual ao protocolo congelado.
+
+    `uniforme` dá o mesmo resultado a todas as linhas (uma execução corrigida, com outro id).
+    """
     assert cenario.split.particoes is not None
+    resultados = _resultados(cenario, metodo)
+    if uniforme is not None:
+        resultados = dict.fromkeys(resultados, uniforme)
     comuns: dict[str, Any] = {
         "origem": OrigemDados.REAL,
         "modo": ModoExecucao.CONFIRMATORIO,
@@ -134,23 +146,21 @@ def runs_compativeis(
             auxiliar_fora_do_manifesto(),
         ),
     }
+    if metodo is MetodoId.B_ML:
+        return run_agregados(metodo, resultados, out, tipo=TipoExecucao.BASELINE_ML, **comuns)
     regras = catalogo_sha256(carregar_regras())
-    runs = [
-        run_agregados(
-            metodo,
-            _resultados(cenario, metodo),
-            out,
-            politica_id=politica_id,
-            catalogo_regras_sha256=regras,
-            **comuns,
-        )
-        for metodo, politica_id in POLITICA_DO_METODO.items()
-    ]
-    baseline = _resultados(cenario, MetodoId.B_ML)
-    runs.append(
-        run_agregados(MetodoId.B_ML, baseline, out, tipo=TipoExecucao.BASELINE_ML, **comuns)
+    politica_id = POLITICA_DO_METODO[metodo]
+    return run_agregados(
+        metodo, resultados, out, politica_id=politica_id, catalogo_regras_sha256=regras, **comuns
     )
-    return runs
+
+
+def runs_compativeis(
+    cenario: Cenario, manifesto: FreezeManifest, config: RunConfig, out: Path
+) -> list[RunResult]:
+    """Três execuções de validação e uma de baseline, todas iguais ao protocolo congelado."""
+    metodos = (*POLITICA_DO_METODO, MetodoId.B_ML)
+    return [run_compativel(cenario, manifesto, config, out, metodo) for metodo in metodos]
 
 
 def montar_confirmatorio(raiz: Path, cenario: Cenario, **protocolo: Any) -> Confirmatorio:

@@ -51,6 +51,14 @@ def config_yaml(raiz: Path, **extra: str) -> Path:
     return caminho
 
 
+def executar_cli(argumentos: list[str]) -> int:
+    """Código de saída da CLI, inclusive o `SystemExit` do argparse para opção desconhecida."""
+    try:
+        return int(main(argumentos))
+    except SystemExit as saida:
+        return int(saida.code) if isinstance(saida.code, int) else 1
+
+
 def config_confirmatoria_yaml(raiz: Path, freeze: str) -> Path:
     return config_yaml(raiz, modo="CONFIRMATORIO", freeze_id=freeze)
 

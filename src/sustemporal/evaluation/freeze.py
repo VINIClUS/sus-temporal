@@ -56,6 +56,7 @@ __all__ = [
     "congelar",
     "hash_protocolo",
     "referencia_decisao",
+    "verificar_comparacoes_primarias",
     "verificar_compatibilidade",
     "verificar_execucao",
 ]
@@ -268,6 +269,22 @@ def verificar_compatibilidade(
     if campos := [nome for nome, divergente in divergencias.items() if divergente]:
         raise PortaoRecusado(
             f"freeze_incompativel campos={','.join(campos)} freeze={manifesto.freeze_id}"
+        )
+
+
+def verificar_comparacoes_primarias(manifesto: FreezeManifest, runs: Sequence[RunResult]) -> None:
+    """Recusa a avaliação sem execução de algum método das comparações primárias congeladas.
+
+    Raises:
+        PortaoRecusado: `avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias metodos=...`
+            com os métodos sem execução.
+    """
+    exigidos = {metodo for nome in manifesto.comparacoes_primarias for metodo in nome.split("_x_")}
+    presentes = {run.metodo.value for run in runs if run.metodo is not None}
+    if faltam := sorted(exigidos - presentes):
+        raise PortaoRecusado(
+            "avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias "
+            f"metodos={','.join(faltam)} freeze={manifesto.freeze_id}"
         )
 
 

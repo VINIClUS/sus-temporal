@@ -34,7 +34,7 @@ from sustemporal.cli import main
 from sustemporal.contracts.experiment import Particao, SplitManifest
 from sustemporal.errors import ExitCode, PortaoRecusado
 from sustemporal.evaluation.features import FEATURES_PADRAO
-from sustemporal.evaluation.freeze import verificar_compatibilidade
+from sustemporal.evaluation.freeze_conferencia import verificar_compatibilidade
 from sustemporal.evaluation.metrics import evaluate_runs
 
 if TYPE_CHECKING:

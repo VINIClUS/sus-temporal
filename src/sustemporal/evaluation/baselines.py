@@ -34,7 +34,8 @@ from sustemporal.duck import conectar, identificador_seguro
 from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.baselines_modelo import Ajuste, Linha, Predicao, ajustar, prever
 from sustemporal.evaluation.features import OrigemAtributo, auditar_features
-from sustemporal.evaluation.freeze import carregar_freeze, verificar_compatibilidade
+from sustemporal.evaluation.freeze import carregar_freeze
+from sustemporal.evaluation.freeze_conferencia import verificar_compatibilidade
 from sustemporal.gates import DIR_DECISOES, exigir_confirmatorio_valido
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.sia_pa import gravar_parquet, produtor

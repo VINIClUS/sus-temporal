@@ -30,12 +30,8 @@ from sustemporal.contracts.temporal import MetodoId
 from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.baselines import fit_baseline
 from sustemporal.evaluation.features import FEATURES_PADRAO
-from sustemporal.evaluation.freeze import (
-    Protocolo,
-    carregar_freeze,
-    congelar,
-    verificar_compatibilidade,
-)
+from sustemporal.evaluation.freeze import Protocolo, carregar_freeze, congelar
+from sustemporal.evaluation.freeze_conferencia import verificar_compatibilidade
 from sustemporal.evaluation.freeze_registro import (
     exigir_rodada_permitida,
     ler_registro,

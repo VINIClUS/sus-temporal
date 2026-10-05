@@ -1,11 +1,9 @@
-"""Congelamento do protocolo e conferência de compatibilidade com o manifesto (T11).
+"""Congelamento do protocolo (T11).
 
 O manifesto é único por conteúdo (`freeze_id` deriva do conteúdo) e nunca é sobrescrito. O
 `config_hash` congelado é a identidade do protocolo sem `modo` e `freeze_id`, de modo que a
-config confirmatória que só abre o teste confere com a config congelada. O split lido do
-disco é comparado por inteiro com o congelado, porque o `split_id` não deriva do conteúdo. Cada
-execução confirmatória é conferida contra o manifesto: código, config, catálogo de regras,
-política e entradas.
+config confirmatória que só abre o teste confere com a config congelada. A conferência do
+manifesto contra o estado atual e contra cada execução está em `freeze_conferencia`.
 """
 
 from __future__ import annotations
@@ -19,15 +17,7 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from sustemporal.contracts.base import hash_canonico, hash_identidade
-from sustemporal.contracts.experiment import (
-    DecisaoPortao,
-    EstadoExecucao,
-    FreezeManifest,
-    ModoExecucao,
-    Particao,
-    Portao,
-    TipoExecucao,
-)
+from sustemporal.contracts.experiment import DecisaoPortao, FreezeManifest, Portao
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.features import auditar_features
 from sustemporal.gates import DIR_DECISOES, exigir_portao
@@ -46,7 +36,6 @@ if TYPE_CHECKING:
         FeatureSpec,
         RuleSpec,
         RunConfig,
-        RunResult,
         SplitManifest,
     )
     from sustemporal.contracts.temporal import PoliticaTemporal
@@ -59,11 +48,6 @@ __all__ = [
     "congelar",
     "hash_protocolo",
     "referencia_decisao",
-    "verificar_comparacoes_primarias",
-    "verificar_compatibilidade",
-    "verificar_execucao",
-    "verificar_execucao_concluida",
-    "verificar_split_congelado",
 ]
 
 logger = logging.getLogger(__name__)
@@ -235,153 +219,3 @@ def carregar_freeze(diretorio: Path, freeze_id: str) -> FreezeManifest:
     if manifesto.freeze_id != freeze_id:
         raise ConfigInvalida(f"congelamento_de_outro_id freeze={freeze_id}")
     return manifesto
-
-
-def _hashes_congelados(manifesto: FreezeManifest) -> set[str]:
-    congelado = manifesto.split
-    permitidos = {d.hash_logico for d in manifesto.datasets}
-    permitidos |= set(congelado.hash_por_particao.values())
-    permitidos |= {d.hash_logico for d in (congelado.rotulos_por_particao or {}).values()}
-    return permitidos
-
-
-def _codigo_divergente(codigo: CodeVersion, manifesto: FreezeManifest) -> bool:
-    return codigo.sujo or codigo.commit != manifesto.codigo.commit
-
-
-def _split_divergente(split: SplitManifest, manifesto: FreezeManifest) -> bool:
-    return split != manifesto.split
-
-
-def verificar_compatibilidade(
-    manifesto: FreezeManifest,
-    *,
-    config: RunConfig,
-    split: SplitManifest,
-    features: FeatureSpec,
-    datasets: Sequence[DatasetRef],
-    codigo: CodeVersion,
-) -> None:
-    """Recusa código, split, atributos, config ou entradas fora do congelamento.
-
-    O split é comparado por inteiro, não só pelo `split_id`, que não deriva do conteúdo.
-
-    Raises:
-        PortaoRecusado: `freeze_incompativel campos=...` com cada identidade divergente.
-    """
-    permitidos = _hashes_congelados(manifesto)
-    divergencias = {
-        "codigo": _codigo_divergente(codigo, manifesto),
-        "split": _split_divergente(split, manifesto),
-        "features": features != manifesto.features,
-        "config": hash_protocolo(config) != manifesto.config_hash,
-        "entradas": any(d.hash_logico not in permitidos for d in datasets),
-    }
-    if campos := [nome for nome, divergente in divergencias.items() if divergente]:
-        raise PortaoRecusado(
-            f"freeze_incompativel campos={','.join(campos)} freeze={manifesto.freeze_id}"
-        )
-
-
-def verificar_split_congelado(manifesto: FreezeManifest, split: SplitManifest) -> None:
-    """Recusa o split de conteúdo diferente do congelado, mesmo com o mesmo `split_id`.
-
-    A população e os rótulos que a avaliação lê vêm do split, e o id não deriva do conteúdo.
-
-    Raises:
-        PortaoRecusado: `split_incompativel_com_congelamento split=... freeze=...`
-    """
-    if _split_divergente(split, manifesto):
-        raise PortaoRecusado(
-            f"split_incompativel_com_congelamento split={split.split_id} "
-            f"freeze={manifesto.freeze_id}"
-        )
-
-
-def verificar_execucao_concluida(run: RunResult) -> None:
-    """Recusa, no confirmatório, a execução que não concluiu ou que registrou falhas.
-
-    O motor grava saídas avaliáveis também em execução PARCIAL ou FALHOU, e a leitura trataria o
-    que faltou como abstenção do método.
-
-    Raises:
-        PortaoRecusado: `execucao_incompleta_no_confirmatorio run=... estado=... falhas=...`
-    """
-    if run.estado is not EstadoExecucao.CONCLUIDA or run.falhas > 0:
-        raise PortaoRecusado(
-            f"execucao_incompleta_no_confirmatorio run={run.run_id} estado={run.estado.value} "
-            f"falhas={run.falhas}"
-        )
-
-
-def verificar_comparacoes_primarias(manifesto: FreezeManifest, runs: Sequence[RunResult]) -> None:
-    """Recusa a avaliação sem execução de algum método das comparações primárias congeladas.
-
-    Raises:
-        PortaoRecusado: `avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias metodos=...`
-            com os métodos sem execução.
-    """
-    exigidos = {metodo for nome in manifesto.comparacoes_primarias for metodo in nome.split("_x_")}
-    presentes = {run.metodo.value for run in runs if run.metodo is not None}
-    if faltam := sorted(exigidos - presentes):
-        raise PortaoRecusado(
-            "avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias "
-            f"metodos={','.join(faltam)} freeze={manifesto.freeze_id}"
-        )
-
-
-def _config_divergente(manifesto: FreezeManifest, run: RunResult, config: RunConfig) -> bool:
-    protocolo_confere = hash_protocolo(config) == manifesto.config_hash
-    abertura = (config.modo, config.freeze_id)
-    abre_o_teste = abertura == (ModoExecucao.CONFIRMATORIO, manifesto.freeze_id)
-    return not (protocolo_confere and abre_o_teste and run.config_hash == config.config_hash)
-
-
-def _catalogo_divergente(manifesto: FreezeManifest, run: RunResult) -> bool:
-    if run.tipo is TipoExecucao.BASELINE_ML:
-        return False
-    congelado = manifesto.catalogo_regras_sha256
-    return congelado is None or run.catalogo_regras_sha256 != congelado
-
-
-def _politica_divergente(manifesto: FreezeManifest, run: RunResult) -> bool:
-    if run.tipo is TipoExecucao.BASELINE_ML:
-        return False
-    return run.politica_id is None or run.politica_id not in (manifesto.politicas_sha256 or {})
-
-
-def _entradas_divergentes(manifesto: FreezeManifest, run: RunResult) -> bool:
-    esquemas = {d.schema_id for d in manifesto.datasets}
-    congeladas = [d for d in run.entradas if d.schema_id in esquemas]
-    permitidos = _hashes_congelados(manifesto)
-    teste = manifesto.split.hash_por_particao[Particao.TESTE]
-    sem_o_teste = not any(d.hash_logico == teste for d in congeladas)
-    return sem_o_teste or any(d.hash_logico not in permitidos for d in congeladas)
-
-
-def verificar_execucao(manifesto: FreezeManifest, run: RunResult, *, config: RunConfig) -> None:
-    """Recusa a execução cuja identidade registrada difere da congelada.
-
-    `config` é a config confirmatória do congelamento: o protocolo dela confere com o manifesto
-    (`hash_protocolo`) e o `config_hash` da execução é o dela, com `modo` e `freeze_id`. Catálogo
-    de regras e política valem para toda execução, menos a de baseline (`BASELINE_ML`), que não
-    usa regras. Só as entradas `sia_pa.v1` e de rótulos são congeladas, e a população da
-    partição TESTE precisa estar entre elas (o baseline pode trazer outras partições); auxiliares,
-    seleções e cobertura não entram no manifesto.
-
-    Raises:
-        PortaoRecusado: `run_incompativel_com_congelamento run=... campo=...`, com cada identidade
-            divergente na ordem código, config, catálogo, política e entradas.
-    """
-    divergencias = {
-        "codigo": _codigo_divergente(run.codigo, manifesto),
-        "config": _config_divergente(manifesto, run, config),
-        "catalogo": _catalogo_divergente(manifesto, run),
-        "politica": _politica_divergente(manifesto, run),
-        "entradas": _entradas_divergentes(manifesto, run),
-    }
-    if campos := [nome for nome, divergente in divergencias.items() if divergente]:
-        raise PortaoRecusado(
-            f"run_incompativel_com_congelamento run={run.run_id} campo={','.join(campos)} "
-            f"freeze={manifesto.freeze_id}"
-        )

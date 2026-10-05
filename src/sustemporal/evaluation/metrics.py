@@ -20,7 +20,7 @@ from sustemporal.contracts.experiment import BootstrapSpec, ModoExecucao, Partic
 from sustemporal.duck import conectar
 from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.bootstrap import intervalo_diferenca, intervalo_razao
-from sustemporal.evaluation.freeze import (
+from sustemporal.evaluation.freeze_conferencia import (
     verificar_comparacoes_primarias,
     verificar_execucao,
     verificar_execucao_concluida,
@@ -50,6 +50,7 @@ if TYPE_CHECKING:
         SplitManifest,
     )
     from sustemporal.contracts.base import OrigemDados
+    from sustemporal.evaluation.freeze_conferencia import EstadoAtual
 
 __all__ = ["PARES_PRIMARIOS", "ReferenciaCongelamento", "evaluate_runs"]
 
@@ -274,6 +275,7 @@ class ReferenciaCongelamento:
     decisoes: Path = DIR_DECISOES
     manifesto: FreezeManifest | None = None
     config: RunConfig | None = None
+    estado: EstadoAtual | None = None
 
 
 def evaluate_runs(

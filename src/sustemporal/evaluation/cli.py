@@ -32,20 +32,15 @@ from sustemporal.contracts.records import DatasetRef
 from sustemporal.contracts.temporal import MetodoId
 from sustemporal.errors import ConfigInvalida, ExitCode, PortaoRecusado
 from sustemporal.evaluation.features import FEATURES_PADRAO
-from sustemporal.evaluation.freeze import (
-    Protocolo,
-    carregar_freeze,
-    congelar,
-    referencia_decisao,
-    verificar_compatibilidade,
-)
+from sustemporal.evaluation.freeze import Protocolo, carregar_freeze, congelar, referencia_decisao
+from sustemporal.evaluation.freeze_conferencia import verificar_compatibilidade
 from sustemporal.evaluation.freeze_registro import exigir_rodada_permitida, registrar_execucao
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 from sustemporal.evaluation.split import SUFIXO_ENTRADAS
 from sustemporal.gates import DIR_DECISOES, exigir_portao
 from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.insumos import politica_padrao
-from sustemporal.runtime_info import versao_codigo
+from sustemporal.runtime_info import ambiente, versao_codigo
 from sustemporal.temporal.politicas import DIRETORIO_POLITICAS, carregar_politica
 
 if TYPE_CHECKING:
@@ -56,6 +51,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "REGISTRO",
+    "ambiente",
     "configurar_parser",
     "executar_evaluate",
     "executar_freeze",

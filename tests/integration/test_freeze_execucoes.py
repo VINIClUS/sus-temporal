@@ -36,7 +36,7 @@ from sustemporal.contracts.experiment import (
 from sustemporal.errors import ConfigInvalida, PortaoRecusado
 from sustemporal.evaluation.baselines import fit_baseline
 from sustemporal.evaluation.features import FEATURES_PADRAO
-from sustemporal.evaluation.freeze import verificar_execucao
+from sustemporal.evaluation.freeze_conferencia import verificar_execucao
 from sustemporal.evaluation.metrics import evaluate_runs
 from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
 from sustemporal.temporal.politicas import carregar_politica

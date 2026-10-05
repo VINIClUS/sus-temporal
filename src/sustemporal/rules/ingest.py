@@ -166,13 +166,17 @@ def _chave_logica(versao: ArtifactVersion) -> str:
 def _exigir_escopo_do_piloto(
     artefatos: list[str], registro: RegistroTemporal, config: RunConfig
 ) -> None:
-    """Cada versão da produção é da UF e de uma competência de processamento do piloto."""
+    """Cada versão da produção é do SIA-PA, da UF e de uma competência do piloto."""
     piloto = config.piloto
     if piloto is None:
         raise ConfigInvalida("validate_ingest_sem_piloto")
     competencias = {str(c) for c in piloto.competencias_processamento}
     for artefato in artefatos:
         chave = registro.versoes[artefato].chave
+        if chave.fonte is not FamiliaFonte.SIA_PA:
+            raise ConfigInvalida(
+                f"producao_com_fonte_invalida artefato={artefato} fonte={chave.fonte}"
+            )
         if chave.uf != piloto.uf or str(chave.competencia_arquivo) not in competencias:
             raise ConfigInvalida(
                 f"producao_fora_do_piloto artefato={artefato} uf={chave.uf} "

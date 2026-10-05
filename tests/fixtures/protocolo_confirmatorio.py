@@ -194,6 +194,17 @@ def sia_pa_desconhecido(raiz: Path) -> DatasetRef:
     return como_real(gravar_sia_pa([estranha], raiz / "estranha.parquet"))
 
 
+def split_como_real(split: SplitManifest) -> SplitManifest:
+    """Mesmo split com população e rótulos marcados REAL (rótulo de teste, conteúdo igual)."""
+    assert split.particoes is not None
+    assert split.rotulos_por_particao is not None
+    reais = {
+        "particoes": {p: como_real(r) for p, r in split.particoes.items()},
+        "rotulos_por_particao": {p: como_real(r) for p, r in split.rotulos_por_particao.items()},
+    }
+    return split.model_copy(update=reais)
+
+
 def reescrever_split_como_real(pasta: Path) -> None:
     """Marca como REAL, no disco, o split e as entradas que a CLI lê (rótulo de teste)."""
     for caminho in sorted(pasta.glob("spl_*.json")):
@@ -204,13 +215,5 @@ def reescrever_split_como_real(pasta: Path) -> None:
             caminho.write_text(json.dumps(entradas, indent=2), encoding="utf-8")
             continue
         split = SplitManifest.model_validate_json(caminho.read_text(encoding="utf-8"))
-        assert split.particoes is not None
-        assert split.rotulos_por_particao is not None
-        reais = {
-            "particoes": {p: como_real(r) for p, r in split.particoes.items()},
-            "rotulos_por_particao": {
-                p: como_real(r) for p, r in split.rotulos_por_particao.items()
-            },
-        }
-        texto = split.model_copy(update=reais).model_dump_json(indent=2)
+        texto = split_como_real(split).model_dump_json(indent=2)
         caminho.write_text(texto, encoding="utf-8")

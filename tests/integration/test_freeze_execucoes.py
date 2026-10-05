@@ -22,6 +22,7 @@ from tests.fixtures.protocolo_confirmatorio import (
     reescrever_split_como_real,
     runs_compativeis,
     sia_pa_desconhecido,
+    split_como_real,
 )
 from tests.fixtures.protocolo_dados import cenario_baseline
 
@@ -29,8 +30,15 @@ from sustemporal.cli import main
 from sustemporal.config import load_config
 from sustemporal.contracts.base import conteudo_identidade, hash_canonico
 from sustemporal.contracts.config import RunConfig
-from sustemporal.contracts.experiment import FreezeManifest, ModoExecucao, Particao
+from sustemporal.contracts.experiment import (
+    FreezeManifest,
+    ModoExecucao,
+    Particao,
+    TipoExecucao,
+)
 from sustemporal.errors import ConfigInvalida, ExitCode, PortaoRecusado
+from sustemporal.evaluation.baselines import fit_baseline
+from sustemporal.evaluation.features import FEATURES_PADRAO
 from sustemporal.evaluation.freeze_registro import ler_registro
 from sustemporal.evaluation.metrics import evaluate_runs
 from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
@@ -150,6 +158,38 @@ def test_baseline_ml_confere_codigo_mas_nao_exige_catalogo_nem_politica(
     runs = [*confirmatorio.runs[:B_ML], baseline.model_copy(update={"codigo": OUTRO_CODIGO})]
     with pytest.raises(PortaoRecusado, match=_mensagem(baseline, "codigo", confirmatorio)):
         _avaliar(confirmatorio, tmp_path / "av", runs)
+
+
+@pytest.mark.parametrize("tipo", [TipoExecucao.PILOTO, TipoExecucao.AVALIACAO])
+def test_so_o_baseline_dispensa_catalogo_e_politica(
+    tmp_path: Path, confirmatorio: Confirmatorio, tipo: TipoExecucao
+) -> None:
+    alvo = confirmatorio.runs[M_TEMP]
+    sem_regras = {"tipo": tipo, "catalogo_regras_sha256": None, "politica_id": None}
+    runs = [alvo.model_copy(update=sem_regras), *confirmatorio.runs[1:]]
+    with pytest.raises(PortaoRecusado, match=_mensagem(alvo, "catalogo,politica", confirmatorio)):
+        _avaliar(confirmatorio, tmp_path / "av", runs)
+
+
+def test_baseline_ajustado_no_confirmatorio_passa_na_conferencia_do_manifesto(
+    tmp_path: Path, cenario: Cenario, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("sustemporal.evaluation.baselines.versao_codigo", lambda _: CODIGO_LIMPO)
+    runtime = {"dir_congelamentos": str(tmp_path / "frozen")}
+    protocolo = RunConfig.model_validate({**CONFIG_PROTOCOLO, "runtime": runtime})
+    conf = montar_confirmatorio(tmp_path, cenario, config=protocolo)
+    config = config_confirmatoria(conf.manifesto.freeze_id, runtime=runtime)
+    run = fit_baseline(
+        split_como_real(cenario.split),
+        FEATURES_PADRAO,
+        config,
+        tmp_path / "bml",
+        decisoes=conf.decisoes,
+        codigo=CODIGO_LIMPO,
+    )
+    assert run.tipo is TipoExecucao.BASELINE_ML
+    relatorio = _avaliar(conf, tmp_path / "av", [run], config=config)
+    assert relatorio.runs == (run.run_id,)
 
 
 def test_divergencia_acusa_todos_os_campos_na_ordem_do_protocolo(

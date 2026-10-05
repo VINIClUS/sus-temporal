@@ -49,8 +49,8 @@ Cada alegação é um bloco `### AL-NN — título` com os campos abaixo.
   resultado nulo também se registra).
 - **Limites:** o que não se conclui mesmo com a evidência.
 - **Ferramentas** e **Pendências:** os comandos e módulos previstos para produzir a evidência (nem
-  todos estão em `main` ainda: ver as ações EN-13, EN-14, EN-16 e EN-18 de `docs/PENDENCIAS.md`) e
-  as chaves de pendência que bloqueiam a alegação.
+  todos estão em `main` ainda: ver as ações EN-14, EN-16 e EN-18 de `docs/PENDENCIAS.md`) e as
+  chaves de pendência que bloqueiam a alegação.
 
 ## Regras de atualização
 

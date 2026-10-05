@@ -37,7 +37,7 @@ ARQUIVOS = (
 )
 MARCADOR_DA_BASE = "## Base da consolidação"
 DONOS_HUMANOS = ("PQ", "OR", "AV")
-ITENS_DO_ORQUESTRADOR = 23
+ITENS_DO_ORQUESTRADOR = 25
 CAMPOS_DA_ACAO = ("Itens", "Ferramenta pronta", "Runbook", "Estado")
 
 

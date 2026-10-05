@@ -14,7 +14,7 @@ real tem o roteiro próprio em `docs/runbooks/piloto_local.md`.
   humana e escala (seção 7).
 - Estado do repositório: pré-G0. Nenhuma decisão G0, G1 ou G2 existe em `experiments/decisions/`;
   por isso `freeze` é recusado e nenhuma execução sintética é confirmatória.
-- Verificado em 2026-10-05 sobre o commit `48664b4` de `main`, num clone novo, em Linux x86_64.
+- Verificado em 2026-10-05 num clone novo de `main` (commit `c26ae52`), em Linux x86_64.
 
 ## 2. Ambiente limpo
 
@@ -149,33 +149,41 @@ A explicação sai em `saidas/explicacoes/<run_id>/row_<hash>/` (`bundle.json`, 
 ausência não prova inexistência, retrato mensal, abstenção que não equivale a aprovação) e não
 atribui causa à decisão oficial.
 
-### 4.4 Portões e comandos que dependem de outros PRs
+### 4.4 Contrafactual, portões e comandos que dependem de outros PRs
 
 ```bash
+uv run sustemporal --nivel-log WARNING counterfactual --config "$CFG" --run "$RUN" --row "$ROW"
+echo "counterfactual: $?"
 uv run sustemporal --nivel-log WARNING freeze --config "$CFG"; echo "freeze: $?"
 ```
+
+O `counterfactual` sai com **2** (`contrafactual_sem_violacao`): a busca exige um registro com
+regra em `VIOLACAO`, e o registro sintético deste fluxo só tem `CONFORME` e `INCONCLUSIVO`. Mesmo
+com violação, uma execução `--ingest` não traz o CNES ST das precondições (o `validate --ingest`
+grava só os auxiliares que as regras exigem), e a busca sai `SEM_OPERACAO_ADMISSIVEL` (ORQ-24 em
+`docs/PENDENCIAS.md`). A parte B usa linhas com violação.
 
 O `freeze` sai com **4** (`portao_sem_decisao portao=G0`): congelar exige uma decisão G0 humana
 em `experiments/decisions/`, que nenhum agente cria; é o comportamento esperado. Uma execução
 sintética nunca é confirmatória: `evaluate` sem `--exploratory` exige configuração confirmatória,
 que exige dados reais e G2.
 
-Estado dos demais comandos em `main` (commit `48664b4`, 2026-10-05): `counterfactual` e `evaluate`
-saem com 3 (`comando_nao_implementado`) até os PRs #28 (contrafactual) e #29 (T11: `evaluate`,
-`freeze` e registro) entrarem; `annotation-export` sai com 2 (`congelamento_ausente`) sem um
-congelamento. A parte B da T14 reescreve este item com o fluxo completo.
+Estado dos demais comandos em `main` (commit `c26ae52`, 2026-10-05): `evaluate` sai com 3
+(`comando_nao_implementado`) até o PR #29 (T11: `evaluate`, `freeze` e registro) entrar, e
+`annotation-export` sai com 2 (`congelamento_ausente`) sem um congelamento. A parte B da T14
+reescreve este item com o fluxo completo.
 
 ### 4.5 Aceite da reprodução
 
 1. `bash scripts/ci.sh` termina com 0.
 2. Os passos 4.2 e 4.3 terminam com 0 e deixam `relatorio.json`, os três `run_result.json` e o
    `explicacao.txt` descritos acima.
-3. O `freeze` da seção 4.4 sai com 4.
+3. O `counterfactual` da seção 4.4 sai com 2 e o `freeze` com 4.
 
 ## 5. Reprodução offline de um congelamento (`sustemporal reproduce --freeze ID --offline`)
 
-**PARTE B da T14: seção a preencher quando os PRs #28 e #29 estiverem em `main`.** Contrato
-previsto (plano, §9 e T14):
+**PARTE B da T14: seção a preencher quando o PR #29 estiver em `main`.** Contrato previsto (plano,
+§9 e T14):
 
 - o `freeze_id` resolve os artefatos exatos do congelamento, nunca um diretório "latest";
 - `--offline` recusa qualquer acesso remoto;
@@ -207,8 +215,8 @@ inclusive a repetida; os hashes lógicos dos conjuntos ficam em `datasets.jsonl`
 **Destino do `validate`.** `validate --ingest` grava em `<raiz_saidas>/runs/<run_id>/`, onde o
 `explain` e o `evaluate` procuram as execuções. `validate --entrada` grava em
 `<raiz_saidas>/validacao/` por padrão; para o `evaluate` enxergar essa execução, rode com
-`--saida <raiz_saidas>/runs`. O `counterfactual` (PR #28) procura só em `runs/` e `validacao/`:
-uma execução gravada com `--saida` em outro diretório não é achada. Alinhar os destinos no código é
+`--saida <raiz_saidas>/runs`. O `counterfactual` procura só em `runs/` e `validacao/`: uma
+execução gravada com `--saida` em outro diretório não é achada. Alinhar os destinos no código é
 pendência do orquestrador (ORQ-21 e ORQ-23 em `docs/PENDENCIAS.md`).
 
 ## 7. O que exige rede ou dados reais

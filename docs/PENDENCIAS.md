@@ -26,11 +26,11 @@ ou de decisão humana foi fechada. Nada aqui é resultado empírico.
 | Pesquisador | 11 | 70 |
 | Orientação | 8 | 29 |
 | Avaliadores | 3 | 3 |
-| Engenharia | 19 | 82 |
-| Fechadas | 2 | 20 |
-| Orquestrador (seção 5) | 23 linhas `ORQ` | fora dos arquivos T*.md |
+| Engenharia | 19 | 84 |
+| Fechadas | 2 | 22 |
+| Orquestrador (seção 5) | 25 linhas `ORQ` | fora dos arquivos T*.md |
 
-Total de itens dos arquivos T*.md: 204 em 13 arquivos.
+Total de itens dos arquivos T*.md: 208 em 13 arquivos.
 
 **Manutenção.** Quem registrar pendência nova em `docs/pendencias/TNN.md` avisa o orquestrador ou
 a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arquivo). O teste
@@ -157,9 +157,9 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
   leitura por arquivo); T03-19 (memória da leitura com fidelidade ligada); T03-21 (descompressão
   limitada e custo do processo filho); T07-i13 (validação linha a linha dos contratos: medir com
   volume real); T07-i14 (conferência do conteúdo de cada DatasetRef a cada execução); T08-i7 (custo
-  por linha da conferência de hashes em cada explicação); T09-i9 (candidatos inadmissíveis não
-  contam em max_candidatos); T09-i12 (limite de prova de minimalidade pela soma dos menores custos);
-  T09-i14 (custo de reavaliar o conjunto SIA-PA a cada candidato); T13-b4 (escala do DRS XI e de SP:
+  por linha da conferência de hashes em cada explicação); T09-i12 (candidatos inadmissíveis não
+  contam em max_candidatos); T09-i15 (limite de prova de minimalidade pela soma dos menores custos);
+  T09-i18 (custo de reavaliar o conjunto SIA-PA a cada candidato); T13-b4 (escala do DRS XI e de SP:
   tempo, memória e armazenamento)
 - **Ferramenta pronta:** `sustemporal.evaluation.performance` (`medir` e `gravar_relatorio`,
   `src/sustemporal/evaluation/performance.py`).
@@ -258,8 +258,7 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
   e 3); T09-i3 (admissibilidade da reclassificação de CBO); T13-b1 (governança municipal por família
   na P3)
 - **Ferramenta pronta:** `catalog/operations.yaml` e
-  `sustemporal counterfactual --run RUN_ID --row ROW_ID` (a CLI está no PR #28, ainda fora de
-  `main`); `docs/method/contrafactuais.md` §2 e §6.
+  `sustemporal counterfactual --run RUN_ID --row ROW_ID`; `docs/method/contrafactuais.md` §2 e §6.
 - **Runbook:** ainda sem passo de runbook; ver `docs/method/contrafactuais.md` §2 e §6 e
   `docs/runbooks/reproducao.md` §7.6 para o registro.
 - **Estado:** aberta (decisão humana)
@@ -459,7 +458,8 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 - **Itens:** T08-i4 (atividades de aquisição e transformação no PROV sem instantes); T08-i5
   (registro com código fora do padrão recusa a explicação); T08-i8 (integração com a seleção em
   lote); T08-i9 (reexecução de evidências por query_id, allowlist); T08-i10 (T09 consome
-  ExplanationBundle); T08-i13 (ElementosProv incoerente em chamada direta, P2 do #24)
+  ExplanationBundle); T08-i13 (ElementosProv incoerente em chamada direta, P2 do #24); T09-i10
+  (explain deixa escapar UnicodeDecodeError de run_result.json não UTF-8)
 - **Ferramenta pronta:** `src/sustemporal/explanation/explain.py`, `evidence.py` e `prov.py`.
 - **Runbook:** —
 - **Estado:** aberta (T08-i13) e registrada
@@ -468,16 +468,18 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 
 ### EN-13 — Contrafactuais (T09)
 
-- **Itens:** T09-i7 (CLI do counterfactual monta o ContextoContrafactual); T09-i8 (operações
-  dependem do CNES ST da competência); T09-i10 (revalidação restrita ao conjunto SIA-PA do
-  contexto); T09-i11 (competência aberta sem instante de observação); T09-i13
-  (search_counterfactuals sem contexto resolve insumos das saídas imutáveis)
-- **Ferramenta pronta:** `src/sustemporal/explanation/counterfactual.py` e
-  `counterfactual_contexto.py`; CLI no PR #28.
+- **Itens:** T09-i8 (validate --ingest não grava o CNES ST: busca sai SEM_OPERACAO_ADMISSIVEL);
+  T09-i9 (identidade do resultado inclui o mês do relógio, as-of); T09-i11 (operações dependem do
+  CNES ST da competência); T09-i13 (revalidação restrita ao conjunto SIA-PA do contexto); T09-i14
+  (competência aberta sem instante de observação); T09-i16 (search_counterfactuals sem contexto
+  resolve os insumos; falta o instante da competência aberta)
+- **Ferramenta pronta:** `src/sustemporal/explanation/counterfactual.py`,
+  `counterfactual_contexto.py` e a CLI `sustemporal counterfactual`
+  (`src/sustemporal/explanation/counterfactual_cli.py`).
 - **Runbook:** —
-- **Estado:** aberta (depende do PR #28)
-- **Nota:** Sem o CNES ST da competência, inclusão e reclassificação ficam inadmissíveis. Ver ORQ-04
-  e ORQ-23 (helper comum de CLI e destinos das execuções).
+- **Estado:** aberta (T09-i8 é decisão do dono do `validate --ingest`)
+- **Nota:** Sem o CNES ST da competência, inclusão e reclassificação ficam inadmissíveis. Ver
+  ORQ-04, ORQ-23 e ORQ-24.
 
 ### EN-14 — Coortes, classificador e congelamento (T10 e T11)
 
@@ -525,7 +527,7 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 - **Ferramenta pronta:** `src/sustemporal/reporting/reproduce.py` (`reproduce`, hoje
   `NotImplementedError`) e `sustemporal reproduce --freeze FREEZE_ID --offline`.
 - **Runbook:** `docs/runbooks/reproducao.md` §4.4 e §5.
-- **Estado:** parte B (depende dos PRs #28 e #29)
+- **Estado:** parte B (depende do PR #29)
 - **Nota:** Resolver os artefatos pelo `freeze_id`, comparar hashes lógicos e gravar em `out` novo.
 
 ### EN-19 — Identidade das execuções: run_id e versão do código
@@ -548,7 +550,7 @@ de comentário e de P2 são os do GitHub nos PRs indicados.
 | ORQ-01 | T13b | #25 (comentário 4179959486) | Comparar, por `row_id`, o conjunto de regras avaliadas com o catálogo congelado do run antes de aceitar o agregado (endurecimento contra saída forjada coerente com o `RunResult`). Recusado no #25 por estar fora do modelo de ameaça pré-G0. | `summarize_values` (`src/sustemporal/evaluation/values.py`) e `carregar_regras` (`src/sustemporal/rules/catalog.py`) | — |
 | ORQ-02 | T05 | #31 (comentário 4179930704) | Promover os esquemas `piloto_*.v1` a `catalog/schemas/` (depende do mapa de propriedade; junto com `valores_p3.v1` da S8, pendência b2 de T13). | `carregar_esquema` (`src/sustemporal/rules/catalog.py`) e `TABELAS_RELATORIO` (`src/sustemporal/reporting/report_publicacao.py`) | — |
 | ORQ-03 | T07/T05 | #31 | Alinhar o `validate --ingest` ao instantâneo do manifesto gravado pelo `ingest` (`manifesto_lido.json`, #31), como o `pilot-report`. | `manifesto_lido.json` gravado pelo `ingest` e a leitura dele em `src/sustemporal/reporting/cli.py` | `docs/runbooks/piloto_local.md` §3 |
-| ORQ-04 | T09/T08 | #28 | Consolidar `_publicar` e `_validar_argumentos` dos CLIs `explain` e `counterfactual` num helper comum (duplicação apontada pelo SonarCloud). | `_publicar` e `_validar_argumentos` em `src/sustemporal/explanation/cli.py` | — |
+| ORQ-04 | T09/T08 | #28 | Consolidar `_publicar` e `_validar_argumentos` dos CLIs `explain` e `counterfactual` num helper comum (duplicação apontada pelo SonarCloud). | `_publicar` e `_validar_argumentos` em `src/sustemporal/explanation/cli.py` e em `src/sustemporal/explanation/counterfactual_cli.py` | — |
 | ORQ-05 | T07 | #27 (a nota não cita o número; é o PR do `validate --ingest`) | O `run_id` do `validate` não inclui a versão do código; o motor grava em `outputs/runs/<run_id>/` com `exist_ok=True`. Decidir (T14) entre incluir o código no `run_id` ou recusar a sobrescrita de run com código diferente (opções e preferência em `docs/pendencias/T14.md`, item 11). | `versao_codigo` (`src/sustemporal/runtime_info.py`) e o `run_result.json` de cada run | — |
 | ORQ-06 | T01 | #32 (comentário 4180023928) | `versao_codigo`: passar `--ignore-submodules=none` na listagem de caminhos alterados; conferir `S_ISREG` antes de abrir (um FIFO no lugar de arquivo rastreado travaria); caminho sob diretório rastreado que virou link simbólico é lido através do link. | `versao_codigo` (`src/sustemporal/runtime_info.py`) e os testes de `diff_sha256` | — |
 | ORQ-07 | T07 | #27 (comentário 4180014336) | A igualdade estrita entre as partes da pasta e as partes selecionadas recusa (saída 2) também quando a ingestão marcou a competência com `sia_pa_incompleto` (parte com normalização falha). Refinamento: a marca isentar a parte ausente, registrando a incompletude da população e mantendo as células INSUFICIENTE, em vez de recusar a execução inteira. | `marcas_sia_pa_incompleto` (`src/sustemporal/ingest/coverage.py`) e `src/sustemporal/rules/validate_ingest.py` | — |
@@ -567,7 +569,9 @@ de comentário e de P2 são os do GitHub nos PRs indicados.
 | ORQ-20 | T07 | #27 (P2 4180512815) | Normalizar as colunas anuláveis ausentes (`instrumento`, `competencia_atendimento`) antes do recálculo da cobertura no `validate --ingest`, ou conferir antes de `_gravar`. Hoje o resultado são saídas parciais. | `src/sustemporal/rules/validate_ingest.py` e `src/sustemporal/rules/ingest_conformidade.py` | — |
 | ORQ-21 | T07/T11 | #27 e #29 (integração; a nota não cita um PR) | O `validate` grava por padrão em `<raiz_saidas>/validacao` (modo `--entrada`; o modo `--ingest` já grava em `<raiz_saidas>/runs`), e o `evaluate` procura execuções em `<raiz_saidas>/runs`. Hoje é preciso rodar `validate --saida <raiz_saidas>/runs`. Alinhar os destinos (PR do orquestrador) ou documentar no runbook (S9): documentado em `docs/runbooks/reproducao.md` §6; o alinhamento no código segue aberto. | `validate --saida` (`src/sustemporal/rules/cli.py`) | `docs/runbooks/reproducao.md` §6 |
 | ORQ-22 | T11 | #29 | Pendências #20 (relatório grande e razões instáveis com muitos estabelecimentos no teste de escala de SP; sem intervalo por estrato) e #21 (`split_id` sem validação de conteúdo no contrato `SplitManifest`). | `evaluate_runs` (`src/sustemporal/evaluation/metrics.py`, T11 no PR #29) e `SplitManifest` (`src/sustemporal/contracts/experiment.py`) | `docs/runbooks/reproducao.md` §7.8 (escala) |
-| ORQ-23 | T09 | #28 (P2 4182986818) | O `counterfactual` procura execuções só em `<raiz_saidas>/runs` e `<raiz_saidas>/validacao`, e não acha as gravadas com `validate --saida <dir>`. Tratar junto com o alinhamento dos destinos do `validate` e do `evaluate` (ORQ-21). | `validate --saida` (`src/sustemporal/rules/cli.py`) e a CLI do `counterfactual` (no PR #28) | `docs/runbooks/reproducao.md` §6 |
+| ORQ-23 | T09 | #28 (P2 4182986818) | O `counterfactual` procura execuções só em `<raiz_saidas>/runs` e `<raiz_saidas>/validacao`, e não acha as gravadas com `validate --saida <dir>`. Tratar junto com o alinhamento dos destinos do `validate` e do `evaluate` (ORQ-21). | `validate --saida` (`src/sustemporal/rules/cli.py`) e `execucao_legivel` (`src/sustemporal/explanation/counterfactual_contexto.py`) | `docs/runbooks/reproducao.md` §6 |
+| ORQ-24 | T07/T09 | #28 | O `validate --ingest` não grava o CNES ST no contexto da execução (`preparar_insumos_ingest` repassa só os auxiliares que as regras exigem). Por isso a busca contrafactual sobre execuções `--ingest` sai vazia (`SEM_OPERACAO_ADMISSIVEL`). A decisão é de S4 e do orquestrador; o registro está em `docs/pendencias/T09.md` (T09-i8). | `preparar_insumos_ingest` (`src/sustemporal/rules/ingest.py`) e `entrada_validacao.json` | `docs/runbooks/reproducao.md` §4.4 |
+| ORQ-25 | T08 | #28 | `explanation/cli.py::localizar_execucao` deixa escapar `UnicodeDecodeError` com `run_result.json` não UTF-8. Corrigir no PR de integração (helper comum de `explain` e `counterfactual`). | `localizar_execucao` (`src/sustemporal/explanation/cli.py`) e `execucao_legivel` (`src/sustemporal/explanation/counterfactual_contexto.py`), que recusa com saída 2 | — |
 
 ## 6. Fechadas, aceitas ou resolvidas (histórico)
 
@@ -581,9 +585,11 @@ de comentário e de P2 são os do GitHub nos PRs indicados.
   (P2 do PR #21 resolvidos no PR3); T06-9 (intervalos() quebra em NAO_ENCONTRADO, fechada); T06-11
   (INTERROMPIDO com bytes não cai em AUSENTE, fechada); T07-i10 (validate --ingest lê a pasta do
   ingest, resolvido); T08-i11 (OSError ao publicar falha.json, resolvido); T08-i12 (registro fora do
-  sia_pa.v1 recusado, resolvido); T12-i7 (rótulos que não cobrem a partição, resolvido); T13-5
-  (comparação que não normaliza vira INCONCLUSIVO, fechada); T13-8 (listagem ilegível e revisão só
-  em deletadas, fechada); T13-b3 (rótulo contraditório no denominador da P3, fechada)
+  sia_pa.v1 recusado, resolvido); T09-i7 (CLI do counterfactual lê entrada_validacao.json, resolvido
+  no #27 e testado no #28); T09-i17 (precondição fora das admitidas pelo op_id é recusada, resolvido
+  no PR2); T12-i7 (rótulos que não cobrem a partição, resolvido); T13-5 (comparação que não
+  normaliza vira INCONCLUSIVO, fechada); T13-8 (listagem ilegível e revisão só em deletadas,
+  fechada); T13-b3 (rótulo contraditório no denominador da P3, fechada)
 - **Ferramenta pronta:** os testes dos PRs citados em cada arquivo de `docs/pendencias/`.
 - **Runbook:** —
 - **Estado:** fechada
@@ -614,8 +620,8 @@ for o mesmo, o teste exige que os itens dele sejam exatamente estes.
 | T06 | 1-11 | 11 | a2455e84a8448014a82fb5f3d590841666ec9cce32dbcc9c2be4552f079ac507 |
 | T07 | i1-i19 | 19 | 8c9bb346bc6c877e15dc850ea73109b27d7af6a8bf0268b14fb7b28d3245c2d9 |
 | T08 | i1-i13 | 13 | 88fa2192a6c047937a3203ff2b294f3d98447aedcdb1151323cd0e22b3cf7d66 |
-| T09 | i1-i14 | 14 | 95b1b9fdcb0ba7f4d94d0e8e35e85718c02db76c2900e2256818bbd37b0b6524 |
+| T09 | i1-i18 | 18 | f9f98534d42eedd29fcb7fc27d0c64352b4b1c873298746c2ffecaff5a827e3d |
 | T10 | 1-8 | 8 | cea4697cfa0ff9560eaa99dff1d0540e7a301fdbf0529d728ccd7c832a50fdb5 |
 | T12 | i1-i7 | 7 | f6454780722eb379be317e9853861ef3bbf5ca3f8889802fcfa48f35ada1543c |
 | T13 | 1-6, 8, b1-b5 | 12 | 73d222a03774e97c9698daad4678de33e52906d918061b7b3ba751f12fd0ba15 |
-| T14 | 1-12 | 12 | 84c8904ec3d9525978457597bd8a685669a9bc10e38398fe884adf483b148a29 |
+| T14 | 1-12 | 12 | ea23c9e8625ba3da57019aecfe784c14acb18241b6fe1968dfca14b1734bed5e |

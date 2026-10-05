@@ -438,6 +438,10 @@ def _invalidos() -> list[tuple[tuple[OperationSpec, ...], str]]:
         ((incluir, cadastrar.model_copy(update={"depende_de": (_INCLUIR,)})), "dependencia_circ"),
         ((trocar(update={"precondicoes": ()}),), "precondicao_obrigatoria_ausente"),
         ((trocar(update={"depende_de": ()}),), "dependencia_obrigatoria_ausente"),
+        (
+            (trocar(update={"precondicoes": (*incluir.precondicoes, "CBO_ORIGEM_COM_VINCULO")}),),
+            "precondicao_incompativel_com_operacao",
+        ),
     ]
 
 

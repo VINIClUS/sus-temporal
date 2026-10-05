@@ -86,11 +86,16 @@ intervalo da coorte. As marcas `sia_pa_incompleto competencia=… motivo=…` da
 `marcas_sia_pa_incompleto`) continuam valendo. A cobertura recalculada entra nas tabelas do
 relatório. É o mesmo recálculo que o `validate --ingest` (#27) faz.
 
-Competência com SIA-PA na ingestão e nenhuma linha incluída (todas fora do território, do
-intervalo ou dos instrumentos) não vira fonte ausente: a célula fica INSUFICIENTE com
-`populacao_vazia_no_recorte competencia=…` (`build_coverage(..., sia_pa_presente_em=...)`). É
+Competência com linha de produção nos conjuntos `sia_pa.v1` da ingestão (ao menos uma linha não
+deletada com aquela competência de processamento) e nenhuma linha incluída (todas fora do
+território, do intervalo ou dos instrumentos) não vira fonte ausente: a célula fica INSUFICIENTE
+com `populacao_vazia_no_recorte competencia=…` (`build_coverage(..., sia_pa_presente_em=...)`). É
 limitação amostral do recorte, não ausência estrutural; as exclusões ficam em
 `piloto_exclusoes.v1`.
+
+A presença sai dos conjuntos ingeridos, nunca do texto do motivo da cobertura. Competência sem
+conjunto legível (arquivo ausente, truncado ou em quarentena) continua AUSENTE, com o motivo
+original: `sia_pa_incompleto competencia=…; sia_pa_ausente competencia=…`.
 
 ## Instantâneo do manifesto
 

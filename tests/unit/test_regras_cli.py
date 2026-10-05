@@ -76,6 +76,34 @@ def test_validate_com_entrada_grava_a_entrada_da_validacao(tmp_path: Path) -> No
     assert entrada.politica.politica_id == resultado.politica_id
 
 
+def _config_com_saidas(tmp_path: Path) -> tuple[Path, Path]:
+    saidas = tmp_path / "saidas"
+    config = tmp_path / "config.yaml"
+    config.write_text(f'versao: "1"\nruntime:\n  raiz_saidas: {saidas}\n', encoding="utf-8")
+    return config, saidas
+
+
+def test_validate_com_entrada_sem_saida_grava_em_runs(tmp_path: Path) -> None:
+    config, saidas = _config_com_saidas(tmp_path)
+    argumentos = ["validate", "--config", str(config), "--policy", "atendimento"]
+    assert cli.main([*argumentos, "--entrada", str(_entrada(tmp_path / "in"))]) == ExitCode.OK
+    assert sorted(p.name for p in saidas.iterdir()) == ["runs"]
+    (gravado,) = (saidas / "runs").glob("*/run_result.json")
+    resultado = RunResult.model_validate_json(gravado.read_text(encoding="utf-8"))
+    assert gravado.parent.name == resultado.run_id
+    assert (gravado.parent / "entrada_validacao.json").is_file()
+
+
+def test_validate_com_saida_explicita_grava_so_nela(tmp_path: Path) -> None:
+    config, saidas = _config_com_saidas(tmp_path)
+    outra = tmp_path / "outra"
+    argumentos = ["validate", "--config", str(config), "--policy", "atendimento"]
+    argumentos += ["--entrada", str(_entrada(tmp_path / "in")), "--saida", str(outra)]
+    assert cli.main(argumentos) == ExitCode.OK
+    assert len(list(outra.glob("*/run_result.json"))) == 1
+    assert not saidas.exists()
+
+
 def test_validate_com_entrada_recusa_producao_com_registro_deletado(tmp_path: Path) -> None:
     import pyarrow as pa
     import pyarrow.parquet as pq

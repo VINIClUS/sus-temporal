@@ -18,8 +18,13 @@ que a execução declara:
   de cada avaliação.
 
 A CLI (`sustemporal explain --run RUN_ID --row ROW_ID`, `explanation/cli.py`) resolve
-`<raiz_saidas>/runs/<run_id>/run_result.json` ou `<raiz_saidas>/validacao/<run_id>/run_result.json`;
-nenhum, dois diferentes ou `run_id` gravado diferente dão saída 2. Nunca há diretório "latest".
+`<raiz_saidas>/runs/<run_id>/run_result.json`, o único lugar das execuções do `validate`
+(`sustemporal.execucoes`: `validate --entrada` e `--ingest` gravam ali por padrão, e `--saida`
+desvia a gravação; uma execução fora de `runs/` não é descoberta). O leitor comum
+`ler_execucao(raiz, run_id)`, o mesmo do `counterfactual`, valida o formato do `run_id` e recusa,
+com saída 2, execução inexistente (`execucao_inexistente`), `run_result.json` ilegível
+(`execucao_ilegivel`: erro de leitura, bytes que não são UTF-8, JSON inválido ou fora do contrato)
+e `run_id` gravado diferente (`execucao_incoerente`). Nunca há diretório "latest".
 A saída vai para `<raiz_saidas>/explicacoes/<run_id>/row_<sha256(row_id)[:32]>/`: `bundle.json`,
 `prov.provn`, `prov.json` (os bytes cujo SHA-256 está em `prov_json_sha256`), `explicacao.txt` e
 `reexecucoes.json`. Execução ou linha inexistente ou incoerente: saída 2 com mensagem

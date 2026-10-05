@@ -1,10 +1,10 @@
 """Comando `sustemporal counterfactual --run RUN_ID --row ROW_ID` (T09).
 
-O `run_id` resolve a pasta exata da execução (`<raiz_saidas>/runs/<run_id>` ou
-`<raiz_saidas>/validacao/<run_id>`), nunca um diretório "latest". O bundle vem do `explain` real
-e os insumos de `entrada_validacao.json`, conferidos pelo `run_id` recalculado. A saída fica em
-`<raiz_saidas>/contrafactuais/<run_id>/id_<identidade>/row_<sha256(row_id)[:32]>/`, com
-`contrafactual.json` e `identidade.json` (SHA-256 de `catalog/operations.yaml`, versão do
+O `run_id` resolve a pasta exata da execução em `<raiz_saidas>/runs/<run_id>` (o único lugar das
+execuções do `validate`, ver `sustemporal.execucoes`), nunca um diretório "latest". O bundle vem
+do `explain` real e os insumos de `entrada_validacao.json`, conferidos pelo `run_id` recalculado.
+A saída fica em `<raiz_saidas>/contrafactuais/<run_id>/id_<identidade>/row_<sha256(row_id)[:32]>/`,
+com `contrafactual.json` e `identidade.json` (SHA-256 de `catalog/operations.yaml`, versão do
 código e competência AAAAMM do relógio, a as-of, lida uma vez e usada em toda a busca).
 """
 
@@ -22,11 +22,11 @@ from typing import TYPE_CHECKING
 import duckdb
 from pydantic import TypeAdapter, ValidationError
 
-from sustemporal.contracts.base import Identificador, hash_canonico
+from sustemporal.contracts.base import hash_canonico
 from sustemporal.contracts.records import RowId
 from sustemporal.contracts.rules import FalhaOperacional
 from sustemporal.errors import ExitCode
-from sustemporal.explanation.cli import ExecucaoNaoResolvida
+from sustemporal.execucoes import ExecucaoNaoResolvida, ler_execucao, raiz_execucoes, validar_run_id
 from sustemporal.explanation.counterfactual import (
     BaselineIncoerente,
     SemViolacao,
@@ -35,7 +35,6 @@ from sustemporal.explanation.counterfactual import (
 from sustemporal.explanation.counterfactual_contexto import (
     ContextoIndisponivel,
     contexto_da_execucao,
-    execucao_legivel,
 )
 from sustemporal.explanation.counterfactual_executabilidade import competencia_do_relogio
 from sustemporal.explanation.counterfactual_operacoes import (
@@ -70,7 +69,6 @@ logger = logging.getLogger(__name__)
 ARQUIVO_RESULTADO = "contrafactual.json"
 _RAIZ_CODIGO = CATALOGO_OPERACOES.parents[1]
 _ROW_ID: TypeAdapter[str] = TypeAdapter(RowId)
-_IDENTIFICADOR: TypeAdapter[str] = TypeAdapter(Identificador)
 _RECUSAS = (
     ExecucaoNaoResolvida,
     ExplicacaoIndisponivel,
@@ -148,14 +146,12 @@ def diretorio_contrafactual(raiz: Path, run_id: str, row_id: str, identidade: st
 def _validar_argumentos(args: argparse.Namespace) -> tuple[str, str]:
     """Raises: ExecucaoNaoResolvida para `--run` ou `--row` fora do formato."""
     try:
-        run_id = _IDENTIFICADOR.validate_python(args.run)
+        run_id = validar_run_id(args.run)
         row_id = _ROW_ID.validate_python(args.row)
-    except ValidationError as erro:
+    except (ExecucaoNaoResolvida, ValidationError) as erro:
         raise ExecucaoNaoResolvida(
             f"argumento_invalido run={args.run!r} row={args.row!r}"
         ) from erro
-    if set(run_id) <= {"."}:
-        raise ExecucaoNaoResolvida(f"argumento_invalido run={run_id!r}")
     return run_id, row_id
 
 
@@ -181,16 +177,16 @@ def _publicar(destino: Path, arquivos: dict[str, bytes]) -> None:
 
 
 def _buscar(
-    raiz: Path,
     alvo: tuple[str, str],
     config: RunConfig,
     catalogo: _CatalogoLido,
     relogio: Callable[[], datetime],
 ) -> dict[str, bytes]:
     run_id, row_id = alvo
-    run = execucao_legivel(raiz, run_id)
+    execucoes = raiz_execucoes(config)
+    run = ler_execucao(execucoes, run_id)
     bundle = montar_explicacao(run, row_id, runtime=config.runtime).bundle
-    contexto = replace(contexto_da_execucao(raiz, run_id, config), relogio=relogio)
+    contexto = replace(contexto_da_execucao(execucoes, run_id, config), relogio=relogio)
     resultado = search_counterfactuals(
         bundle, config, contexto=contexto, operacoes=catalogo.operacoes
     )
@@ -235,7 +231,7 @@ def executar_counterfactual(
         run_id, row_id = _validar_argumentos(args)
         lido = _ler_catalogo(catalogo, competencia_do_relogio(agora))
         destino = diretorio_contrafactual(raiz, run_id, row_id, lido.chave)
-        _publicar(destino, _buscar(raiz, (run_id, row_id), config, lido, lambda: agora))
+        _publicar(destino, _buscar((run_id, row_id), config, lido, lambda: agora))
     except _RECUSAS as erro:
         _remover(destino)
         logger.error("counterfactual_recusado erro=%s", erro)

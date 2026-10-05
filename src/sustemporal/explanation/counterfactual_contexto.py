@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from sustemporal.contracts.temporal import MetodoId
-from sustemporal.explanation.cli import ExecucaoNaoResolvida, localizar_execucao
+from sustemporal.execucoes import ExecucaoNaoResolvida, ler_execucao
 from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
 from sustemporal.rules.engine import calcular_run_id
 from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
@@ -34,12 +34,10 @@ __all__ = [
     "ContextoContrafactual",
     "ContextoIndisponivel",
     "contexto_da_execucao",
-    "execucao_legivel",
 ]
 
 logger = logging.getLogger(__name__)
 
-_DIRETORIOS_DE_EXECUCAO = ("runs", "validacao")
 _ST = "cnes_estabelecimento.v1"
 
 
@@ -70,36 +68,16 @@ class ContextoIndisponivel(ValueError):
     """Insumos da execução ausentes, ilegíveis ou divergentes do `run_id`."""
 
 
-def execucao_legivel(raiz: Path, run_id: str) -> RunResult:
-    """`localizar_execucao` que recusa também `run_result.json` com bytes que não são UTF-8.
-
-    Raises:
-        ExecucaoNaoResolvida: execução inexistente, ambígua, incoerente ou ilegível.
-    """
-    try:
-        return localizar_execucao(raiz, run_id)
-    except UnicodeDecodeError as erro:
-        raise ExecucaoNaoResolvida(
-            f"execucao_ilegivel run={run_id} arquivo=run_result.json erro=nao_utf8 "
-            f"posicao={erro.start}"
-        ) from erro
-
-
 def _entrada(raiz: Path, run_id: str) -> EntradaValidacao:
-    """`entrada_validacao.json` ao lado do `run_result.json` exato; nunca uma pasta "latest"."""
-    caminhos = [raiz / nome / run_id / ARQUIVO_ENTRADA for nome in _DIRETORIOS_DE_EXECUCAO]
-    existentes = [c for c in caminhos if c.is_file()]
-    if not existentes:
+    """`entrada_validacao.json` ao lado do `run_result.json` exato: `<raiz>/<run_id>`."""
+    caminho = raiz / run_id / ARQUIVO_ENTRADA
+    if not caminho.is_file():
         raise ContextoIndisponivel(f"contexto_da_execucao_ausente run={run_id}")
-    if len(existentes) > 1:
-        raise ContextoIndisponivel(
-            f"contexto_da_execucao_ambiguo run={run_id} entradas={len(existentes)}"
-        )
     try:
-        return EntradaValidacao.model_validate_json(existentes[0].read_text(encoding="utf-8"))
+        return EntradaValidacao.model_validate_json(caminho.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, ValidationError) as erro:
         raise ContextoIndisponivel(
-            f"contrafactual_sem_contexto run={run_id} entrada_ilegivel={existentes[0]}"
+            f"contrafactual_sem_contexto run={run_id} entrada_ilegivel={caminho}"
         ) from erro
 
 
@@ -123,15 +101,17 @@ def _politica(
 def contexto_da_execucao(raiz: Path, run_id: str, config: RunConfig) -> ContextoContrafactual:
     """Insumos gravados na pasta exata da execução, conferidos pelo `run_id` recalculado.
 
-    O `run_id` deriva de conjunto, seleção, regras, política, configuração (sem `runtime`),
-    auxiliares, integridade e identidade adicional (o recorte territorial do `validate --ingest`);
+    `raiz` é a raiz das execuções (`raiz_execucoes(config)`, `<raiz_saidas>/runs`): o
+    `run_result.json` e o `entrada_validacao.json` só são lidos de `<raiz>/<run_id>`. O `run_id`
+    deriva de conjunto, seleção, regras, política, configuração (sem `runtime`), auxiliares,
+    integridade e identidade adicional (o recorte territorial do `validate --ingest`);
     recalculá-lo prova que os insumos são os da execução.
 
     Raises:
         ContextoIndisponivel: execução, entrada ou catálogo ausentes, ou `run_id` divergente.
     """
     try:
-        run = execucao_legivel(raiz, run_id)
+        run = ler_execucao(raiz, run_id)
         regras = carregar_regras()
     except (ExecucaoNaoResolvida, CatalogoInvalido) as erro:
         raise ContextoIndisponivel(f"contrafactual_sem_contexto run={run_id} erro={erro}") from erro

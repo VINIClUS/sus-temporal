@@ -29,6 +29,7 @@ from sustemporal.contracts.explanation import (
 )
 from sustemporal.contracts.rules import EstadoAvaliacao, FalhaOperacional
 from sustemporal.errors import ExitCode
+from sustemporal.execucoes import raiz_execucoes
 from sustemporal.explanation.cli import diretorio_explicacao, executar_explain
 from sustemporal.explanation.evidence import (
     EvidenciaDivergente,
@@ -433,15 +434,21 @@ def _config(raiz: Path) -> RunConfig:
     return RunConfig(versao="1", runtime=RuntimeConfig(raiz_saidas=str(raiz)))
 
 
+def _publicar(tmp_path: Path) -> RunResult:
+    """Execução gravada onde o `validate` a grava: `<raiz_saidas>/runs/<run_id>`."""
+    return executar_cenario(tmp_path, saida=raiz_execucoes(_config(tmp_path)))
+
+
+def _run_result(tmp_path: Path, execucao: RunResult) -> Path:
+    return raiz_execucoes(_config(tmp_path)) / execucao.run_id / "run_result.json"
+
+
 def test_cli_grava_json_prov_e_texto_no_diretorio_da_execucao(tmp_path: Path) -> None:
-    execucao = executar_cenario(tmp_path, nome="validacao")
-    raiz = tmp_path
-    gravada = raiz / "validacao" / "saida" / execucao.run_id
-    assert (gravada / "run_result.json").exists()
-    (raiz / "validacao" / execucao.run_id).symlink_to(gravada)
-    codigo = executar_explain(_args(execucao.run_id, LINHA_VIOLACAO), _config(raiz))
+    execucao = _publicar(tmp_path)
+    assert _run_result(tmp_path, execucao).exists()
+    codigo = executar_explain(_args(execucao.run_id, LINHA_VIOLACAO), _config(tmp_path))
     assert codigo == ExitCode.OK
-    destino = diretorio_explicacao(raiz, execucao.run_id, LINHA_VIOLACAO)
+    destino = diretorio_explicacao(tmp_path, execucao.run_id, LINHA_VIOLACAO)
     assert execucao.run_id in str(destino)
     nomes = {p.name for p in destino.iterdir()}
     assert {"bundle.json", "prov.provn", "prov.json", "explicacao.txt"} <= nomes
@@ -462,10 +469,7 @@ def test_cli_grava_json_prov_e_texto_no_diretorio_da_execucao(tmp_path: Path) ->
 def test_cli_execucao_ou_linha_inexistente_sai_com_2(
     tmp_path: Path, run_id: str | None, row_id: str
 ) -> None:
-    execucao = executar_cenario(tmp_path, nome="validacao")
-    (tmp_path / "validacao" / execucao.run_id).symlink_to(
-        tmp_path / "validacao" / "saida" / execucao.run_id
-    )
+    execucao = _publicar(tmp_path)
     codigo = executar_explain(_args(run_id or execucao.run_id, row_id), _config(tmp_path))
     assert codigo == ExitCode.CONFIG_INVALIDA
 
@@ -477,10 +481,7 @@ def test_cli_recusa_run_fora_da_raiz(tmp_path: Path) -> None:
 
 
 def test_cli_com_evidencia_divergente_grava_so_a_falha(tmp_path: Path) -> None:
-    execucao = executar_cenario(tmp_path, nome="validacao")
-    (tmp_path / "validacao" / execucao.run_id).symlink_to(
-        tmp_path / "validacao" / "saida" / execucao.run_id
-    )
+    execucao = _publicar(tmp_path)
     args, config = _args(execucao.run_id, LINHA_VIOLACAO), _config(tmp_path)
     assert executar_explain(args, config) == ExitCode.OK
     cnes = next(d for d in execucao.entradas if d.schema_id == "cnes_estab_cbo.v1")
@@ -644,14 +645,6 @@ def test_identidade_do_bundle_depende_da_execucao_sem_caminhos(execucao: RunResu
     assert explain(outra_config, LINHA_CONFORME).bundle_id != bundle.bundle_id
 
 
-def _publicar(tmp_path: Path) -> RunResult:
-    execucao = executar_cenario(tmp_path, nome="validacao")
-    (tmp_path / "validacao" / execucao.run_id).symlink_to(
-        tmp_path / "validacao" / "saida" / execucao.run_id
-    )
-    return execucao
-
-
 def test_cli_publica_atomicamente_e_nao_deixa_explicacao_parcial(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -686,11 +679,52 @@ def test_cli_recusa_run_relativo_mesmo_com_execucao_alcancavel(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     execucao = _publicar(tmp_path)
-    gravada = tmp_path / "validacao" / "saida" / execucao.run_id / "run_result.json"
+    gravada = _run_result(tmp_path, execucao)
     (tmp_path / "run_result.json").write_bytes(gravada.read_bytes())
     codigo = executar_explain(_args("..", LINHA_CONFORME), _config(tmp_path))
     assert codigo == ExitCode.CONFIG_INVALIDA
     assert "argumento_invalido" in caplog.text
+
+
+@pytest.mark.parametrize(
+    "conteudo", [b"\xff\xfe\x00nao_utf8", b'{"run_id": "val_\xe9"}'], ids=["binario", "latin1"]
+)
+def test_cli_run_result_nao_utf8_sai_com_2_e_remove_a_explicacao_anterior(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, conteudo: bytes
+) -> None:
+    execucao = _publicar(tmp_path)
+    args, config = _args(execucao.run_id, LINHA_VIOLACAO), _config(tmp_path)
+    assert executar_explain(args, config) == ExitCode.OK
+    destino = diretorio_explicacao(tmp_path, execucao.run_id, LINHA_VIOLACAO)
+    assert destino.is_dir()
+    _run_result(tmp_path, execucao).write_bytes(conteudo)
+    assert executar_explain(args, config) == ExitCode.CONFIG_INVALIDA
+    assert f"explain_recusado erro=execucao_ilegivel run={execucao.run_id}" in caplog.text
+    assert not destino.exists()
+
+
+def test_cli_so_descobre_execucoes_em_runs(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    execucao = executar_cenario(tmp_path, saida=tmp_path / "validacao")
+    codigo = executar_explain(_args(execucao.run_id, LINHA_VIOLACAO), _config(tmp_path))
+    assert codigo == ExitCode.CONFIG_INVALIDA
+    assert f"explain_recusado erro=execucao_inexistente run={execucao.run_id}" in caplog.text
+    assert not diretorio_explicacao(tmp_path, execucao.run_id, LINHA_VIOLACAO).exists()
+
+
+def test_cli_recusa_run_result_gravado_com_outro_run_id(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    execucao = _publicar(tmp_path)
+    outro = "val_" + "0" * 40
+    pasta = raiz_execucoes(_config(tmp_path)) / outro
+    pasta.mkdir()
+    (pasta / "run_result.json").write_bytes(_run_result(tmp_path, execucao).read_bytes())
+    codigo = executar_explain(_args(outro, LINHA_VIOLACAO), _config(tmp_path))
+    assert codigo == ExitCode.CONFIG_INVALIDA
+    assert f"execucao_incoerente run={outro} gravada={execucao.run_id}" in caplog.text
+    assert not diretorio_explicacao(tmp_path, outro, LINHA_VIOLACAO).exists()
 
 
 def test_cli_diretorio_derivado_do_run_e_da_linha(tmp_path: Path) -> None:
@@ -732,7 +766,7 @@ def test_registro_fora_do_conjunto_de_entrada_e_recusado(tmp_path: Path) -> None
     execucao = _publicar(tmp_path)
     with pytest.raises(ExplicacaoIndisponivel, match="registro_fora_do_conjunto"):
         explain(_sem_registro_no_conjunto(execucao), LINHA_CONFORME)
-    gravado = tmp_path / "validacao" / "saida" / execucao.run_id / "run_result.json"
+    gravado = _run_result(tmp_path, execucao)
     gravado.write_text(_sem_registro_no_conjunto(execucao).model_dump_json(), encoding="utf-8")
     codigo = executar_explain(_args(execucao.run_id, LINHA_CONFORME), _config(tmp_path))
     assert codigo == ExitCode.CONFIG_INVALIDA

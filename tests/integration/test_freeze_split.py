@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
-from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO
 from tests.fixtures.protocolo_cli import (
     REGISTRO,
     config_confirmatoria_yaml,
@@ -33,8 +32,7 @@ from tests.fixtures.protocolo_dados import cenario_baseline
 from sustemporal.cli import main
 from sustemporal.contracts.experiment import Particao, SplitManifest
 from sustemporal.errors import ExitCode, PortaoRecusado
-from sustemporal.evaluation.features import FEATURES_PADRAO
-from sustemporal.evaluation.freeze_conferencia import verificar_compatibilidade
+from sustemporal.evaluation.freeze_conferencia import verificar_congelamento_completo
 from sustemporal.evaluation.metrics import evaluate_runs
 
 if TYPE_CHECKING:
@@ -73,14 +71,7 @@ def _editado(caso: str, conf: Confirmatorio, raiz: Path) -> SplitManifest:
 
 
 def _conferir(conf: Confirmatorio, split: SplitManifest) -> None:
-    verificar_compatibilidade(
-        conf.manifesto,
-        config=conf.config,
-        split=split,
-        features=FEATURES_PADRAO,
-        datasets=[conf.cenario.dataset, conf.cenario.rotulos],
-        codigo=CODIGO_LIMPO,
-    )
+    verificar_congelamento_completo(conf.manifesto, conf.estado_com(split=split))
 
 
 @pytest.mark.parametrize("caso", CASOS)
@@ -106,7 +97,7 @@ def test_avaliacao_confirmatoria_recusa_split_com_o_mesmo_id_e_rotulos_trocados(
     adulterado = _editado("rotulos_do_teste_trocados", confirmatorio, tmp_path)
     rotulos = (adulterado.rotulos_por_particao or {})[Particao.TESTE]
     freeze = confirmatorio.manifesto.freeze_id
-    mensagem = f"split_incompativel_com_congelamento split={adulterado.split_id} freeze={freeze}"
+    mensagem = f"freeze_incompativel campos=split freeze={freeze}"
     with pytest.raises(PortaoRecusado, match=f"^{re.escape(mensagem)}$"):
         evaluate_runs(
             confirmatorio.runs,
@@ -127,7 +118,7 @@ def test_split_adulterado_e_recusado_antes_de_ler_qualquer_dado(tmp_path: Path) 
     rotulos = adulterado.rotulos_por_particao[Particao.TESTE]
     for dataset in (adulterado.particoes[Particao.TESTE], rotulos):
         Path(dataset.caminho).unlink()
-    with pytest.raises(PortaoRecusado, match="split_incompativel_com_congelamento"):
+    with pytest.raises(PortaoRecusado, match="freeze_incompativel campos=split"):
         evaluate_runs(
             conf.runs,
             rotulos,

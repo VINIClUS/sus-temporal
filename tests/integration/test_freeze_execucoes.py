@@ -14,6 +14,7 @@ import pytest
 from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO
 from tests.fixtures.protocolo_confirmatorio import (
     CONFIG_PROTOCOLO,
+    MUTACOES_DO_AMBIENTE,
     Confirmatorio,
     como_real,
     config_confirmatoria,
@@ -316,13 +317,14 @@ def test_divergencia_acusa_todos_os_campos_na_ordem_do_protocolo(
     alvo = confirmatorio.runs[B_ATEND]
     trocas = {
         "codigo": OUTRO_CODIGO,
+        "ambiente": MUTACOES_DO_AMBIENTE["python"](alvo.ambiente),
         "config_hash": OUTRO_SHA,
         "catalogo_regras_sha256": OUTRO_SHA,
         "politica_id": None,
         "entradas": (),
     }
     runs = [*confirmatorio.runs[:B_ATEND], alvo.model_copy(update=trocas), *confirmatorio.runs[2:]]
-    campos = "codigo,config,catalogo,politica,entradas"
+    campos = "codigo,ambiente,config,catalogo,politica,entradas"
     with pytest.raises(PortaoRecusado, match=_mensagem(alvo, campos, confirmatorio)):
         _avaliar(confirmatorio, tmp_path / "av", runs)
 
@@ -340,8 +342,8 @@ def test_execucao_incompativel_e_recusada_antes_de_ler_qualquer_dado(tmp_path: P
         _avaliar(conf, tmp_path / "av", [divergente, *conf.runs[1:]])
 
 
-@pytest.mark.parametrize("trocas", [{"manifesto": None}, {"config": None}])
-def test_confirmatorio_exige_o_manifesto_e_a_config_do_congelamento(
+@pytest.mark.parametrize("trocas", [{"manifesto": None}, {"estado": None}])
+def test_confirmatorio_exige_o_manifesto_e_o_estado_do_congelamento(
     tmp_path: Path, confirmatorio: Confirmatorio, trocas: dict[str, None]
 ) -> None:
     with pytest.raises(PortaoRecusado, match="avaliacao_confirmatoria_sem_manifesto_do_freeze"):
@@ -369,18 +371,31 @@ def _config_de_outro_congelamento(caso: str, freeze: str) -> RunConfig:
     }[caso]()
 
 
-@pytest.mark.parametrize("caso", ["protocolo_diferente", "freeze_diferente", "config_exploratoria"])
+def _feitas_com(config: RunConfig, conf: Confirmatorio) -> list[RunResult]:
+    return [run.model_copy(update={"config_hash": config.config_hash}) for run in conf.runs]
+
+
+@pytest.mark.parametrize("caso", ["freeze_diferente", "config_exploratoria"])
 def test_config_que_nao_abre_o_teste_do_congelamento_recusa_as_execucoes(
     tmp_path: Path, confirmatorio: Confirmatorio, caso: str
 ) -> None:
     config = _config_de_outro_congelamento(caso, confirmatorio.manifesto.freeze_id)
-    feitas_com_ela = [
-        run.model_copy(update={"config_hash": config.config_hash}) for run in confirmatorio.runs
-    ]
+    feitas_com_ela = _feitas_com(config, confirmatorio)
+    estado = confirmatorio.estado_com(config=config)
     with pytest.raises(
         PortaoRecusado, match=_mensagem(feitas_com_ela[M_TEMP], "config", confirmatorio)
     ):
-        _avaliar(confirmatorio, tmp_path / "av", feitas_com_ela, config=config)
+        _avaliar(confirmatorio, tmp_path / "av", feitas_com_ela, estado=estado)
+
+
+def test_config_de_outro_protocolo_recusa_o_estado_do_avaliador(
+    tmp_path: Path, confirmatorio: Confirmatorio
+) -> None:
+    config = _config_de_outro_congelamento("protocolo_diferente", confirmatorio.manifesto.freeze_id)
+    estado = confirmatorio.estado_com(config=config)
+    base = f"freeze_incompativel campos=config freeze={confirmatorio.manifesto.freeze_id}"
+    with pytest.raises(PortaoRecusado, match=f"^{re.escape(base)}$"):
+        _avaliar(confirmatorio, tmp_path / "av", _feitas_com(config, confirmatorio), estado=estado)
 
 
 def test_manifesto_sem_catalogo_e_politicas_recusa_validacao_mas_nao_baseline(

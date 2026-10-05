@@ -31,13 +31,14 @@ from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro, P
 from sustemporal.evaluation.baselines import fit_baseline
 from sustemporal.evaluation.features import FEATURES_PADRAO
 from sustemporal.evaluation.freeze import Protocolo, carregar_freeze, congelar
-from sustemporal.evaluation.freeze_conferencia import verificar_compatibilidade
+from sustemporal.evaluation.freeze_conferencia import EstadoAtual, verificar_congelamento_completo
 from sustemporal.evaluation.freeze_registro import (
     exigir_rodada_permitida,
     ler_registro,
     registrar_execucao,
 )
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
+from sustemporal.runtime_info import ambiente
 
 if TYPE_CHECKING:
     from sustemporal.contracts.experiment import FreezeManifest
@@ -48,6 +49,7 @@ CONFIG_PROTOCOLO: dict[str, Any] = {
     "versao": "1",
     "origem_dados": "SINTETICO",
     "bootstrap": {"correcao": "HOLM", "reamostragens": 200},
+    "catalogos": {nome: str(caminho) for nome, caminho in CATALOGOS.items()},
 }
 
 
@@ -128,8 +130,9 @@ def _compativel(manifesto: FreezeManifest, cenario: Cenario, **trocas: Any) -> N
         "features": FEATURES_PADRAO,
         "datasets": [cenario.dataset, cenario.rotulos],
         "codigo": CODIGO_LIMPO,
+        "ambiente": ambiente(Path.cwd()),
     }
-    verificar_compatibilidade(manifesto, **{**argumentos, **trocas})
+    verificar_congelamento_completo(manifesto, EstadoAtual(**{**argumentos, **trocas}))
 
 
 def test_recusa_entrada_incompativel(tmp_path: Path, cenario: Cenario) -> None:

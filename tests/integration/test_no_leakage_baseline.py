@@ -277,6 +277,7 @@ def _config_confirmatoria(tmp_path: Path, freeze_id: str) -> RunConfig:
             "freeze_id": freeze_id,
             "bootstrap": {"correcao": "HOLM"},
             "runtime": {"dir_congelamentos": str(tmp_path / "frozen")},
+            "catalogos": {"esquema_sia_pa": str(CATALOGO_SIA_PA)},
         }
     )
 
@@ -293,6 +294,7 @@ def _congelar_para_confirmatorio(
                 "origem_dados": "REAL",
                 "bootstrap": {"correcao": "HOLM"},
                 "runtime": {"dir_congelamentos": str(tmp_path / "frozen")},
+                "catalogos": {"esquema_sia_pa": str(CATALOGO_SIA_PA)},
             }
         ),
         split=cenario.split,

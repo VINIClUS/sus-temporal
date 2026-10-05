@@ -7,7 +7,7 @@ confirmatório, e as decisões G0/G2 são escritas em diretórios temporários d
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -23,9 +23,11 @@ from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.contracts.temporal import MetodoId
 from sustemporal.evaluation.features import FEATURES_PADRAO
 from sustemporal.evaluation.freeze import Protocolo, congelar
+from sustemporal.evaluation.freeze_conferencia import EstadoAtual
 from sustemporal.evaluation.metrics import ReferenciaCongelamento
 from sustemporal.evaluation.split import SUFIXO_ENTRADAS
 from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
+from sustemporal.runtime_info import ambiente
 from sustemporal.temporal.politicas import carregar_politica
 from tests.fixtures.protocolo_avaliacao import (
     CODIGO_LIMPO,
@@ -42,7 +44,9 @@ from tests.fixtures.protocolo_dados import (
 )
 
 if TYPE_CHECKING:
-    from sustemporal.contracts import FreezeManifest, RunResult
+    from collections.abc import Callable
+
+    from sustemporal.contracts import Ambiente, FreezeManifest, RunResult
     from sustemporal.contracts.temporal import PoliticaTemporal
     from tests.fixtures.protocolo_dados import Cenario
 
@@ -51,6 +55,7 @@ CONFIG_PROTOCOLO: dict[str, Any] = {
     "versao": "1",
     "origem_dados": "REAL",
     "bootstrap": {"correcao": "HOLM", "reamostragens": 50},
+    "catalogos": {"esquema_sia_pa": str(CATALOGO_SIA_PA)},
 }
 POLITICA_DO_METODO = {
     MetodoId.M_TEMP: "M_TEMP_PADRAO",
@@ -58,6 +63,12 @@ POLITICA_DO_METODO = {
     MetodoId.B_PROC: "B_PROC",
 }
 COMPETENCIA_DO_TESTE = "202401"
+OUTRO_SHA = "f" * 64
+MUTACOES_DO_AMBIENTE: dict[str, Callable[[Ambiente], Ambiente]] = {
+    "python": lambda a: a.model_copy(update={"python": "0.0.0"}),
+    "pacotes": lambda a: a.model_copy(update={"pacotes": {**a.pacotes, "duckdb": "0.0.0"}}),
+    "uv_lock_sha256": lambda a: a.model_copy(update={"uv_lock_sha256": OUTRO_SHA}),
+}
 
 
 def como_real(ref: DatasetRef) -> DatasetRef:
@@ -90,11 +101,12 @@ def config_confirmatoria(freeze_id: str, **campos: Any) -> RunConfig:
 
 @dataclass(frozen=True)
 class Confirmatorio:
-    """Congelamento, G2, config confirmatória e execuções compatíveis sobre o TESTE."""
+    """Congelamento, G2, config confirmatória, estado atual e execuções compatíveis (TESTE)."""
 
     cenario: Cenario
     manifesto: FreezeManifest
     config: RunConfig
+    estado: EstadoAtual
     decisoes: Path
     g2: str
     runs: list[RunResult]
@@ -107,8 +119,13 @@ class Confirmatorio:
             "decisoes": self.decisoes,
             "manifesto": self.manifesto,
             "config": self.config,
+            "estado": self.estado,
         }
         return ReferenciaCongelamento(**{**campos, **trocas})
+
+    def estado_com(self, **trocas: Any) -> EstadoAtual:
+        """O estado atual com os campos trocados (config, ambiente, regras, ...)."""
+        return replace(self.estado, **trocas)
 
 
 def _resultados(cenario: Cenario, metodo: MetodoId) -> dict[str, str]:
@@ -147,6 +164,7 @@ def run_compativel(
         "freeze_id": manifesto.freeze_id,
         "config_hash": config.config_hash,
         "codigo": CODIGO_LIMPO,
+        "ambiente": manifesto.ambiente,
         "entradas": (
             como_real(cenario.split.particoes[Particao.TESTE]),
             auxiliar_fora_do_manifesto(),
@@ -169,34 +187,53 @@ def runs_compativeis(
     return [run_compativel(cenario, manifesto, config, out, metodo) for metodo in metodos]
 
 
-def montar_confirmatorio(raiz: Path, cenario: Cenario, **protocolo: Any) -> Confirmatorio:
-    """Congela o protocolo (G0), abre o TESTE (G2) e gera as execuções compatíveis."""
+def montar_confirmatorio(
+    raiz: Path, cenario: Cenario, *, catalogo: Path = CATALOGO_SIA_PA, **protocolo: Any
+) -> Confirmatorio:
+    """Congela o protocolo (G0), abre o TESTE (G2) e gera as execuções compatíveis.
+
+    `catalogo` é o arquivo de catálogo da config e do congelamento (uma cópia nos testes que o
+    alteram); o estado atual espelha o que foi congelado.
+    """
     assert cenario.split.rotulos_por_particao is not None
     decisoes = raiz / "decisoes"
     escrever_decisao(decisoes, "G0", "CONTINUAR")
+    catalogos = {"esquema_sia_pa": str(catalogo)}
     campos: dict[str, Any] = {
-        "config": RunConfig.model_validate(CONFIG_PROTOCOLO),
+        "config": RunConfig.model_validate({**CONFIG_PROTOCOLO, "catalogos": catalogos}),
         "split": cenario.split,
         "features": FEATURES_PADRAO,
         "dataset": cenario.dataset,
         "rotulos": cenario.rotulos,
-        "catalogos": {"esquema_sia_pa": CATALOGO_SIA_PA},
+        "catalogos": {nome: Path(caminho) for nome, caminho in catalogos.items()},
         "regras": carregar_regras(),
         "politicas": politicas_do_catalogo(),
+        **protocolo,
     }
     manifesto = congelar(
-        Protocolo(**{**campos, **protocolo}),
+        Protocolo(**campos),
         raiz / "frozen",
         decisoes=decisoes,
         codigo=CODIGO_LIMPO,
         relogio=relogio,
     )
     g2 = escrever_decisao(decisoes, "G2", "ABRIR_TESTE", freeze_id=manifesto.freeze_id)
-    config = config_confirmatoria(manifesto.freeze_id)
+    config = config_confirmatoria(manifesto.freeze_id, catalogos=catalogos)
+    estado = EstadoAtual(
+        config=config,
+        split=campos["split"],
+        features=campos["features"],
+        datasets=[campos["dataset"], campos["rotulos"]],
+        codigo=CODIGO_LIMPO,
+        ambiente=ambiente(Path.cwd()),
+        regras=campos["regras"],
+        politicas=campos["politicas"],
+    )
     return Confirmatorio(
         cenario=cenario,
         manifesto=manifesto,
         config=config,
+        estado=estado,
         decisoes=decisoes,
         g2=f"experiments/decisions/{g2.name}",
         runs=runs_compativeis(cenario, manifesto, config, raiz / "runs"),

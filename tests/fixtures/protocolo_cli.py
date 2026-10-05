@@ -6,6 +6,7 @@ decisão humana.
 
 from __future__ import annotations
 
+import shutil
 from typing import TYPE_CHECKING
 
 from sustemporal.cli import main
@@ -31,6 +32,15 @@ if TYPE_CHECKING:
 REGISTRO = "registro_execucoes.jsonl"
 
 
+def catalogo_da_config(raiz: Path) -> Path:
+    """Cópia do catálogo de esquema que a config congela, para os testes poderem alterá-la."""
+    destino = raiz / "catalogos" / CATALOGO_SIA_PA.name
+    if not destino.exists():
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(CATALOGO_SIA_PA, destino)
+    return destino
+
+
 def config_yaml(raiz: Path, **extra: str) -> Path:
     """Config da CLI; com `extra` (ex.: `modo`, `freeze_id`) é a config confirmatória."""
     linhas = [
@@ -43,7 +53,7 @@ def config_yaml(raiz: Path, **extra: str) -> Path:
         "  correcao: HOLM",
         "  reamostragens: 50",
         "catalogos:",
-        f"  esquema_sia_pa: {CATALOGO_SIA_PA}",
+        f"  esquema_sia_pa: {catalogo_da_config(raiz)}",
         *(f"{chave}: {valor}" for chave, valor in extra.items()),
     ]
     caminho = raiz / ("config_confirmatoria.yaml" if extra else "config.yaml")

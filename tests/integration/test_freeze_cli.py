@@ -16,6 +16,7 @@ from tests.fixtures.protocolo_cli import (
     congelar_pela_cli,
     gravar_runs,
     manifesto_da_cli,
+    nome_do_arquivo_da_execucao,
     runs_da_cli,
 )
 from tests.fixtures.protocolo_dados import cenario_baseline
@@ -50,11 +51,46 @@ def test_cli_congela_regras_e_politicas_e_avalia_o_confirmatorio_compativel(
         "b_atend_exploratoria",
         "b_proc_exploratoria",
     }
-    gravar_runs(tmp_path, runs_da_cli(tmp_path, cenario, freeze))
+    runs = runs_da_cli(tmp_path, cenario, freeze)
+    gravar_runs(tmp_path, runs)
     config = config_confirmatoria_yaml(tmp_path, freeze)
     assert main(["evaluate", "--config", str(config), "--freeze", freeze]) == ExitCode.OK
     (entrada,) = ler_registro(tmp_path / "frozen" / REGISTRO)
     assert (entrada["modo"], entrada["freeze_id"]) == ("CONFIRMATORIO", freeze)
+    assert len(entrada["runs"]) == len(runs)
+
+
+def test_cli_avalia_execucoes_do_motor_gravadas_como_run_result_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cenario, freeze = congelar_pela_cli(tmp_path, monkeypatch)
+    runs = runs_da_cli(tmp_path, cenario, freeze)
+    gravar_runs(tmp_path, runs)
+    pasta = tmp_path / "saidas" / "runs"
+    gravados = {arquivo.parent.name: arquivo.name for arquivo in pasta.glob("*/*.json")}
+    assert gravados == {run.run_id: nome_do_arquivo_da_execucao(run) for run in runs}
+    assert set(gravados.values()) == {"run.json", "run_result.json"}
+    config = config_confirmatoria_yaml(tmp_path, freeze)
+    assert main(["evaluate", "--config", str(config), "--freeze", freeze]) == ExitCode.OK
+    (entrada,) = ler_registro(tmp_path / "frozen" / REGISTRO)
+    assert sorted(entrada["runs"]) == sorted(run.run_id for run in runs)
+
+
+def test_cli_recusa_execucao_com_run_json_e_run_result_json_no_mesmo_diretorio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    cenario, freeze = congelar_pela_cli(tmp_path, monkeypatch)
+    runs = runs_da_cli(tmp_path, cenario, freeze)
+    gravar_runs(tmp_path, runs)
+    pasta = tmp_path / "saidas" / "runs" / runs[M_TEMP].run_id
+    (pasta / "run.json").write_text(runs[M_TEMP].model_dump_json(), encoding="utf-8")
+    config = config_confirmatoria_yaml(tmp_path, freeze)
+    codigo = main(["evaluate", "--config", str(config), "--freeze", freeze])
+    assert codigo == ExitCode.CONFIG_INVALIDA
+    assert f"execucao_ambigua pasta={pasta} arquivos=run.json,run_result.json" in (
+        capsys.readouterr().err
+    )
+    assert not (tmp_path / "frozen" / REGISTRO).exists()
 
 
 def test_cli_freeze_com_catalogo_de_regras_ilegivel_sai_como_config_invalida(

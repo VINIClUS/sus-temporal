@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from sustemporal.cli import main
 from sustemporal.config import load_config
-from sustemporal.contracts.experiment import FreezeManifest
+from sustemporal.contracts.experiment import FreezeManifest, TipoExecucao
 from sustemporal.errors import ExitCode
 from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO, escrever_decisao
 from tests.fixtures.protocolo_confirmatorio import (
@@ -74,11 +74,18 @@ def manifesto_da_cli(raiz: Path, freeze: str) -> FreezeManifest:
     return FreezeManifest.model_validate_json(texto)
 
 
+def nome_do_arquivo_da_execucao(run: RunResult) -> str:
+    """O do produtor: `run.json` no baseline, `run_result.json` no motor de regras."""
+    return "run.json" if run.tipo is TipoExecucao.BASELINE_ML else "run_result.json"
+
+
 def gravar_runs(raiz: Path, runs: list[RunResult]) -> None:
     for run in runs:
         destino = raiz / "saidas" / "runs" / run.run_id
         destino.mkdir(parents=True, exist_ok=True)
-        (destino / "run.json").write_text(run.model_dump_json(), encoding="utf-8")
+        (destino / nome_do_arquivo_da_execucao(run)).write_text(
+            run.model_dump_json(), encoding="utf-8"
+        )
 
 
 def runs_da_cli(raiz: Path, cenario: Cenario, freeze: str) -> list[RunResult]:

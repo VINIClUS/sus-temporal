@@ -344,7 +344,7 @@ def test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual(
     situacoes = de_4.situacoes
     assert situacoes.pop("conjunto:sia_pa_rotulos.v1") == BYTES_DIFERENTES
     assert set(situacoes.values()) == {"IGUAL"}
-    assert de_4.conteudo["resultado"] == "IGUAL"
+    assert de_4.conteudo["resultado"] == BYTES_DIFERENTES
     assert "config_diferente_da_congelada" in de_4.conteudo["observacoes"]
     assert _metricas(de_4.out) == _metricas(reproducao.out)
 
@@ -376,6 +376,13 @@ def test_reproduce_recusa_destino_ja_usado(fluxo: Fluxo, reproducao: Reproducao)
     assert reproducao.codigo == ExitCode.OK
     assert reproducao.out.is_dir()
     assert _reproduzir(fluxo, fluxo.configs["teste"]).codigo == ExitCode.CONFIG_INVALIDA
+
+
+def test_reproduce_recusa_destino_que_e_um_arquivo(fluxo: Fluxo) -> None:
+    arquivo = fluxo.mundo.raiz / "saida_que_e_arquivo"
+    arquivo.write_text("conteúdo do usuário", encoding="utf-8")
+    assert _reproduzir(fluxo, fluxo.configs["teste"], arquivo).codigo == ExitCode.CONFIG_INVALIDA
+    assert arquivo.read_text(encoding="utf-8") == "conteúdo do usuário"
 
 
 def test_reproduce_exige_offline(fluxo: Fluxo) -> None:

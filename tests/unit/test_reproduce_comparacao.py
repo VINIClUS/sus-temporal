@@ -22,8 +22,9 @@ from sustemporal.reporting.reproduce_comparacao import (
     comparar_metricas,
     comparar_referencia,
     comparar_saida,
-    divergentes,
+    exigir_conferido,
     identidade_do_arquivo,
+    resultado_geral,
 )
 from tests.fixtures.protocolo_insumos import entrada_da_politica
 from tests.fixtures.reproducao_parquet import SCHEMA, gravar, linha
@@ -93,7 +94,6 @@ def test_bytes_diferentes_com_hash_logico_igual_sao_relatados_como_tais(tmp_path
     resultado = comparar_referencia("conjunto:x", esperada, obtida)
     assert resultado.situacao is Situacao.BYTES_DIFERENTES
     assert resultado.detalhe == "bytes_diferem"
-    assert resultado not in divergentes([resultado])
 
 
 def test_conteudo_refeito_diferente_do_declarado_e_divergente(tmp_path: Path) -> None:
@@ -263,14 +263,57 @@ def test_insumos_sem_identidade_congelada_para_a_politica_sao_inconclusivos(tmp_
     assert resultado.detalhe == "politica_sem_insumo_congelado"
 
 
-def test_divergentes_filtra_so_a_divergencia_de_conteudo() -> None:
-    itens = [
-        Comparacao("a", Situacao.IGUAL),
-        Comparacao("b", Situacao.BYTES_DIFERENTES),
-        Comparacao("c", Situacao.INCONCLUSIVO),
-        Comparacao("d", Situacao.DIVERGENTE),
-    ]
-    assert [c.item for c in divergentes(itens)] == ["d"]
+def _itens(**situacoes: Situacao) -> list[Comparacao]:
+    return [Comparacao(nome, situacao) for nome, situacao in situacoes.items()]
+
+
+@pytest.mark.parametrize(
+    ("situacoes", "esperado"),
+    [
+        ([], Situacao.IGUAL),
+        ([Situacao.IGUAL, Situacao.IGUAL], Situacao.IGUAL),
+        ([Situacao.IGUAL, Situacao.BYTES_DIFERENTES], Situacao.BYTES_DIFERENTES),
+        (
+            [Situacao.BYTES_DIFERENTES, Situacao.INCONCLUSIVO, Situacao.IGUAL],
+            Situacao.INCONCLUSIVO,
+        ),
+        (
+            [Situacao.INCONCLUSIVO, Situacao.DIVERGENTE, Situacao.BYTES_DIFERENTES],
+            Situacao.DIVERGENTE,
+        ),
+    ],
+)
+def test_resultado_geral_e_a_pior_situacao_dos_itens(
+    situacoes: list[Situacao], esperado: Situacao
+) -> None:
+    itens = [Comparacao(f"i{n}", situacao) for n, situacao in enumerate(situacoes)]
+    assert resultado_geral(itens) is esperado
+
+
+def test_exigir_conferido_aceita_iguais_e_bytes_diferentes_com_hash_logico_igual() -> None:
+    exigir_conferido(_itens(a=Situacao.IGUAL, b=Situacao.BYTES_DIFERENTES))
+
+
+def test_exigir_conferido_nomeia_os_itens_divergentes_antes_dos_inconclusivos() -> None:
+    itens = _itens(
+        a=Situacao.IGUAL, b=Situacao.DIVERGENTE, c=Situacao.INCONCLUSIVO, d=Situacao.DIVERGENTE
+    )
+    with pytest.raises(FalhaOperacionalErro, match=r"reproducao_divergente itens=2 primeiros=b,d$"):
+        exigir_conferido(itens)
+
+
+def test_exigir_conferido_trata_o_inconclusivo_como_falha_e_nao_como_reproduzido() -> None:
+    itens = _itens(a=Situacao.IGUAL, b=Situacao.INCONCLUSIVO, c=Situacao.INCONCLUSIVO)
+    with pytest.raises(
+        FalhaOperacionalErro, match=r"reproducao_inconclusiva itens=2 primeiros=b,c$"
+    ):
+        exigir_conferido(itens)
+
+
+def test_exigir_conferido_cita_so_os_primeiros_itens() -> None:
+    itens = [Comparacao(f"i{n}", Situacao.DIVERGENTE) for n in range(7)]
+    with pytest.raises(FalhaOperacionalErro, match=r"itens=7 primeiros=i0,i1,i2,i3,i4$"):
+        exigir_conferido(itens)
 
 
 def test_comparacao_vira_dicionario_com_a_situacao_em_texto() -> None:

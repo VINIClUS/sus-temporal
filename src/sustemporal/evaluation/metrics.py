@@ -20,7 +20,11 @@ from sustemporal.contracts.experiment import BootstrapSpec, ModoExecucao, Partic
 from sustemporal.duck import conectar
 from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.bootstrap import intervalo_diferenca, intervalo_razao
-from sustemporal.evaluation.freeze import verificar_comparacoes_primarias, verificar_execucao
+from sustemporal.evaluation.freeze import (
+    verificar_comparacoes_primarias,
+    verificar_execucao,
+    verificar_execucao_concluida,
+)
 from sustemporal.evaluation.metrics_calculo import (
     LinhaAvaliada,
     calcular_metricas,
@@ -116,6 +120,7 @@ def _exigir_execucoes_do_congelamento(
         )
     for run in runs:
         verificar_execucao(manifesto, run, config=config)
+        verificar_execucao_concluida(run)
     verificar_comparacoes_primarias(manifesto, runs)
 
 
@@ -280,8 +285,8 @@ def evaluate_runs(
 
     Raises:
         ValueError: sem execuções, rótulos fora do split, modos/origens misturados ou método
-            repetido. PortaoRecusado: exploratório no TESTE; confirmatório fora dele, sem G2, sem
-            manifesto e config, com execução incompatível ou sem método das comparações primárias.
+            repetido. PortaoRecusado: exploratório no TESTE; confirmatório fora dele, sem G2 ou
+            sem manifesto e config, ou com execução incompatível, incompleta ou sem método primário.
         FalhaOperacionalErro: entrada ilegível ou diferente do `DatasetRef`.
     """
     if not runs:

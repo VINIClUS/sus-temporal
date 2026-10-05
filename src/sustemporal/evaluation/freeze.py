@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from sustemporal.contracts.base import hash_canonico, hash_identidade
 from sustemporal.contracts.experiment import (
     DecisaoPortao,
+    EstadoExecucao,
     FreezeManifest,
     ModoExecucao,
     Particao,
@@ -60,6 +61,7 @@ __all__ = [
     "verificar_comparacoes_primarias",
     "verificar_compatibilidade",
     "verificar_execucao",
+    "verificar_execucao_concluida",
 ]
 
 logger = logging.getLogger(__name__)
@@ -270,6 +272,22 @@ def verificar_compatibilidade(
     if campos := [nome for nome, divergente in divergencias.items() if divergente]:
         raise PortaoRecusado(
             f"freeze_incompativel campos={','.join(campos)} freeze={manifesto.freeze_id}"
+        )
+
+
+def verificar_execucao_concluida(run: RunResult) -> None:
+    """Recusa, no confirmatório, a execução que não concluiu ou que registrou falhas.
+
+    O motor grava saídas avaliáveis também em execução PARCIAL ou FALHOU, e a leitura trataria o
+    que faltou como abstenção do método.
+
+    Raises:
+        PortaoRecusado: `execucao_incompleta_no_confirmatorio run=... estado=... falhas=...`
+    """
+    if run.estado is not EstadoExecucao.CONCLUIDA or run.falhas > 0:
+        raise PortaoRecusado(
+            f"execucao_incompleta_no_confirmatorio run={run.run_id} estado={run.estado.value} "
+            f"falhas={run.falhas}"
         )
 
 

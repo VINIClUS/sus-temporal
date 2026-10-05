@@ -37,6 +37,8 @@ O arquivo nunca é sobrescrito; outro conteúdo com o mesmo id é recusado. Um m
     entram no manifesto e não são conferidos;
 
   Divergência recusa com `run_incompativel_com_congelamento run=<id> campo=<campos>` (saída 4).
+  Execução PARCIAL ou FALHOU, ou com falhas registradas, também é recusada
+  (`execucao_incompleta_no_confirmatorio`): o que faltou viraria abstenção do método.
   Manifesto sem catálogo ou políticas recusa as execuções que usam regras; as de baseline só
   repetem código, config e entradas. O confirmatório também exige execução de cada método das
   comparações primárias do manifesto (M_TEMP, B_ATEND e B_PROC); se falta alguma, recusa

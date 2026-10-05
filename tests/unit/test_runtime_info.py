@@ -151,3 +151,18 @@ def test_arquivo_rastreado_removido_entra_no_hash(tmp_path: Path) -> None:
     versao = versao_codigo(raiz)
     assert versao.sujo is True
     assert versao.diff_sha256 is not None
+
+
+def test_modo_executavel_entra_no_hash_de_diferencas(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    modulo = raiz / "modulo.py"
+    modulo.write_text("VALOR = 2\n", encoding="utf-8")
+    sem_modo = versao_codigo(raiz)
+    modulo.chmod(0o755)
+    com_modo = versao_codigo(raiz)
+    modulo.chmod(0o644)
+    sem_modo_de_novo = versao_codigo(raiz)
+    assert sem_modo.diff_sha256 is not None
+    assert com_modo.diff_sha256 is not None
+    assert sem_modo.diff_sha256 != com_modo.diff_sha256
+    assert sem_modo_de_novo == sem_modo

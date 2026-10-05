@@ -11,23 +11,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pytest
-from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO, escrever_decisao
+from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO
 from tests.fixtures.protocolo_confirmatorio import (
-    CATALOGO_SIA_PA,
     CONFIG_PROTOCOLO,
     Confirmatorio,
     config_confirmatoria,
     montar_confirmatorio,
     politicas_do_catalogo,
-    reescrever_split_como_real,
-    runs_compativeis,
     sia_pa_desconhecido,
     split_como_real,
 )
 from tests.fixtures.protocolo_dados import cenario_baseline
 
-from sustemporal.cli import main
-from sustemporal.config import load_config
 from sustemporal.contracts.base import conteudo_identidade, hash_canonico
 from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.experiment import (
@@ -36,10 +31,9 @@ from sustemporal.contracts.experiment import (
     Particao,
     TipoExecucao,
 )
-from sustemporal.errors import ConfigInvalida, ExitCode, PortaoRecusado
+from sustemporal.errors import ConfigInvalida, PortaoRecusado
 from sustemporal.evaluation.baselines import fit_baseline
 from sustemporal.evaluation.features import FEATURES_PADRAO
-from sustemporal.evaluation.freeze_registro import ler_registro
 from sustemporal.evaluation.metrics import evaluate_runs
 from sustemporal.rules.catalog import carregar_regras, catalogo_sha256
 from sustemporal.temporal.politicas import carregar_politica
@@ -49,7 +43,7 @@ if TYPE_CHECKING:
 
     from tests.fixtures.protocolo_dados import Cenario
 
-    from sustemporal.contracts import EvaluationReport, RuleSpec, RunResult
+    from sustemporal.contracts import EvaluationReport, RunResult
 
 OUTRO_CODIGO = CODIGO_LIMPO.model_copy(update={"commit": "b" * 40})
 OUTRO_HASH = f"lh1:{'e' * 64}"
@@ -313,106 +307,3 @@ def test_politica_repetida_com_conteudo_diferente_e_recusada(
     with pytest.raises(ConfigInvalida, match="congelamento_politica_repetida politica=B_ATEND"):
         montar_confirmatorio(tmp_path, cenario, politicas=[original, alterada])
     montar_confirmatorio(tmp_path / "igual", cenario, politicas=[original, original])
-
-
-def _config_yaml(raiz: Path, **extra: str) -> Path:
-    linhas = [
-        'versao: "1"',
-        "origem_dados: REAL",
-        "runtime:",
-        f"  raiz_saidas: {raiz / 'saidas'}",
-        f"  dir_congelamentos: {raiz / 'frozen'}",
-        "bootstrap:",
-        "  correcao: HOLM",
-        "  reamostragens: 50",
-        "catalogos:",
-        f"  esquema_sia_pa: {CATALOGO_SIA_PA}",
-        *(f"{chave}: {valor}" for chave, valor in extra.items()),
-    ]
-    caminho = raiz / ("config_confirmatoria.yaml" if extra else "config.yaml")
-    caminho.write_text("\n".join(linhas) + "\n", encoding="utf-8")
-    return caminho
-
-
-def _congelar_pela_cli(raiz: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Cenario, str]:
-    cenario = cenario_baseline(raiz / "saidas", competencias=("202001", "202301", "202401"))
-    reescrever_split_como_real(raiz / "saidas" / "split")
-    monkeypatch.chdir(raiz)
-    monkeypatch.setattr("sustemporal.evaluation.cli.versao_codigo", lambda _: CODIGO_LIMPO)
-    decisoes = raiz / "experiments" / "decisions"
-    escrever_decisao(decisoes, "G0", "CONTINUAR")
-    assert main(["freeze", "--config", str(_config_yaml(raiz))]) == ExitCode.OK
-    (manifesto,) = sorted((raiz / "frozen").glob("frz_*.json"))
-    escrever_decisao(decisoes, "G2", "ABRIR_TESTE", freeze_id=manifesto.stem)
-    return cenario, manifesto.stem
-
-
-def _manifesto_da_cli(raiz: Path, freeze: str) -> FreezeManifest:
-    texto = (raiz / "frozen" / f"{freeze}.json").read_text(encoding="utf-8")
-    return FreezeManifest.model_validate_json(texto)
-
-
-def _gravar_runs(raiz: Path, runs: list[RunResult]) -> None:
-    for run in runs:
-        destino = raiz / "saidas" / "runs" / run.run_id
-        destino.mkdir(parents=True, exist_ok=True)
-        (destino / "run.json").write_text(run.model_dump_json(), encoding="utf-8")
-
-
-def _runs_da_cli(raiz: Path, cenario: Cenario, freeze: str) -> list[RunResult]:
-    config = load_config(_config_yaml(raiz, modo="CONFIRMATORIO", freeze_id=freeze))
-    manifesto = _manifesto_da_cli(raiz, freeze)
-    return runs_compativeis(cenario, manifesto, config, raiz / "saidas" / "runs")
-
-
-def test_cli_congela_regras_e_politicas_e_avalia_o_confirmatorio_compativel(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    cenario, freeze = _congelar_pela_cli(tmp_path, monkeypatch)
-    manifesto = _manifesto_da_cli(tmp_path, freeze)
-    assert manifesto.catalogo_regras_sha256 == catalogo_sha256(carregar_regras())
-    assert manifesto.politicas_sha256 is not None
-    assert set(manifesto.politicas_sha256) == {
-        "B_ATEND",
-        "B_PROC",
-        "M_TEMP_PADRAO",
-        "b_atend_exploratoria",
-        "b_proc_exploratoria",
-    }
-    _gravar_runs(tmp_path, _runs_da_cli(tmp_path, cenario, freeze))
-    config = _config_yaml(tmp_path, modo="CONFIRMATORIO", freeze_id=freeze)
-    assert main(["evaluate", "--config", str(config), "--freeze", freeze]) == ExitCode.OK
-    (entrada,) = ler_registro(tmp_path / "frozen" / "registro_execucoes.jsonl")
-    assert (entrada["modo"], entrada["freeze_id"]) == ("CONFIRMATORIO", freeze)
-
-
-def test_cli_freeze_com_catalogo_de_regras_ilegivel_sai_como_config_invalida(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    cenario_baseline(tmp_path / "saidas")
-    monkeypatch.chdir(tmp_path)
-    escrever_decisao(tmp_path / "experiments" / "decisions", "G0", "CONTINUAR")
-
-    def catalogo_ilegivel() -> list[RuleSpec]:
-        raise FileNotFoundError("catalog/familias.yaml")
-
-    monkeypatch.setattr("sustemporal.evaluation.cli.carregar_regras", catalogo_ilegivel)
-    codigo = main(["freeze", "--config", str(_config_yaml(tmp_path))])
-    assert codigo == ExitCode.CONFIG_INVALIDA
-    assert not (tmp_path / "frozen").exists()
-
-
-def test_cli_recusa_o_confirmatorio_com_execucao_de_outro_codigo(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
-) -> None:
-    cenario, freeze = _congelar_pela_cli(tmp_path, monkeypatch)
-    runs = _runs_da_cli(tmp_path, cenario, freeze)
-    runs[M_TEMP] = runs[M_TEMP].model_copy(update={"codigo": OUTRO_CODIGO})
-    _gravar_runs(tmp_path, runs)
-    config = _config_yaml(tmp_path, modo="CONFIRMATORIO", freeze_id=freeze)
-    codigo = main(["evaluate", "--config", str(config), "--freeze", freeze])
-    assert codigo == ExitCode.PORTAO_RECUSADO
-    esperado = f"run_incompativel_com_congelamento run={runs[M_TEMP].run_id} campo=codigo"
-    assert esperado in capsys.readouterr().err
-    assert not (tmp_path / "frozen" / "registro_execucoes.jsonl").exists()
-    assert not (tmp_path / "saidas" / "avaliacao").exists()

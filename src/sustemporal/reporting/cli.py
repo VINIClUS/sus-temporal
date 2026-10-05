@@ -57,11 +57,18 @@ def _coorte(config: RunConfig, piloto: PilotSpec) -> CohortSpec:
     """A coorte da configuração; sem ela, a do piloto (UF, território e competências).
 
     Raises:
-        ConfigInvalida: coorte explícita com pertença histórica.
+        ConfigInvalida: coorte explícita com UF diferente da do piloto (a do `ingest`) ou com
+            pertença histórica.
     """
-    if config.coorte is not None:
-        exigir_pertenca_implementada(config.coorte)
-        return config.coorte
+    coorte = config.coorte
+    if coorte is not None:
+        if coorte.uf != piloto.uf:
+            raise ConfigInvalida(
+                f"coorte_com_uf_divergente coorte={coorte.uf} piloto={piloto.uf} "
+                f"cohort_id={coorte.cohort_id}"
+            )
+        exigir_pertenca_implementada(coorte)
+        return coorte
     competencias = sorted(c.valor for c in piloto.competencias_processamento)
     return CohortSpec.model_validate(
         {
@@ -181,10 +188,10 @@ def executar_pilot_report(args: argparse.Namespace, config: RunConfig) -> int:
     """Lê a última execução completa do `ingest`, seleciona as versões e grava o relatório.
 
     Raises:
-        ConfigInvalida: configuração sem piloto, coorte explícita com pertença histórica,
-            território inválido, nenhuma execução completa do `ingest` em `raiz_saidas`,
-            configuração do `ingest` ilegível ou diferente da atual ou posição do manifesto lida
-            pela ingestão ilegível ou divergente do manifesto atual.
+        ConfigInvalida: configuração sem piloto, coorte explícita com UF diferente da do piloto
+            ou com pertença histórica, território inválido, nenhuma execução completa do `ingest`
+            em `raiz_saidas`, configuração do `ingest` ilegível ou diferente da atual ou posição
+            do manifesto lida pela ingestão ilegível ou divergente do manifesto atual.
     """
     if config.piloto is None:
         raise ConfigInvalida("pilot_report_exige_piloto")

@@ -19,7 +19,10 @@ classificador e não exige ganho positivo. Ele subsidia a decisão humana G0
   de conteúdo, os auxiliares (CNES, SIGTAP) e a `cobertura.v1`.
 - O manifesto de aquisição (`<raiz_manifestos>/aquisicao.jsonl`), lido pelo registro temporal.
 - A coorte: `coorte` da configuração ou, sem ela, a derivada do `piloto` (UF, território e o
-  intervalo entre a menor e a maior competência de processamento pedida).
+  intervalo entre a menor e a maior competência de processamento pedida). A `coorte` explícita tem
+  de ter a UF do `piloto`, a mesma com que o `ingest` escolheu os conjuntos regionais
+  (`coorte_com_uf_divergente`, saída 2): outra UF excluiria todas as linhas e publicaria
+  `populacao_vazia_no_recorte` de uma geografia que nunca foi ingerida.
 
 Os conjuntos são conferidos contra o `DatasetRef` (estrutura, contagem e hash lógico) antes de
 qualquer contagem. Conjuntos de origens diferentes (`SINTETICO` e `REAL`) são recusados.

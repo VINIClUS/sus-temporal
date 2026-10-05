@@ -220,6 +220,7 @@ from pathlib import Path
 import pytest
 from tests.fixtures.reproducao_fluxo import (
     adquirir_e_ingerir,
+    artefatos_do_sia_pa,
     congelar_e_avaliar,
     derivar,
     iniciar,
@@ -230,7 +231,7 @@ with pytest.MonkeyPatch.context() as mp:
     fluxo = iniciar(Path(sys.argv[1]), mp)
     adquirir_e_ingerir(fluxo)
     validar_janelas(fluxo)
-    derivar(fluxo)
+    derivar(fluxo, inspecionados=artefatos_do_sia_pa(fluxo, "dev"))
     congelar_e_avaliar(fluxo)
     print(fluxo.freeze_id)
     print(json.dumps(fluxo.codigos))
@@ -257,7 +258,10 @@ imprime o `freeze_id` e o código de saída de cada comando:
 A união do SIA-PA, os rótulos e as partições vêm de `derivar_protocolo` e os `validate --ingest`
 rodam sobre a janela de cada partição (`janela_do_ingest`); o `validate --ingest` exige que toda
 a produção da pasta seja do recorte do piloto, e a janela é a pasta do `ingest` só com o SIA-PA
-dos arquivos das competências pedidas. Os insumos que o `freeze` exige ficam em
+dos arquivos das competências pedidas. O split original marca como inspecionados
+(`artefatos_inspecionados`) os dois arquivos do SIA-PA da janela DEV, como quem já os olhou no
+desenvolvimento; eles entram no `split_id`, e o `reproduce` refaz o split com os que o
+congelamento registrou. Os insumos que o `freeze` exige ficam em
 `$MUNDO/saidas/split/insumos/<politica_id>.json`, um por política (seção 6): o script copia para lá
 a `entrada_validacao.json` das execuções sobre a janela TESTE. O código do `freeze` lê a versão do código por `git`, e o
 mundo não é um repositório: o script usa a versão de código de teste (`CODIGO_LIMPO`), que o
@@ -302,7 +306,8 @@ congelamento usou a versão de código de teste (seção 4.5); ela não é diver
   com 2): `ingest` dos originais do manifesto de aquisição, conferência do ingest (artefato do
   SIA-PA congelado, ou dos auxiliares CNES e SIGTAP das entradas congeladas, que não foi
   normalizado torna a reprodução inconclusiva e para aqui, antes de refazer), união do
-  SIA-PA, rótulos, partições do split (com a especificação gravada no congelamento), as três
+  SIA-PA, rótulos, partições do split (com a especificação e os artefatos inspecionados gravados
+  no congelamento), as três
   políticas de `validate --ingest` sobre a janela da partição avaliada (CALIBRACAO) e da partição
   TESTE, e a avaliação (`evaluate_runs`, com o `bootstrap` do manifesto). Nada é gravado nas
   saídas originais nem no registro de rodadas; o `reproduce` não registra rodada.
@@ -320,7 +325,7 @@ congelamento usou a versão de código de teste (seção 4.5); ela não é diver
 | Item de `reproducao.json` | Compara | Contra |
 |---|---|---|
 | `conjunto:sia_pa.v1` e `conjunto:sia_pa_rotulos.v1` | linhas e hash lógico da união e dos rótulos refeitos | o declarado no manifesto e, se o arquivo original existe, o arquivo |
-| `split:split_id`, `split:particao:<P>` e `split:rotulos:<P>` | id do split e linhas e hash lógico de cada partição e dos rótulos dela | o split do manifesto |
+| `split:split_id`, `split:particao:<P>` e `split:rotulos:<P>` | id do split (que leva a especificação, a coorte, as fontes, os rótulos e os artefatos inspecionados) e linhas e hash lógico de cada partição e dos rótulos dela | o split do manifesto |
 | `insumos:<politica>` | cada campo da `EntradaValidacao` do TESTE refeita (`dataset`, `snapshots`, `auxiliares`, `selecoes`, `cobertura`, `integridade`, `politica_documentada`, `politica` e `identidade_adicional`), pela identidade de cada campo; antes de refazer, a disponibilidade dos artefatos dos `auxiliares` (CNES e SIGTAP) | `entradas_validacao` do manifesto, gravada de `split/insumos/<politica_id>.json`; os artefatos, dessa entrada original |
 | `saida:<METODO>:<esquema>` | linhas e hash lógico das cinco saídas de cada método, **sem a coluna `run_id`**, pela união dos esquemas das duas execuções (e dos métodos) | as saídas da execução original |
 | `metricas` | cada métrica por nome e estrato (numerador, denominador, valor e intervalo) | o relatório da rodada registrada |
@@ -392,6 +397,7 @@ caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=
 |---|---|
 | 29 itens `IGUAL` e `resultado` `IGUAL`, com o `freeze` recusado sem G0 e exploratório com a decisão de teste | `test_reproduce_offline_reproduz_com_hashes_logicos_iguais` e `test_freeze_e_recusado_sem_g0_e_com_a_decisao_de_teste_fica_exploratorio` |
 | Diretório novo e nenhum original alterado | `test_reproduce_refaz_o_fluxo_inteiro_no_diretorio_novo` e `test_reproduce_nao_altera_nenhum_original` |
+| Split congelado com artefatos inspecionados é refeito com o mesmo `split_id` (o `_refazer` os repassa a `derivar_protocolo`) | `test_reproduce_refaz_o_split_com_os_artefatos_inspecionados_do_congelamento` e, em `tests/integration/test_reproduce_etapas.py`, os `test_derivar_protocolo_*inspecionado*` (gravação no split e recusa de inspecionado no TESTE ou sem fonte) |
 | 4 threads dão as mesmas saídas e métricas; bytes diferentes com hash lógico igual saem como tais | `test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual` |
 | Divergência de conteúdo falha (saída 5) e nomeia os itens | `test_reproduce_falha_e_nomeia_os_itens_quando_o_conteudo_original_diverge` |
 | Original do SIA-PA ausente é inconclusão (saída 5), não divergência nem reprodução | `test_reproduce_com_original_do_sia_pa_ausente_e_inconclusivo_e_nao_divergente` |

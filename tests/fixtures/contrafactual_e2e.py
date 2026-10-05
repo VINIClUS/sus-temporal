@@ -28,6 +28,8 @@ if TYPE_CHECKING:
 
     import pytest
 
+    from sustemporal.contracts.temporal import PoliticaTemporal
+
 __all__ = [
     "ChamadaMotor",
     "ExecucaoReal",
@@ -48,6 +50,7 @@ class ExecucaoReal:
     config: Path
     saidas: Path
     run_id: str
+    politica_id: str
     estados: dict[str, dict[str, str]]
 
     @property
@@ -79,29 +82,27 @@ class ChamadaMotor:
     estados: dict[tuple[str, str], str]
 
 
-def _estados(pasta: Path) -> dict[str, dict[str, str]]:
-    texto = (pasta / "run_result.json").read_text(encoding="utf-8")
-    saidas = RunResult.model_validate_json(texto).saidas
-    ref = next(s for s in saidas if s.schema_id == "avaliacoes.v1")
+def _execucao(config: Path, saidas: Path) -> ExecucaoReal:
+    (caminho,) = sorted(saidas.glob("*/val_*/run_result.json"))
+    run = RunResult.model_validate_json(caminho.read_text(encoding="utf-8"))
+    ref = next(s for s in run.saidas if s.schema_id == "avaliacoes.v1")
     estados: dict[str, dict[str, str]] = {}
     for linha in pq.read_table(ref.caminho).to_pylist():
         estados.setdefault(linha["row_id"], {})[linha["rule_id"]] = linha["estado"]
-    return estados
-
-
-def _execucao(config: Path, saidas: Path) -> ExecucaoReal:
-    (caminho,) = sorted(saidas.glob("*/val_*/run_result.json"))
-    return ExecucaoReal(config, saidas, caminho.parent.name, _estados(caminho.parent))
+    return ExecucaoReal(config, saidas, run.run_id, str(run.politica_id), estados)
 
 
 def _validar(config: Path, politica: str, origem: list[str]) -> int:
     return cli.main(["validate", "--config", str(config), "--policy", politica, *origem])
 
 
-def validar_entrada_pela_cli(raiz: Path) -> ExecucaoReal:
-    """`sustemporal validate --entrada` sobre os cenários SINTETICOS do contrafactual."""
+def validar_entrada_pela_cli(
+    raiz: Path, *, politica: PoliticaTemporal | None = None
+) -> ExecucaoReal:
+    """`sustemporal validate --entrada` sobre os cenários SINTETICOS; `politica` vai na entrada."""
     entrada = raiz / "entrada.json"
-    entrada.write_text(entrada_sintetica(raiz).model_dump_json(), encoding="utf-8")
+    dados = entrada_sintetica(raiz).model_copy(update={"politica": politica})
+    entrada.write_text(dados.model_dump_json(), encoding="utf-8")
     config = raiz / "config.yaml"
     runtime = {"raiz_saidas": str(raiz / "saidas")}
     config.write_text(json.dumps({"versao": "1", "runtime": runtime}), encoding="utf-8")

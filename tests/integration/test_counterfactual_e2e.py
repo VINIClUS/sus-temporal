@@ -22,6 +22,7 @@ from tests.fixtures.contrafactual_e2e import (
     validar_entrada_pela_cli,
     validar_ingest_pela_cli,
 )
+from tests.fixtures.regras_cenario import politica
 
 from sustemporal import cli
 from sustemporal.contracts.counterfactual import (
@@ -30,10 +31,13 @@ from sustemporal.contracts.counterfactual import (
     Minimalidade,
     MotivoParada,
 )
+from sustemporal.contracts.temporal import MetodoId
 from sustemporal.explanation.counterfactual_operacoes import (
     CATALOGO_OPERACOES,
     carregar_operacoes,
 )
+from sustemporal.rules.catalog import carregar_regras
+from sustemporal.rules.insumos import politica_padrao
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -113,6 +117,18 @@ def test_entrada_real_violacao_ganha_hipotese_do_catalogo_revalidada_no_motor(
     sha256 = hashlib.sha256(CATALOGO_OPERACOES.read_bytes()).hexdigest()
     assert publicado.identidade["catalogo_operacoes_sha256"] == sha256
     assert instantaneo(tmp_path, sem=execucao.contrafactuais) == antes
+
+
+def test_entrada_real_com_politica_explicita_e_reproduzida_pelo_contexto(tmp_path: Path) -> None:
+    explicita = politica(MetodoId.B_ATEND)
+    assert explicita.politica_id != politica_padrao(MetodoId.B_ATEND, carregar_regras()).politica_id
+    execucao = validar_entrada_pela_cli(tmp_path, politica=explicita)
+    assert execucao.politica_id == explicita.politica_id
+    linha = execucao.linha_com_violacao()
+
+    assert _contrafactual(execucao, linha) == 0
+
+    assert _publicado(execucao).resultado.solucoes
 
 
 def test_entrada_real_linha_inconclusiva_nao_gera_correcao(

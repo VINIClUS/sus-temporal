@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import itertools
 import logging
+import re
 from collections import defaultdict
 from contextlib import closing
 from dataclasses import dataclass, field
@@ -40,13 +41,18 @@ from sustemporal.ingest.sia_pa import carregar_conferido
 from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping, Sequence
+    from collections.abc import Collection, Iterable, Mapping, Sequence
 
     import duckdb
 
     from sustemporal.contracts.rules import FamiliaCandidata
 
-__all__ = ["CATALOGO_FAMILIAS", "CORRESPONDENCIA_DOCORIG_REGISTRO", "build_coverage"]
+__all__ = [
+    "CATALOGO_FAMILIAS",
+    "CORRESPONDENCIA_DOCORIG_REGISTRO",
+    "build_coverage",
+    "marcas_sia_pa_incompleto",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -251,13 +257,39 @@ def _linhas(
     return linhas
 
 
+# Contrato com o `validate --ingest` (#27) e o relatório do piloto: mudar o texto exige aviso no PR.
+_MARCA_INCOMPLETO = "sia_pa_incompleto competencia={competencia} motivo={motivo}"
+_PADRAO_MARCA = re.compile(r"sia_pa_incompleto competencia=([0-9]{6}) motivo=(.*?)(?:; |$)")
+
+
+def _marcar_populacao_vazia(linhas: list[dict[str, str | None]], presentes: frozenset[str]) -> None:
+    """Fonte presente e população vazia no recorte é limitação da amostra, não ausência."""
+    for linha in linhas:
+        competencia = str(linha["competencia"])
+        if (
+            competencia in presentes
+            and linha["motivo"] == f"sia_pa_ausente competencia={competencia}"
+        ):
+            linha["estado"] = EstadoCobertura.INSUFICIENTE.value
+            linha["motivo"] = f"populacao_vazia_no_recorte competencia={competencia}"
+
+
+def marcas_sia_pa_incompleto(motivos: Iterable[str | None]) -> dict[str, str]:
+    """Competência → motivo das marcas `sia_pa_incompleto` lidas dos motivos de uma cobertura."""
+    return {
+        competencia: texto
+        for motivo in motivos
+        for competencia, texto in _PADRAO_MARCA.findall(motivo or "")
+    }
+
+
 def _marcar_incompleto(linhas: list[dict[str, str | None]], incompleto: Mapping[str, str]) -> None:
     """Competência com parte do SIA-PA não normalizada nunca fica DISPONIVEL."""
     for linha in linhas:
         competencia = str(linha["competencia"])
         if competencia not in incompleto:
             continue
-        aviso = f"sia_pa_incompleto competencia={competencia} motivo={incompleto[competencia]}"
+        aviso = _MARCA_INCOMPLETO.format(competencia=competencia, motivo=incompleto[competencia])
         if linha["estado"] == EstadoCobertura.DISPONIVEL.value:
             linha["estado"] = EstadoCobertura.INSUFICIENTE.value
         linha["motivo"] = aviso if linha["motivo"] is None else f"{aviso}; {linha['motivo']}"
@@ -269,25 +301,28 @@ def build_coverage(
     competencias: Sequence[str],
     out: Path,
     *,
-    familias: Path = CATALOGO_FAMILIAS,
     runtime: RuntimeConfig | None = None,
     origem_dados: OrigemDados = OrigemDados.SINTETICO,
     sia_pa_incompleto: Mapping[str, str] | None = None,
+    sia_pa_presente_em: Collection[str] = (),
 ) -> DatasetRef:
     """Matriz completa de cobertura a partir das tabelas efetivamente carregadas.
 
     `origem_dados` padrão é SINTETICO (direção segura). `sia_pa_incompleto` mapeia competência →
     motivo quando alguma parte do SIA-PA daquela competência não foi normalizada (quarentena,
-    ausência ou falha): a competência nunca fica DISPONIVEL.
+    ausência ou falha): a competência nunca fica DISPONIVEL. `sia_pa_presente_em` lista as
+    competências em que o SIA-PA existe na origem, mas a população entregue (já recortada) ficou
+    vazia: a célula fica INSUFICIENTE com `populacao_vazia_no_recorte`, nunca `sia_pa_ausente`.
 
     Raises:
         ValueError: conjunto de entrada com estrutura, contagem ou hash divergente do declarado.
     """
     configuracao = runtime or RuntimeConfig()
-    catalogo = CatalogoFamilias.model_validate(carregar_yaml(familias))
+    catalogo = CatalogoFamilias.model_validate(carregar_yaml(CATALOGO_FAMILIAS))
     esquema = EsquemaCanonico.de_yaml(ESQUEMAS / "cobertura.yaml")
     with closing(conectar(configuracao)) as con:
         linhas = _linhas(con, catalogo, (sia_pa, auxiliares), sorted(set(competencias)))
+    _marcar_populacao_vazia(linhas, frozenset(sia_pa_presente_em))
     _marcar_incompleto(linhas, sia_pa_incompleto or {})
     campos = [pa.field(c.nome, pa.string(), nullable=c.anulavel) for c in esquema.colunas]
     tabela = pa.Table.from_pylist(linhas, schema=pa.schema(campos))

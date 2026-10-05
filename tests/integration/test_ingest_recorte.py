@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf
 from tests.fixtures.piloto_conjuntos import registro
@@ -24,11 +25,10 @@ from sustemporal.contracts.artifacts import calcular_artifact_id
 from sustemporal.errors import ExitCode
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from sustemporal.contracts import ArtifactVersion
 
 PF = FamiliaFonte.CNES_PF
+LEIAUTE_PA = Path(__file__).resolve().parents[2] / "catalog" / "layouts" / "sia_pa.yaml"
 CEDO = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 TARDE = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 
@@ -53,7 +53,7 @@ def _manifesto(pasta: Path) -> Path:
     return pasta / "manifestos" / "aquisicao.jsonl"
 
 
-def _rodar(pasta: Path, **opcoes: str) -> None:
+def _rodar(pasta: Path, **opcoes: Any) -> None:
     config = config_ingest(pasta, fontes_ingest(pasta, ["a"]), **opcoes)
     assert cli.main(["ingest", "--config", str(config)]) == ExitCode.OK
 
@@ -62,7 +62,9 @@ def test_familia_fora_da_configuracao_nao_entra(tmp_path: Path) -> None:
     registrar_versoes(_manifesto(tmp_path), _versoes(tmp_path / "dados" / "raw").values())
     _rodar(tmp_path, familias="SIA_PA, CNES_PF")
     sigtap = [r for r in resultados_ingest(tmp_path) if r["fonte"] == "SIGTAP"]
-    assert {(r["estado"], r.get("familia")) for r in sigtap} == {("FORA_DO_RECORTE", "SIGTAP")}
+    assert {(r["estado"], r.get("motivo")) for r in sigtap} == {
+        ("FORA_DO_RECORTE", "familia_nao_configurada")
+    }
     assert cobertura_ingest(tmp_path)[("VIGENCIA_PROCEDIMENTO", "PROCESSAMENTO")] == "AUSENTE"
 
 
@@ -131,3 +133,37 @@ def test_sem_divergencia_de_competencia_nao_ha_diagnostico(tmp_path: Path) -> No
     _rodar(tmp_path)
     (pa,) = [r for r in resultados_ingest(tmp_path) if r["fonte"] == "SIA_PA"]
     assert "diagnostico" not in pa
+
+
+def test_familia_nacional_com_uf_fica_fora_com_motivo(tmp_path: Path) -> None:
+    versoes = _versoes(tmp_path / "dados" / "raw")
+    sigtap = versoes["sigtap"]
+    chave = sigtap.chave.model_copy(update={"uf": "SP"})
+    versoes["sigtap"] = sigtap.model_copy(
+        update={"chave": chave, "artifact_id": calcular_artifact_id(chave, sigtap.sha256)}
+    )
+    registrar_versoes(_manifesto(tmp_path), versoes.values())
+    _rodar(tmp_path)
+    estados = {
+        (r["estado"], r.get("motivo"))
+        for r in resultados_ingest(tmp_path)
+        if r["fonte"] == "SIGTAP"
+    }
+    assert estados == {("FORA_DO_RECORTE", "uf_em_familia_nacional")}
+
+
+def test_leiaute_do_sia_pa_vem_da_configuracao(tmp_path: Path) -> None:
+    registrar_versoes(_manifesto(tmp_path), _versoes(tmp_path / "dados" / "raw").values())
+    leiaute = tmp_path / "sia_pa_leiaute.yaml"
+    texto = LEIAUTE_PA.read_text(encoding="utf-8")
+    assert "proveniencia: INFERIDA\n" in texto
+    leiaute.write_text(
+        texto.replace(
+            "proveniencia: INFERIDA\n", 'proveniencia: INFERIDA\nvalido_de: "201901"\n', 1
+        ),
+        encoding="utf-8",
+    )
+    _rodar(tmp_path, leiaute_pa=leiaute)
+    (pa,) = [r for r in resultados_ingest(tmp_path) if r["fonte"] == "SIA_PA"]
+    assert pa["estado"] == "QUARENTENA_LEIAUTE"
+    assert "leiaute_fora_da_vigencia" in pa["motivo"]

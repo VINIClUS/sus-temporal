@@ -34,7 +34,10 @@ O arquivo nunca é sobrescrito; outro conteúdo com o mesmo id é recusado. Um m
 
   Divergência recusa com `run_incompativel_com_congelamento run=<id> campo=<campos>` (saída 4).
   Manifesto sem catálogo ou políticas recusa as execuções que usam regras; as de baseline só
-  repetem código, config e entradas.
+  repetem código, config e entradas. O confirmatório também exige execução de cada método das
+  comparações primárias do manifesto (M_TEMP, B_ATEND e B_PROC); se falta alguma, recusa
+  (`avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias`) antes de avaliar, e nada entra
+  no registro.
 - `sustemporal evaluate --freeze <id> --exploratory`: explícito. Avalia só a CALIBRACAO e
   registra a divergência do manifesto em vez de recusar.
 - `registro_execucoes.jsonl`: registro append-only, em que cada linha leva o próprio hash e o

@@ -216,15 +216,14 @@ def comparar_saidas(
     itens = []
     for schema_id in dict.fromkeys([*novas, *antigas]):
         item = f"saida:{metodo}:{schema_id}"
-        original, obtida = antigas.get(schema_id), novas.get(schema_id)
-        if obtida is None:
+        if schema_id not in novas:
             itens.append(
                 Comparacao(item, Situacao.DIVERGENTE, None, None, "saida_ausente_no_refeito")
             )
-        elif original is None and originais is not None:
+        elif schema_id not in antigas and originais is not None:
             itens.append(Comparacao(item, Situacao.DIVERGENTE, None, None, "saida_sem_original"))
         else:
-            itens.append(comparar_saida(item, original, obtida))
+            itens.append(comparar_saida(item, antigas.get(schema_id), novas[schema_id]))
     return itens
 
 

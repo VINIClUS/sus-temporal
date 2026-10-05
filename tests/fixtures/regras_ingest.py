@@ -302,6 +302,18 @@ def _producao_de_outra_fonte(
     return _gravar_completo(destino, "sia_pa.v1", linhas, (versao.artifact_id,))
 
 
+def _sem_producao_da_versao(
+    refs: list[DatasetRef], versao: ArtifactVersion | None
+) -> list[DatasetRef]:
+    """`datasets.jsonl` sem o conjunto da produção da versão; a cobertura já a considerou."""
+    assert versao is not None
+    return [
+        ref
+        for ref in refs
+        if not (ref.schema_id == "sia_pa.v1" and ref.artifact_ids == (versao.artifact_id,))
+    ]
+
+
 def _indice(refs: list[DatasetRef], schema_id: str) -> int:
     return max(i for i, ref in enumerate(refs) if ref.schema_id == schema_id)
 
@@ -373,6 +385,7 @@ def montar_ingest(
     linha_fora_do_piloto: bool = False,
     cobertura_motivo_malformado: bool = False,
     producao_com_artefato_cnes: bool = False,
+    parte_b_so_no_registro: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -406,6 +419,8 @@ def montar_ingest(
         refs.append(_cobertura(pasta, refs, sia_pa_incompleto))
     if producao_com_artefato_cnes:
         refs.append(_producao_de_outra_fonte(pasta, itens["cnes_fev"][1], opcoes))
+    if parte_b_so_no_registro:
+        refs = _sem_producao_da_versao(refs, itens["pa_b"][1])
     defeitos = {
         "producao_repetida": producao_repetida,
         "cobertura_motivo_malformado": cobertura_motivo_malformado,

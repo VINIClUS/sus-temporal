@@ -478,3 +478,21 @@ def test_producao_com_artefato_de_outra_fonte_e_recusada(tmp_path: Path) -> None
             con, ler_datasets(mundo.pasta), carregar_regras(), contexto, tmp_path / "destino"
         )
     assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+
+
+def test_parte_selecionada_ausente_da_pasta_e_recusada(tmp_path: Path) -> None:
+    mundo = montar_ingest(tmp_path, parte_b_so_no_registro=True)
+    assert _validar(mundo, "processamento") == ExitCode.CONFIG_INVALIDA
+    assert not mundo.saida.exists() or not any(mundo.saida.rglob("*"))
+    config = load_config(mundo.config)
+    registro = carregar_registro(config)
+    (parte_b,) = (a for a, v in registro.versoes.items() if v.chave.parte == "b")
+    contexto = (config, registro, municipios_do_piloto(config))
+    destino = tmp_path / "destino"
+    with duckdb.connect() as con, pytest.raises(ConfigInvalida) as erro:
+        preparar_insumos_ingest(
+            con, ler_datasets(mundo.pasta), carregar_regras(), contexto, destino
+        )
+    esperado = f"producao_com_partes_ausentes competencia=202302 ausentes=['{parte_b}']"
+    assert str(erro.value) == esperado
+    assert not destino.exists()

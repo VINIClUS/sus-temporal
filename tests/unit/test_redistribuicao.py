@@ -124,21 +124,25 @@ def sha256_do_esboco(manifesto: Path) -> str | None:
     return None
 
 
+def _motivo_do_esboco(
+    arquivo: Rastreado, esboco_sha256: str | None, ler_blob: Callable[[str], bytes]
+) -> str | None:
+    if esboco_sha256 is None:
+        return "esboco_sem_hash_no_manifesto"
+    if hashlib.sha256(ler_blob(arquivo.blob)).hexdigest() != esboco_sha256:
+        return "esboco_com_hash_divergente"
+    return None
+
+
 def _motivo_do_formato(
     arquivo: Rastreado,
     esboco_sha256: str | None,
     ler_blob: Callable[[str], bytes],
     formatos: Mapping[str, str],
 ) -> str | None:
-    if arquivo.caminho in formatos:
-        return None
-    if arquivo.caminho != PDF_DO_ESBOCO:
-        return "formato_proibido"
-    if esboco_sha256 is None:
-        return "esboco_sem_hash_no_manifesto"
-    if hashlib.sha256(ler_blob(arquivo.blob)).hexdigest() != esboco_sha256:
-        return "esboco_com_hash_divergente"
-    return None
+    if arquivo.caminho == PDF_DO_ESBOCO:
+        return _motivo_do_esboco(arquivo, esboco_sha256, ler_blob)
+    return None if arquivo.caminho in formatos else "formato_proibido"
 
 
 def auditar(

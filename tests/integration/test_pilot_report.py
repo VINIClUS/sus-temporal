@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf
-from tests.fixtures.piloto_conjuntos import conjunto_sia_pa, registro
+from tests.fixtures.piloto_conjuntos import cobertura_sintetica, conjunto_sia_pa, registro
 from tests.fixtures.piloto_ingest import cobertura_ingest, config_ingest, fontes_ingest
 from tests.fixtures.piloto_manifesto import registrar_falha, registrar_versoes
 from tests.fixtures.piloto_relatorio import (
@@ -60,7 +60,8 @@ def _relatorio(
     dataset = conjunto_sia_pa(tmp_path, _registros(), deletados=[5])
     saida = tmp_path / "relatorio"
     saida.mkdir()
-    return dataset, build_pilot_report([dataset], coorte_piloto(instrumentos=instrumentos), saida)
+    entradas = [dataset, cobertura_sintetica(tmp_path, [dataset])]
+    return dataset, build_pilot_report(entradas, coorte_piloto(instrumentos=instrumentos), saida)
 
 
 def _contagens(relatorio: EvaluationReport, dimensao: str) -> dict[str, int]:

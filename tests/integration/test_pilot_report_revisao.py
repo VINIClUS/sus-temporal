@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
+import pytest
 from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf
 from tests.fixtures.piloto_conjuntos import cobertura_sintetica, conjunto_sia_pa, registro
 from tests.fixtures.piloto_manifesto import registrar_versoes
@@ -18,6 +19,7 @@ from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa
 from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
 from tests.integration.test_pilot_report import PF, _estados_disponibilidade
 
+from sustemporal.errors import ConfigInvalida
 from sustemporal.reporting.report import build_pilot_report
 
 if TYPE_CHECKING:
@@ -102,3 +104,12 @@ def test_competencia_so_com_artefato_truncado_continua_ausente_e_incompleta(
     assert not any("populacao_vazia_no_recorte" in motivo for motivo in motivos)
     assert all("sia_pa_incompleto competencia=201801 motivo=" in m for m in motivos)
     assert all("sia_pa_ausente competencia=201801" in m for m in motivos)
+
+
+def test_relatorio_sem_cobertura_da_ingestao_e_recusado_sem_publicar_nada(tmp_path: Path) -> None:
+    dataset = conjunto_sia_pa(tmp_path, [registro("C", "201801", "201801")])
+    saida = tmp_path / "relatorio"
+    saida.mkdir()
+    with pytest.raises(ConfigInvalida, match="relatorio_sem_cobertura"):
+        build_pilot_report([dataset], coorte_piloto(), saida)
+    assert list(saida.iterdir()) == []

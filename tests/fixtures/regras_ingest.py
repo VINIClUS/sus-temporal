@@ -1,8 +1,9 @@
 """Pasta de `sustemporal ingest` e manifesto de aquisição SINTETICOS para `validate --ingest`.
 
 Produção SIA-PA de 202302 em duas partes (a e b) com uma linha física repetida entre elas e uma
-linha de município fora do território. CNES e SIGTAP de 202301 e 202302; o par
-(1234567, 225125) existe no CNES de janeiro e falta no de fevereiro. Códigos IBGE sintéticos.
+linha de município fora do território; o catálogo de fontes declara as partes esperadas a e b.
+CNES e SIGTAP de 202301 e 202302; o par (1234567, 225125) existe no CNES de janeiro e falta no de
+fevereiro. Códigos IBGE sintéticos.
 """
 
 from __future__ import annotations
@@ -100,11 +101,15 @@ def gravar_territorio(destino: Path, extra: str | None = None) -> Path:
 
 
 def _itens(
-    *, sigtap_fev_ausente: bool, concorrente: bool, concorrente_dia: int = 2
+    *,
+    sigtap_fev_ausente: bool,
+    concorrente: bool,
+    concorrente_dia: int = 2,
+    partes: tuple[str, ...] = _PARTES,
 ) -> dict[str, _Item]:
     sem = ResultadoTentativa.NAO_ENCONTRADO
     itens = {
-        f"pa_{p}": observar(FamiliaFonte.SIA_PA, FEVEREIRO, f"pa-{p}", 1, parte=p) for p in _PARTES
+        f"pa_{p}": observar(FamiliaFonte.SIA_PA, FEVEREIRO, f"pa-{p}", 1, parte=p) for p in partes
     }
     if concorrente:
         itens["pa_a2"] = observar(
@@ -167,6 +172,8 @@ def _producao(artefato: str, parte: str, opcoes: dict[str, bool]) -> list[dict[s
             linhas.append(_linha(artefato, 3, municipio_estabelecimento=None))
         if opcoes["deletado_nulo"]:
             linhas.append(_linha(artefato, 7, deletado=None))
+        if opcoes["linha_de_janeiro"]:
+            linhas.append(_linha(artefato, 8, competencia_processamento=JANEIRO))
     return linhas
 
 
@@ -350,11 +357,30 @@ def _com_defeitos(refs: list[DatasetRef], defeitos: dict[str, bool]) -> list[Dat
     return refs
 
 
+def _gravar_catalogo(destino: Path, *, declarar_partes: bool = True) -> Path:
+    """Catálogo de fontes SINTETICO; o SIA-PA de fevereiro espera as partes a e b, se declaradas."""
+    fonte = {
+        "fonte": "SIA_PA",
+        "diretorio": "file:///sintetico/",
+        "padrao_nome": r"PA{uf}{aamm}(?P<parte>[a-z]|_[0-9]+)?\.dbc",
+        "formato": "DBC",
+        "canal": "ATUAL",
+        "multipartes": "true",
+        "partes_esperadas": {FEVEREIRO: list(_PARTES)} if declarar_partes else {},
+        "tamanho_maximo_bytes": "1000",
+        "proveniencia": "INFERIDA",
+        "confirmacao": "A_CONFIRMAR",
+    }
+    destino.write_text(json.dumps({"versao": "1", "fontes": [fonte]}), encoding="utf-8")
+    return destino
+
+
 def _gravar_config(
-    raiz: Path, territorio: Path, competencias: tuple[str, ...], corte: str | None
+    raiz: Path, territorio: Path, competencias: tuple[str, ...], corte: str | None, catalogo: Path
 ) -> Path:
     config: dict[str, object] = {
         "versao": "1",
+        "catalogos": {"fontes": str(catalogo)},
         "runtime": {
             "raiz_manifestos": str(raiz / "manifests"),
             "raiz_saidas": str(raiz / "outputs"),
@@ -402,6 +428,9 @@ def montar_ingest(
     deletado_nulo: bool = False,
     sem_coluna_deletado: bool = False,
     sem_coluna_artifact_id: bool = False,
+    sem_parte_b: bool = False,
+    linha_de_janeiro: bool = False,
+    partes_sem_declaracao: bool = False,
 ) -> MundoIngest:
     """Manifesto, pasta `execucao_*` com `datasets.jsonl`, território e config (SINTETICO)."""
     manifestos, saidas = raiz / "manifests", raiz / "outputs"
@@ -413,6 +442,7 @@ def montar_ingest(
         sigtap_fev_ausente=sigtap_fev_ausente,
         concorrente=concorrente or no_registro,
         concorrente_dia=concorrente_so_no_registro or 2,
+        partes=_PARTES[:1] if sem_parte_b else _PARTES,
     )
     manifesto = manifestos / NOME_MANIFESTO_AQUISICAO
     if not sem_manifesto:
@@ -429,6 +459,7 @@ def montar_ingest(
         "deletado_nulo": deletado_nulo,
         "sem_coluna_deletado": sem_coluna_deletado,
         "sem_coluna_artifact_id": sem_coluna_artifact_id,
+        "linha_de_janeiro": linha_de_janeiro,
     }
     na_pasta = {k: v for k, v in itens.items() if not (no_registro and k == "pa_a2")}
     refs = _datasets(pasta, na_pasta, opcoes)
@@ -451,5 +482,6 @@ def montar_ingest(
     linhas = "".join(f"{ref.model_dump_json()}\n" for ref in refs)
     (pasta / "datasets.jsonl").write_text(linhas, encoding="utf-8")
     territorio = gravar_territorio(raiz / "territorio.yaml", municipio_extra)
-    caminho_config = _gravar_config(raiz, territorio, competencias_piloto, corte)
+    catalogo = _gravar_catalogo(raiz / "fontes.yaml", declarar_partes=not partes_sem_declaracao)
+    caminho_config = _gravar_config(raiz, territorio, competencias_piloto, corte, catalogo)
     return MundoIngest(pasta, caminho_config, manifesto, saidas / "runs")

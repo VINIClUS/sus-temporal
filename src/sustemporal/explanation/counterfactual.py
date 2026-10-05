@@ -27,6 +27,7 @@ from sustemporal.contracts.counterfactual import (
 )
 from sustemporal.contracts.rules import EstadoAvaliacao
 from sustemporal.contracts.temporal import CompetenciaArquivo, EstadoSelecao
+from sustemporal.explanation.counterfactual_contexto import contexto_da_execucao
 from sustemporal.explanation.counterfactual_executabilidade import (
     aberta_coerente,
     classificar,
@@ -57,7 +58,7 @@ if TYPE_CHECKING:
     )
     from sustemporal.explanation.counterfactual_contexto import ContextoContrafactual
 
-__all__ = ["pioras", "search_counterfactuals"]
+__all__ = ["BaselineIncoerente", "SemViolacao", "pioras", "search_counterfactuals"]
 
 logger = logging.getLogger(__name__)
 
@@ -102,10 +103,18 @@ class _Busca:
             self.empilhar((*indices, proximo), custo + self.custo(proximo))
 
 
+class SemViolacao(ValueError):
+    """Bundle sem regra em `VIOLACAO`: não há contrafactual a buscar."""
+
+
+class BaselineIncoerente(ValueError):
+    """A reavaliação do estado observado não reproduz a violação do bundle."""
+
+
 def _alvos(bundle: ExplanationBundle) -> tuple[str, ...]:
     alvos = sorted({a.rule_id for a in bundle.avaliacoes if a.estado is EstadoAvaliacao.VIOLACAO})
     if not alvos:
-        raise ValueError(f"contrafactual_sem_violacao bundle={bundle.bundle_id}")
+        raise SemViolacao(f"contrafactual_sem_violacao bundle={bundle.bundle_id}")
     return tuple(alvos)
 
 
@@ -292,7 +301,7 @@ def _preparar(
     sob.reiniciar()
     base = sob.avaliar(regras)
     if any(base.get((bundle.row_id, alvo)) != _VIOLACAO for alvo in alvos):
-        raise ValueError(f"contrafactual_baseline_incoerente bundle={bundle.bundle_id}")
+        raise BaselineIncoerente(f"contrafactual_baseline_incoerente bundle={bundle.bundle_id}")
     competencia = sob.competencia
     agora = contexto.relogio()
     aberta = contexto.competencia_aberta_cnes
@@ -325,16 +334,18 @@ def search_counterfactuals(
 ) -> CounterfactualSearchResult:
     """Busca operações cadastrais de menor custo e revalida o conjunto afetado.
 
-    `contexto` traz os insumos com que o motor avaliou o registro; `operacoes` substitui o
-    catálogo `catalog/operations.yaml` (mesmos `op_id`, outros custos ou governança).
+    Sem `contexto`, os insumos vêm da pasta exata de `bundle.run_id` (`contexto_da_execucao`);
+    `operacoes` substitui `catalog/operations.yaml` (mesmos `op_id`, outros custos).
 
     Raises:
-        ValueError: sem contexto, sem violação no bundle, baseline divergente do bundle ou
-            catálogo de operações inválido.
+        ContextoIndisponivel: insumos da execução ausentes ou divergentes do `run_id`.
+        SemViolacao: o bundle não tem violação a resolver.
+        BaselineIncoerente: o estado observado não reproduz a violação do bundle.
+        CatalogoOperacoesInvalido: catálogo de operações fora do catálogo fechado.
         RevalidacaoFalhou: o motor falhou ao avaliar a sobreposição.
     """
     if contexto is None:
-        raise ValueError(f"contrafactual_sem_contexto bundle={bundle.bundle_id}")
+        contexto = contexto_da_execucao(Path(config.runtime.raiz_saidas), bundle.run_id, config)
     catalogo = validar_operacoes(operacoes) if operacoes is not None else carregar_operacoes()
     alvos = _alvos(bundle)
     competencia, artefatos = _competencia_e_artefatos(bundle, alvos)

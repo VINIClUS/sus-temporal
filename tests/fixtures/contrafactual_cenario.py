@@ -35,6 +35,8 @@ __all__ = [
     "CBO_TERCEIRO",
     "CNES",
     "Mundo",
+    "OpcoesST",
+    "gravar_st",
     "montar",
     "operacao",
     "relogio",
@@ -81,7 +83,7 @@ def _linhas_pf(pf: dict[str, int | tuple[int, ...]]) -> tuple[dict[str, object],
     return tuple(linhas)
 
 
-def _gravar_st(raiz: Path, opcoes: OpcoesST) -> DatasetRef:
+def gravar_st(raiz: Path, opcoes: OpcoesST) -> DatasetRef:
     colunas = [c.nome for c in carregar_esquema(_ST).colunas]
     cnes = ["7654321", CNES] if opcoes.presente else ["7654321"]
     linhas = [{"competencia_arquivo": COMPETENCIA, "cnes": c, "artifact_id": ART_ST} for c in cnes]
@@ -168,7 +170,7 @@ def montar(
         snapshots=snapshot_vazio(),
         regras=regras,
         insumos=insumos,
-        cadastros=(_gravar_st(raiz / "entrada", opcoes_st),),
+        cadastros=(gravar_st(raiz / "entrada", opcoes_st),),
         competencia_aberta_cnes=competencia_aberta,
         relogio=agora,
     )

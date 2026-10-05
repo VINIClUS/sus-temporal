@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
+import yaml
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -39,30 +40,9 @@ class Rastreado:
     blob: str
 
 
-def listar_rastreados(raiz: Path) -> list[Rastreado]:
-    raise NotImplementedError
-
-
-def listar_historico(raiz: Path, ref: str) -> list[Rastreado]:
-    raise NotImplementedError
-
-
-def sha256_do_esboco(manifesto: Path) -> str | None:
-    raise NotImplementedError
-
-
-def auditar(
-    arquivos: Iterable[Rastreado],
-    *,
-    esboco_sha256: str | None,
-    ler_blob: Callable[[str], bytes],
-    formatos: Mapping[str, str] | None = None,
-    grandes: Mapping[str, str] | None = None,
-) -> list[str]:
-    raise NotImplementedError
-
-
 _AMBIENTE_GIT = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_COMMON_DIR")
+_GITLINK = "160000"
+_AUSENTE = "000000"
 
 
 def _git(raiz: Path, *argumentos: str, entrada: bytes | None = None) -> bytes:
@@ -76,6 +56,113 @@ def _git(raiz: Path, *argumentos: str, entrada: bytes | None = None) -> bytes:
         check=True,
         capture_output=True,
     ).stdout
+
+
+def _tamanhos(raiz: Path, blobs: Iterable[str]) -> dict[str, int]:
+    nomes = sorted(set(blobs))
+    if not nomes:
+        return {}
+    formato = "--batch-check=%(objectname) %(objectsize)"
+    saida = _git(raiz, "cat-file", formato, entrada="\n".join(nomes).encode() + b"\n")
+    tamanhos: dict[str, int] = {}
+    for linha in saida.decode("utf-8").splitlines():
+        nome, _, tamanho = linha.partition(" ")
+        if not tamanho.isdigit():
+            raise AssertionError(f"objeto_ilegivel blob={nome}")
+        tamanhos[nome] = int(tamanho)
+    return tamanhos
+
+
+def _com_tamanho(raiz: Path, pares: Iterable[tuple[str, str]]) -> list[Rastreado]:
+    ordenados = sorted(set(pares))
+    tamanhos = _tamanhos(raiz, (blob for _, blob in ordenados))
+    return [Rastreado(caminho, tamanhos[blob], blob) for caminho, blob in ordenados]
+
+
+def listar_rastreados(raiz: Path) -> list[Rastreado]:
+    """Arquivos do índice do git, com o tamanho do blob e não o do arquivo no disco."""
+    pares = []
+    for campo in _git(raiz, "ls-files", "--stage", "-z").decode("utf-8").split("\0"):
+        meta, _, caminho = campo.partition("\t")
+        modo, _, resto = meta.partition(" ")
+        if caminho and modo != _GITLINK:
+            pares.append((caminho, resto.split(" ")[0]))
+    return _com_tamanho(raiz, pares)
+
+
+def _par_do_cabecalho(cabecalho: str, caminho: str) -> tuple[str, str] | None:
+    _modo_antigo, modo, _blob_antigo, blob, status = cabecalho[1:].split(" ")
+    if status.startswith("D") or modo in (_GITLINK, _AUSENTE):
+        return None
+    return caminho, blob
+
+
+def listar_historico(raiz: Path, ref: str) -> list[Rastreado]:
+    """Cada par (caminho, blob) gravado em algum commit alcançável de `ref`."""
+    argumentos = ("log", "--raw", "--no-abbrev", "--no-renames", "-m", "--format=", "-z", ref)
+    campos = _git(raiz, *argumentos).decode("utf-8").split("\0")
+    pares = []
+    indice = 0
+    while indice < len(campos) - 1:
+        if campos[indice].startswith(":"):
+            par = _par_do_cabecalho(campos[indice], campos[indice + 1])
+            pares.extend([par] if par else [])
+            indice += 2
+        else:
+            indice += 1
+    return _com_tamanho(raiz, pares)
+
+
+def sha256_do_esboco(manifesto: Path) -> str | None:
+    """SHA-256 do esboço no manifesto; None enquanto o documento está PENDENTE."""
+    if not manifesto.is_file():
+        return None
+    conteudo = yaml.safe_load(manifesto.read_text(encoding="utf-8"))
+    for documento in conteudo.get("documentos", []):
+        if documento.get("id") == "esboco_original" and documento.get("estado") == "PRESERVADO":
+            return str(documento["sha256"]) if documento.get("sha256") else None
+    return None
+
+
+def _motivo_do_formato(
+    arquivo: Rastreado,
+    esboco_sha256: str | None,
+    ler_blob: Callable[[str], bytes],
+    formatos: Mapping[str, str],
+) -> str | None:
+    if arquivo.caminho in formatos:
+        return None
+    if arquivo.caminho != PDF_DO_ESBOCO:
+        return "formato_proibido"
+    if esboco_sha256 is None:
+        return "esboco_sem_hash_no_manifesto"
+    if hashlib.sha256(ler_blob(arquivo.blob)).hexdigest() != esboco_sha256:
+        return "esboco_com_hash_divergente"
+    return None
+
+
+def auditar(
+    arquivos: Iterable[Rastreado],
+    *,
+    esboco_sha256: str | None,
+    ler_blob: Callable[[str], bytes],
+    formatos: Mapping[str, str] | None = None,
+    grandes: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Mensagens `chave=valor` das violações; lista vazia quando a redistribuição está limpa."""
+    formatos = FORMATOS_JUSTIFICADOS if formatos is None else formatos
+    grandes = GRANDES_JUSTIFICADOS if grandes is None else grandes
+    problemas = []
+    for arquivo in arquivos:
+        caminho = arquivo.caminho
+        if caminho.lower().startswith(DIRETORIOS_PROIBIDOS):
+            problemas.append(f"arquivo_em_diretorio_proibido caminho={caminho}")
+        if caminho.lower().endswith(EXTENSOES_PROIBIDAS):
+            motivo = _motivo_do_formato(arquivo, esboco_sha256, ler_blob, formatos)
+            problemas.extend([f"{motivo} caminho={caminho}"] if motivo else [])
+        if arquivo.tamanho > LIMITE_BYTES and caminho not in grandes:
+            problemas.append(f"arquivo_grande caminho={caminho} bytes={arquivo.tamanho}")
+    return problemas
 
 
 def _auditar_repositorio(raiz: Path, arquivos: Sequence[Rastreado]) -> list[str]:

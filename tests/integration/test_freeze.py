@@ -16,6 +16,7 @@ from tests.fixtures.protocolo_avaliacao import (
 from tests.fixtures.protocolo_dados import Cenario, cenario_baseline
 
 from sustemporal.cli import main
+from sustemporal.config import load_config
 from sustemporal.contracts.base import OrigemDados
 from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.evaluation import EvaluationReport
@@ -324,8 +325,16 @@ def test_correcao_na_primeira_rodada_nao_cita_relatorio_de_outro_congelamento(
     assert [e["report_id"] for e in ler_registro(registro)] == ["rep_a1"]
 
 
-def _runs_exploratorios(cenario: Cenario, out: Path) -> list[RunResult]:
+def _runs_exploratorios(
+    cenario: Cenario, out: Path, config: RunConfig | None = None
+) -> list[RunResult]:
+    """Execuções exploratórias sobre a CALIBRACAO, feitas com `config` (a do cenário se omitida)."""
     assert cenario.split.particoes is not None
+    config = config or cenario.config
+    comuns: dict[str, Any] = {
+        "config_hash": config.config_hash,
+        "entradas": (cenario.split.particoes[Particao.CALIBRACAO],),
+    }
     calibracao = [
         linha for linha in cenario.linhas if linha.competencia_processamento in {"202301"}
     ]
@@ -337,8 +346,8 @@ def _runs_exploratorios(cenario: Cenario, out: Path) -> list[RunResult]:
         MetodoId.B_ATEND: {linha.row_id: "SEM_VIOLACAO_VERIFICADA" for linha in calibracao},
         MetodoId.B_PROC: {linha.row_id: "ALERTA" for linha in calibracao[:5]},
     }
-    runs = [run_agregados(m, r, out) for m, r in resultados.items()]
-    runs.append(fit_baseline(cenario.split, FEATURES_PADRAO, cenario.config, out / "bml"))
+    runs = [run_agregados(m, r, out, **comuns) for m, r in resultados.items()]
+    runs.append(fit_baseline(cenario.split, FEATURES_PADRAO, config, out / "bml"))
     return runs
 
 
@@ -421,14 +430,15 @@ def test_cli_congela_e_avalia_exploratorio(tmp_path: Path, monkeypatch: pytest.M
     raiz = tmp_path / "trabalho"
     raiz.mkdir()
     cenario = cenario_baseline(raiz / "saidas", competencias=("202001", "202301", "202401"))
-    for run in _runs_exploratorios(cenario, raiz / "saidas" / "runs"):
+    config = _config_cli(raiz)
+    runs = _runs_exploratorios(cenario, raiz / "saidas" / "runs", load_config(config))
+    for run in runs:
         destino = raiz / "saidas" / "runs" / run.run_id
         destino.mkdir(parents=True, exist_ok=True)
         (destino / "run.json").write_text(run.model_dump_json(), encoding="utf-8")
     monkeypatch.chdir(raiz)
     monkeypatch.setattr("sustemporal.evaluation.cli.versao_codigo", lambda _: CODIGO_LIMPO)
     escrever_decisao(raiz / "experiments" / "decisions", "G0", "CONTINUAR")
-    config = _config_cli(raiz)
     assert main(["freeze", "--config", str(config)]) == ExitCode.OK
     (manifesto,) = sorted((raiz / "frozen").glob("frz_*.json"))
     freeze = manifesto.stem

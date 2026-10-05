@@ -27,12 +27,14 @@ from tests.fixtures.protocolo_confirmatorio import (
     CONFIG_PROTOCOLO,
     MUTACOES_DO_AMBIENTE,
     Confirmatorio,
+    como_real,
     config_confirmatoria,
     montar_confirmatorio,
     split_como_real,
 )
 from tests.fixtures.protocolo_dados import cenario_baseline
 
+from sustemporal.config import load_config
 from sustemporal.contracts.base import OrigemDados
 from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.experiment import Particao
@@ -257,10 +259,16 @@ def test_cli_recusa_o_confirmatorio_quando_o_ambiente_do_avaliador_diverge(
 
 def _gravar_execucao_exploratoria(raiz: Path, cenario: Cenario) -> None:
     """Uma execução do M_TEMP sobre a CALIBRACAO, rotulada REAL como as entradas da CLI."""
+    assert cenario.split.particoes is not None
     calibracao = [lp for lp in cenario.linhas if lp.competencia_processamento == "202301"]
     resultados = {lp.row_id: "ALERTA" if lp.cnes == "0000000" else "ABSTENCAO" for lp in calibracao}
     run = run_agregados(
-        MetodoId.M_TEMP, resultados, raiz / "saidas" / "runs", origem=OrigemDados.REAL
+        MetodoId.M_TEMP,
+        resultados,
+        raiz / "saidas" / "runs",
+        origem=OrigemDados.REAL,
+        config_hash=load_config(config_yaml(raiz)).config_hash,
+        entradas=(como_real(cenario.split.particoes[Particao.CALIBRACAO]),),
     )
     gravar_runs(raiz, [run])
 

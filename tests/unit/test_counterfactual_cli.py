@@ -299,3 +299,44 @@ def test_relogio_injetado_decide_a_executabilidade(
     args = argparse.Namespace(run=execucao.run_id, row=execucao.ausencia)
     assert executar_counterfactual(args, execucao.config, relogio=lambda: instante) == 0
     assert _resultado(execucao, execucao.ausencia).solucoes[0].executabilidade is esperado
+
+
+_FIM_DE_FEVEREIRO = datetime(2020, 2, 29, 23, 59, 59, tzinfo=UTC)
+_INICIO_DE_MARCO = datetime(2020, 3, 1, 0, 0, 0, tzinfo=UTC)
+_FIM_DE_MARCO = datetime(2020, 3, 31, 23, 59, 59, tzinfo=UTC)
+
+
+def _arquivos(pasta: Path) -> dict[str, bytes]:
+    return {
+        str(p.relative_to(pasta)): p.read_bytes() for p in sorted(pasta.rglob("*")) if p.is_file()
+    }
+
+
+def test_competencia_as_of_diferente_publica_outro_resultado_e_preserva_o_anterior(
+    tmp_path: Path,
+) -> None:
+    execucao = executar_validacao_sintetica(tmp_path)
+    args = argparse.Namespace(run=execucao.run_id, row=execucao.ausencia)
+    raiz = _saidas(execucao) / "contrafactuais" / execucao.run_id
+    assert executar_counterfactual(args, execucao.config, relogio=lambda: _FIM_DE_FEVEREIRO) == 0
+    (fevereiro,) = list(raiz.iterdir())
+    antes = _arquivos(fevereiro)
+    assert executar_counterfactual(args, execucao.config, relogio=lambda: _INICIO_DE_MARCO) == 0
+    pastas = sorted(raiz.iterdir())
+    assert len(pastas) == 2
+    assert _arquivos(fevereiro) == antes
+    (marco,) = [pasta for pasta in pastas if pasta != fevereiro]
+    meses = [
+        json.loads(next(pasta.rglob("identidade.json")).read_text(encoding="utf-8"))
+        for pasta in (fevereiro, marco)
+    ]
+    assert [identidade["competencia_as_of"] for identidade in meses] == ["202002", "202003"]
+
+
+def test_instantes_do_mesmo_mes_as_of_mantem_a_identidade(tmp_path: Path) -> None:
+    execucao = executar_validacao_sintetica(tmp_path)
+    args = argparse.Namespace(run=execucao.run_id, row=execucao.ausencia)
+    raiz = _saidas(execucao) / "contrafactuais" / execucao.run_id
+    assert executar_counterfactual(args, execucao.config, relogio=lambda: _INICIO_DE_MARCO) == 0
+    assert executar_counterfactual(args, execucao.config, relogio=lambda: _FIM_DE_MARCO) == 0
+    assert len(list(raiz.iterdir())) == 1

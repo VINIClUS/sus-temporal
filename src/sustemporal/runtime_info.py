@@ -46,12 +46,19 @@ def _git(raiz: Path, *argumentos: str) -> str | None:
 
 
 def _estado_do_caminho(caminho: Path) -> bytes | None:
-    """Tipo, bit executável e conteúdo como o git os registraria (alvo do link, hash, ausência)."""
+    """Tipo, bit executável e conteúdo como o git os registraria.
+
+    Link pelo alvo, arquivo pelo hash, diretório sem abri-lo (o que há dentro vem da listagem do
+    git). Repositório aninhado, cujo conteúdo essa listagem não enumera, e falha de leitura
+    resultam em None.
+    """
     try:
         if caminho.is_symlink():
             return b"link\0" + os.fsencode(os.readlink(caminho))
         if not caminho.exists():
             return b"ausente"
+        if caminho.is_dir():
+            return None if (caminho / ".git").exists() else b"diretorio"
         executavel = os.lstat(caminho).st_mode & stat.S_IXUSR
         with caminho.open("rb") as arquivo:
             digest = hashlib.file_digest(arquivo, "sha256").hexdigest()

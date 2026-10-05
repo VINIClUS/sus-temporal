@@ -37,16 +37,61 @@ ARQUIVOS = (
 )
 MARCADOR_DA_BASE = "## Base da consolidação"
 DONOS_HUMANOS = ("PQ", "OR", "AV")
-ITENS_DO_ORQUESTRADOR = 20
+ITENS_DO_ORQUESTRADOR = 22
 CAMPOS_DA_ACAO = ("Itens", "Ferramenta pronta", "Runbook", "Estado")
 
 
+_SEPARADOR = re.compile(r"^\|[\s:|-]+\|$")
+_NUMERADO = re.compile(r"^(\d+)\. ")
+_CHAVE = re.compile(r"\bT(\d{2})-([bi]?\d+)\b")
+_FAIXA = re.compile(r"^([bi]?)(\d+)(?:-([bi]?)(\d+))?$")
+_ACAO = re.compile(r"^### ((?:PQ|OR|AV|EN|FE)-\d{2}) — (.+)$")
+_CAMPO = re.compile(r"^- \*\*([^*:]+):\*\*\s*(.*)$")
+_SECAO = re.compile(r"^#{1,3} ")
+
+
 def itens_de(texto: str) -> list[str]:
-    raise NotImplementedError
+    """Chaves dos itens de um arquivo de pendências, de cima para baixo.
+
+    Linha de tabela com coluna `#` vale pelo número (`14`, `b1`); lista numerada no primeiro nível
+    vale pelo número; ponto de lista no primeiro nível e linha de tabela sem coluna `#` valem por
+    `i<k>`, o k-ésimo item sem número do arquivo.
+    """
+    linhas = texto.splitlines()
+    chaves: list[str] = []
+    sem_numero = 0
+    numerada = False
+    for indice, linha in enumerate(linhas):
+        proxima = linhas[indice + 1] if indice + 1 < len(linhas) else ""
+        numero = _NUMERADO.match(linha)
+        if linha.startswith("|") and not _SEPARADOR.match(linha):
+            celulas = [celula.strip() for celula in linha.strip().strip("|").split("|")]
+            if _SEPARADOR.match(proxima):
+                numerada = celulas[0] == "#"
+            elif numerada:
+                chaves.append(celulas[0])
+            else:
+                sem_numero += 1
+                chaves.append(f"i{sem_numero}")
+        elif numero:
+            chaves.append(numero.group(1))
+        elif linha.startswith("- "):
+            sem_numero += 1
+            chaves.append(f"i{sem_numero}")
+    return chaves
 
 
 def expandir(especificacao: str) -> list[str]:
-    raise NotImplementedError
+    """`1-3, i1-i2, 8` vira `1 2 3 i1 i2 8`; faixas só dentro do mesmo prefixo."""
+    chaves: list[str] = []
+    for parte in (p.strip() for p in especificacao.split(",") if p.strip()):
+        casamento = _FAIXA.match(parte)
+        assert casamento, f"faixa_invalida valor={parte}"
+        prefixo, inicio, prefixo_fim, fim = casamento.groups()
+        assert prefixo_fim in (None, prefixo), f"faixa_com_prefixos_diferentes valor={parte}"
+        ultimo = int(fim) if fim else int(inicio)
+        chaves += [f"{prefixo}{n}" for n in range(int(inicio), ultimo + 1)]
+    return chaves
 
 
 @dataclass(frozen=True)
@@ -57,7 +102,13 @@ class Base:
 
 
 def ler_base(texto: str) -> dict[str, Base]:
-    raise NotImplementedError
+    """Linhas `| TNN | itens | total | sha256 |` da seção da base da consolidação."""
+    base: dict[str, Base] = {}
+    for linha in texto.partition(MARCADOR_DA_BASE)[2].splitlines():
+        celulas = [celula.strip() for celula in linha.strip().strip("|").split("|")]
+        if linha.startswith("| T") and len(celulas) == 4:
+            base[celulas[0]] = Base(celulas[1], int(celulas[2]), celulas[3])
+    return base
 
 
 @dataclass(frozen=True)
@@ -68,15 +119,43 @@ class Acao:
 
 
 def ler_acoes(texto: str) -> list[Acao]:
-    raise NotImplementedError
+    """Blocos `### XX-NN — título` com campos `- **Campo:** valor` antes da base."""
+    corpo = texto.partition(MARCADOR_DA_BASE)[0]
+    acoes: list[Acao] = []
+    atual: dict[str, str] | None = None
+    ultimo = ""
+    for linha in corpo.splitlines():
+        cabecalho = _ACAO.match(linha)
+        campo = _CAMPO.match(linha)
+        if cabecalho:
+            atual = {}
+            acoes.append(Acao(cabecalho[1], cabecalho[2], atual))
+        elif _SECAO.match(linha):
+            atual = None
+        elif atual is not None and campo:
+            ultimo = campo[1].strip()
+            atual[ultimo] = campo[2].strip()
+        elif atual is not None and linha.startswith("  ") and linha.strip() and ultimo:
+            atual[ultimo] = f"{atual[ultimo]} {linha.strip()}".strip()
+    return acoes
 
 
 def chaves_das_acoes(acoes: list[Acao]) -> set[str]:
-    raise NotImplementedError
+    return {
+        f"T{numero}-{chave}"
+        for acao in acoes
+        for numero, chave in _CHAVE.findall(acao.campos.get("Itens", ""))
+    }
 
 
 def linhas_do_orquestrador(texto: str) -> list[list[str]]:
-    raise NotImplementedError
+    """Células das linhas `| ORQ-NN | tarefa | PR | pendência | ferramenta | runbook |`."""
+    corpo = texto.partition(MARCADOR_DA_BASE)[0]
+    return [
+        [celula.strip() for celula in linha.strip().strip("|").split("|")]
+        for linha in corpo.splitlines()
+        if linha.startswith("| ORQ-")
+    ]
 
 
 def _texto() -> str:
@@ -128,7 +207,8 @@ def test_arquivo_inalterado_desde_a_consolidacao_tem_exatamente_os_itens_da_base
         if hashlib.sha256(conteudo).hexdigest() != base.sha256:
             warnings.warn(f"pendencia_nao_reconsolidada arquivo={arquivo}.md", stacklevel=1)
             continue
-        assert itens_de(conteudo.decode("utf-8")) == expandir(base.itens), f"itens {arquivo}"
+        itens = sorted(itens_de(conteudo.decode("utf-8")))
+        assert itens == sorted(expandir(base.itens)), f"itens_da_base_divergem arquivo={arquivo}"
 
 
 def test_toda_acao_tem_itens_ferramenta_runbook_e_estado() -> None:

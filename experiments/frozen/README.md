@@ -40,7 +40,9 @@ O arquivo nunca é sobrescrito; outro conteúdo com o mesmo id é recusado. Um m
 - `registro_execucoes.jsonl`: registro append-only, em que cada linha leva o próprio hash e o
   da anterior. Toda avaliação entra, inclusive a de resultado nulo. Depois da abertura do teste,
   nova rodada confirmatória do mesmo congelamento exige `corrige` + `declaracao`, e a rodada
-  anterior permanece.
+  anterior permanece. `corrige` só aponta para relatório confirmatório já registrado do mesmo
+  congelamento; alvo de outro congelamento, exploratório ou inexistente é recusado e não reabre
+  o teste.
 
 Dados sintéticos nunca são confirmatórios. Nenhum congelamento real existe neste repositório
 enquanto o projeto estiver antes do G0.

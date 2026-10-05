@@ -3,7 +3,8 @@
 Cada linha JSON leva o próprio hash e o hash da linha anterior; reescrever ou apagar qualquer
 linha quebra o encadeamento e o registro é recusado. Toda avaliação entra, inclusive a de
 resultado nulo (métricas sem valor). Depois da abertura do teste, nova rodada confirmatória do
-mesmo congelamento só entra como correção declarada, e a rodada anterior permanece.
+mesmo congelamento só entra como correção declarada, e a rodada anterior permanece. A correção
+só aponta para relatório confirmatório já registrado do mesmo congelamento.
 """
 
 from __future__ import annotations
@@ -61,14 +62,23 @@ def ler_registro(registro: Path) -> list[dict[str, Any]]:
 
 
 def _exigir_correcao_valida(
-    entradas: list[dict[str, Any]], corrige: str | None, declaracao: str | None
+    entradas: list[dict[str, Any]],
+    corrige: str | None,
+    declaracao: str | None,
+    freeze_id: str | None,
 ) -> None:
     if corrige is None:
         return
     if not (declaracao or "").strip():
         raise ValueError(f"correcao_sem_declaracao corrige={corrige}")
-    if corrige not in {entrada["report_id"] for entrada in entradas}:
+    alvos = [entrada for entrada in entradas if entrada["report_id"] == corrige]
+    if not alvos:
         raise ValueError(f"correcao_de_execucao_inexistente corrige={corrige}")
+    confirmatorios = [a for a in alvos if a["modo"] == ModoExecucao.CONFIRMATORIO.value]
+    if not confirmatorios:
+        raise ValueError(f"correcao_de_relatorio_nao_confirmatorio corrige={corrige}")
+    if all(alvo["freeze_id"] != freeze_id for alvo in confirmatorios):
+        raise ValueError(f"correcao_de_outro_congelamento corrige={corrige} freeze={freeze_id}")
 
 
 def _exigir_unica_rodada(
@@ -105,11 +115,12 @@ def registrar_execucao(
 
     Raises:
         FalhaOperacionalErro: registro existente adulterado.
-        ValueError: correção sem declaração ou de execução inexistente.
+        ValueError: correção sem declaração, ou cujo alvo não existe, não é relatório
+            confirmatório ou é de outro congelamento.
         PortaoRecusado: segunda rodada confirmatória do mesmo congelamento sem correção.
     """
     entradas = ler_registro(registro)
-    _exigir_correcao_valida(entradas, corrige, declaracao)
+    _exigir_correcao_valida(entradas, corrige, declaracao, relatorio.freeze_id)
     if corrige is None:
         _exigir_unica_rodada(entradas, relatorio.modo, relatorio.freeze_id)
     agora = (relogio or (lambda: datetime.now(UTC)))()

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sustemporal.reporting.reproduce_comparacao import Situacao, comparar_saidas
+from sustemporal.reporting.reproduce_comparacao import Situacao, comparar_execucoes, comparar_saidas
 from tests.fixtures.reproducao_parquet import SCHEMA, gravar, linha
 
 if TYPE_CHECKING:
@@ -114,3 +114,37 @@ def test_itens_seguem_a_ordem_das_saidas_refeitas_e_depois_as_so_registradas(
 
 def test_sem_nenhuma_das_duas_execucoes_nao_ha_item() -> None:
     assert comparar_saidas("M_TEMP", None, None) == []
+
+
+def test_cada_metodo_compara_as_suas_saidas_e_o_metodo_so_registrado_diverge(
+    tmp_path: Path,
+) -> None:
+    originais = {
+        "M_TEMP": {SCHEMA: _saida(tmp_path, "original_m", "run_a")},
+        "B_ATEND": {SCHEMA: _saida(tmp_path, "original_b", "run_a")},
+    }
+    refeitas = {"M_TEMP": {SCHEMA: _saida(tmp_path, "refeito_m", "run_b")}}
+    itens = {i.item: i for i in comparar_execucoes(originais, refeitas)}
+    assert itens[f"saida:M_TEMP:{SCHEMA}"].situacao is Situacao.IGUAL
+    sem_refeito = itens[f"saida:B_ATEND:{SCHEMA}"]
+    assert (sem_refeito.situacao, sem_refeito.detalhe) == (
+        Situacao.DIVERGENTE,
+        "saida_ausente_no_refeito",
+    )
+
+
+def test_metodo_refeito_sem_execucao_registrada_e_inconclusivo(tmp_path: Path) -> None:
+    refeitas = {"M_TEMP": {SCHEMA: _saida(tmp_path, "refeito", "run_b")}}
+    (item,) = comparar_execucoes({}, refeitas)
+    assert (item.item, item.situacao) == (f"saida:M_TEMP:{SCHEMA}", Situacao.INCONCLUSIVO)
+
+
+def test_metodos_seguem_a_ordem_dos_refeitos_e_depois_os_so_registrados(tmp_path: Path) -> None:
+    pasta = {metodo: _saida(tmp_path, metodo, "run_a") for metodo in ("M_TEMP", "B_ATEND")}
+    originais = {m: {SCHEMA: ref} for m, ref in pasta.items()}
+    refeitas = {
+        "B_PROC": {SCHEMA: _saida(tmp_path, "b_proc", "run_b")},
+        "M_TEMP": originais["M_TEMP"],
+    }
+    metodos = [i.item.split(":")[1] for i in comparar_execucoes(originais, refeitas)]
+    assert metodos == ["B_PROC", "M_TEMP", "B_ATEND"]

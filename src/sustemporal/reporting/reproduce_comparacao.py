@@ -42,6 +42,7 @@ __all__ = [
     "Identidade",
     "Situacao",
     "comparar_auxiliares",
+    "comparar_execucoes",
     "comparar_insumos",
     "comparar_metricas",
     "comparar_notas",
@@ -206,6 +207,14 @@ def comparar_saidas(
     refeitas: Mapping[str, DatasetRef] | None,
 ) -> list[Comparacao]:
     """As saídas da execução refeita contra as da registrada, pela união dos `schema_id`."""
+    raise NotImplementedError
+
+
+def comparar_execucoes(
+    originais: Mapping[str, Mapping[str, DatasetRef]],
+    refeitas: Mapping[str, Mapping[str, DatasetRef]],
+) -> list[Comparacao]:
+    """As saídas de cada método (`{método: {schema_id: saída}}`); primeiro os métodos refeitos."""
     raise NotImplementedError
 
 

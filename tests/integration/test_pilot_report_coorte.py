@@ -20,14 +20,32 @@ from sustemporal.reporting.report import build_pilot_report
 if TYPE_CHECKING:
     from pathlib import Path
 
+TERRITORIO_MG = """\
+territorio_id: mg_sintetico
+descricao: Território sintético de MG para teste; nenhum dado real.
+uf: MG
+proveniencia: SECUNDARIA
+confirmacao: A_CONFIRMAR
+fontes:
+  - doc_id: S1
+    titulo: Fixture sintética
+    estado: PENDENTE
+    proveniencia: SECUNDARIA
+    confirmacao: A_CONFIRMAR
+municipios:
+  - {ibge7: 3106200, ibge6: 310620, nome: Belo Horizonte, regiao: Metropolitana}
+"""
 
-def _com_coorte(config: Path, *, pertenca: str | None = None) -> None:
-    """Acrescenta à configuração do ingest uma coorte explícita sobre o território do piloto."""
+
+def _com_coorte(
+    config: Path, *, uf: str = "SP", territorio: Path = DRS_XI, pertenca: str | None = None
+) -> None:
+    """Acrescenta à configuração do ingest uma coorte explícita (por padrão, SP e o DRS XI)."""
     linhas = [
         "coorte:",
         "  cohort_id: coorte_explicita",
-        "  uf: SP",
-        f"  territorio: {DRS_XI}",
+        f"  uf: {uf}",
+        f"  territorio: {territorio}",
         '  inicio: "201801"',
         '  fim: "201812"',
         *([f"  pertenca: {pertenca}"] if pertenca else []),
@@ -65,3 +83,14 @@ def test_pertenca_fixa_ou_a_definir_gera_o_relatorio_e_cita_a_pertenca(
     _com_coorte(config, pertenca=pertenca)
     assert _saida_do_pilot_report(config) == ExitCode.OK
     assert any(f"pertenca={pertenca}" in nota for nota in relatorio_gravado(tmp_path).notas)
+
+
+def test_coorte_com_uf_diferente_da_do_ingest_recusa(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = _ingest_completo(tmp_path)
+    territorio = tmp_path / "territorio_mg.yaml"
+    territorio.write_text(TERRITORIO_MG, encoding="utf-8")
+    _com_coorte(config, uf="MG", territorio=territorio)
+    erro = _erro_do_relatorio_recusado(config, tmp_path, capsys)
+    assert "coorte_com_uf_divergente coorte=MG piloto=SP cohort_id=coorte_explicita" in erro

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import re
 import shutil
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -35,6 +36,7 @@ from sustemporal.evaluation.freeze_conferencia import (
     verificar_congelamento_completo,
 )
 from sustemporal.rules.catalog import carregar_regras
+from sustemporal.temporal.politicas import carregar_politica
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -43,6 +45,9 @@ if TYPE_CHECKING:
 
     from sustemporal.contracts import RunResult
     from sustemporal.evaluation.freeze_conferencia import EstadoAtual
+
+    Resultado = tuple[FreezeManifest, EstadoAtual]
+    Modificador = Callable[[FreezeManifest, EstadoAtual], Resultado]
 
 OUTRO_CODIGO = CODIGO_LIMPO.model_copy(update={"commit": "b" * 40})
 M_TEMP = 0
@@ -122,47 +127,40 @@ def _mensagem_do_estado(conf: Confirmatorio, campo: str) -> str:
     return f"^{re.escape(base)}$"
 
 
-def _cenarios_do_estado(
-    conf: Confirmatorio, raiz: Path, catalogo: Path
-) -> dict[str, Callable[[], tuple[FreezeManifest, EstadoAtual]]]:
-    """Por nome em `freeze_incompativel campos=`: manifesto e estado em que só ele diverge."""
-    manifesto, estado = conf.manifesto, conf.estado
+def _cenarios_do_estado(conf: Confirmatorio, raiz: Path, catalogo: Path) -> dict[str, Modificador]:
+    """Por nome em `freeze_incompativel campos=`: o que alterar para que só ele divirja.
 
-    def catalogo_alterado() -> tuple[FreezeManifest, EstadoAtual]:
+    Cada modificador recebe o manifesto e o estado e devolve os dois alterados, de modo que
+    também se combinam (ordem dos campos na mensagem).
+    """
+    base = conf.estado
+
+    def no_estado(**trocas: object) -> Modificador:
+        return lambda manifesto, estado: (manifesto, replace(estado, **trocas))
+
+    def no_manifesto(**campos: object) -> Modificador:
+        return lambda manifesto, estado: (manifesto.model_copy(update=campos), estado)
+
+    def catalogo_alterado(manifesto: FreezeManifest, estado: EstadoAtual) -> Resultado:
         catalogo.write_text(catalogo.read_text(encoding="utf-8") + "\n# alterado\n")
         return manifesto, estado
 
-    def manifesto_com(**campos: object) -> tuple[FreezeManifest, EstadoAtual]:
-        return manifesto.model_copy(update=campos), estado
-
-    outro_bootstrap = manifesto.bootstrap.model_copy(update={"reamostragens": 7})
-    atributos = estado.features.atributos
-    outra_config = estado.config.model_copy(update={"semente": 7})
+    outro_bootstrap = conf.manifesto.bootstrap.model_copy(update={"reamostragens": 7})
     return {
-        "config": lambda: (manifesto, conf.estado_com(config=outra_config)),
-        "codigo": lambda: (manifesto, conf.estado_com(codigo=OUTRO_CODIGO)),
-        "ambiente": lambda: (
-            manifesto,
-            conf.estado_com(ambiente=MUTACOES_DO_AMBIENTE["python"](estado.ambiente)),
-        ),
+        "config": no_estado(config=base.config.model_copy(update={"semente": 7})),
+        "codigo": no_estado(codigo=OUTRO_CODIGO),
+        "ambiente": no_estado(ambiente=MUTACOES_DO_AMBIENTE["python"](base.ambiente)),
         "catalogos": catalogo_alterado,
-        "entradas": lambda: (
-            manifesto,
-            conf.estado_com(datasets=[*estado.datasets, sia_pa_desconhecido(raiz)]),
+        "entradas": no_estado(datasets=[*base.datasets, sia_pa_desconhecido(raiz)]),
+        "split": no_estado(split=base.split.model_copy(update={"limites": ("outro",)})),
+        "features": no_estado(
+            features=FeatureSpec(feature_set_id="outro", atributos=base.features.atributos)
         ),
-        "split": lambda: (
-            manifesto,
-            conf.estado_com(split=estado.split.model_copy(update={"limites": ("outro",)})),
-        ),
-        "features": lambda: (
-            manifesto,
-            conf.estado_com(features=FeatureSpec(feature_set_id="outro", atributos=atributos)),
-        ),
-        "bootstrap": lambda: manifesto_com(bootstrap=outro_bootstrap),
-        "metricas": lambda: manifesto_com(metricas=("outra_metrica",)),
-        "comparacoes": lambda: manifesto_com(comparacoes_primarias=("M_TEMP_x_B_ML",)),
-        "catalogo": lambda: (manifesto, conf.estado_com(regras=carregar_regras()[:-1])),
-        "politica": lambda: (manifesto, conf.estado_com(politicas=(estado.politicas or [])[:-1])),
+        "bootstrap": no_manifesto(bootstrap=outro_bootstrap),
+        "metricas": no_manifesto(metricas=("outra_metrica",)),
+        "comparacoes": no_manifesto(comparacoes_primarias=("M_TEMP_x_B_ML",)),
+        "catalogo": no_estado(regras=carregar_regras()[:-1]),
+        "politica": no_estado(politicas=(base.politicas or [])[:-1]),
     }
 
 
@@ -189,9 +187,34 @@ ESTADOS = sorted(c.estado for c in CAMPOS_DO_MANIFESTO.values() if c.estado)
 def test_divergencia_no_estado_atual_e_recusada(
     tmp_path: Path, confirmatorio: Confirmatorio, catalogo: Path, campo: str
 ) -> None:
-    manifesto, estado = _cenarios_do_estado(confirmatorio, tmp_path, catalogo)[campo]()
+    modificador = _cenarios_do_estado(confirmatorio, tmp_path, catalogo)[campo]
+    manifesto, estado = modificador(confirmatorio.manifesto, confirmatorio.estado)
     with pytest.raises(PortaoRecusado, match=_mensagem_do_estado(confirmatorio, campo)):
         verificar_congelamento_completo(manifesto, estado)
+
+
+def test_divergencias_do_estado_saem_na_ordem_do_protocolo(
+    tmp_path: Path, confirmatorio: Confirmatorio, catalogo: Path
+) -> None:
+    manifesto, estado = confirmatorio.manifesto, confirmatorio.estado
+    for modificador in _cenarios_do_estado(confirmatorio, tmp_path, catalogo).values():
+        manifesto, estado = modificador(manifesto, estado)
+    campos = (
+        "codigo,ambiente,split,features,config,catalogos,catalogo,politica,bootstrap,"
+        "metricas,comparacoes,entradas"
+    )
+    with pytest.raises(PortaoRecusado, match=_mensagem_do_estado(confirmatorio, campos)):
+        verificar_congelamento_completo(manifesto, estado)
+
+
+def test_politica_repetida_com_conteudo_diferente_no_estado_diverge(
+    confirmatorio: Confirmatorio,
+) -> None:
+    original = carregar_politica("B_ATEND")
+    alterada = original.model_copy(update={"criterios": original.criterios[:1]})
+    estado = confirmatorio.estado_com(politicas=[*(confirmatorio.estado.politicas or []), alterada])
+    with pytest.raises(PortaoRecusado, match=_mensagem_do_estado(confirmatorio, "politica")):
+        verificar_congelamento_completo(confirmatorio.manifesto, estado)
 
 
 def _mensagem_da_execucao(run: RunResult, campo: str, conf: Confirmatorio) -> str:

@@ -8,6 +8,7 @@ plataforma é informativa. Nenhum resultado empírico.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -34,15 +35,14 @@ from tests.fixtures.protocolo_dados import cenario_baseline
 
 from sustemporal.contracts.base import OrigemDados
 from sustemporal.contracts.config import RunConfig
+from sustemporal.contracts.experiment import Particao
 from sustemporal.contracts.temporal import MetodoId
 from sustemporal.errors import ExitCode, PortaoRecusado
 from sustemporal.evaluation.baselines import fit_baseline
 from sustemporal.evaluation.features import FEATURES_PADRAO
-from sustemporal.evaluation.metrics import evaluate_runs
+from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from tests.fixtures.protocolo_dados import Cenario
 
     from sustemporal.contracts import EvaluationReport, RunResult
@@ -173,6 +173,50 @@ def test_confirmatorio_sem_bootstrap_usa_o_do_manifesto(
     )
     reamostragens = confirmatorio.manifesto.bootstrap.reamostragens
     assert f"reamostragens={reamostragens}" in relatorio.notas
+
+
+def test_bootstrap_diferente_e_recusado_antes_de_ler_qualquer_dado(tmp_path: Path) -> None:
+    cenario = cenario_baseline(tmp_path / "cenario")
+    conf = montar_confirmatorio(tmp_path, cenario)
+    assert cenario.split.particoes is not None
+    saidas = [dataset for run in conf.runs for dataset in run.saidas]
+    for dataset in (cenario.split.particoes[Particao.TESTE], conf.rotulos, *saidas):
+        Path(dataset.caminho).unlink()
+    outro = conf.manifesto.bootstrap.model_copy(update={"reamostragens": 7})
+    with pytest.raises(PortaoRecusado, match="bootstrap_diferente_do_congelado"):
+        evaluate_runs(
+            conf.runs,
+            conf.rotulos,
+            cenario.split,
+            tmp_path / "av",
+            bootstrap=outro,
+            congelamento=conf.referencia(),
+        )
+
+
+def test_exploratorio_usa_o_bootstrap_recebido_mesmo_com_o_manifesto_na_referencia(
+    tmp_path: Path, confirmatorio: Confirmatorio
+) -> None:
+    split = confirmatorio.cenario.split
+    assert split.rotulos_por_particao is not None
+    calibracao = [
+        lp for lp in confirmatorio.cenario.linhas if lp.competencia_processamento == "202301"
+    ]
+    resultados = {lp.row_id: "ALERTA" for lp in calibracao}
+    run = run_agregados(MetodoId.M_TEMP, resultados, tmp_path / "runs")
+    outro = confirmatorio.manifesto.bootstrap.model_copy(update={"reamostragens": 7})
+    referencia = ReferenciaCongelamento(
+        confirmatorio.manifesto.freeze_id, manifesto=confirmatorio.manifesto
+    )
+    relatorio = evaluate_runs(
+        [run],
+        split.rotulos_por_particao[Particao.CALIBRACAO],
+        split,
+        tmp_path / "av",
+        bootstrap=outro,
+        congelamento=referencia,
+    )
+    assert "reamostragens=7" in relatorio.notas
 
 
 def test_cli_recusa_o_confirmatorio_com_execucao_de_outro_ambiente(

@@ -9,12 +9,15 @@ real tem o roteiro próprio em `docs/runbooks/piloto_local.md`.
 ## 1. Escopo e limites
 
 - Reproduz-se: instalação travada, verificação do repositório (seção 3), fluxo da CLI sobre dados
-  sintéticos (seção 4) e, na parte B da T14, a reprodução offline de um congelamento (seção 5).
+  sintéticos, do `acquire` ao `freeze` (seção 4), e a reprodução offline de um congelamento
+  (seção 5).
 - Não se reproduz aqui: aquisição das fontes oficiais, piloto G0, comparações do teste, anotação
-  humana e escala (seção 7).
+  humana e escala (seção 7), nem o congelamento confirmatório real (limite da seção 5).
 - Estado do repositório: pré-G0. Nenhuma decisão G0, G1 ou G2 existe em `experiments/decisions/`;
-  por isso `freeze` é recusado e nenhuma execução sintética é confirmatória.
-- Verificado em 2026-10-05 num clone novo de `main` (commit `c26ae52`), em Linux x86_64.
+  por isso `freeze` é recusado no repositório e nenhuma execução sintética é confirmatória. O
+  fluxo da seção 4.5 escreve uma decisão G0 **de teste**, só no diretório temporário do mundo
+  sintético, para exercitar o `freeze` exploratório; ela não vale como decisão.
+- Verificado em VERIFICADO_EM num clone novo de `main` (commit `VERIFICADO_COMMIT`), em Linux x86_64.
 
 ## 2. Ambiente limpo
 
@@ -155,7 +158,7 @@ A explicação sai em `saidas/explicacoes/<run_id>/row_<hash>/` (`bundle.json`, 
 ausência não prova inexistência, retrato mensal, abstenção que não equivale a aprovação) e não
 atribui causa à decisão oficial.
 
-### 4.4 Contrafactual, portões e comandos que dependem de outros PRs
+### 4.4 Contrafactual, portões e o limite do fluxo pequeno
 
 ```bash
 uv run sustemporal --nivel-log WARNING counterfactual --config "$CFG" --run "$RUN" --row "$ROW"
@@ -164,41 +167,214 @@ uv run sustemporal --nivel-log WARNING freeze --config "$CFG"; echo "freeze: $?"
 ```
 
 O `counterfactual` sai com **2** (`contrafactual_sem_violacao`): a busca exige um registro com
-regra em `VIOLACAO`, e o registro sintético deste fluxo só tem `CONFORME` e `INCONCLUSIVO`. Mesmo
-com violação, uma execução `--ingest` não traz o CNES ST das precondições (o `validate --ingest`
-grava só os auxiliares que as regras exigem), e a busca sai `SEM_OPERACAO_ADMISSIVEL` (ORQ-24 em
-`docs/PENDENCIAS.md`). A parte B usa linhas com violação.
+regra em `VIOLACAO`, e o registro sintético deste fluxo só tem `CONFORME` e `INCONCLUSIVO`. A
+seção 4.5 usa linhas com violação. Com violação, a busca precisa do CNES ST da competência no
+contexto da execução: o `validate --ingest` o grava quando o registro temporal e o corte de
+observação o confirmam; sem ele, toda operação fica inadmissível e a busca sai
+`SEM_OPERACAO_ADMISSIVEL`, nunca com operação suposta.
 
 O `freeze` sai com **4** (`portao_sem_decisao portao=G0`): congelar exige uma decisão G0 humana
 em `experiments/decisions/`, que nenhum agente cria; é o comportamento esperado. Uma execução
 sintética nunca é confirmatória: `evaluate` sem `--exploratory` exige configuração confirmatória,
 que exige dados reais e G2.
 
-Estado dos demais comandos em `main` (commit `c26ae52`, 2026-10-05): `evaluate` sai com 3
-(`comando_nao_implementado`) até o PR #29 (T11: `evaluate`, `freeze` e registro) entrar, e
-`annotation-export` sai com 2 (`congelamento_ausente`) sem um congelamento. A parte B da T14
-reescreve este item com o fluxo completo.
+`evaluate`, `annotation-export` e `reproduce` pedem um congelamento existente e saem com **2**
+(`congelamento_ausente`) sem ele. Congelar também exige as partições do protocolo
+(DESENVOLVIMENTO, CALIBRACAO e TESTE) e os insumos de validação de cada política, e nenhum
+comando da CLI os prepara (pendência T11 #27, em `docs/pendencias/T11.md`): o fluxo pequeno, de
+um só mês, não os tem. A seção 4.5 os produz com `sustemporal.reporting.reproduce_etapas`, o
+mesmo código que o `reproduce` usa.
 
-### 4.5 Aceite da reprodução
+### 4.5 Fluxo completo sintético: do `acquire` ao `freeze`
+
+Um mundo sintético maior, em diretório próprio, percorre os comandos até o congelamento. Os
+originais são arquivos de SIA-PA, CNES (PF e ST) e SIGTAP gerados por código e servidos por um
+servidor FTP local (`pyftpdlib`, só em loopback); as competências de processamento formam três
+janelas, que o protocolo separa em partições: DEV (201801 e 201803), CAL (202301) e TESTE
+(202401). Os arquivos auxiliares de 201712 e 201802 **não existem de propósito**: o `acquire` da
+passada auxiliar os pede, registra a ausência e sai com 5. Em DEV há uma linha de cada situação:
+
+| Linha | Atendimento e processamento | O que o fluxo mostra |
+|---|---|---|
+| ausência | 201801 e 201801 | CBO fora do CNES de 201801: `B_ATEND` tem regra em `VIOLACAO`; o `counterfactual` sobre essa execução encontra a inclusão do CBO no estabelecimento, sem garantia de aprovação |
+| mês faltante | 201802 e 201803 | sem arquivos de 201802: `B_ATEND` fica `INCONCLUSIVO` (o mês vizinho nunca substitui) e `B_PROC`, que usa 201803, fica `CONFORME`; o `counterfactual` recusa (`contrafactual_sem_violacao`) |
+| borda de 2018 | 201712 e 201801 | sem arquivos de 201712: `B_ATEND` fica `INCONCLUSIVO` e `B_PROC`, que usa 201801, tem regra em `VIOLACAO`; o `counterfactual` sobre a execução `B_ATEND` recusa (`contrafactual_sem_violacao`) |
+
+A política `documented` fica `INCONCLUSIVO` em todas (`M_TEMP_PADRAO` é `NAO_RESOLVIDA`). O
+`explain` das três linhas e o `counterfactual` estão em `tests/integration/test_reproduce_offline.py`.
+
+```bash
+REPO="$(pwd)"
+export MUNDO="$(mktemp -d)"
+RESULTADO="$(uv run python - "$MUNDO" 2>"$MUNDO.log" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+import pytest
+from tests.fixtures.reproducao_fluxo import (
+    adquirir_e_ingerir,
+    congelar_e_avaliar,
+    derivar,
+    iniciar,
+    validar_janelas,
+)
+
+with pytest.MonkeyPatch.context() as mp:
+    fluxo = iniciar(Path(sys.argv[1]), mp)
+    adquirir_e_ingerir(fluxo)
+    validar_janelas(fluxo)
+    derivar(fluxo)
+    congelar_e_avaliar(fluxo)
+    print(fluxo.freeze_id)
+    print(json.dumps(fluxo.codigos))
+PY
+)"
+FRZ="$(printf '%s\n' "$RESULTADO" | sed -n 1p)"
+printf '%s\n' "$RESULTADO"
+```
+
+Leva cerca de 35 segundos; o registro dos comandos (inclusive do servidor FTP local) fica em
+`$MUNDO.log`. O `MUNDO` é uma cópia limpa de `catalog/` e `config/` com as configurações do
+fluxo (`config_dev.yaml`, `config_cal.yaml` e `config_teste.yaml`, a do protocolo); os comandos
+rodam de dentro dele porque alguns padrões do código são relativos ao diretório de trabalho
+(`config/splits.yaml`, `catalog/schemas/selecao_versoes.yaml` e `experiments/decisions`). O script
+imprime o `freeze_id` e o código de saída de cada comando:
+
+- `acquire_primaria` 0 e `acquire_auxiliar` **5** (ausência de 201712 e 201802, registrada);
+- `ingest` 0 e os nove `validate_*` (três janelas, três políticas) 0;
+- `freeze_sem_g0` **4** (sem decisão G0) e `freeze` 0, depois que `congelar_e_avaliar` grava uma
+  decisão G0 **de teste** em `$MUNDO/experiments/decisions/`; o congelamento é exploratório;
+- `evaluate_sem_exploratory` **4** (sintético nunca é confirmatório), `evaluate` (com
+  `--exploratory`) 0 e `annotation_export` 0.
+
+A união do SIA-PA, os rótulos e as partições vêm de `derivar_protocolo` e os `validate --ingest`
+rodam sobre a janela de cada partição (`janela_do_ingest`); o `validate --ingest` exige que toda
+a produção da pasta seja do recorte do piloto, e a janela é a pasta do `ingest` só com o SIA-PA
+dos arquivos das competências pedidas. O código do `freeze` lê a versão do código por `git`, e o
+mundo não é um repositório: o script usa a versão de código de teste (`CODIGO_LIMPO`), que o
+`reproduce` reporta como observação (seção 5).
+
+### 4.6 Aceite da reprodução
 
 1. `bash scripts/ci.sh` termina com 0.
 2. Os passos 4.2 e 4.3 terminam com 0 e deixam `relatorio.json`, os três `run_result.json` e o
    `explicacao.txt` descritos acima.
-3. O `counterfactual` da seção 4.4 sai com 2 e o `freeze` com 4.
+3. O `counterfactual` da seção 4.4 sai com 2 e o `freeze`, com 4.
+4. O script da seção 4.5 imprime os códigos listados e o `reproduce` da seção 5 sai com 0 e
+   `resultado` IGUAL.
 
 ## 5. Reprodução offline de um congelamento (`sustemporal reproduce --freeze ID --offline`)
 
-**PARTE B da T14: seção a preencher quando o PR #29 estiver em `main`.** Contrato previsto (plano,
-§9 e T14):
+```bash
+cd "$MUNDO"
+uv run --project "$REPO" sustemporal --nivel-log WARNING reproduce \
+  --config config_teste.yaml --freeze "$FRZ" --offline
+echo "reproduce: $?"
+uv run --project "$REPO" python -m json.tool "saidas/reproducao/$FRZ/reproducao.json" | head -n 30
+```
 
-- o `freeze_id` resolve os artefatos exatos do congelamento, nunca um diretório "latest";
-- `--offline` recusa qualquer acesso remoto;
-- o fluxo pequeno é refeito a partir dos originais locais até as tabelas finais;
-- hashes lógicos e contagens ou métricas são comparados; diferença de bytes Parquet com hash
-  lógico igual é relatada como tal, e diferença de conteúdo é falha explícita, com saída diferente
-  de zero.
+Com o mundo da seção 4.5 o comando leva cerca de 25 segundos, sai com **0** e grava
+`saidas/reproducao/<freeze_id>/reproducao.json` com `resultado` `IGUAL` nos 29 itens comparados. A
+observação `codigo_diferente_do_congelado` aparece porque o mundo não é um repositório e o
+congelamento usou a versão de código de teste (seção 4.5); ela não é divergência.
 
-Hoje `reproduce` sai com 3 (`comando_nao_implementado`).
+### 5.1 O que o comando faz
+
+- O `freeze_id` resolve o manifesto exato `<runtime.dir_congelamentos>/<freeze_id>.json`, nunca um
+  diretório "latest". Manifesto ausente, adulterado ou de outro id sai com 2 (`congelamento_*`),
+  sem criar o destino.
+- `--offline` é obrigatório (sem ele, saída 2). A config com `runtime.rede_permitida: true` sai com
+  6 antes de abrir qualquer arquivo, e, durante a reprodução, toda conexão e toda resolução de
+  nome, inclusive para a máquina local, falha com `RedeProibida` (saída 6): a guarda substitui
+  `connect`, `connect_ex`, `create_connection` e `getaddrinfo` do `socket` e os restaura ao sair
+  (`sustemporal.reporting.reproduce_rede`).
+- O fluxo é refeito em um diretório novo (`--saida DIR`; padrão
+  `<raiz_saidas>/reproducao/<freeze_id>`; um destino que já tem conteúdo, ou que é um arquivo, sai
+  com 2): `ingest` dos originais do manifesto de aquisição, conferência do ingest (artefato do
+  SIA-PA congelado que não foi normalizado torna a reprodução inconclusiva e para aqui), união do
+  SIA-PA, rótulos, partições do split (com a especificação gravada no congelamento), as três
+  políticas de `validate --ingest` sobre a janela da partição avaliada (CALIBRACAO) e da partição
+  TESTE, e a avaliação (`evaluate_runs`, com o `bootstrap` do manifesto). Nada é gravado nas
+  saídas originais nem no registro de rodadas; o `reproduce` não registra rodada.
+- O refeito é comparado com o congelado e com a rodada registrada do mesmo congelamento e modo (a
+  última de `registro_execucoes.jsonl`, com o relatório `avaliacao/<freeze_id>/rep_*.json` e as
+  execuções em `runs/`).
+
+### 5.2 O que é comparado
+
+| Item de `reproducao.json` | Compara | Contra |
+|---|---|---|
+| `conjunto:sia_pa.v1` e `conjunto:sia_pa_rotulos.v1` | linhas e hash lógico da união e dos rótulos refeitos | o declarado no manifesto e, se o arquivo original existe, o arquivo |
+| `split:split_id`, `split:particao:<P>` e `split:rotulos:<P>` | id do split e linhas e hash lógico de cada partição e dos rótulos dela | o split do manifesto |
+| `insumos:<politica>` | cada campo da entrada de validação do TESTE refeita | `entradas_validacao` do manifesto |
+| `saida:<METODO>:<esquema>` | linhas e hash lógico das cinco saídas de cada método, **sem a coluna `run_id`** | as saídas da execução original |
+| `metricas` | cada métrica por nome e estrato (numerador, denominador, valor e intervalo) | o relatório da rodada registrada |
+| `notas` | as notas do relatório (recorte, especificação do bootstrap e cobertura dos resultados), como multiconjunto | as notas do relatório da rodada registrada |
+
+O hash lógico (`lh1`) é do multiconjunto de linhas, nas colunas do esquema, e não depende da ordem
+das linhas nem da compressão. O hash do refeito é sempre recalculado do arquivo, nunca lido do
+contrato. O `run_id` não entra na comparação: o do `validate --ingest` depende dos caminhos da
+config (`piloto.territorio`, `catalogos`), então a mesma entrada em outro diretório ou máquina dá
+outro `run_id`; por isso as saídas se comparam sem essa coluna.
+
+| Situação | Significa | Saída |
+|---|---|---|
+| `IGUAL` | linhas e hash lógico coincidem (e os bytes, se há arquivo original) | 0 |
+| `BYTES_DIFERENTES_HASH_LOGICO_IGUAL` | mesmo conteúdo, bytes de Parquet diferentes (compressão, ordem ou metadados); é relatado e não é falha | 0 |
+| `DIVERGENTE` | conteúdo diferente; inclui original que não confere com o declarado | 5 (`reproducao_divergente`) |
+| `INCONCLUSIVO` | falta o original para comparar (relatório, execução ou saída ausente) ou o ingest refeito não normalizou um artefato do SIA-PA congelado (`originais_indisponiveis`: arquivo ausente, truncado ou com leiaute incompatível); nunca é violação, mas também não conta como reproduzido | 5 (`reproducao_inconclusiva`) |
+
+O `resultado` geral é a pior situação dos itens. `reproducao.json` é gravado antes da falha
+(`freeze_id`, `modo`, `origem_dados`, `resultado`, `relatorio_refeito`, `observacoes` e as
+`comparacoes`, cada uma com `item`, `situacao`, `esperado`, `obtido` e `detalhe`), e a mensagem de
+erro traz a contagem e os primeiros itens. Códigos de saída: 0 reproduzido; 2 config sem
+`freeze_id` ou com outro, sem `--offline`, confirmatória, destino em uso, manifesto ou entradas
+locais ausentes ou inválidas; 5 divergência ou item inconclusivo; 6 rede.
+
+`observacoes` registra o que difere sem ser, por si, divergência de conteúdo:
+`ingest_sem_tabela artefatos=N estados=...` (o ingest refeito deixou artefatos sem tabela: arquivo
+ausente, quarentena ou falha; explica, por exemplo, um arquivo auxiliar do CNES ou do SIGTAP que
+falta e aparece como `DIVERGENTE` nos insumos e nas saídas), `config_diferente_da_congelada` (o
+hash do protocolo da config usada difere do congelado, por exemplo com outro número de threads ou
+outros caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=<commit>` e
+`pacotes_diferentes_do_congelado pacotes=<lista>`. Leia-as junto do resultado.
+
+### 5.3 Limites
+
+- Só a rodada **exploratória** é reproduzida. Uma config confirmatória sai com 2
+  (`reproduce_confirmatorio_nao_suportado`): o confirmatório exige dados reais e o G2 humano, a
+  conferência do manifesto compara a config inteira, inclusive os caminhos de `runtime`, e
+  reproduzir sem abrir nova rodada confirmatória pede uma decisão que ainda não existe (T14-9 e
+  T14-13 em `docs/PENDENCIAS.md`). A alegação AL-22 continua PENDENTE.
+- Os caminhos de `DatasetRef` no manifesto são absolutos (T08-i6): sem o arquivo original no
+  caminho gravado, a união e os rótulos ainda são conferidos pelo hash declarado (`detalhe`
+  `original_ausente`), mas as saídas ficam `INCONCLUSIVO`.
+- Os comandos rodam da raiz do clone (ou de um diretório com cópia de `catalog/` e `config/`):
+  `config/splits.yaml`, `catalog/schemas/selecao_versoes.yaml` e `experiments/decisions` são
+  relativos ao diretório de trabalho.
+- Não há comando de CLI que prepare a união, os rótulos, as partições e os insumos antes do
+  `freeze` com dados reais (T11 #27, T14-14); `reproduce_etapas` os refaz para o fluxo pequeno.
+- A guarda de rede vale para o processo inteiro: a reprodução não convive com outro trabalho de
+  rede no mesmo processo.
+- Nada aqui mede escala (SP) nem é resultado empírico: a reprodução sintética é teste de software.
+
+### 5.4 Propriedades verificadas e os testes
+
+`uv run pytest tests/integration/test_reproduce_offline.py -q` leva cerca de 2 minutos (marcador
+`slow`, que roda no CI) e usa só dados sintéticos e o FTP local em loopback.
+
+| Propriedade | Teste |
+|---|---|
+| 29 itens `IGUAL` e `resultado` `IGUAL`, com o `freeze` recusado sem G0 e exploratório com a decisão de teste | `test_reproduce_offline_reproduz_com_hashes_logicos_iguais` e `test_freeze_e_recusado_sem_g0_e_com_a_decisao_de_teste_fica_exploratorio` |
+| Diretório novo e nenhum original alterado | `test_reproduce_refaz_o_fluxo_inteiro_no_diretorio_novo` e `test_reproduce_nao_altera_nenhum_original` |
+| 4 threads dão as mesmas saídas e métricas; bytes diferentes com hash lógico igual saem como tais | `test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual` |
+| Divergência de conteúdo falha (saída 5) e nomeia os itens | `test_reproduce_falha_e_nomeia_os_itens_quando_o_conteudo_original_diverge` |
+| Original do SIA-PA ausente é inconclusão (saída 5), não divergência nem reprodução | `test_reproduce_com_original_do_sia_pa_ausente_e_inconclusivo_e_nao_divergente` |
+| Recusas: destino em uso ou arquivo, sem `--offline`, rede permitida, congelamento inexistente, confirmatório | os testes `test_reproduce_recusa_*`, `test_reproduce_exige_offline`, `test_reproduce_de_congelamento_inexistente_*` e `test_reproduce_nao_reproduz_congelamento_confirmatorio`, e `tests/unit/test_reproduce_recusas.py` |
+| Nenhuma conexão sai do processo | `test_reproduce_roda_sob_a_guarda_de_rede` e `tests/unit/test_reproduce_rede.py` |
+| Comparação por hash lógico, contagens e métricas; inconclusivo falha | `tests/unit/test_reproduce_comparacao.py` e `tests/unit/test_reproduce_conferencia.py` (split, originais, notas, ambiente e rodada registrada) |
+| Sintético nunca é confirmatório | `test_sintetico_nunca_e_confirmatorio` |
 
 ## 6. Onde ficam saídas e manifestos
 
@@ -209,7 +385,7 @@ diretório de trabalho e ficam fora do Git (`.gitignore`: `data/*`, `outputs/*`)
 |---|---|---|---|
 | Originais imutáveis | `raiz_dados` | `data/` | `raw/sha256/<2 primeiros>/<sha256>.<ext>`, endereçados pelo hash |
 | Manifestos | `raiz_manifestos` | `manifests/` | `aquisicao.jsonl` (append-only), `.ancora`, `.trava`; `vigilancia.jsonl` |
-| Saídas | `raiz_saidas` | `outputs/` | `ingest/`, `pilot/`, `runs/`, `validacao/`, `explicacoes/`, `anotacao/` |
+| Saídas | `raiz_saidas` | `outputs/` | `ingest/`, `pilot/`, `runs/`, `explicacoes/`, `contrafactuais/`, `split/`, `avaliacao/`, `anotacao/`, `reproducao/` |
 | Congelamentos | `dir_congelamentos` | `experiments/frozen/` | `<freeze_id>.json`, resolvido pelo id |
 | Decisões G0, G1, G2 | fixo | `experiments/decisions/` | só humanos; `MODELO_*` nunca libera portão |
 | Decisões sobre alegações | fixo | `experiments/decisions/alegacoes/` | só humanos; vale a decisão mais recente de cada alegação |
@@ -219,12 +395,19 @@ Cada execução grava sob um id que resolve artefatos exatos (`execucao_<instant
 inclusive a repetida; os hashes lógicos dos conjuntos ficam em `datasets.jsonl` e nos
 `run_result.json`.
 
-**Destino do `validate`.** `validate --ingest` grava em `<raiz_saidas>/runs/<run_id>/`, onde o
-`explain` e o `evaluate` procuram as execuções. `validate --entrada` grava em
-`<raiz_saidas>/validacao/` por padrão; para o `evaluate` enxergar essa execução, rode com
-`--saida <raiz_saidas>/runs`. O `counterfactual` procura só em `runs/` e `validacao/`: uma
-execução gravada com `--saida` em outro diretório não é achada. Alinhar os destinos no código é
-pendência do orquestrador (ORQ-21 e ORQ-23 em `docs/PENDENCIAS.md`).
+**Destino do `validate`.** `validate` (`--entrada` e `--ingest`) grava em
+`<raiz_saidas>/runs/<run_id>/`, o único lugar em que `explain`, `counterfactual` e `evaluate`
+procuram execuções (leitor comum `sustemporal.execucoes`, que exige o `run_id` exato). `--saida
+DIR` desvia a gravação, e então a execução não é achada por eles. O `evaluate` usa a mesma pasta por
+constante própria; trocá-la por `raiz_execucoes(config)` é do PR de integração do orquestrador
+(ORQ-28 em `docs/PENDENCIAS.md`).
+
+**Entradas do `freeze` e do `evaluate`.** Eles leem as partições em `<raiz_saidas>/split`
+(`spl_*.json` e `<split_id>.entradas.json`) e os insumos de validação do TESTE em
+`<raiz_saidas>/split/insumos/<politica_id>.json`. Nenhum comando da CLI os produz (T11 #27); o
+fluxo sintético da seção 4.5 grava as partições com `derivar_protocolo`
+(`sustemporal.reporting.reproduce_etapas`) e copia para `insumos/` a `entrada_validacao.json` da
+execução sobre o TESTE; o `reproduce` refaz as partições em `<saida>/split`.
 
 ## 7. O que exige rede ou dados reais
 

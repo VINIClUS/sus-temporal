@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 from sustemporal.runtime_info import ambiente, versao_codigo
@@ -16,3 +17,179 @@ def test_sem_git_o_codigo_e_marcado_sujo(tmp_path: Path) -> None:
     versao = versao_codigo(tmp_path)
     assert versao.commit == "desconhecido"
     assert versao.sujo is True
+
+
+def _git_local(raiz: Path, *argumentos: str) -> None:
+    subprocess.run(
+        [
+            "git",
+            "-c",
+            "user.email=teste@exemplo.invalid",
+            "-c",
+            "user.name=teste",
+            "-c",
+            "commit.gpgsign=false",
+            *argumentos,
+        ],
+        cwd=raiz,
+        check=True,
+        capture_output=True,
+    )
+
+
+def _repositorio(tmp_path: Path) -> Path:
+    raiz = tmp_path / "repo"
+    raiz.mkdir()
+    _git_local(raiz, "init", "-q")
+    (raiz / "modulo.py").write_text("VALOR = 1\n", encoding="utf-8")
+    _git_local(raiz, "add", "modulo.py")
+    _git_local(raiz, "commit", "-q", "-m", "inicial")
+    return raiz
+
+
+def test_codigo_limpo_nao_tem_hash_de_diferencas(tmp_path: Path) -> None:
+    versao = versao_codigo(_repositorio(tmp_path))
+    assert versao.sujo is False
+    assert versao.diff_sha256 is None
+
+
+def test_arvores_sujas_diferentes_no_mesmo_commit_tem_hashes_diferentes(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    (raiz / "modulo.py").write_text("VALOR = 2\n", encoding="utf-8")
+    primeira = versao_codigo(raiz)
+    (raiz / "modulo.py").write_text("VALOR = 3\n", encoding="utf-8")
+    segunda = versao_codigo(raiz)
+    assert primeira.commit == segunda.commit
+    assert primeira.sujo is segunda.sujo is True
+    assert primeira.diff_sha256 is not None
+    assert segunda.diff_sha256 is not None
+    assert primeira.diff_sha256 != segunda.diff_sha256
+
+
+def test_hash_de_diferencas_e_deterministico(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    (raiz / "modulo.py").write_text("VALOR = 2\n", encoding="utf-8")
+    primeira = versao_codigo(raiz)
+    segunda = versao_codigo(raiz)
+    assert primeira == segunda
+
+
+def test_arquivo_nao_rastreado_entra_no_hash_de_diferencas(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    novo = raiz / "novo.py"
+    novo.write_text("A = 1\n", encoding="utf-8")
+    primeira = versao_codigo(raiz)
+    novo.write_text("A = 2\n", encoding="utf-8")
+    segunda = versao_codigo(raiz)
+    assert primeira.sujo is segunda.sujo is True
+    assert primeira.diff_sha256 is not None
+    assert primeira.diff_sha256 != segunda.diff_sha256
+
+
+def test_sem_git_nao_ha_hash_de_diferencas(tmp_path: Path) -> None:
+    assert versao_codigo(tmp_path).diff_sha256 is None
+
+
+def test_subdiretorio_ve_as_diferencas_do_repositorio_inteiro(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    sub = raiz / "sub"
+    sub.mkdir()
+    (sub / "b.py").write_text("B = 1\n", encoding="utf-8")
+    _git_local(raiz, "add", "sub/b.py")
+    _git_local(raiz, "commit", "-q", "-m", "sub")
+    topo = raiz / "topo.py"
+    topo.write_text("T = 1\n", encoding="utf-8")
+    primeira = versao_codigo(sub)
+    topo.write_text("T = 2\n", encoding="utf-8")
+    segunda = versao_codigo(sub)
+    assert primeira.diff_sha256 is not None
+    assert primeira.diff_sha256 != segunda.diff_sha256
+    assert versao_codigo(sub) == versao_codigo(raiz)
+
+
+def test_nao_rastreado_conta_mesmo_com_status_configurado_para_esconder(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    _git_local(raiz, "config", "status.showUntrackedFiles", "no")
+    (raiz / "novo.py").write_text("A = 1\n", encoding="utf-8")
+    versao = versao_codigo(raiz)
+    assert versao.sujo is True
+    assert versao.diff_sha256 is not None
+
+
+def test_link_nao_rastreado_entra_pelo_alvo_do_link_e_nao_pelo_conteudo(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    externo_a = tmp_path / "a.txt"
+    externo_b = tmp_path / "b.txt"
+    externo_a.write_text("igual\n", encoding="utf-8")
+    externo_b.write_text("igual\n", encoding="utf-8")
+    link = raiz / "link.txt"
+    link.symlink_to(externo_a)
+    primeira = versao_codigo(raiz)
+    link.unlink()
+    link.symlink_to(externo_b)
+    segunda = versao_codigo(raiz)
+    link.unlink()
+    link.write_text("igual\n", encoding="utf-8")
+    terceira = versao_codigo(raiz)
+    assert len({primeira.diff_sha256, segunda.diff_sha256, terceira.diff_sha256}) == 3
+
+
+def test_hash_nao_depende_da_configuracao_de_renomeacao(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    _git_local(raiz, "mv", "modulo.py", "renomeado.py")
+    _git_local(raiz, "config", "diff.renames", "true")
+    com_renomeacao = versao_codigo(raiz)
+    _git_local(raiz, "config", "diff.renames", "false")
+    sem_renomeacao = versao_codigo(raiz)
+    assert com_renomeacao.diff_sha256 is not None
+    assert com_renomeacao == sem_renomeacao
+
+
+def test_arquivo_rastreado_removido_entra_no_hash(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    (raiz / "modulo.py").unlink()
+    versao = versao_codigo(raiz)
+    assert versao.sujo is True
+    assert versao.diff_sha256 is not None
+
+
+def test_modo_executavel_entra_no_hash_de_diferencas(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    modulo = raiz / "modulo.py"
+    modulo.write_text("VALOR = 2\n", encoding="utf-8")
+    sem_modo = versao_codigo(raiz)
+    modulo.chmod(0o755)
+    com_modo = versao_codigo(raiz)
+    modulo.chmod(0o644)
+    sem_modo_de_novo = versao_codigo(raiz)
+    assert sem_modo.diff_sha256 is not None
+    assert com_modo.diff_sha256 is not None
+    assert sem_modo.diff_sha256 != com_modo.diff_sha256
+    assert sem_modo_de_novo == sem_modo
+
+
+def test_arquivo_substituido_por_pacote_nao_zera_o_hash(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    (raiz / "modulo.py").unlink()
+    pacote = raiz / "modulo.py"
+    pacote.mkdir()
+    inicio = pacote / "__init__.py"
+    inicio.write_text("X = 1\n", encoding="utf-8")
+    primeira = versao_codigo(raiz)
+    inicio.write_text("X = 2\n", encoding="utf-8")
+    segunda = versao_codigo(raiz)
+    assert primeira.sujo is segunda.sujo is True
+    assert primeira.diff_sha256 is not None
+    assert segunda.diff_sha256 is not None
+    assert primeira.diff_sha256 != segunda.diff_sha256
+
+
+def test_repositorio_aninhado_nao_rastreado_nao_gera_hash_parcial(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    aninhado = raiz / "aninhado"
+    aninhado.mkdir()
+    _git_local(aninhado, "init", "-q")
+    (aninhado / "a.py").write_text("A = 1\n", encoding="utf-8")
+    versao = versao_codigo(raiz)
+    assert versao.sujo is True
+    assert versao.diff_sha256 is None

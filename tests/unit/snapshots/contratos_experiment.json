@@ -134,6 +134,19 @@
     "title": "Commit",
     "type": "string"
    },
+   "diff_sha256": {
+    "anyOf": [
+     {
+      "pattern": "^[0-9a-f]{64}$",
+      "type": "string"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Diff Sha256"
+   },
    "sujo": {
     "title": "Sujo",
     "type": "boolean"
@@ -503,6 +516,19 @@
      "commit": {
       "title": "Commit",
       "type": "string"
+     },
+     "diff_sha256": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Diff Sha256"
      },
      "sujo": {
       "title": "Sujo",
@@ -1159,6 +1185,19 @@
      "commit": {
       "title": "Commit",
       "type": "string"
+     },
+     "diff_sha256": {
+      "anyOf": [
+       {
+        "pattern": "^[0-9a-f]{64}$",
+        "type": "string"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Diff Sha256"
      },
      "sujo": {
       "title": "Sujo",

@@ -655,3 +655,14 @@ def test_formulario_v1_exportado_vem_dos_dados_congelados(
     b = _lote(amostra, [_avaliacao(c, "b", IND) for c in casos])
     with pytest.raises(ValueError, match="conclusao_fora_do_formulario"):
         concordancia(amostra, mapa, a, b)
+
+
+def test_rotulos_que_nao_cobrem_a_particao_sao_falha_operacional(tmp_path: Path) -> None:
+    cenario = montar_cenario(tmp_path / "dados")
+    tabela = pq.read_table(cenario.labels.caminho)
+    teste = {str(linha["row_id"]) for linha in cenario.linhas_teste}
+    restantes = [r for r in tabela.to_pylist() if r["row_id"] not in sorted(teste)[:3]]
+    pq.write_table(pa.Table.from_pylist(restantes, tabela.schema), cenario.labels.caminho)
+    incompleto = replace(cenario, labels=reemitir(cenario.labels))
+    with pytest.raises(FalhaOperacionalErro, match="anotacao_rotulos_incompletos particao=TESTE"):
+        _preparar(incompleto, tmp_path / "x", dimensoes=("instrumento",))

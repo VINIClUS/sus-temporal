@@ -8,6 +8,7 @@ import pyarrow.parquet as pq
 import pytest
 from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf
 from tests.fixtures.piloto_conjuntos import cobertura_sintetica, conjunto_sia_pa, registro
+from tests.fixtures.piloto_ingest import config_ingest, fontes_ingest
 from tests.fixtures.piloto_manifesto import registrar_versoes
 from tests.fixtures.piloto_relatorio import (
     coorte_piloto,
@@ -17,9 +18,15 @@ from tests.fixtures.piloto_relatorio import (
 )
 from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa
 from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
-from tests.integration.test_pilot_report import PF, _estados_disponibilidade
+from tests.integration.test_pilot_report import (
+    PF,
+    _estados_disponibilidade,
+    _manifesto_com_falhas,
+)
 
-from sustemporal.errors import ConfigInvalida
+from sustemporal import cli
+from sustemporal.contracts import OrigemDados
+from sustemporal.errors import ConfigInvalida, ExitCode
 from sustemporal.reporting.report import build_pilot_report
 
 if TYPE_CHECKING:
@@ -113,3 +120,62 @@ def test_relatorio_sem_cobertura_da_ingestao_e_recusado_sem_publicar_nada(tmp_pa
     with pytest.raises(ConfigInvalida, match="relatorio_sem_cobertura"):
         build_pilot_report([dataset], coorte_piloto(), saida)
     assert list(saida.iterdir()) == []
+
+
+def _ingest_completo(pasta: Path) -> Path:
+    _manifesto_com_falhas(pasta)
+    config = config_ingest(pasta, fontes_ingest(pasta, ["a"]))
+    assert cli.main(["ingest", "--config", str(config)]) == ExitCode.OK
+    return config
+
+
+def _saida_do_pilot_report(config: Path) -> int | str:
+    """Código de saída da CLI; exceção que escapa dela vira `Tipo: mensagem`."""
+    try:
+        return cli.main(["pilot-report", "--config", str(config)])
+    except Exception as erro:
+        return f"{type(erro).__name__}: {erro}"
+
+
+def _execucao_parcial(pasta: Path, nome: str, *presentes: str) -> None:
+    execucao = pasta / "saidas" / "ingest" / nome
+    execucao.mkdir(parents=True)
+    for arquivo in presentes:
+        (execucao / arquivo).write_text("{}", encoding="utf-8")
+
+
+def test_execucao_incompleta_do_ingest_mais_nova_e_ignorada_com_aviso(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = _ingest_completo(tmp_path)
+    _execucao_parcial(tmp_path, "execucao_29991231T235959000000Z_vazia")
+    _execucao_parcial(
+        tmp_path, "execucao_29991231T235959000001Z_sem_datasets", "manifesto_lido.json"
+    )
+    (tmp_path / "saidas" / "ingest" / "zzz_rascunho").mkdir()
+    capsys.readouterr()
+    assert _saida_do_pilot_report(config) == ExitCode.OK
+    avisos = [
+        linha
+        for linha in capsys.readouterr().err.splitlines()
+        if "pilot_report_ingest_incompleto" in linha
+    ]
+    assert len(avisos) == 2
+    assert avisos[0].endswith(
+        "execucao=execucao_29991231T235959000001Z_sem_datasets faltando=datasets.jsonl"
+    )
+    assert avisos[1].endswith(
+        "execucao=execucao_29991231T235959000000Z_vazia faltando=datasets.jsonl,manifesto_lido.json"
+    )
+    assert relatorio_gravado(tmp_path).origem_dados is OrigemDados.SINTETICO
+
+
+@pytest.mark.parametrize("estado", ["sem_pasta", "so_incompletas"])
+def test_pilot_report_sem_execucao_completa_do_ingest_recusa(tmp_path: Path, estado: str) -> None:
+    _manifesto_com_falhas(tmp_path)
+    config = config_ingest(tmp_path, fontes_ingest(tmp_path, ["a"]))
+    if estado == "so_incompletas":
+        _execucao_parcial(tmp_path, "execucao_20261001T000000000000Z_vazia")
+        _execucao_parcial(tmp_path, "execucao_20261002T000000000000Z_antiga", "datasets.jsonl")
+    assert _saida_do_pilot_report(config) == ExitCode.CONFIG_INVALIDA
+    assert not (tmp_path / "saidas" / "pilot").exists()

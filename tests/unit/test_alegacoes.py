@@ -58,6 +58,8 @@ PREFIXOS_DE_DECISAO = (
     "estado_diverge_da_decisao",
     "decisoes_de_alegacao_empatadas",
     "decisao_de_alegacao_invalida",
+    "decisao_de_alegacao_em_link_simbolico",
+    "decisoes_de_alegacao_em_link_simbolico",
     "decisao_cita_alegacao_inexistente",
 )
 RAIZES_CITAVEIS = ("tests/", "docs/", "src/", "catalog/", "config/", "scripts/", "experiments/")

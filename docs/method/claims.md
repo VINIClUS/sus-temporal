@@ -65,10 +65,11 @@ O estado de uma alegação só muda com decisão humana que a cite. Verificadas 
    recente que a cita: arquivo `experiments/decisions/alegacoes/<AAAA-MM-DD>.yaml`, com a chave
    `alegacoes` (`AL-NN: ESTADO`), `data`, `responsaveis` e `evidencias` (listas não vazias) e
    `registrado_por_humano: true`. Reprovam: estado sem decisão que cite a alegação; estado diferente
-   do decidido (inclusive PENDENTE depois de decidida); arquivo de decisão inválido; duas decisões
-   da mesma data com estados diferentes; decisão sobre alegação que não existe. Não contam arquivo
-   `MODELO_*` nem decisão fora desse subdiretório. A decisão da alegação não substitui a do
-   portão, nem o contrário.
+   do decidido (inclusive PENDENTE depois de decidida); arquivo de decisão inválido ou em link
+   simbólico (como em `sustemporal.gates`, o diretório também); duas decisões da mesma data com
+   estados diferentes; decisão sobre alegação que não existe. Não contam arquivo `MODELO_*` nem
+   decisão fora desse subdiretório. A decisão da alegação não substitui a do portão, nem o
+   contrário.
 3. CONFIRMADA e NAO_CONFIRMADA exigem também a decisão humana de cada portão (G0, G1 ou G2) citado
    em `Depende de`, em `experiments/decisions/`; o modelo `MODELO_*` nunca libera.
 4. Alegação CONFIRMATORIA depende de G2 e de DADOS_REAIS.

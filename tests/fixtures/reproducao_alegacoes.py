@@ -48,14 +48,20 @@ def carregar_decisoes_de_alegacoes(
 ) -> tuple[list[tuple[str, DecisaoDeAlegacoes]], list[str]]:
     """Decisões válidas como (arquivo, decisão) e as mensagens dos arquivos inválidos.
 
-    Arquivos `MODELO_*` e subdiretórios ficam de fora: modelo nunca decide.
+    Arquivos `MODELO_*` e subdiretórios ficam de fora: modelo nunca decide. Link simbólico, no
+    diretório ou no arquivo, é recusado: o conteúdo viria de fora do caminho só de humanos.
     """
+    if diretorio.is_symlink():
+        return [], [f"decisoes_de_alegacao_em_link_simbolico diretorio={diretorio.name}"]
     if not diretorio.is_dir():
         return [], []
     decisoes: list[tuple[str, DecisaoDeAlegacoes]] = []
     problemas: list[str] = []
     for arquivo in sorted([*diretorio.glob("*.yaml"), *diretorio.glob("*.yml")]):
         if arquivo.name.startswith("MODELO_"):
+            continue
+        if arquivo.is_symlink():
+            problemas.append(f"decisao_de_alegacao_em_link_simbolico arquivo={arquivo.name}")
             continue
         try:
             decisao = DecisaoDeAlegacoes.model_validate(carregar_yaml(arquivo))

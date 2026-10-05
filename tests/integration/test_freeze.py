@@ -201,27 +201,42 @@ def _relatorio(report_id: str, **campos: Any) -> EvaluationReport:
     return EvaluationReport.model_validate({**base, **campos})
 
 
+FREEZE_A = f"frz_{'1' * 64}"
+FREEZE_B = f"frz_{'2' * 64}"
+
+
+def _confirmatorio(report_id: str, freeze_id: str = FREEZE_A) -> EvaluationReport:
+    return _relatorio(
+        report_id,
+        modo="CONFIRMATORIO",
+        origem_dados="REAL",
+        freeze_id=freeze_id,
+        decisao_g2="experiments/decisions/g2_teste.yaml",
+        metricas=[],
+    )
+
+
 def test_registro_append_only(tmp_path: Path) -> None:
     registro = tmp_path / "registro.jsonl"
     nulo = registrar_execucao(registro, _relatorio("rep_a"), relogio=relogio)
     assert nulo["metricas_nulas"] == 1
-    registrar_execucao(registro, _relatorio("rep_b"), relogio=relogio)
+    registrar_execucao(registro, _confirmatorio("rep_b"), relogio=relogio)
     with pytest.raises(ValueError, match="correcao_sem_declaracao"):
-        registrar_execucao(registro, _relatorio("rep_c"), corrige="rep_a", relogio=relogio)
+        registrar_execucao(registro, _confirmatorio("rep_c"), corrige="rep_b", relogio=relogio)
     with pytest.raises(ValueError, match="correcao_de_execucao_inexistente"):
         registrar_execucao(
-            registro, _relatorio("rep_c"), corrige="rep_x", declaracao="bug", relogio=relogio
+            registro, _confirmatorio("rep_c"), corrige="rep_x", declaracao="bug", relogio=relogio
         )
     registrar_execucao(
         registro,
-        _relatorio("rep_c"),
-        corrige="rep_a",
+        _confirmatorio("rep_c"),
+        corrige="rep_b",
         declaracao="erro de agregação corrigido no commit X",
         relogio=relogio,
     )
     entradas = ler_registro(registro)
     assert [e["report_id"] for e in entradas] == ["rep_a", "rep_b", "rep_c"]
-    assert entradas[2]["corrige"] == "rep_a"
+    assert entradas[2]["corrige"] == "rep_b"
     linhas = registro.read_text(encoding="utf-8").splitlines()
     linhas[0] = linhas[0].replace("rep_a", "rep_z")
     registro.write_text("\n".join(linhas) + "\n", encoding="utf-8")
@@ -254,6 +269,60 @@ def test_segunda_rodada_confirmatoria_exige_correcao_declarada(tmp_path: Path) -
         relogio=relogio,
     )
     assert len(ler_registro(registro)) == 2
+
+
+def test_correcao_de_outro_congelamento_ou_de_exploratorio_nao_reabre_o_teste(
+    tmp_path: Path,
+) -> None:
+    """Só a estrutura do registro: relatórios sem dados, nenhum resultado empírico."""
+    registro = tmp_path / "registro.jsonl"
+    registrar_execucao(registro, _confirmatorio("rep_a1", FREEZE_A), relogio=relogio)
+    registrar_execucao(registro, _confirmatorio("rep_b1", FREEZE_B), relogio=relogio)
+    registrar_execucao(registro, _relatorio("rep_expl", freeze_id=FREEZE_A), relogio=relogio)
+    antes = registro.read_text(encoding="utf-8")
+    alvos = {
+        "rep_b1": "correcao_de_outro_congelamento",
+        "rep_expl": "correcao_de_relatorio_nao_confirmatorio",
+        "rep_x": "correcao_de_execucao_inexistente",
+    }
+    for alvo, motivo in alvos.items():
+        with pytest.raises(ValueError, match=motivo):
+            registrar_execucao(
+                registro,
+                _confirmatorio("rep_a2", FREEZE_A),
+                corrige=alvo,
+                declaracao="bug no carregamento",
+                relogio=relogio,
+            )
+    assert registro.read_text(encoding="utf-8") == antes
+    with pytest.raises(PortaoRecusado, match="reabertura_do_teste_sem_correcao_declarada"):
+        registrar_execucao(registro, _confirmatorio("rep_a2", FREEZE_A), relogio=relogio)
+    registrar_execucao(
+        registro,
+        _confirmatorio("rep_a2", FREEZE_A),
+        corrige="rep_a1",
+        declaracao="bug no carregamento; rodada rep_a1 preservada",
+        relogio=relogio,
+    )
+    entradas = ler_registro(registro)
+    assert [e["report_id"] for e in entradas] == ["rep_a1", "rep_b1", "rep_expl", "rep_a2"]
+    assert entradas[3]["corrige"] == "rep_a1"
+
+
+def test_correcao_na_primeira_rodada_nao_cita_relatorio_de_outro_congelamento(
+    tmp_path: Path,
+) -> None:
+    registro = tmp_path / "registro.jsonl"
+    registrar_execucao(registro, _confirmatorio("rep_a1", FREEZE_A), relogio=relogio)
+    with pytest.raises(ValueError, match="correcao_de_outro_congelamento"):
+        registrar_execucao(
+            registro,
+            _confirmatorio("rep_b1", FREEZE_B),
+            corrige="rep_a1",
+            declaracao="bug",
+            relogio=relogio,
+        )
+    assert [e["report_id"] for e in ler_registro(registro)] == ["rep_a1"]
 
 
 def _runs_exploratorios(cenario: Cenario, out: Path) -> list[RunResult]:

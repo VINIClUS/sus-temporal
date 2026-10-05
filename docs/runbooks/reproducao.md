@@ -326,10 +326,10 @@ outro `run_id`; por isso as saídas se comparam sem essa coluna.
 
 | Situação | Significa | Saída |
 |---|---|---|
-| `IGUAL` | linhas e hash lógico coincidem (e os bytes, se há arquivo original) | 0 |
+| `IGUAL` | linhas e hash lógico coincidem (e os bytes, se há arquivo original legível; sem ele, `detalhe` `original_ausente` ou `original_ilegivel` e vale o hash declarado no manifesto) | 0 |
 | `BYTES_DIFERENTES_HASH_LOGICO_IGUAL` | mesmo conteúdo, bytes de Parquet diferentes (compressão, ordem ou metadados); é relatado e não é falha | 0 |
 | `DIVERGENTE` | conteúdo diferente; inclui original que não confere com o declarado | 5 (`reproducao_divergente`) |
-| `INCONCLUSIVO` | falta o original para comparar (relatório, execução ou saída ausente) ou o ingest refeito não normalizou um artefato do SIA-PA congelado (`originais_indisponiveis`: arquivo ausente, truncado ou com leiaute incompatível); nunca é violação, mas também não conta como reproduzido | 5 (`reproducao_inconclusiva`) |
+| `INCONCLUSIVO` | falta o original para comparar (relatório, execução ou saída ausente, truncada ou fora do contrato) ou o ingest refeito não normalizou um artefato do SIA-PA congelado (`originais_indisponiveis`: arquivo ausente, truncado ou com leiaute incompatível); nunca é violação, mas também não conta como reproduzido | 5 (`reproducao_inconclusiva`) |
 
 O `resultado` geral é a pior situação dos itens. `reproducao.json` é gravado antes da falha
 (`freeze_id`, `modo`, `origem_dados`, `resultado`, `relatorio_refeito`, `observacoes` e as
@@ -354,8 +354,10 @@ outros caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit>
   reproduzir sem abrir nova rodada confirmatória pede uma decisão que ainda não existe (T14-9 e
   T14-13 em `docs/PENDENCIAS.md`). A alegação AL-22 continua PENDENTE.
 - Os caminhos de `DatasetRef` no manifesto são absolutos (T08-i6): sem o arquivo original no
-  caminho gravado, a união e os rótulos ainda são conferidos pelo hash declarado (`detalhe`
-  `original_ausente`), mas as saídas ficam `INCONCLUSIVO`.
+  caminho gravado, ou com o arquivo truncado, a união e os rótulos ainda são conferidos pelo hash
+  declarado (`detalhe` `original_ausente` ou `original_ilegivel`), mas as saídas, o relatório e as
+  notas ficam `INCONCLUSIVO`. O arquivo refeito ilegível, que é saída da própria reprodução, segue
+  sendo falha (`arquivo_ilegivel`).
 - Os comandos rodam da raiz do clone (ou de um diretório com cópia de `catalog/` e `config/`):
   `config/splits.yaml`, `catalog/schemas/selecao_versoes.yaml` e `experiments/decisions` são
   relativos ao diretório de trabalho.

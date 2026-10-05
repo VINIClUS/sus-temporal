@@ -115,6 +115,18 @@ def test_linha_a_menos_no_refeito_e_divergente_pela_contagem(tmp_path: Path) -> 
     assert (resultado.obtido or "").startswith("5:")
 
 
+def test_contagem_declarada_diferente_da_refeita_e_divergente_mesmo_com_o_mesmo_hash(
+    tmp_path: Path,
+) -> None:
+    refeita = gravar(LINHAS, tmp_path / "refeito" / "a.parquet")
+    declarada = gravar(LINHAS, tmp_path / "original" / "a.parquet").model_copy(update={"linhas": 7})
+    resultado = comparar_referencia("conjunto:x", declarada, refeita)
+    assert resultado.situacao is Situacao.DIVERGENTE
+    assert resultado.detalhe == "refeito_diverge"
+    assert (resultado.esperado or "").startswith("7:")
+    assert (resultado.obtido or "").startswith("6:")
+
+
 def test_hash_do_refeito_e_recalculado_do_arquivo_e_nao_lido_da_referencia(tmp_path: Path) -> None:
     esperada = gravar(LINHAS, tmp_path / "original" / "a.parquet")
     adulterado = gravar(

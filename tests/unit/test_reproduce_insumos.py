@@ -70,6 +70,12 @@ def test_auxiliar_cujo_arquivo_original_falta_torna_a_politica_inconclusiva() ->
     assert item.detalhe == "originais_indisponiveis artefatos=1 estados=ARQUIVOAUSENTE"
 
 
+def test_artefato_indisponivel_so_no_segundo_conjunto_auxiliar_tambem_conta() -> None:
+    entrada = _entrada(_conjunto("cnes_estab_cbo.v1", A1), _conjunto("sigtap_procedimento.v1", A2))
+    item = _inconclusivo(entrada, {A1: NORMALIZADO, A2: "QUARENTENA_TRUNCADO"})
+    assert item.detalhe == "originais_indisponiveis artefatos=1 estados=QUARENTENA_TRUNCADO"
+
+
 def test_artefato_que_o_ingest_nem_listou_conta_como_indisponivel() -> None:
     entrada = _entrada(_conjunto("sigtap_procedimento.v1", A1))
     item = _inconclusivo(entrada, {})

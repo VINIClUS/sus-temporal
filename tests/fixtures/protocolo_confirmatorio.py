@@ -151,12 +151,14 @@ def run_compativel(
     uniforme: str | None = None,
     resultados: dict[str, str] | None = None,
     entradas_a_mais: tuple[DatasetRef, ...] = (),
+    repetidas: tuple[str, ...] = (),
 ) -> RunResult:
     """Execução do método sobre o TESTE, igual ao protocolo congelado.
 
     `uniforme` dá o mesmo resultado a todas as linhas (uma execução corrigida, com outro id);
-    `resultados` troca o que a saída traz (linhas a menos ou a mais) e `entradas_a_mais` declara
-    outras entradas congeladas, como as partições que um baseline também lê.
+    `resultados` troca o que a saída traz (linhas a menos ou a mais), `entradas_a_mais` declara
+    outras entradas congeladas, como as partições que um baseline também lê, e `repetidas` grava
+    esses `row_id` duas vezes.
     """
     assert cenario.split.particoes is not None
     if resultados is None:
@@ -177,11 +179,19 @@ def run_compativel(
         ),
     }
     if metodo is MetodoId.B_ML:
-        return run_agregados(metodo, resultados, out, tipo=TipoExecucao.BASELINE_ML, **comuns)
+        return run_agregados(
+            metodo, resultados, out, tipo=TipoExecucao.BASELINE_ML, repetidas=repetidas, **comuns
+        )
     regras = catalogo_sha256(carregar_regras())
     politica_id = POLITICA_DO_METODO[metodo]
     return run_agregados(
-        metodo, resultados, out, politica_id=politica_id, catalogo_regras_sha256=regras, **comuns
+        metodo,
+        resultados,
+        out,
+        repetidas=repetidas,
+        politica_id=politica_id,
+        catalogo_regras_sha256=regras,
+        **comuns,
     )
 
 

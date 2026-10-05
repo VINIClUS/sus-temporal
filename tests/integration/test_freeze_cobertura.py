@@ -1,8 +1,9 @@
-"""Cobertura dos resultados de cada método sobre a população avaliada (T11, SINTETICO).
+"""Cobertura e unicidade dos resultados de cada método sobre a população avaliada (T11).
 
 Uma execução CONCLUIDA cuja saída omite registros do TESTE seguia para a rodada, e cada
-resultado ausente virava abstenção. Cenário sintético rotulado REAL só nos contratos;
-decisões G0/G2 só em diretórios temporários. Nenhum resultado empírico.
+resultado ausente virava abstenção; a que repete (método, row_id) deixava o último resultado
+lido vencer, e a cobertura, que compara conjuntos, não via. Cenário SINTETICO rotulado REAL só
+nos contratos; decisões G0/G2 só em diretórios temporários. Nenhum resultado empírico.
 """
 
 from __future__ import annotations
@@ -33,7 +34,10 @@ from tests.fixtures.protocolo_confirmatorio import (
     split_como_real,
 )
 from tests.fixtures.protocolo_dados import cenario_baseline
-from tests.fixtures.protocolo_predicoes import predicoes_sem_linhas_do_teste
+from tests.fixtures.protocolo_predicoes import (
+    predicoes_com_linhas_repetidas,
+    predicoes_sem_linhas_do_teste,
+)
 
 from sustemporal.config import load_config
 from sustemporal.contracts.config import RunConfig
@@ -98,6 +102,19 @@ def _mensagem(metodo: str, ausentes: int, extras: int) -> str:
     return f"^{re.escape(base)}$"
 
 
+def _mensagem_duplicado(metodo: str, duplicados: int) -> str:
+    base = f"execucao_com_resultado_duplicado metodo={metodo} duplicados={duplicados}"
+    return f"^{re.escape(base)}$"
+
+
+def _nota(metodo: str, ausentes: int = 0, extras: int = 0, duplicados: int = 0) -> str:
+    return f"{NOTA} metodo={metodo} ausentes={ausentes} extras={extras} duplicados={duplicados}"
+
+
+def _primeiros_row_ids(conf: Confirmatorio, metodo: MetodoId, quantos: int) -> tuple[str, ...]:
+    return tuple(sorted(resultados_do_teste(conf.cenario, metodo)))[:quantos]
+
+
 def _da_calibracao(conf: Confirmatorio) -> list[str]:
     linhas = conf.cenario.linhas
     return [lp.row_id for lp in linhas if lp.competencia_processamento == "202301"]
@@ -151,8 +168,7 @@ def test_confirmatorio_aceita_resultado_de_outras_particoes_se_a_execucao_as_dec
         confirmatorio, tmp_path, M_TEMP, resultados=com_extras, entradas_a_mais=(calibracao,)
     )
     relatorio = _avaliar(confirmatorio, tmp_path / "av", runs)
-    nota = f"cobertura_dos_resultados metodo=M_TEMP ausentes=0 extras={POR_COMPETENCIA}"
-    assert nota in relatorio.notas
+    assert _nota("M_TEMP", extras=POR_COMPETENCIA) in relatorio.notas
 
 
 def test_relatorio_confirmatorio_registra_a_cobertura_de_cada_metodo_em_ordem_alfabetica(
@@ -160,7 +176,7 @@ def test_relatorio_confirmatorio_registra_a_cobertura_de_cada_metodo_em_ordem_al
 ) -> None:
     relatorio = _avaliar(confirmatorio, tmp_path / "av", confirmatorio.runs)
     notas = [nota for nota in relatorio.notas if nota.startswith(NOTA)]
-    assert notas == [f"{NOTA} metodo={m} ausentes=0 extras=0" for m in sorted(METODOS)]
+    assert notas == [_nota(metodo) for metodo in sorted(METODOS)]
 
 
 @pytest.mark.parametrize("com_manifesto", [False, True], ids=["sem_manifesto", "com_manifesto"])
@@ -180,9 +196,46 @@ def test_exploratorio_so_registra_as_contagens_de_cobertura(
         [run], rotulos, cenario.split, tmp_path / "av", congelamento=congelamento
     )
     ausentes = len(calibracao) - 5
-    assert f"{NOTA} metodo=B_PROC ausentes={ausentes} extras=0" in relatorio.notas
+    assert _nota("B_PROC", ausentes=ausentes) in relatorio.notas
     abstencao = next(m for m in relatorio.metricas if m.nome == "B_PROC.abstencao")
     assert abstencao.numerador == ausentes
+
+
+@pytest.mark.parametrize("indice", [M_TEMP, B_ML], ids=["motor", "baseline"])
+@pytest.mark.parametrize("repetidos", [1, 3])
+def test_confirmatorio_recusa_execucao_com_resultado_repetido_do_mesmo_row_id(
+    tmp_path: Path, confirmatorio: Confirmatorio, indice: int, repetidos: int
+) -> None:
+    metodo = confirmatorio.runs[indice].metodo
+    assert metodo is not None
+    repetidas = _primeiros_row_ids(confirmatorio, metodo, repetidos)
+    runs = _trocar(confirmatorio, tmp_path, indice, repetidas=repetidas)
+    with pytest.raises(PortaoRecusado, match=_mensagem_duplicado(metodo.value, repetidos)):
+        _avaliar(confirmatorio, tmp_path / "av", runs)
+    assert not (tmp_path / "av").exists()
+
+
+def test_confirmatorio_cita_o_resultado_repetido_antes_da_cobertura(
+    tmp_path: Path, confirmatorio: Confirmatorio
+) -> None:
+    sem_dois = _sem_os_primeiros(confirmatorio, MetodoId.M_TEMP, 2)
+    repetida = tuple(sorted(sem_dois))[:1]
+    runs = _trocar(confirmatorio, tmp_path, M_TEMP, resultados=sem_dois, repetidas=repetida)
+    with pytest.raises(PortaoRecusado, match=_mensagem_duplicado("M_TEMP", 1)):
+        _avaliar(confirmatorio, tmp_path / "av", runs)
+
+
+def test_exploratorio_registra_o_resultado_repetido_e_segue(
+    tmp_path: Path, cenario: Cenario
+) -> None:
+    assert cenario.split.rotulos_por_particao is not None
+    calibracao = [lp for lp in cenario.linhas if lp.competencia_processamento == "202301"]
+    resultados = {lp.row_id: "ALERTA" for lp in calibracao}
+    repetidas = tuple(sorted(resultados))[:2]
+    run = run_agregados(MetodoId.B_PROC, resultados, tmp_path / "exploratorio", repetidas=repetidas)
+    rotulos = cenario.split.rotulos_por_particao[Particao.CALIBRACAO]
+    relatorio = evaluate_runs([run], rotulos, cenario.split, tmp_path / "av")
+    assert _nota("B_PROC", duplicados=2) in relatorio.notas
 
 
 @dataclass(frozen=True)
@@ -231,7 +284,7 @@ def test_baseline_real_no_confirmatorio_tem_cobertura_completa_nos_dois_metodos(
 ) -> None:
     relatorio = com_baseline_real.avaliar(tmp_path / "av")
     for metodo in ("B_ML", "CONTROLE_TRIVIAL"):
-        assert f"cobertura_dos_resultados metodo={metodo} ausentes=0 extras=0" in relatorio.notas
+        assert _nota(metodo) in relatorio.notas
 
 
 @pytest.mark.parametrize(
@@ -252,6 +305,19 @@ def test_baseline_com_predicoes_do_teste_a_menos_e_recusado(
     )
     with pytest.raises(PortaoRecusado, match=_mensagem(metodo, ausentes, 0)):
         com_baseline_real.avaliar(tmp_path / "av", [*motores, cortada])
+    assert not (tmp_path / "av").exists()
+
+
+@pytest.mark.parametrize("metodo", ["B_ML", "CONTROLE_TRIVIAL"])
+def test_baseline_real_com_predicoes_repetidas_e_recusado(
+    tmp_path: Path, com_baseline_real: ComBaselineReal, metodo: str
+) -> None:
+    *motores, baseline = com_baseline_real.runs
+    repetida = predicoes_com_linhas_repetidas(
+        baseline, tmp_path / "repetida", metodo=metodo, quantas=2
+    )
+    with pytest.raises(PortaoRecusado, match=_mensagem_duplicado(metodo, 2)):
+        com_baseline_real.avaliar(tmp_path / "av", [*motores, repetida])
     assert not (tmp_path / "av").exists()
 
 

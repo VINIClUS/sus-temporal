@@ -41,11 +41,13 @@ def run_agregados(
     *,
     modo: ModoExecucao = ModoExecucao.EXPLORATORIO,
     origem: OrigemDados = OrigemDados.SINTETICO,
+    repetidas: tuple[str, ...] = (),
     **campos: Any,
 ) -> RunResult:
     """Execução sintética do motor com `agregados_registro.v1` (resultado por row_id).
 
-    `campos` sobrescreve os campos do `RunResult`; `origem` REAL é só rótulo de teste.
+    `campos` sobrescreve os campos do `RunResult`; `origem` REAL é só rótulo de teste. Cada
+    `row_id` de `repetidas` é gravado uma vez a mais, ainda consistente com o `DatasetRef`.
     """
     run_id = f"run_{metodo.value.lower()}_{hash_canonico(resultados)[:16]}"
     linhas = [
@@ -60,6 +62,8 @@ def run_agregados(
         }
         for row_id, resultado in sorted(resultados.items())
     ]
+    por_row_id = {linha["row_id"]: linha for linha in linhas}
+    linhas = [*linhas, *(por_row_id[row_id] for row_id in repetidas)]
     artefatos = tuple(sorted({row_id.split("#")[0] for row_id in resultados}))
     saida = gravar_tabela(
         linhas,

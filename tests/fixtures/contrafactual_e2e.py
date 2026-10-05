@@ -83,7 +83,7 @@ class ChamadaMotor:
 
 
 def _execucao(config: Path, saidas: Path) -> ExecucaoReal:
-    (caminho,) = sorted(saidas.glob("*/val_*/run_result.json"))
+    (caminho,) = sorted(saidas.glob("runs/val_*/run_result.json"))
     run = RunResult.model_validate_json(caminho.read_text(encoding="utf-8"))
     ref = next(s for s in run.saidas if s.schema_id == "avaliacoes.v1")
     estados: dict[str, dict[str, str]] = {}

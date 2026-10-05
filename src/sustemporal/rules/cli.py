@@ -13,6 +13,7 @@ from sustemporal.contracts.experiment import EstadoExecucao
 from sustemporal.contracts.temporal import MetodoId, PoliticaTemporal
 from sustemporal.duck import conectar
 from sustemporal.errors import ConfigInvalida, ExitCode
+from sustemporal.execucoes import raiz_execucoes
 from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
 from sustemporal.rules.engine import evaluate_rules
 from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
@@ -88,17 +89,19 @@ def _concluir(resultado: RunResult, metodo: MetodoId) -> int:
 def executar_validate(args: argparse.Namespace, config: RunConfig) -> int:
     """`--policy documented|atendimento|processamento` → M_TEMP|B_ATEND|B_PROC.
 
-    `--ingest DIR` lê a pasta do `sustemporal ingest` e o registro temporal; saídas em
-    `<raiz_saidas>/runs/<run_id>/`. `--entrada JSON` mantém os insumos explícitos.
+    `--ingest DIR` lê a pasta do `sustemporal ingest` e o registro temporal; `--entrada JSON`
+    mantém os insumos explícitos. Nos dois modos a execução é gravada em
+    `<raiz_saidas>/runs/<run_id>/` (`raiz_execucoes`), o único lugar onde `explain` e
+    `counterfactual` descobrem execuções; `--saida` desvia a gravação, e então eles não a acham.
 
     Raises:
         ConfigInvalida: entrada, catálogo, política, manifesto ou pasta do ingest inválidos.
         FalhaOperacionalErro: `row_id` repetido na produção do ingest.
     """
     metodo = METODO_DA_POLITICA[args.policy]
+    saida = args.saida or raiz_execucoes(config)
     if args.ingest is not None:
-        saida_runs = args.saida or Path(config.runtime.raiz_saidas) / "runs"
-        return _concluir(validar_ingest(args.ingest, metodo, config, saida_runs), metodo)
+        return _concluir(validar_ingest(args.ingest, metodo, config, saida), metodo)
     entrada = _ler_entrada(args.entrada)
     with closing(conectar(config.runtime)) as con:
         exigir_sem_deletados(con, entrada.dataset)
@@ -115,7 +118,6 @@ def executar_validate(args: argparse.Namespace, config: RunConfig) -> int:
         politica=politica,
         identidade_adicional=entrada.identidade_adicional or {},
     )
-    saida = args.saida or Path(config.runtime.raiz_saidas) / "validacao"
     try:
         gravada = entrada.model_copy(update={"politica": politica})
         resultado = evaluate_rules(

@@ -5,8 +5,18 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
+from tests.fixtures.cnes_dbc import artefato_cnes, dbc_cnes, registro_pf
 from tests.fixtures.piloto_conjuntos import cobertura_sintetica, conjunto_sia_pa, registro
-from tests.fixtures.piloto_relatorio import coorte_piloto, linhas_tabela, metrica
+from tests.fixtures.piloto_manifesto import registrar_versoes
+from tests.fixtures.piloto_relatorio import (
+    coorte_piloto,
+    linhas_tabela,
+    metrica,
+    relatorio_gravado,
+)
+from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa
+from tests.fixtures.sigtap_zip import artefato_sigtap, pacote_padrao, zip_sigtap
+from tests.integration.test_pilot_report import PF, _estados_disponibilidade
 
 from sustemporal.reporting.report import build_pilot_report
 
@@ -67,3 +77,28 @@ def test_campos_de_erro_so_entram_na_tabela_de_ausencia_de_campos(tmp_path: Path
         assert not set(CAMPOS_DE_ERRO) & set(pq.read_schema(tabela.caminho).names)
     outras = {m.estrato for m in relatorio.metricas if m.nome != "taxa_ausencia_campo"}
     assert not outras & set(CAMPOS_DE_ERRO)
+
+
+def _manifesto_so_com_parte_truncada(pasta: Path) -> None:
+    store = pasta / "dados" / "raw"
+    (pasta / "manifestos").mkdir(parents=True)
+    truncada = dbc_pa([registro("C", "201801", "201801")], truncar_bytes=30)
+    versoes = [
+        artefato_pa(store, truncada),
+        artefato_sigtap(store, zip_sigtap(pacote_padrao("201801"))),
+        artefato_cnes(store, dbc_cnes(PF, [registro_pf("0012345", "225125")]), PF),
+    ]
+    registrar_versoes(pasta / "manifestos" / "aquisicao.jsonl", versoes)
+
+
+def test_competencia_so_com_artefato_truncado_continua_ausente_e_incompleta(
+    tmp_path: Path,
+) -> None:
+    _manifesto_so_com_parte_truncada(tmp_path)
+    estados = _estados_disponibilidade(tmp_path, ["a"])
+    assert set(estados.values()) == {"AUSENTE"}
+    linhas = linhas_tabela(relatorio_gravado(tmp_path), "piloto_disponibilidade.v1")
+    motivos = [str(lin["motivo"]) for lin in linhas]
+    assert not any("populacao_vazia_no_recorte" in motivo for motivo in motivos)
+    assert all("sia_pa_incompleto competencia=201801 motivo=" in m for m in motivos)
+    assert all("sia_pa_ausente competencia=201801" in m for m in motivos)

@@ -19,9 +19,17 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
   valor, de competência, instrumento e estabelecimento (CNES); só o TOTAL e as diferenças
   pareadas levam intervalo. As execuções vêm de `<raiz_saidas>/runs/<run_id>/`: o
   `run_result.json` do motor de regras (`validate --saida <raiz_saidas>/runs`) ou o `run.json` do
-  baseline; os dois no mesmo diretório são recusados (`execucao_ambigua`).
+  baseline; os dois no mesmo diretório são recusados (`execucao_ambigua`). Entram só as
+  execuções confirmatórias do mesmo `freeze_id`; as demais são ignoradas
+  (`evaluate_execucao_ignorada` no log) e, sem nenhuma, o comando sai com código 2
+  (`avaliacao_sem_execucoes`). Cada método precisa de resultado para todo registro do TESTE
+  (seção "Cobertura dos resultados").
 - `sustemporal evaluate --freeze <id> --exploratory`: explícito. Avalia só a CALIBRACAO e
-  registra a divergência do manifesto em vez de recusar.
+  registra a divergência do manifesto em vez de recusar. Entram só as execuções exploratórias com
+  o `config_hash` da config do comando e entradas do split do congelamento (ao menos uma entrada
+  dos esquemas congelados e todas conteúdo congelado, a população da CALIBRACAO inclusive); as
+  demais de `runs/` são ignoradas (`evaluate_execucao_ignorada`) e, sem nenhuma, o comando sai
+  com código 2 (`avaliacao_sem_execucoes`), sem relatório nem registro.
 - `registro_execucoes.jsonl`: registro append-only, em que cada linha leva o próprio hash e o
   da anterior. Toda avaliação entra, inclusive a de resultado nulo. Depois da abertura do teste,
   nova rodada confirmatória do mesmo congelamento exige `corrige` + `declaracao`, e a rodada
@@ -66,6 +74,23 @@ falhas registradas (`execucao_incompleta_no_confirmatorio`), porque o que faltou
 abstenção do método; e manifesto sem catálogo de regras ou políticas, que recusa as execuções
 que usam regras (as de baseline só repetem código, ambiente, config e entradas). Nada disso
 entra no registro de rodadas.
+
+## Cobertura dos resultados
+
+Antes de calcular qualquer métrica, `evaluate_runs` compara, por método, o `row_id` dos
+resultados lidos com a população da partição avaliada (`evaluation/metrics_cobertura.py`):
+`ausentes` são registros sem resultado e `extras`, resultados de registros de fora dela. O
+método que as predições do baseline declaram em outra partição e que não tem nenhum resultado do
+TESTE (o controle trivial) conta com todos os registros ausentes.
+
+- Confirmatório: qualquer ausente recusa a avaliação (`execucao_com_cobertura_incompleta
+  metodo=<método> ausentes=<N> extras=<M>`, saída 4), sem relatório e sem registro; o primeiro
+  método em ordem alfabética é o citado. Extras só passam se a execução traz, entre as entradas, a
+  população de outra partição congelada (o baseline lê as partições que ajusta e avalia), o que
+  se confere pelos hashes (pendência T11 #24).
+- Exploratório: a linha sem resultado segue contando como abstenção do método e as contagens
+  vão para as notas do relatório, nos dois modos (`cobertura_dos_resultados metodo=<método>
+  ausentes=<N> extras=<M>`).
 
 Dados sintéticos nunca são confirmatórios. Nenhum congelamento real existe neste repositório
 enquanto o projeto estiver antes do G0.

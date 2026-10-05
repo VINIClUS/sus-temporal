@@ -6,6 +6,7 @@ refazer o fluxo; o e2e (`test_reproduce_offline.py`) cobre a costura com os arqu
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import pytest
@@ -19,6 +20,7 @@ from sustemporal.reporting.reproduce_comparacao import (
     observacoes_do_ambiente,
     rodada_registrada,
 )
+from sustemporal.reporting.reproduce_etapas import estados_do_ingest
 from tests.fixtures.protocolo_dados import cenario_baseline
 from tests.fixtures.reproducao_parquet import gravar, linha
 
@@ -253,3 +255,32 @@ def test_rodada_registrada_nao_mistura_congelamento_nem_modo() -> None:
 def test_sem_rodada_do_congelamento_e_modo_nao_ha_original() -> None:
     assert rodada_registrada(REGISTRO, "frz_c", "EXPLORATORIO") is None
     assert rodada_registrada([], "frz_a", "EXPLORATORIO") is None
+
+
+def _gravar_resultados(pasta: Path, resultados: list[dict[str, str]]) -> None:
+    linhas = "".join(f"{json.dumps(resultado)}\n" for resultado in resultados)
+    (pasta / "resultados.jsonl").write_text(linhas, encoding="utf-8")
+
+
+def test_artefato_com_resultados_mistos_nao_conta_como_normalizado(tmp_path: Path) -> None:
+    _gravar_resultados(
+        tmp_path,
+        [
+            {"artifact_id": "art_x", "estado": "NORMALIZADO"},
+            {"artifact_id": "art_x", "estado": "ARQUIVOAUSENTE"},
+            {"artifact_id": "art_x", "estado": "NORMALIZADO"},
+            {"artifact_id": "art_y", "estado": "NORMALIZADO"},
+        ],
+    )
+    assert estados_do_ingest(tmp_path) == {"art_x": "ARQUIVOAUSENTE", "art_y": "NORMALIZADO"}
+
+
+def test_artefato_com_dois_estados_de_falha_guarda_o_primeiro(tmp_path: Path) -> None:
+    _gravar_resultados(
+        tmp_path,
+        [
+            {"artifact_id": "art_x", "estado": "QUARENTENA_LEIAUTE"},
+            {"artifact_id": "art_x", "estado": "ARQUIVOAUSENTE"},
+        ],
+    )
+    assert estados_do_ingest(tmp_path) == {"art_x": "QUARENTENA_LEIAUTE"}

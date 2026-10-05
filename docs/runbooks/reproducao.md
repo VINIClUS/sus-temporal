@@ -406,10 +406,9 @@ inclusive a repetida; os hashes lógicos dos conjuntos ficam em `datasets.jsonl`
 
 **Destino do `validate`.** `validate` (`--entrada` e `--ingest`) grava em
 `<raiz_saidas>/runs/<run_id>/`, o único lugar em que `explain`, `counterfactual` e `evaluate`
-procuram execuções (leitor comum `sustemporal.execucoes`, que exige o `run_id` exato). `--saida
-DIR` desvia a gravação, e então a execução não é achada por eles. O `evaluate` usa a mesma pasta por
-constante própria; trocá-la por `raiz_execucoes(config)` é do PR de integração do orquestrador
-(ORQ-28 em `docs/PENDENCIAS.md`).
+procuram execuções, todos por `raiz_execucoes(config)` (leitor comum `sustemporal.execucoes`, que
+exige o `run_id` exato). `--saida DIR` desvia a gravação, e então a execução não é achada por
+eles.
 
 **Entradas do `freeze` e do `evaluate`.** Eles leem as partições em `<raiz_saidas>/split`
 (`spl_*.json` e `<split_id>.entradas.json`). O `freeze` lê também, **por política**,

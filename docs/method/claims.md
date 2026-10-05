@@ -343,7 +343,7 @@ O que o teste não garante, e quem garante:
   principal concorrente.
 - **Ferramentas:** `src/sustemporal/evaluation/baselines.py`, `sustemporal freeze`,
   `sustemporal evaluate`
-- **Pendências:** T10-1, T10-3, T10-4, T10-5, T10-6, T10-7, T10-8
+- **Pendências:** T10-1, T10-3, T10-4, T10-5, T10-6, T10-7
 
 ### AL-15 — P1: sensibilidade por ablação
 
@@ -473,7 +473,7 @@ O que o teste não garante, e quem garante:
   recente de republicações é análise separada, não substituição de um teste com resultado
   desfavorável. Execução sintética nunca é confirmatória.
 - **Ferramentas:** `sustemporal freeze`, `sustemporal evaluate`
-- **Pendências:** T10-8, T10-2
+- **Pendências:** T10-2, T11-4, T11-11, T11-18
 
 ### AL-22 — Reprodução por terceiros
 
@@ -495,7 +495,7 @@ O que o teste não garante, e quem garante:
   referências, hashes e trechos curtos.
 - **Ferramentas:** `sustemporal reproduce`, `src/sustemporal/reporting/reproduce.py`,
   `docs/runbooks/reproducao.md`
-- **Pendências:** T14-1, T14-9, T14-13, T08-i6
+- **Pendências:** T14-9, T14-13, T08-i6
 
 ## O que os testes de software verificam
 

@@ -169,12 +169,23 @@ def test_nota_que_muda_ou_falta_ou_sobra_e_divergente_com_as_contagens() -> None
     assert resultado.detalhe == "faltando=1 sobrando=2 primeira=reamostragens=50"
 
 
+def test_primeira_nota_diferente_sai_truncada_em_80_caracteres() -> None:
+    longa = "n" * 200
+    resultado = comparar_notas("notas", [longa], ["outra"])
+    assert resultado.detalhe == f"faltando=1 sobrando=1 primeira={'n' * 80}"
+
+
+def test_sem_nota_a_menos_a_primeira_diferente_e_a_que_sobra() -> None:
+    resultado = comparar_notas("notas", ["a"], ["a", "z", "b"])
+    assert resultado.detalhe == "faltando=0 sobrando=2 primeira=b"
+
+
 def test_notas_repetidas_contam_como_notas_repetidas() -> None:
     assert comparar_notas("notas", ["a", "a"], ["a"]).situacao is Situacao.DIVERGENTE
 
 
 CODIGO = CodeVersion(commit="a" * 40, sujo=False, versao_pacote="0.0.0")
-PACOTES = {"duckdb": "1.0", "pyarrow": "2.0"}
+PACOTES = {"pyarrow": "2.0", "duckdb": "1.0"}
 
 
 def _observacoes(

@@ -28,7 +28,7 @@ ou de decisão humana foi fechada. Nada aqui é resultado empírico.
 | Avaliadores | 3 | 3 |
 | Engenharia | 19 | 82 |
 | Fechadas | 2 | 20 |
-| Orquestrador (seção 5) | 22 linhas `ORQ` | fora dos arquivos T*.md |
+| Orquestrador (seção 5) | 23 linhas `ORQ` | fora dos arquivos T*.md |
 
 Total de itens dos arquivos T*.md: 204 em 13 arquivos.
 
@@ -476,7 +476,8 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
   `counterfactual_contexto.py`; CLI no PR #28.
 - **Runbook:** —
 - **Estado:** aberta (depende do PR #28)
-- **Nota:** Sem o CNES ST da competência, inclusão e reclassificação ficam inadmissíveis.
+- **Nota:** Sem o CNES ST da competência, inclusão e reclassificação ficam inadmissíveis. Ver ORQ-04
+  e ORQ-23 (helper comum de CLI e destinos das execuções).
 
 ### EN-14 — Coortes, classificador e congelamento (T10 e T11)
 
@@ -566,6 +567,7 @@ de comentário e de P2 são os do GitHub nos PRs indicados.
 | ORQ-20 | T07 | #27 (P2 4180512815) | Normalizar as colunas anuláveis ausentes (`instrumento`, `competencia_atendimento`) antes do recálculo da cobertura no `validate --ingest`, ou conferir antes de `_gravar`. Hoje o resultado são saídas parciais. | `src/sustemporal/rules/validate_ingest.py` e `src/sustemporal/rules/ingest_conformidade.py` | — |
 | ORQ-21 | T07/T11 | #27 e #29 (integração; a nota não cita um PR) | O `validate` grava por padrão em `<raiz_saidas>/validacao` (modo `--entrada`; o modo `--ingest` já grava em `<raiz_saidas>/runs`), e o `evaluate` procura execuções em `<raiz_saidas>/runs`. Hoje é preciso rodar `validate --saida <raiz_saidas>/runs`. Alinhar os destinos (PR do orquestrador) ou documentar no runbook (S9): documentado em `docs/runbooks/reproducao.md` §6; o alinhamento no código segue aberto. | `validate --saida` (`src/sustemporal/rules/cli.py`) | `docs/runbooks/reproducao.md` §6 |
 | ORQ-22 | T11 | #29 | Pendências #20 (relatório grande e razões instáveis com muitos estabelecimentos no teste de escala de SP; sem intervalo por estrato) e #21 (`split_id` sem validação de conteúdo no contrato `SplitManifest`). | `evaluate_runs` (`src/sustemporal/evaluation/metrics.py`, T11 no PR #29) e `SplitManifest` (`src/sustemporal/contracts/experiment.py`) | `docs/runbooks/reproducao.md` §7.8 (escala) |
+| ORQ-23 | T09 | #28 (P2 4182986818) | O `counterfactual` procura execuções só em `<raiz_saidas>/runs` e `<raiz_saidas>/validacao`, e não acha as gravadas com `validate --saida <dir>`. Tratar junto com o alinhamento dos destinos do `validate` e do `evaluate` (ORQ-21). | `validate --saida` (`src/sustemporal/rules/cli.py`) e a CLI do `counterfactual` (no PR #28) | `docs/runbooks/reproducao.md` §6 |
 
 ## 6. Fechadas, aceitas ou resolvidas (histórico)
 

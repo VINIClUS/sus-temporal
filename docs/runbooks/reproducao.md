@@ -207,8 +207,9 @@ inclusive a repetida; os hashes lógicos dos conjuntos ficam em `datasets.jsonl`
 **Destino do `validate`.** `validate --ingest` grava em `<raiz_saidas>/runs/<run_id>/`, onde o
 `explain` e o `evaluate` procuram as execuções. `validate --entrada` grava em
 `<raiz_saidas>/validacao/` por padrão; para o `evaluate` enxergar essa execução, rode com
-`--saida <raiz_saidas>/runs`. Alinhar os dois destinos no código é pendência do orquestrador (ORQ-21
-em `docs/PENDENCIAS.md`).
+`--saida <raiz_saidas>/runs`. O `counterfactual` (PR #28) procura só em `runs/` e `validacao/`:
+uma execução gravada com `--saida` em outro diretório não é achada. Alinhar os destinos no código é
+pendência do orquestrador (ORQ-21 e ORQ-23 em `docs/PENDENCIAS.md`).
 
 ## 7. O que exige rede ou dados reais
 

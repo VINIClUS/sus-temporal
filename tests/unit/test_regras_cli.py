@@ -7,6 +7,7 @@ import pytest
 
 from sustemporal import cli
 from sustemporal.contracts.experiment import RunResult
+from sustemporal.contracts.records import DatasetRef
 from sustemporal.errors import ExitCode
 from tests.fixtures.regras_cenario import materializar, snapshot_vazio
 from tests.fixtures.regras_exemplos import cenario_base, registro
@@ -51,3 +52,60 @@ def test_validate_com_entrada_invalida_retorna_config_invalida(tmp_path: Path) -
     entrada.write_text("{}", encoding="utf-8")
     argumentos = ["validate", "--config", str(config), "--policy", "atendimento"]
     assert cli.main([*argumentos, "--entrada", str(entrada)]) == ExitCode.CONFIG_INVALIDA
+
+
+def test_validate_com_entrada_grava_a_entrada_da_validacao(tmp_path: Path) -> None:
+    from sustemporal.rules.cli import EntradaValidacao
+
+    config = tmp_path / "config.yaml"
+    config.write_text('versao: "1"\n', encoding="utf-8")
+    saida = tmp_path / "saida"
+    argumentos = ["validate", "--config", str(config), "--policy", "atendimento"]
+    argumentos += ["--entrada", str(_entrada(tmp_path / "in")), "--saida", str(saida)]
+    assert cli.main(argumentos) == ExitCode.OK
+    gravado = next(saida.rglob("run_result.json"))
+    resultado = RunResult.model_validate_json(gravado.read_text(encoding="utf-8"))
+    entrada = EntradaValidacao.model_validate_json(
+        (gravado.parent / "entrada_validacao.json").read_text(encoding="utf-8")
+    )
+    refs = [entrada.dataset, *entrada.auxiliares, entrada.selecoes, entrada.cobertura]
+    assert sorted(r.dataset_id for r in refs if r is not None) == sorted(
+        e.dataset_id for e in resultado.entradas
+    )
+    assert entrada.politica is not None
+    assert entrada.politica.politica_id == resultado.politica_id
+
+
+def test_validate_com_entrada_recusa_producao_com_registro_deletado(tmp_path: Path) -> None:
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    from tests.fixtures.regras_cenario import reemitir
+
+    caminho = _entrada(tmp_path / "in")
+    conteudo = json.loads(caminho.read_text(encoding="utf-8"))
+    dataset = DatasetRef.model_validate(conteudo["dataset"])
+    tabela = pq.read_table(dataset.caminho)
+    deletado = pa.array([True] + [False] * (tabela.num_rows - 1), pa.bool_())
+    pq.write_table(tabela.append_column("deletado", deletado), dataset.caminho)
+    conteudo["dataset"] = reemitir(dataset).model_dump(mode="json")
+    caminho.write_text(json.dumps(conteudo), encoding="utf-8")
+    config = tmp_path / "config.yaml"
+    config.write_text('versao: "1"\n', encoding="utf-8")
+    argumentos = ["validate", "--config", str(config), "--policy", "atendimento"]
+    argumentos += ["--entrada", str(caminho), "--saida", str(tmp_path / "saida")]
+    assert cli.main(argumentos) == ExitCode.CONFIG_INVALIDA
+    assert not (tmp_path / "saida").exists()
+
+
+def test_validate_com_entrada_de_producao_truncada_e_falha_operacional(tmp_path: Path) -> None:
+    caminho = _entrada(tmp_path / "in")
+    conteudo = json.loads(caminho.read_text(encoding="utf-8"))
+    Path(conteudo["dataset"]["caminho"]).write_bytes(b"PAR1truncado")
+    config = tmp_path / "config.yaml"
+    config.write_text('versao: "1"\n', encoding="utf-8")
+    saida = tmp_path / "saida"
+    argumentos = ["validate", "--config", str(config), "--policy", "atendimento"]
+    argumentos += ["--entrada", str(caminho), "--saida", str(saida)]
+    assert cli.main(argumentos) == ExitCode.FALHA_OPERACIONAL
+    assert any(saida.rglob("falhas*.parquet"))

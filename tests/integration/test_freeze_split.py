@@ -8,6 +8,7 @@ resultado empírico.
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import pytest
@@ -37,8 +38,6 @@ from sustemporal.evaluation.freeze import verificar_compatibilidade
 from sustemporal.evaluation.metrics import evaluate_runs
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from tests.fixtures.protocolo_dados import Cenario
 
 OUTRO_HASH = f"lh1:{'e' * 64}"
@@ -118,6 +117,25 @@ def test_avaliacao_confirmatoria_recusa_split_com_o_mesmo_id_e_rotulos_trocados(
             congelamento=confirmatorio.referencia(),
         )
     assert not (tmp_path / "av").exists()
+
+
+def test_split_adulterado_e_recusado_antes_de_ler_qualquer_dado(tmp_path: Path) -> None:
+    conf = montar_confirmatorio(tmp_path, cenario_baseline(tmp_path / "cenario"))
+    adulterado = _editado("rotulos_do_teste_trocados", conf, tmp_path)
+    assert adulterado.particoes is not None
+    assert adulterado.rotulos_por_particao is not None
+    rotulos = adulterado.rotulos_por_particao[Particao.TESTE]
+    for dataset in (adulterado.particoes[Particao.TESTE], rotulos):
+        Path(dataset.caminho).unlink()
+    with pytest.raises(PortaoRecusado, match="split_incompativel_com_congelamento"):
+        evaluate_runs(
+            conf.runs,
+            rotulos,
+            adulterado,
+            tmp_path / "av",
+            bootstrap=conf.manifesto.bootstrap,
+            congelamento=conf.referencia(),
+        )
 
 
 def test_cli_recusa_o_confirmatorio_com_split_editado_que_mantem_o_split_id(

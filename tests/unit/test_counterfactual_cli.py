@@ -212,6 +212,23 @@ def test_entrada_ilegivel_e_recusa_de_contexto(tmp_path: Path, conteudo: bytes) 
 
 
 @pytest.mark.parametrize(
+    "conteudo", [b"\xff\xfe\x00nao_utf8", b'{"run_id": "val_\xe9"}'], ids=["binario", "latin1"]
+)
+def test_run_result_nao_utf8_e_recusa_de_execucao(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, conteudo: bytes
+) -> None:
+    execucao = executar_validacao_sintetica(tmp_path)
+    (_pasta_da_execucao(execucao) / "run_result.json").write_bytes(conteudo)
+    assert _rodar(execucao, execucao.ausencia) == 2
+    assert "counterfactual_recusado erro=execucao_ilegivel" in caplog.text
+    assert not _destino(execucao, execucao.ausencia).exists()
+    with pytest.raises(
+        ContextoIndisponivel, match=r"contrafactual_sem_contexto .*execucao_ilegivel"
+    ):
+        contexto_da_execucao(_saidas(execucao), execucao.run_id, execucao.config)
+
+
+@pytest.mark.parametrize(
     "texto",
     [
         'versao: "1"\noperacoes: [\n',

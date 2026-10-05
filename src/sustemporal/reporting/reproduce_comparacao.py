@@ -147,6 +147,8 @@ def _identidade_do_original(
         return None
 
 
+# Só para exibir: as condições comparam os atributos, porque o SonarCloud acusa S2583 (falso
+# positivo) quando as duas pontas da comparação são chamadas da mesma função.
 def _texto(identidade: Identidade) -> str:
     return f"{identidade.linhas}:{identidade.hash_logico}"
 
@@ -159,7 +161,7 @@ def comparar_referencia(item: str, esperada: DatasetRef, obtida: DatasetRef) -> 
     """
     declarado = f"{esperada.linhas}:{esperada.hash_logico}"
     refeito = identidade_do_arquivo(_arquivo(obtida), obtida.schema_id)
-    if _texto(refeito) != declarado:
+    if (refeito.linhas, refeito.hash_logico) != (esperada.linhas, esperada.hash_logico):
         return Comparacao(item, Situacao.DIVERGENTE, declarado, _texto(refeito), "refeito_diverge")
     original = _arquivo_existente(esperada)
     if original is None:
@@ -167,7 +169,7 @@ def comparar_referencia(item: str, esperada: DatasetRef, obtida: DatasetRef) -> 
     antigo = _identidade_do_original(original, esperada.schema_id)
     if antigo is None:
         return Comparacao(item, Situacao.IGUAL, declarado, declarado, "original_ilegivel")
-    if _texto(antigo) != declarado:
+    if (antigo.linhas, antigo.hash_logico) != (esperada.linhas, esperada.hash_logico):
         return Comparacao(item, Situacao.DIVERGENTE, declarado, _texto(antigo), "original_diverge")
     if antigo.sha256 != refeito.sha256:
         return Comparacao(item, Situacao.BYTES_DIFERENTES, declarado, declarado, "bytes_diferem")
@@ -190,7 +192,7 @@ def comparar_saida(
         return Comparacao(item, Situacao.INCONCLUSIVO, None, None, "original_ilegivel")
     refeito = identidade_do_arquivo(_arquivo(obtida), obtida.schema_id, sem_colunas=sem_colunas)
     detalhe = f"sem_colunas={','.join(sorted(sem_colunas))}"
-    if _texto(antigo) != _texto(refeito):
+    if (antigo.linhas, antigo.hash_logico) != (refeito.linhas, refeito.hash_logico):
         return Comparacao(item, Situacao.DIVERGENTE, _texto(antigo), _texto(refeito), detalhe)
     return Comparacao(item, Situacao.IGUAL, _texto(antigo), _texto(refeito), detalhe)
 

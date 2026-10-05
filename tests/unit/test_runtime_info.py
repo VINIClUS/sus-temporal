@@ -166,3 +166,30 @@ def test_modo_executavel_entra_no_hash_de_diferencas(tmp_path: Path) -> None:
     assert com_modo.diff_sha256 is not None
     assert sem_modo.diff_sha256 != com_modo.diff_sha256
     assert sem_modo_de_novo == sem_modo
+
+
+def test_arquivo_substituido_por_pacote_nao_zera_o_hash(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    (raiz / "modulo.py").unlink()
+    pacote = raiz / "modulo.py"
+    pacote.mkdir()
+    inicio = pacote / "__init__.py"
+    inicio.write_text("X = 1\n", encoding="utf-8")
+    primeira = versao_codigo(raiz)
+    inicio.write_text("X = 2\n", encoding="utf-8")
+    segunda = versao_codigo(raiz)
+    assert primeira.sujo is segunda.sujo is True
+    assert primeira.diff_sha256 is not None
+    assert segunda.diff_sha256 is not None
+    assert primeira.diff_sha256 != segunda.diff_sha256
+
+
+def test_repositorio_aninhado_nao_rastreado_nao_gera_hash_parcial(tmp_path: Path) -> None:
+    raiz = _repositorio(tmp_path)
+    aninhado = raiz / "aninhado"
+    aninhado.mkdir()
+    _git_local(aninhado, "init", "-q")
+    (aninhado / "a.py").write_text("A = 1\n", encoding="utf-8")
+    versao = versao_codigo(raiz)
+    assert versao.sujo is True
+    assert versao.diff_sha256 is None

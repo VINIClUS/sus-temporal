@@ -15,11 +15,12 @@ import duckdb
 import pytest
 
 from sustemporal.contracts import FamiliaRegra, Governanca, ResultadoTentativa, TipoCanonico
-from sustemporal.evaluation.baselines import fit_baseline
+from sustemporal.evaluation.baselines import SCHEMA_PREDICOES, fit_baseline
 from sustemporal.evaluation.features import FEATURES_PADRAO
-from sustemporal.evaluation.values import summarize_values
+from sustemporal.evaluation.values import SCHEMA_VALORES, summarize_values
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.reporting.report import build_pilot_report
+from sustemporal.reporting.report_publicacao import TABELAS_RELATORIO
 from sustemporal.rules.catalog import carregar_esquema
 from tests.fixtures.anotacao_valores import Linha, montar_valores
 from tests.fixtures.piloto_conjuntos import cobertura_sintetica, conjunto_sia_pa, registro
@@ -143,6 +144,11 @@ def _canonico(fisico: str) -> TipoCanonico:
     if fisico.startswith("DECIMAL("):
         return TipoCanonico.DECIMAL
     return CANONICO_DO_FISICO[fisico]
+
+
+def test_o_cenario_publica_todo_esquema_do_relatorio_da_p3_e_do_baseline() -> None:
+    emitidos = {schema_id for schema_id, _ in TABELAS_RELATORIO.values()}
+    assert set(PUBLICADAS) == emitidos | {SCHEMA_VALORES, SCHEMA_PREDICOES.schema_id}
 
 
 @pytest.mark.parametrize("schema_id", PUBLICADAS)

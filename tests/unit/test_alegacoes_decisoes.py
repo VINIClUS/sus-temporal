@@ -246,6 +246,38 @@ def test_decisao_de_alegacao_invalida_reprova_e_nao_libera(conteudo: str, tmp_pa
     ]
 
 
+def _ligar(link: Path, alvo: Path) -> None:
+    try:
+        link.symlink_to(alvo)
+    except (OSError, NotImplementedError):
+        pytest.skip("sem_link_simbolico")
+
+
+def test_decisao_de_alegacao_em_link_simbolico_reprova_e_nao_libera(tmp_path: Path) -> None:
+    _g0_aberto(tmp_path)
+    _registrar(tmp_path / "fora", "decisao.yaml", _VALIDA)
+    (tmp_path / "alegacoes").mkdir()
+    _ligar(tmp_path / "alegacoes" / "2027-03-01.yaml", tmp_path / "fora" / "decisao.yaml")
+    problemas = _validar(_bloco(estado="CONFIRMADA"), tmp_path)
+    assert problemas == [
+        "decisao_de_alegacao_em_link_simbolico arquivo=2027-03-01.yaml",
+        _SEM_DECISAO.format("CONFIRMADA"),
+    ]
+
+
+def test_diretorio_de_decisoes_de_alegacao_em_link_simbolico_reprova_e_nao_libera(
+    tmp_path: Path,
+) -> None:
+    _g0_aberto(tmp_path)
+    _registrar(tmp_path / "fora", "2027-03-01.yaml", _VALIDA)
+    _ligar(tmp_path / "alegacoes", tmp_path / "fora")
+    problemas = _validar(_bloco(estado="CONFIRMADA"), tmp_path)
+    assert problemas == [
+        "decisoes_de_alegacao_em_link_simbolico diretorio=alegacoes",
+        _SEM_DECISAO.format("CONFIRMADA"),
+    ]
+
+
 def test_decisoes_de_alegacao_ficam_fora_do_carregamento_dos_portoes(tmp_path: Path) -> None:
     _decidir(tmp_path, {"AL-01": "CONFIRMADA"})
     assert carregar_decisoes(tmp_path, Portao.G0) == []

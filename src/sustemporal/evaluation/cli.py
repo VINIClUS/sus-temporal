@@ -24,6 +24,7 @@ from sustemporal.contracts.experiment import (
     SplitManifest,
 )
 from sustemporal.contracts.records import DatasetRef
+from sustemporal.contracts.temporal import MetodoId
 from sustemporal.errors import ConfigInvalida, ExitCode, PortaoRecusado
 from sustemporal.evaluation.features import FEATURES_PADRAO
 from sustemporal.evaluation.freeze import (
@@ -37,12 +38,16 @@ from sustemporal.evaluation.freeze_registro import exigir_rodada_permitida, regi
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 from sustemporal.evaluation.split import SUFIXO_ENTRADAS
 from sustemporal.gates import DIR_DECISOES, exigir_portao
+from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
+from sustemporal.rules.insumos import politica_padrao
 from sustemporal.runtime_info import versao_codigo
+from sustemporal.temporal.politicas import DIRETORIO_POLITICAS, carregar_politica
 
 if TYPE_CHECKING:
     import argparse
 
-    from sustemporal.contracts import FreezeManifest, RunConfig
+    from sustemporal.contracts import FreezeManifest, RuleSpec, RunConfig
+    from sustemporal.contracts.temporal import PoliticaTemporal
 
 __all__ = ["REGISTRO", "executar_evaluate", "executar_freeze", "versao_codigo"]
 
@@ -70,16 +75,35 @@ def _split_e_entradas(raiz: Path) -> tuple[SplitManifest, DatasetRef, DatasetRef
     return split, dataset, rotulos
 
 
+def _regras_do_catalogo() -> list[RuleSpec]:
+    try:
+        return carregar_regras()
+    except CatalogoInvalido as erro:
+        raise ConfigInvalida(f"freeze_catalogo_de_regras_invalido erro={erro}") from erro
+
+
+def _politicas_do_catalogo(regras: list[RuleSpec]) -> list[PoliticaTemporal]:
+    """Políticas de `catalog/policies` e as padrão dos baselines, como `validate` as resolve."""
+    arquivos = sorted(DIRETORIO_POLITICAS.glob("*.yaml"))
+    catalogo = [carregar_politica(arquivo.stem) for arquivo in arquivos]
+    padrao = [politica_padrao(metodo, regras) for metodo in (MetodoId.B_ATEND, MetodoId.B_PROC)]
+    return [*catalogo, *padrao]
+
+
 def executar_freeze(args: argparse.Namespace, config: RunConfig) -> int:
     """Congela o protocolo a partir do split e das entradas em `<raiz_saidas>/split`.
 
+    O manifesto registra também a identidade do catálogo de regras e das políticas do catálogo.
+
     Raises:
-        ConfigInvalida: sem catálogos na config, split ausente ou protocolo inválido.
+        ConfigInvalida: sem catálogos na config, split ausente, catálogo de regras ou políticas
+            inválido, ou protocolo inválido.
         PortaoRecusado: G0 ausente ou que não libera.
     """
     if not config.catalogos:
         raise ConfigInvalida("freeze_sem_catalogos")
     split, dataset, rotulos = _split_e_entradas(Path(config.runtime.raiz_saidas))
+    regras = _regras_do_catalogo()
     protocolo = Protocolo(
         config=config,
         split=split,
@@ -87,6 +111,8 @@ def executar_freeze(args: argparse.Namespace, config: RunConfig) -> int:
         dataset=dataset,
         rotulos=rotulos,
         catalogos={nome: Path(caminho) for nome, caminho in config.catalogos.items()},
+        regras=regras,
+        politicas=_politicas_do_catalogo(regras),
     )
     destino = Path(config.runtime.dir_congelamentos)
     manifesto = congelar(protocolo, destino, codigo=versao_codigo(Path.cwd()))
@@ -129,11 +155,12 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     """Avalia as execuções do congelamento e acrescenta o resultado ao registro.
 
     O confirmatório (já liberado por G2 na CLI) avalia o TESTE e recusa qualquer divergência
-    do manifesto; o exploratório explícito avalia a CALIBRACAO e só registra a divergência.
+    do manifesto, inclusive a de cada execução (código, config, catálogo de regras, política e
+    entradas); o exploratório explícito avalia a CALIBRACAO e só registra a divergência.
 
     Raises:
         ConfigInvalida: congelamento ou split ausente ou inválido.
-        PortaoRecusado: confirmatório incompatível com o congelamento ou sem G2.
+        PortaoRecusado: confirmatório ou execução incompatível com o congelamento, ou sem G2.
     """
     diretorio = Path(config.runtime.dir_congelamentos)
     manifesto = carregar_freeze(diretorio, args.freeze)
@@ -147,7 +174,9 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     congelamento = ReferenciaCongelamento(args.freeze)
     if confirmatorio:
         g2 = exigir_portao(DIR_DECISOES, Portao.G2, freeze_id=args.freeze)
-        congelamento = ReferenciaCongelamento(args.freeze, referencia_decisao(DIR_DECISOES, g2))
+        congelamento = ReferenciaCongelamento(
+            args.freeze, referencia_decisao(DIR_DECISOES, g2), manifesto=manifesto, config=config
+        )
     relatorio = evaluate_runs(
         _runs(raiz / "runs", config.modo, args.freeze),
         (split.rotulos_por_particao or {})[particao],

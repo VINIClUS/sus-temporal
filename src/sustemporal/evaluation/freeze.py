@@ -2,7 +2,9 @@
 
 O manifesto é único por conteúdo (`freeze_id` deriva do conteúdo) e nunca é sobrescrito. O
 `config_hash` congelado é a identidade do protocolo sem `modo` e `freeze_id`, de modo que a
-config confirmatória que só abre o teste confere com a config congelada.
+config confirmatória que só abre o teste confere com a config congelada. Cada execução
+confirmatória é conferida contra o manifesto: código, config, catálogo de regras, política e
+entradas.
 """
 
 from __future__ import annotations
@@ -15,13 +17,19 @@ from typing import TYPE_CHECKING
 
 from pydantic import ValidationError
 
-from sustemporal.contracts.base import hash_identidade
-from sustemporal.contracts.experiment import DecisaoPortao, FreezeManifest, Portao
+from sustemporal.contracts.base import hash_canonico, hash_identidade
+from sustemporal.contracts.experiment import (
+    DecisaoPortao,
+    FreezeManifest,
+    ModoExecucao,
+    Portao,
+    TipoExecucao,
+)
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.features import auditar_features
 from sustemporal.gates import DIR_DECISOES, exigir_portao
 from sustemporal.hashing import sha256_arquivo
-from sustemporal.rules.catalog import carregar_esquema
+from sustemporal.rules.catalog import carregar_esquema, catalogo_sha256
 from sustemporal.runtime_info import ambiente, versao_codigo
 from sustemporal.yamlio import carregar_yaml
 
@@ -35,6 +43,7 @@ if TYPE_CHECKING:
         FeatureSpec,
         RuleSpec,
         RunConfig,
+        RunResult,
         SplitManifest,
     )
     from sustemporal.contracts.temporal import PoliticaTemporal
@@ -48,6 +57,7 @@ __all__ = [
     "hash_protocolo",
     "referencia_decisao",
     "verificar_compatibilidade",
+    "verificar_execucao",
 ]
 
 logger = logging.getLogger(__name__)
@@ -93,7 +103,11 @@ def referencia_decisao(diretorio: Path, decisao: DecisaoPortao) -> str:
 
 @dataclass(frozen=True)
 class Protocolo:
-    """O que se congela: config, split, atributos, entradas completas, catálogos e margens."""
+    """O que se congela: config, split, atributos, entradas, catálogos, regras e políticas.
+
+    `regras` e `politicas` dão a identidade que cada execução de validação precisa repetir; sem
+    elas o manifesto não as registra e a conferência recusa a execução de validação.
+    """
 
     config: RunConfig
     split: SplitManifest
@@ -119,8 +133,8 @@ def congelar(
 
     Raises:
         PortaoRecusado: G0 ausente ou que não libera.
-        ConfigInvalida: protocolo incoerente, com valor A_DEFINIR, código sujo ou catálogo
-            ausente.
+        ConfigInvalida: protocolo incoerente, com valor A_DEFINIR, código sujo, catálogo
+            ausente ou política repetida com conteúdo diferente.
         FalhaOperacionalErro: já existe outro conteúdo sob o mesmo `freeze_id`.
     """
     g0 = exigir_portao(decisoes, Portao.G0, hoje=hoje)
@@ -133,6 +147,8 @@ def congelar(
             codigo=codigo if codigo is not None else versao_codigo(raiz),
             ambiente=ambiente(raiz),
             catalogos_sha256=_hashes_dos_catalogos(protocolo.catalogos),
+            catalogo_regras_sha256=_hash_das_regras(protocolo.regras),
+            politicas_sha256=_hashes_das_politicas(protocolo.politicas),
             datasets=(protocolo.dataset, protocolo.rotulos),
             split=protocolo.split,
             features=protocolo.features,
@@ -172,6 +188,19 @@ def _hashes_dos_catalogos(catalogos: Mapping[str, Path]) -> dict[str, str]:
     return {nome: sha256_arquivo(Path(caminho)) for nome, caminho in sorted(catalogos.items())}
 
 
+def _hash_das_regras(regras: Sequence[RuleSpec]) -> str | None:
+    return catalogo_sha256(list(regras)) if regras else None
+
+
+def _hashes_das_politicas(politicas: Sequence[PoliticaTemporal]) -> dict[str, str] | None:
+    hashes: dict[str, str] = {}
+    for politica in politicas:
+        conteudo = hash_canonico(politica.model_dump(mode="json"))
+        if hashes.setdefault(politica.politica_id, conteudo) != conteudo:
+            raise ConfigInvalida(f"congelamento_politica_repetida politica={politica.politica_id}")
+    return hashes or None
+
+
 def _gravar(manifesto: FreezeManifest, destino: Path) -> None:
     destino.mkdir(parents=True, exist_ok=True)
     caminho = destino / f"{manifesto.freeze_id}.json"
@@ -202,6 +231,18 @@ def carregar_freeze(diretorio: Path, freeze_id: str) -> FreezeManifest:
     return manifesto
 
 
+def _hashes_congelados(manifesto: FreezeManifest) -> set[str]:
+    congelado = manifesto.split
+    permitidos = {d.hash_logico for d in manifesto.datasets}
+    permitidos |= set(congelado.hash_por_particao.values())
+    permitidos |= {d.hash_logico for d in (congelado.rotulos_por_particao or {}).values()}
+    return permitidos
+
+
+def _codigo_divergente(codigo: CodeVersion, manifesto: FreezeManifest) -> bool:
+    return codigo.sujo or codigo.commit != manifesto.codigo.commit
+
+
 def verificar_compatibilidade(
     manifesto: FreezeManifest,
     *,
@@ -216,13 +257,10 @@ def verificar_compatibilidade(
     Raises:
         PortaoRecusado: `freeze_incompativel campos=...` com cada identidade divergente.
     """
-    congelado = manifesto.split
-    permitidos = {d.hash_logico for d in manifesto.datasets}
-    permitidos |= set(congelado.hash_por_particao.values())
-    permitidos |= {d.hash_logico for d in (congelado.rotulos_por_particao or {}).values()}
+    permitidos = _hashes_congelados(manifesto)
     divergencias = {
-        "codigo": codigo.sujo or codigo.commit != manifesto.codigo.commit,
-        "split": split.split_id != congelado.split_id,
+        "codigo": _codigo_divergente(codigo, manifesto),
+        "split": split.split_id != manifesto.split.split_id,
         "features": features != manifesto.features,
         "config": hash_protocolo(config) != manifesto.config_hash,
         "entradas": any(d.hash_logico not in permitidos for d in datasets),
@@ -230,4 +268,58 @@ def verificar_compatibilidade(
     if campos := [nome for nome, divergente in divergencias.items() if divergente]:
         raise PortaoRecusado(
             f"freeze_incompativel campos={','.join(campos)} freeze={manifesto.freeze_id}"
+        )
+
+
+def _config_divergente(manifesto: FreezeManifest, run: RunResult, config: RunConfig) -> bool:
+    protocolo_confere = hash_protocolo(config) == manifesto.config_hash
+    abertura = (config.modo, config.freeze_id)
+    abre_o_teste = abertura == (ModoExecucao.CONFIRMATORIO, manifesto.freeze_id)
+    return not (protocolo_confere and abre_o_teste and run.config_hash == config.config_hash)
+
+
+def _catalogo_divergente(manifesto: FreezeManifest, run: RunResult) -> bool:
+    if run.tipo is not TipoExecucao.VALIDACAO:
+        return False
+    congelado = manifesto.catalogo_regras_sha256
+    return congelado is None or run.catalogo_regras_sha256 != congelado
+
+
+def _politica_divergente(manifesto: FreezeManifest, run: RunResult) -> bool:
+    if run.tipo is not TipoExecucao.VALIDACAO:
+        return False
+    return run.politica_id is None or run.politica_id not in (manifesto.politicas_sha256 or {})
+
+
+def _entradas_divergentes(manifesto: FreezeManifest, run: RunResult) -> bool:
+    esquemas = {d.schema_id for d in manifesto.datasets}
+    congeladas = [d for d in run.entradas if d.schema_id in esquemas]
+    permitidos = _hashes_congelados(manifesto)
+    return not congeladas or any(d.hash_logico not in permitidos for d in congeladas)
+
+
+def verificar_execucao(manifesto: FreezeManifest, run: RunResult, *, config: RunConfig) -> None:
+    """Recusa a execução cuja identidade registrada difere da congelada.
+
+    `config` é a config confirmatória do congelamento: o protocolo dela confere com o manifesto
+    (`hash_protocolo`) e o `config_hash` da execução é o dela, com `modo` e `freeze_id`. Catálogo
+    de regras e política valem para execuções de validação; as demais só repetem código, config e
+    entradas. Só as entradas `sia_pa.v1` e de rótulos são congeladas; auxiliares, seleções e
+    cobertura não entram no manifesto.
+
+    Raises:
+        PortaoRecusado: `run_incompativel_com_congelamento run=... campo=...`, com cada identidade
+            divergente na ordem código, config, catálogo, política e entradas.
+    """
+    divergencias = {
+        "codigo": _codigo_divergente(run.codigo, manifesto),
+        "config": _config_divergente(manifesto, run, config),
+        "catalogo": _catalogo_divergente(manifesto, run),
+        "politica": _politica_divergente(manifesto, run),
+        "entradas": _entradas_divergentes(manifesto, run),
+    }
+    if campos := [nome for nome, divergente in divergencias.items() if divergente]:
+        raise PortaoRecusado(
+            f"run_incompativel_com_congelamento run={run.run_id} campo={','.join(campos)} "
+            f"freeze={manifesto.freeze_id}"
         )

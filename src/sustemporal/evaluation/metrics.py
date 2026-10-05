@@ -20,6 +20,7 @@ from sustemporal.contracts.experiment import BootstrapSpec, ModoExecucao, Partic
 from sustemporal.duck import conectar
 from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.bootstrap import intervalo_diferenca, intervalo_razao
+from sustemporal.evaluation.freeze import verificar_execucao
 from sustemporal.evaluation.metrics_calculo import (
     LinhaAvaliada,
     calcular_metricas,
@@ -105,6 +106,18 @@ def _particao_dos_rotulos(split: SplitManifest, labels: DatasetRef) -> Particao:
     return candidatas[0]
 
 
+def _exigir_execucoes_do_congelamento(
+    runs: Sequence[RunResult], congelamento: ReferenciaCongelamento
+) -> None:
+    manifesto, config = congelamento.manifesto, congelamento.config
+    if manifesto is None or config is None or manifesto.freeze_id != congelamento.freeze_id:
+        raise PortaoRecusado(
+            f"avaliacao_confirmatoria_sem_manifesto_do_freeze freeze={congelamento.freeze_id}"
+        )
+    for run in runs:
+        verificar_execucao(manifesto, run, config=config)
+
+
 def _modo(
     runs: Sequence[RunResult], particao: Particao, congelamento: ReferenciaCongelamento | None
 ) -> ModoExecucao:
@@ -124,6 +137,7 @@ def _modo(
             f"avaliacao_confirmatoria_com_execucao_de_outro_freeze freeze={freeze_id}"
         )
     exigir_portao(congelamento.decisoes, Portao.G2, freeze_id=freeze_id)
+    _exigir_execucoes_do_congelamento(runs, congelamento)
     return modo
 
 
@@ -237,7 +251,11 @@ def _gravar_sem_sobrescrever(caminho: Path, relatorio: EvaluationReport) -> None
 
 @dataclass(frozen=True)
 class ReferenciaCongelamento:
-    """Congelamento avaliado e, no confirmatório, a decisão G2 humana que abriu o teste."""
+    """Congelamento avaliado.
+
+    No confirmatório, além da decisão G2 humana que abriu o teste, traz o manifesto carregado e
+    a config confirmatória do congelamento, contra os quais cada execução é conferida.
+    """
 
     freeze_id: str
     decisao_g2: str | None = None
@@ -261,7 +279,8 @@ def evaluate_runs(
 
     Raises:
         ValueError: sem execuções, rótulos fora do split, modos/origens misturados ou método
-            repetido. PortaoRecusado: exploratório no TESTE ou confirmatório fora dele.
+            repetido. PortaoRecusado: exploratório no TESTE; confirmatório fora dele, sem G2, sem
+            manifesto e config do congelamento ou com execução incompatível com o manifesto.
         FalhaOperacionalErro: entrada ilegível ou diferente do `DatasetRef`.
     """
     if not runs:
@@ -273,7 +292,6 @@ def evaluate_runs(
     populacao = (split.particoes or {})[particao]
     linhas, metodos = _ler(runs, labels, populacao, particao, causas or {})
     spec = bootstrap or BootstrapSpec()
-    metricas = _metricas(linhas, metodos, spec)
     conteudo = {
         "runs": sorted(run.run_id for run in runs),
         "rotulos": labels.hash_logico,
@@ -289,7 +307,7 @@ def evaluate_runs(
         freeze_id=freeze_id,
         decisao_g2=congelamento.decisao_g2 if congelamento else None,
         runs=tuple(run.run_id for run in runs),
-        metricas=tuple(metricas),
+        metricas=tuple(_metricas(linhas, metodos, spec)),
         notas=(*NOTAS, f"particao={particao.value}", f"reamostragens={spec.reamostragens}"),
         criado_em=(relogio or (lambda: datetime.now(UTC)))(),
     )

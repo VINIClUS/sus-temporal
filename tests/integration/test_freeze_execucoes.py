@@ -87,6 +87,8 @@ def test_execucoes_compativeis_com_o_manifesto_sao_avaliadas(
     assert relatorio.decisao_g2 == confirmatorio.g2
     assert sorted(relatorio.runs) == sorted(run.run_id for run in confirmatorio.runs)
     assert (tmp_path / "av" / f"{relatorio.report_id}.json").is_file()
+    esquemas = {d.schema_id for run in confirmatorio.runs for d in run.entradas}
+    assert "sigtap_procedimento.v1" in esquemas
 
 
 def _divergencias(conf: Confirmatorio, raiz: Path) -> dict[str, Callable[[], dict[str, Any]]]:
@@ -105,6 +107,9 @@ def _divergencias(conf: Confirmatorio, raiz: Path) -> dict[str, Callable[[], dic
         "entrada_desconhecida_junto_da_valida": lambda: {
             "entradas": (teste, sia_pa_desconhecido(raiz))
         },
+        "rotulos_de_outro_conteudo": lambda: {
+            "entradas": (teste, conf.rotulos.model_copy(update={"hash_logico": OUTRO_HASH}))
+        },
         "sem_entradas": lambda: {"entradas": ()},
     }
 
@@ -119,6 +124,7 @@ CASOS = [
     ("politica_ausente", "politica"),
     ("entrada_de_outro_conteudo", "entradas"),
     ("entrada_desconhecida_junto_da_valida", "entradas"),
+    ("rotulos_de_outro_conteudo", "entradas"),
     ("sem_entradas", "entradas"),
 ]
 
@@ -150,11 +156,16 @@ def test_divergencia_acusa_todos_os_campos_na_ordem_do_protocolo(
     tmp_path: Path, confirmatorio: Confirmatorio
 ) -> None:
     alvo = confirmatorio.runs[B_ATEND]
-    trocas = {"codigo": OUTRO_CODIGO, "config_hash": OUTRO_SHA, "politica_id": None}
+    trocas = {
+        "codigo": OUTRO_CODIGO,
+        "config_hash": OUTRO_SHA,
+        "catalogo_regras_sha256": OUTRO_SHA,
+        "politica_id": None,
+        "entradas": (),
+    }
     runs = [*confirmatorio.runs[:B_ATEND], alvo.model_copy(update=trocas), *confirmatorio.runs[2:]]
-    with pytest.raises(
-        PortaoRecusado, match=_mensagem(alvo, "codigo,config,politica", confirmatorio)
-    ):
+    campos = "codigo,config,catalogo,politica,entradas"
+    with pytest.raises(PortaoRecusado, match=_mensagem(alvo, campos, confirmatorio)):
         _avaliar(confirmatorio, tmp_path / "av", runs)
 
 
@@ -190,19 +201,28 @@ def test_manifesto_de_outro_congelamento_e_recusado(
         _avaliar(confirmatorio, tmp_path / "av", manifesto=outro.manifesto)
 
 
-@pytest.mark.parametrize("caso", ["protocolo_diferente", "freeze_diferente"])
-def test_config_que_nao_e_a_do_congelamento_recusa_as_execucoes(
+def _config_de_outro_congelamento(caso: str, freeze: str) -> RunConfig:
+    return {
+        "protocolo_diferente": lambda: config_confirmatoria(freeze, semente="7"),
+        "freeze_diferente": lambda: config_confirmatoria(OUTRO_FREEZE),
+        "config_exploratoria": lambda: RunConfig.model_validate(
+            {**CONFIG_PROTOCOLO, "freeze_id": freeze}
+        ),
+    }[caso]()
+
+
+@pytest.mark.parametrize("caso", ["protocolo_diferente", "freeze_diferente", "config_exploratoria"])
+def test_config_que_nao_abre_o_teste_do_congelamento_recusa_as_execucoes(
     tmp_path: Path, confirmatorio: Confirmatorio, caso: str
 ) -> None:
-    freeze = confirmatorio.manifesto.freeze_id
-    config = (
-        config_confirmatoria(freeze, semente="7")
-        if caso == "protocolo_diferente"
-        else config_confirmatoria(OUTRO_FREEZE)
-    )
-    primeira = confirmatorio.runs[M_TEMP]
-    with pytest.raises(PortaoRecusado, match=_mensagem(primeira, "config", confirmatorio)):
-        _avaliar(confirmatorio, tmp_path / "av", config=config)
+    config = _config_de_outro_congelamento(caso, confirmatorio.manifesto.freeze_id)
+    feitas_com_ela = [
+        run.model_copy(update={"config_hash": config.config_hash}) for run in confirmatorio.runs
+    ]
+    with pytest.raises(
+        PortaoRecusado, match=_mensagem(feitas_com_ela[M_TEMP], "config", confirmatorio)
+    ):
+        _avaliar(confirmatorio, tmp_path / "av", feitas_com_ela, config=config)
 
 
 def test_manifesto_sem_catalogo_e_politicas_recusa_validacao_mas_nao_baseline(
@@ -213,6 +233,10 @@ def test_manifesto_sem_catalogo_e_politicas_recusa_validacao_mas_nao_baseline(
     assert conf.manifesto.politicas_sha256 is None
     with pytest.raises(PortaoRecusado, match="campo=catalogo,politica"):
         _avaliar(conf, tmp_path / "av")
+    sem_identidade = {"catalogo_regras_sha256": None, "politica_id": None}
+    runs = [conf.runs[M_TEMP].model_copy(update=sem_identidade), *conf.runs[1:]]
+    with pytest.raises(PortaoRecusado, match="campo=catalogo,politica"):
+        _avaliar(conf, tmp_path / "av", runs)
     relatorio = _avaliar(conf, tmp_path / "av", [conf.runs[B_ML]])
     assert relatorio.runs == (conf.runs[B_ML].run_id,)
 

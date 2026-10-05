@@ -19,6 +19,7 @@ from sustemporal.contracts.experiment import (
     SplitManifest,
     TipoExecucao,
 )
+from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.contracts.temporal import MetodoId
 from sustemporal.evaluation.features import FEATURES_PADRAO
 from sustemporal.evaluation.freeze import Protocolo, congelar
@@ -35,7 +36,7 @@ from tests.fixtures.protocolo_avaliacao import (
 from tests.fixtures.protocolo_dados import PROC_REJEITADO, LinhaPa, artefato, gravar_sia_pa
 
 if TYPE_CHECKING:
-    from sustemporal.contracts import DatasetRef, FreezeManifest, RunResult
+    from sustemporal.contracts import FreezeManifest, RunResult
     from sustemporal.contracts.temporal import PoliticaTemporal
     from tests.fixtures.protocolo_dados import Cenario
 
@@ -55,6 +56,21 @@ COMPETENCIA_DO_TESTE = "202401"
 
 def como_real(ref: DatasetRef) -> DatasetRef:
     return ref.model_copy(update={"origem_dados": OrigemDados.REAL})
+
+
+def auxiliar_fora_do_manifesto() -> DatasetRef:
+    """Conjunto auxiliar (outro esquema), que o manifesto não congela e a conferência ignora."""
+    esquema, conteudo = "sigtap_procedimento.v1", f"lh1:{'d' * 64}"
+    return DatasetRef(
+        dataset_id=calcular_dataset_id(esquema, conteudo, ()),
+        schema_id=esquema,
+        caminho="auxiliar_sintetico.parquet",
+        hash_logico=conteudo,
+        linhas=0,
+        artifact_ids=(),
+        origem_dados=OrigemDados.REAL,
+        produzido_por="tests.fixtures.protocolo_confirmatorio",
+    )
 
 
 def politicas_do_catalogo() -> list[PoliticaTemporal]:
@@ -113,7 +129,10 @@ def runs_compativeis(
         "freeze_id": manifesto.freeze_id,
         "config_hash": config.config_hash,
         "codigo": CODIGO_LIMPO,
-        "entradas": (como_real(cenario.split.particoes[Particao.TESTE]),),
+        "entradas": (
+            como_real(cenario.split.particoes[Particao.TESTE]),
+            auxiliar_fora_do_manifesto(),
+        ),
     }
     regras = catalogo_sha256(carregar_regras())
     runs = [

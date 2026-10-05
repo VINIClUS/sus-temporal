@@ -22,6 +22,7 @@ import duckdb
 
 from sustemporal.contracts.base import json_canonico
 from sustemporal.contracts.config import RuntimeConfig
+from sustemporal.contracts.evaluation import EvaluationReport
 from sustemporal.duck import conectar, identificador_seguro
 from sustemporal.errors import FalhaOperacionalErro
 from sustemporal.evaluation.freeze_entrada import campos_divergentes
@@ -31,7 +32,7 @@ from sustemporal.rules.catalog import carregar_esquema
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterable, Mapping, Sequence
 
-    from sustemporal.contracts.evaluation import EvaluationReport, ValorMetrica
+    from sustemporal.contracts.evaluation import ValorMetrica
     from sustemporal.contracts.experiment import CodeVersion, Particao, SplitManifest
     from sustemporal.contracts.records import DatasetRef
     from sustemporal.rules.entrada import EntradaValidacao
@@ -135,6 +136,17 @@ def identidade_do_arquivo(
         raise FalhaOperacionalErro(f"arquivo_ilegivel caminho={caminho} erro={erro}") from erro
 
 
+def _identidade_do_original(
+    caminho: Path, schema_id: str, *, sem_colunas: Collection[str] = ()
+) -> Identidade | None:
+    """A identidade do arquivo original; `None` se ele existe mas não pode ser lido."""
+    try:
+        return identidade_do_arquivo(caminho, schema_id, sem_colunas=sem_colunas)
+    except FalhaOperacionalErro:
+        logger.warning("original_ilegivel caminho=%s", caminho)
+        return None
+
+
 def _texto(identidade: Identidade) -> str:
     return f"{identidade.linhas}:{identidade.hash_logico}"
 
@@ -152,7 +164,9 @@ def comparar_referencia(item: str, esperada: DatasetRef, obtida: DatasetRef) -> 
     original = _arquivo_existente(esperada)
     if original is None:
         return Comparacao(item, Situacao.IGUAL, declarado, declarado, "original_ausente")
-    antigo = identidade_do_arquivo(original, esperada.schema_id)
+    antigo = _identidade_do_original(original, esperada.schema_id)
+    if antigo is None:
+        return Comparacao(item, Situacao.IGUAL, declarado, declarado, "original_ilegivel")
     if _texto(antigo) != declarado:
         return Comparacao(item, Situacao.DIVERGENTE, declarado, _texto(antigo), "original_diverge")
     if antigo.sha256 != refeito.sha256:
@@ -171,7 +185,9 @@ def comparar_saida(
     caminho = _arquivo_existente(original) if original is not None else None
     if original is None or caminho is None:
         return Comparacao(item, Situacao.INCONCLUSIVO, None, None, "original_ausente")
-    antigo = identidade_do_arquivo(caminho, original.schema_id, sem_colunas=sem_colunas)
+    antigo = _identidade_do_original(caminho, original.schema_id, sem_colunas=sem_colunas)
+    if antigo is None:
+        return Comparacao(item, Situacao.INCONCLUSIVO, None, None, "original_ilegivel")
     refeito = identidade_do_arquivo(_arquivo(obtida), obtida.schema_id, sem_colunas=sem_colunas)
     detalhe = f"sem_colunas={','.join(sorted(sem_colunas))}"
     if _texto(antigo) != _texto(refeito):
@@ -333,7 +349,14 @@ def comparar_notas(
 
 def ler_relatorio_original(caminho: Path) -> EvaluationReport | None:
     """O relatório da rodada registrada; ausente, ilegível ou fora do contrato é `None`."""
-    raise NotImplementedError
+    if not caminho.is_file():
+        return None
+    try:
+        return EvaluationReport.model_validate_json(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as erro:
+        erro_tipo = type(erro).__name__
+        logger.warning("relatorio_original_ilegivel caminho=%s erro=%s", caminho, erro_tipo)
+        return None
 
 
 def observacoes_do_ambiente(

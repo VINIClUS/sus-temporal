@@ -22,7 +22,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sustemporal.contracts.evaluation import EvaluationReport
 from sustemporal.contracts.experiment import ModoExecucao, Particao
 from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro, RedeProibida
 from sustemporal.evaluation.cli import REGISTRO
@@ -42,6 +41,7 @@ from sustemporal.reporting.reproduce_comparacao import (
     comparar_saida,
     comparar_split,
     exigir_conferido,
+    ler_relatorio_original,
     observacoes_do_ambiente,
     observacoes_do_ingest,
     resultado_geral,
@@ -63,6 +63,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from sustemporal.contracts import FreezeManifest, RunConfig
+    from sustemporal.contracts.evaluation import EvaluationReport
     from sustemporal.contracts.experiment import RunResult
     from sustemporal.contracts.temporal import MetodoId
 
@@ -179,7 +180,7 @@ def _original(config: RunConfig, freeze_id: str) -> Original:
     caminho = (
         Path(config.runtime.raiz_saidas) / "avaliacao" / freeze_id / f"{ultima['report_id']}.json"
     )
-    relatorio = _ler_relatorio(caminho)
+    relatorio = ler_relatorio_original(caminho)
     execucoes = {}
     for run_id in ultima["runs"]:
         try:
@@ -189,12 +190,6 @@ def _original(config: RunConfig, freeze_id: str) -> Original:
         if run.metodo is not None:
             execucoes[run.metodo] = run
     return Original(relatorio, execucoes)
-
-
-def _ler_relatorio(caminho: Path) -> EvaluationReport | None:
-    if not caminho.is_file():
-        return None
-    return EvaluationReport.model_validate_json(caminho.read_text(encoding="utf-8"))
 
 
 def _comparar_conjuntos(manifesto: FreezeManifest, derivado: Derivado) -> list[Comparacao]:

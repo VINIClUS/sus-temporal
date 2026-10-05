@@ -21,12 +21,17 @@ _INSTANTE = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 
 
 def registrar_versoes(
-    manifesto: Path, versoes: Iterable[ArtifactVersion], *, observado_em: datetime = _INSTANTE
+    manifesto: Path,
+    versoes: Iterable[ArtifactVersion],
+    *,
+    observado_em: datetime = _INSTANTE,
+    rotulo: str = "",
 ) -> None:
-    """Uma observação OBTIDO por versão, com relógio fixo."""
+    """Uma observação OBTIDO por versão, com relógio fixo; `rotulo` distingue reobservações."""
     destino = Manifesto(manifesto)
     for versao in versoes:
-        semente = f"{versao.artifact_id}|{versao.localizador}".encode()
+        sufixo = f"|{rotulo}" if rotulo else ""
+        semente = f"{versao.artifact_id}|{versao.localizador}{sufixo}".encode()
         observacao = ArtifactObservation(
             observation_id=f"obs_{hashlib.sha256(semente).hexdigest()[:32]}",
             chave=versao.chave,

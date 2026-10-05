@@ -44,11 +44,13 @@ def config_ingest(
     familias: str = "SIA_PA, CNES_PF, SIGTAP",
     corte: str | None = None,
     competencias: str = '"201801"',
+    leiaute_pa: Path | None = None,
 ) -> Path:
     linhas = [
         'versao: "1"',
         "origem_dados: SINTETICO",
         f"catalogos:\n  fontes: {fontes}",
+        *([f"  leiaute_sia_pa: {leiaute_pa}"] if leiaute_pa else []),
         *([f"corte_observacao: {corte}"] if corte else []),
         "runtime:",
         f"  raiz_dados: {pasta / 'dados'}",

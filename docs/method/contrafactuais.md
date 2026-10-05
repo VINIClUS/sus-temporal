@@ -32,7 +32,9 @@ Cada `op_id` tem efeito, gerador de parâmetros, precondições e dependências 
 escritos no código (`explanation/counterfactual_operacoes.py`). Invalida o catálogo, inclusive
 o passado em `operacoes=` para substituir custos ou governança: operação repetida, sem efeito
 conhecido ou com alvo diferente do efeito; precondição ou dependência desconhecida; falta de
-precondição ou dependência obrigatória do `op_id`; dependência circular.
+precondição ou dependência obrigatória do `op_id`; precondição que o `op_id` não admite
+(`precondicao_incompativel_com_operacao`; hoje cada operação admite exatamente as suas
+obrigatórias); dependência circular.
 
 | Operação | Conjunto | Parâmetros | Efeito | Precondições | Custo provisório |
 |---|---|---|---|---|---|
@@ -61,7 +63,8 @@ estabelecimento é a mais ampla. Não medem esforço, prazo nem custo financeiro
 `search_counterfactuals(bundle, config, *, contexto, operacoes=None)` recebe o
 `ExplanationBundle` do registro e, em `ContextoContrafactual`, os insumos com que o motor o avaliou
 (conjunto SIA-PA, `SnapshotSet`, regras, `InsumosAvaliacao`, conjuntos cadastrais extras como o
-CNES ST e a competência que evidência atual mostra aberta no CNES). Sem contexto a busca recusa
+CNES ST e a competência que evidência atual mostra aberta no CNES). Sem `contexto`, os insumos
+vêm da pasta exata de `bundle.run_id` (`contexto_da_execucao`, §3.1); sem eles a busca recusa
 (`contrafactual_sem_contexto`): revalidar é obrigatório e não há como fazê-lo sem os insumos.
 
 1. Todos os arquivos dos insumos são copiados para um diretório temporário; os originais só são
@@ -87,6 +90,43 @@ CNES ST e a competência que evidência atual mostra aberta no CNES). Sem contex
    lh1, `dataset_id` recalculado, `produzido_por: contrafactual_sobreposicao`). O motor confere
    esse conteúdo como confere qualquer insumo (`schema_id`, tipo físico, domínio dos códigos,
    linhagem, hash).
+
+### 3.1 Insumos pela execução e CLI
+
+`sustemporal counterfactual --run RUN_ID --row ROW_ID` (`explanation/counterfactual_cli.py`):
+
+1. resolve a pasta exata da execução (`<raiz_saidas>/runs/<run_id>` ou
+   `<raiz_saidas>/validacao/<run_id>`), nunca um diretório "latest";
+2. recompõe o bundle pelo `explain` real (T08), que reexecuta as evidências;
+3. lê `entrada_validacao.json`, que o `validate` grava nos modos `--entrada` e `--ingest` (a
+   `EntradaValidacao` da execução: conjunto SIA-PA, `SnapshotSet`, auxiliares, seleção,
+   cobertura, integridade, política resolvida e identidade adicional), usa a política gravada (sem
+   ela, a que `validate` usa para o método) e recalcula o `run_id` (`calcular_run_id`: conjunto,
+   seleção, regras, política, configuração sem `runtime`, auxiliares, integridade e identidade
+   adicional, como o recorte territorial do `--ingest`). Divergência é recusa
+   (`contrafactual_contexto_diverge_da_execucao`). O CNES ST das precondições é o auxiliar
+   `cnes_estabelecimento.v1` gravado na entrada: o `validate --ingest` só grava os auxiliares que
+   as regras exigem, então sobre uma execução `--ingest` não há CNES ST, as operações ficam
+   inadmissíveis e a busca sai `SEM_OPERACAO_ADMISSIVEL`, nunca com operação suposta. A
+   competência aberta fica `None` (só fontes históricas; executabilidade nunca potencial);
+4. publica `contrafactual.json` e `identidade.json` em
+   `<raiz_saidas>/contrafactuais/<run_id>/id_<identidade>/row_<sha256(row_id)[:32]>/`, de forma
+   atômica (diretório temporário renomeado). A identidade deriva do SHA-256 de
+   `catalog/operations.yaml`, da versão do código e da competência as-of (AAAAMM do mês do
+   relógio, lido uma vez no início e usado em toda a busca: ele decide competência fechada e
+   executabilidade). Outro catálogo, outro código ou outro mês publica em outro diretório e nunca
+   sobrescreve uma hipótese já publicada; instantes do mesmo mês compartilham o destino.
+   `identidade.json` registra `competencia_as_of`.
+
+Saída 0 com resultado publicado; 2 para argumento, execução, linha ou insumos ausentes,
+ilegíveis (inclusive `run_result.json` ou `entrada_validacao.json` com bytes que não são UTF-8) ou
+divergentes e para linha sem violação (nada a buscar; a recusa remove o resultado anterior);
+5 para falha operacional (evidência divergente, cadastro ilegível, linha de base que não
+reproduz a violação, motor sem concluir): o resultado anterior é removido antes de gravar
+`falha.json`, então nunca sobra um `contrafactual.json` antigo, mesmo se a falha não puder ser
+gravada. Execução sem `entrada_validacao.json` é recusada com `contexto_da_execucao_ausente`. A configuração
+precisa ser a da execução (mesmo `config_hash` fora de `runtime`): o orçamento
+`contrafactual` faz parte dela.
 
 ## 4. Revalidação
 

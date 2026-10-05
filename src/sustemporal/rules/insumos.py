@@ -50,6 +50,8 @@ class InsumosAvaliacao:
 
     `selecoes` ausente: a seleção é derivada do `SnapshotSet` por correspondência exata.
     `politica` ausente: `config.politica_id` (em `diretorio_politicas`), senão a padrão do método.
+    `identidade_adicional`: insumos fora dos `DatasetRef` que mudam o resultado (ex.: território);
+    entram no `run_id` só quando não vazios, assim ids já emitidos continuam válidos.
     """
 
     auxiliares: tuple[DatasetRef, ...] = ()
@@ -60,6 +62,7 @@ class InsumosAvaliacao:
     raiz_codigo: Path = field(default_factory=Path)
     diretorio_decisoes: Path = DIR_DECISOES
     diretorio_politicas: Path = DIRETORIO_POLITICAS
+    identidade_adicional: Mapping[str, str] = field(default_factory=dict)
 
 
 def _fontes_auxiliares(regras: list[RuleSpec]) -> list[FamiliaFonte]:

@@ -198,6 +198,92 @@ política exatamente como numa seleção fornecida. Entre métodos, com os mesmo
 exceção e sem saídas de avaliação; nunca vira `INCONCLUSIVO`. Versão ausente, fora do corte ou em
 quarentena no registro temporal chega como seleção diferente de `SELECIONADA` e dá `INCONCLUSIVO`.
 
+**Validação a partir do ingest.** `sustemporal validate --policy P --ingest DIR` (`rules/ingest.py`,
+`rules/validate_ingest.py`) monta os insumos de uma pasta `execucao_*` do `sustemporal ingest` e do
+registro temporal; todas as conferências (inclusive conteúdo, tipo físico e colunas obrigatórias
+de todo conjunto) vêm antes de gravar qualquer arquivo:
+
+- registro: `RegistroTemporal.de_manifesto` do manifesto de aquisição em `raiz_manifestos`, com as
+  partes esperadas do catálogo; manifesto ausente, ilegível ou corrompido → saída 2;
+- `datasets.jsonl`: cada `DatasetRef` conferido como no motor (linhas, hash lógico, tipo físico de
+  todas as colunas do esquema, `DECIMAL` e `DATA` inclusive), pelas colunas obrigatórias e pela
+  linhagem. Toda coluna não anulável do esquema canônico do conjunto (na produção, `row_id`,
+  `artifact_id`, `indice_registro` e `deletado`; também nos auxiliares e na cobertura) existe no
+  arquivo e não tem nulo, senão saída 2 (`entrada_fora_do_esquema`, com `coluna`, `dataset`,
+  `linhas` e `motivo=ausente|nulo`): sem `deletado` a situação da linha seria desconhecida e ela
+  passaria por ativa, e sem `artifact_id` não há linhagem a conferir. Toda linha tem `artifact_id`
+  declarado pelo próprio conjunto, senão saída 2 (`linhagem_divergente`), o que impede trocar uma
+  versão por outra na união; `origem_dados` igual em todos;
+- produção: união de todos os `sia_pa.v1`, cada linha física preservada (sem deduplicar; uma linha
+  repetida em duas partes conta duas vezes), `artifact_ids` = união ordenada, hash por
+  `hash_logico_relacao`. Republicação concorrente → saída 2, nunca escolha automática: duas versões
+  da pasta com a mesma chave lógica (fonte, UF, competência do arquivo, parte) ou versão da pasta
+  que não é a visível no registro (mesmo que a pasta traga uma só). Pelo seletor do T06
+  (`selecionar_versao`, critério de processamento) sobre o registro inteiro até o corte, a pasta só
+  é aceita quando a seleção de cada competência do arquivo é `SELECIONADA` ou `INCOMPLETA` (esta
+  vira marca de incompletude, abaixo); qualquer outro estado (`AMBIGUA`, `EM_QUARENTENA`,
+  `FORA_DO_CORTE`, `AUSENTE`, `NAO_RESOLVIDA`) → saída 2 (`producao_com_selecao_nao_aceita`, com
+  competência, estado e motivo do seletor), antes de gravar: produção em quarentena nunca é avaliada
+  como produção comum. A pasta traz todas as versões que o seletor escolhe para cada competência do
+  arquivo: parte selecionada ausente da pasta → saída 2 (`producao_com_partes_ausentes`), nunca
+  avaliação só das partes presentes; a marca `sia_pa_incompleto` da ingestão não isenta a parte
+  ausente.
+  Artefato fora do registro, de UF ou competência do arquivo fora do piloto, ou, com
+  `corte_observacao`, sem observação `OBTIDO` até o corte → saída 2; `row_id` repetido → falha
+  operacional (saída 5);
+- população e território: território carregado por `ingest.territorio.carregar_territorio`
+  (contrato, UF e dígito verificador) e `municipios_ibge6`. Produção sem
+  `municipio_estabelecimento` ou `competencia_processamento` → saída 2 (`territorio_sem_coluna`).
+  Saem da população, nunca avaliadas, e são contadas em `out/<run_id>/recorte_territorial.json`,
+  cada linha num único motivo, na precedência do T10 (`evaluation/split.py`):
+  `registro_deletado` (deletado no DBF) > `sem_competencia_processamento` >
+  `fora_das_competencias_do_piloto` > `territorio_indeterminado` (município nulo; no T10,
+  `sem_municipio_estabelecimento`) > `fora_do_territorio`. Recorte que deixa a população vazia →
+  saída 2 (`populacao_vazia_apos_recorte`), nunca execução `CONCLUIDA` vazia. O hash do conteúdo
+  inteiro de `recorte_territorial.json` (municípios, contagens, cobertura da ingestão) entra no
+  `run_id` (`InsumosAvaliacao.identidade_adicional`), então outro território ou outras contagens
+  dão outra execução mesmo quando a produção filtrada é igual;
+- auxiliares: por esquema exigido pelas regras, uma relação derivada com as linhas de todos os
+  artefatos daquele esquema, cada linha com o seu `artifact_id`; nada é deduplicado entre artefatos,
+  porque a seleção decide quais versões valem e a avaliação junta por `artifact_id`;
+- cobertura: no máximo um `cobertura.v1` (mais de um → saída 2); nenhum → matriz não fornecida.
+  Com um, a cobertura avaliada é recalculada por `ingest.coverage.build_coverage` sobre a
+  produção territorial e os conjuntos auxiliares originais da ingestão (com `reconciliacao`, então
+  perda de linhas continua tornando a célula insuficiente), nas competências de processamento do
+  piloto, preservando as marcas de incompletude da ingestão (motivos
+  `sia_pa_incompleto competencia=AAAAMM motivo=…`, lidos por `incompletude_da_cobertura` na passada
+  de conferência, antes de qualquer gravação; marca fora do formato → saída 2): nunca
+  sai `DISPONIVEL` onde a ingestão marcou arquivo incompleto. Assim um registro de fora do
+  território não torna insuficiente uma célula do território. O seletor do T06 também marca, mesmo
+  quando a cobertura da ingestão não tem a marca (catálogo alterado depois do ingest): a competência
+  do arquivo cuja seleção da produção é `INCOMPLETA` (parte esperada ausente, parte não declarada ou
+  partes sem declaração no catálogo) entra com `motivo=selecao_incompleta` e o motivo do seletor, e
+  as competências de processamento que as linhas dos artefatos dela trazem, como na ingestão
+  (`propagar_incompletude`), entram com `motivo=incompleto_via_arquivo competencia_arquivo=AAAAMM`
+  (`rules/ingest_selecao.py::marcas_de_incompletude`, depois do recorte); a marca da ingestão
+  prevalece quando existe. A competência fica `INSUFICIENTE`, e a linha que dependeria de uma parte
+  ausente sai `INCONCLUSIVO`, nunca `VIOLACAO`. A cobertura recalculada entra na
+  avaliação e no `run_id`; a da ingestão fica registrada em `recorte_territorial.json`
+  (`cobertura_da_ingestao`);
+- integridade por versão, derivada do registro: a da versão, piorada pelas observações dela —
+  integridade observada `QUARENTENA_*` prevalece; tentativa com o artefato que não terminou em
+  `OBTIDO` (falha de coleta com bytes) deixa a versão `NAO_VERIFICADO`, nunca `OK`. Com
+  `corte_observacao`, só contam as observações até o corte e só entram versões observadas até ele.
+
+Toda execução do `validate` (`--entrada` ou `--ingest`) grava `out/<run_id>/entrada_validacao.json`
+(`rules/entrada.py::EntradaValidacao`): conjunto SIA-PA, `SnapshotSet`, auxiliares, seleção,
+cobertura, integridade, a política resolvida e a `identidade_adicional` (hash do território), com os
+mesmos `DatasetRef` de `RunResult.entradas`; reexecutar com `--entrada` sobre esse arquivo reproduz o
+`run_id`.
+No caminho direto (`--entrada`) não há onde registrar exclusões: produção com `deletado`
+verdadeiro é recusada (`producao_com_registros_deletados`, saída 2); erro de leitura do Parquet
+nessa pré-checagem segue para o motor e vira falha operacional (saída 5, `falhas.v1`). O motor grava esses anexos atomicamente (`evaluate_rules(..., anexos=)`) antes de qualquer saída, então
+`run_result.json` nunca existe sem eles. Uma entrada com `politica` reavalia com essa política.
+
+A política é a de `politica_da_execucao` com o método de `--policy`; a avaliação é
+`avaliar_com_registro`, e as saídas ficam em `<raiz_saidas>/runs/<run_id>/` (relações derivadas em
+`runs/entradas/`, seleções em `runs/selecoes/`).
+
 Sem registro temporal, o motor aceita uma tabela `selecao_versoes.v1` pronta ou deriva a seleção
 do `SnapshotSet` por correspondência exata: para `(r, g, f)`, com critério `(base, deslocamento)`
 de `p` para `f`, competência requerida `= base(r) + deslocamento` (base `ATENDIMENTO → A(r)`,

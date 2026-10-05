@@ -14,6 +14,7 @@ from tests.fixtures.piloto_conjuntos import cobertura_sintetica, conjunto_sia_pa
 from tests.fixtures.piloto_ingest import config_ingest, fontes_ingest
 from tests.fixtures.piloto_manifesto import registrar_versoes
 from tests.fixtures.piloto_relatorio import (
+    DRS_XI,
     coorte_piloto,
     linhas_tabela,
     metrica,
@@ -339,3 +340,36 @@ def test_mesma_configuracao_com_familias_em_outra_ordem_gera_o_relatorio(tmp_pat
     config = config_ingest(tmp_path, tmp_path / "sources.yaml", familias="SIGTAP, SIA_PA, CNES_PF")
     assert _saida_do_pilot_report(config) == ExitCode.OK
     assert relatorio_gravado(tmp_path).origem_dados is OrigemDados.SINTETICO
+
+
+def test_coorte_sem_competencia_na_cobertura_da_ingestao_e_recusada_sem_publicar_nada(
+    tmp_path: Path,
+) -> None:
+    dataset = conjunto_sia_pa(tmp_path, [registro("C", "201801", "201801")])
+    saida = tmp_path / "relatorio"
+    saida.mkdir()
+    entradas = [dataset, cobertura_sintetica(tmp_path, [dataset])]
+    esperado = (
+        "coorte_sem_competencias_na_cobertura coorte=piloto_sintetico "
+        "inicio=202001 fim=202012 cobertura=201801,201802"
+    )
+    with pytest.raises(ConfigInvalida, match=esperado):
+        build_pilot_report(entradas, coorte_piloto(inicio="202001", fim="202012"), saida)
+    assert list(saida.iterdir()) == []
+
+
+def test_pilot_report_com_coorte_explicita_sem_competencia_na_cobertura_recusa(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = _ingest_completo(tmp_path)
+    coorte = (
+        "coorte:\n  cohort_id: sem_sobreposicao\n  uf: SP\n"
+        f'  territorio: {DRS_XI}\n  inicio: "202001"\n  fim: "202012"\n'
+    )
+    with config.open("a", encoding="utf-8") as saida:
+        saida.write(coorte)
+    capsys.readouterr()
+    assert _saida_do_pilot_report(config) == ExitCode.CONFIG_INVALIDA
+    erro = capsys.readouterr().err
+    assert "coorte_sem_competencias_na_cobertura coorte=sem_sobreposicao" in erro
+    assert not list((tmp_path / "saidas" / "pilot").glob("*/relatorio.json"))

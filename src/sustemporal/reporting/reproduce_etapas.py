@@ -53,6 +53,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 _UNIAO = "uniao_sia_pa"
+_NORMALIZADO = "NORMALIZADO"
 
 
 @dataclass(frozen=True)
@@ -218,6 +219,9 @@ def validar_janela(
 def estados_do_ingest(pasta: Path) -> dict[str, str]:
     """Estado de cada artefato no `resultados.jsonl` do ingest (`NORMALIZADO`, `ARQUIVOAUSENTE`).
 
+    O artefato com mais de um resultado (o SIGTAP grava um por tabela) só é `NORMALIZADO` se todos
+    forem; o primeiro estado de falha prevalece.
+
     Raises:
         FalhaOperacionalErro: `resultados.jsonl` ausente, ilegível ou fora do formato.
     """
@@ -225,8 +229,13 @@ def estados_do_ingest(pasta: Path) -> dict[str, str]:
     try:
         texto = caminho.read_text(encoding="utf-8")
         resultados = [json.loads(linha) for linha in texto.splitlines() if linha.strip()]
-        return {str(r["artifact_id"]): str(r["estado"]) for r in resultados}
+        pares = [(str(r["artifact_id"]), str(r["estado"])) for r in resultados]
     except (OSError, ValueError, KeyError, TypeError) as erro:
         raise FalhaOperacionalErro(
             f"ingest_ilegivel caminho={caminho} erro={type(erro).__name__}"
         ) from erro
+    estados: dict[str, str] = {}
+    for artefato, estado in pares:
+        if estados.get(artefato, _NORMALIZADO) == _NORMALIZADO:
+            estados[artefato] = estado
+    return estados

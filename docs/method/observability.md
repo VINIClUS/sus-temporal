@@ -73,6 +73,11 @@ plano manda verificar antes do G0: `quantidade_apresentada`, `quantidade_aprovad
 `valor_apresentado`, `valor_aprovado`, `pa_indica` e os campos de erro `pa_codoco`, `pa_flqt` e
 `pa_fler`. Campo de erro entra só nessa tabela de observabilidade, nunca em contagem nem em atributo.
 
+Os campos-chave da coorte (`municipio_estabelecimento`, `competencia_processamento` e, com
+`instrumentos` na coorte, `instrumento`) saem do recorte antes da contagem: a ausência deles aparece
+em `piloto_exclusoes.v1`, e a taxa deles aqui lê 0/N por construção. Medir a ausência sobre a
+população antes das exclusões é pendência (`docs/pendencias/T05.md`, item 18).
+
 Nos campos normalizados, nulo é ausência, vazio ou valor inválido (o motivo fica no conjunto
 canônico). Em `pa_indica` e nos de erro, sem normalização, nulo é a coluna fora do arquivo; texto em
 branco é valor lido e não conta como ausente, pois o domínio deles é desconhecido

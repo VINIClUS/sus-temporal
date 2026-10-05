@@ -127,7 +127,8 @@ class Confirmatorio:
         return replace(self.estado, **trocas)
 
 
-def _resultados(cenario: Cenario, metodo: MetodoId) -> dict[str, str]:
+def resultados_do_teste(cenario: Cenario, metodo: MetodoId) -> dict[str, str]:
+    """Resultado do método para cada registro da partição TESTE (cobertura completa)."""
     teste = [lp for lp in cenario.linhas if lp.competencia_processamento == COMPETENCIA_DO_TESTE]
     if metodo is MetodoId.M_TEMP:
         return {
@@ -148,13 +149,18 @@ def run_compativel(
     metodo: MetodoId,
     *,
     uniforme: str | None = None,
+    resultados: dict[str, str] | None = None,
+    entradas_a_mais: tuple[DatasetRef, ...] = (),
 ) -> RunResult:
     """Execução do método sobre o TESTE, igual ao protocolo congelado.
 
-    `uniforme` dá o mesmo resultado a todas as linhas (uma execução corrigida, com outro id).
+    `uniforme` dá o mesmo resultado a todas as linhas (uma execução corrigida, com outro id);
+    `resultados` troca o que a saída traz (linhas a menos ou a mais) e `entradas_a_mais` declara
+    outras entradas congeladas, como as partições que um baseline também lê.
     """
     assert cenario.split.particoes is not None
-    resultados = _resultados(cenario, metodo)
+    if resultados is None:
+        resultados = resultados_do_teste(cenario, metodo)
     if uniforme is not None:
         resultados = dict.fromkeys(resultados, uniforme)
     comuns: dict[str, Any] = {
@@ -167,6 +173,7 @@ def run_compativel(
         "entradas": (
             como_real(cenario.split.particoes[Particao.TESTE]),
             auxiliar_fora_do_manifesto(),
+            *entradas_a_mais,
         ),
     }
     if metodo is MetodoId.B_ML:

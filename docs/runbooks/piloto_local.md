@@ -95,10 +95,12 @@ uv run sustemporal pilot-report --config "$CFG"
 ```
 
 O `ingest` grava `<raiz_saidas>/ingest/execucao_<instante>_<id>/` (Parquet, `datasets.jsonl`,
-`resultados.jsonl`). O `pilot-report` lê a execução mais recente do `ingest`, seleciona as versões
-(B_PROC e B_ATEND) e grava `<raiz_saidas>/pilot/execucao_<instante>_<id>/relatorio.json` mais as
-tabelas `piloto_*.v1`. Revise `resultados.jsonl` (quarentenas, `FORA_DO_RECORTE`, `FORA_DO_CORTE`)
-antes de ler o relatório.
+`resultados.jsonl`, `manifesto_lido.json`). O `pilot-report` lê a execução completa mais recente
+do `ingest` (com `datasets.jsonl` e `manifesto_lido.json`; pasta interrompida é ignorada com o aviso
+`pilot_report_ingest_incompleto`), seleciona as versões (B_PROC e B_ATEND) e grava
+`<raiz_saidas>/pilot/execucao_<instante>_<id>/relatorio.json` mais as tabelas `piloto_*.v1`.
+Revise `resultados.jsonl` (quarentenas, `FORA_DO_RECORTE`, `FORA_DO_CORTE`) antes de ler o
+relatório.
 
 ## 4. Registrar a execução
 

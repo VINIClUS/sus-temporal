@@ -14,8 +14,9 @@ classificador e não exige ganho positivo. Ele subsidia a decisão humana G0
 
 ## Entradas
 
-- A execução mais recente do `ingest` (`<raiz_saidas>/ingest/execucao_*/datasets.jsonl`): um
-  `sia_pa.v1` por versão de conteúdo, os auxiliares (CNES, SIGTAP) e a `cobertura.v1`.
+- A execução completa mais recente do `ingest` (`<raiz_saidas>/ingest/execucao_*` com
+  `datasets.jsonl` e `manifesto_lido.json`): um `sia_pa.v1` por versão de conteúdo, os auxiliares
+  (CNES, SIGTAP) e a `cobertura.v1`.
 - O manifesto de aquisição (`<raiz_manifestos>/aquisicao.jsonl`), lido pelo registro temporal.
 - A coorte: `coorte` da configuração ou, sem ela, a derivada do `piloto` (UF, território e o
   intervalo entre a menor e a maior competência de processamento pedida).
@@ -106,9 +107,14 @@ original: `sia_pa_incompleto competencia=…; sia_pa_ausente competencia=…`.
 O `ingest` grava `manifesto_lido.json` (número de linhas e hash encadeado da última linha do
 manifesto que leu). O `pilot-report` monta o registro temporal só com esse prefixo e confere o
 hash: versão obtida depois da ingestão não entra na seleção, então seleção e disponibilidade
-descrevem o mesmo retrato. Posição ausente (pasta de ingestão antiga), além do manifesto atual ou
-com hash divergente (manifesto reescrito) recusa a execução (saída 2), nunca cai no manifesto
-atual.
+descrevem o mesmo retrato. Posição ilegível, além do manifesto atual ou com hash divergente
+(manifesto reescrito) recusa a execução (saída 2), nunca cai no manifesto atual.
+
+Pasta `execucao_*` sem `manifesto_lido.json` (ingestão antiga) ou sem `datasets.jsonl` (ingestão
+interrompida) está incompleta: o `pilot-report` a ignora, com o aviso
+`pilot_report_ingest_incompleto execucao=… faltando=…`, e usa a mais recente completa. Sem nenhuma
+completa (inclusive sem pasta `ingest`) a execução é recusada (`ConfigInvalida`, saída 2), nunca
+`FileNotFoundError`.
 
 ## Inconclusivos
 

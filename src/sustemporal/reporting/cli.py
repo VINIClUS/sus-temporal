@@ -1,10 +1,11 @@
 """Comando `sustemporal pilot-report`: relatório do piloto de observabilidade (T05).
 
-Lê a execução mais recente do `ingest` (`<raiz_saidas>/ingest/execucao_*/datasets.jsonl`), faz a
-seleção temporal em lote (B_PROC e B_ATEND) de cada conjunto SIA-PA contra o prefixo do
-manifesto de aquisição que a ingestão leu (`manifesto_lido.json`) e grava, numa pasta nova
-`<raiz_saidas>/pilot/execucao_<instante>_<id>/`, as tabelas do relatório, as seleções e
-`relatorio.json` (o `EvaluationReport`).
+Lê a execução completa mais recente do `ingest` (`<raiz_saidas>/ingest/execucao_*` com
+`datasets.jsonl` e `manifesto_lido.json`; pasta sem um deles, de ingestão interrompida ou antiga, é
+ignorada com aviso), faz a seleção temporal em lote (B_PROC e B_ATEND) de cada conjunto SIA-PA
+contra o prefixo do manifesto de aquisição que a ingestão leu (`manifesto_lido.json`) e grava,
+numa pasta nova `<raiz_saidas>/pilot/execucao_<instante>_<id>/`, as tabelas do relatório, as
+seleções e `relatorio.json` (o `EvaluationReport`).
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from typing import TYPE_CHECKING
 from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import EstadoManifesto, Manifesto
 from sustemporal.contracts import CohortSpec, DatasetRef
-from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro
+from sustemporal.errors import ConfigInvalida, ExitCode
 from sustemporal.ingest.cli import NOME_POSICAO_MANIFESTO
 from sustemporal.reporting.report import build_pilot_report
 from sustemporal.rules.catalog import carregar_regras
@@ -41,6 +42,8 @@ logger = logging.getLogger(__name__)
 # O piloto mede a disponibilidade nas duas bases temporais (B_PROC e B_ATEND); M_TEMP segue
 # NAO_RESOLVIDA até o G0.
 POLITICAS_PILOTO = ("B_PROC", "B_ATEND")
+# Arquivos do `ingest` sem os quais a execução não serve: os conjuntos e o retrato do manifesto.
+ARQUIVOS_DA_INGESTAO = ("datasets.jsonl", NOME_POSICAO_MANIFESTO)
 
 
 def _coorte(config: RunConfig, piloto: PilotSpec) -> CohortSpec:
@@ -60,11 +63,25 @@ def _coorte(config: RunConfig, piloto: PilotSpec) -> CohortSpec:
 
 
 def _ultima_ingestao(raiz_saidas: Path) -> Path:
+    """A `execucao_*` mais recente do `ingest` com `datasets.jsonl` e a posição do manifesto.
+
+    Raises:
+        ConfigInvalida: nenhuma execução completa em `<raiz_saidas>/ingest`.
+    """
     raiz = raiz_saidas / "ingest"
-    execucoes = sorted(p for p in raiz.iterdir() if p.is_dir()) if raiz.is_dir() else []
-    if not execucoes:
-        raise FalhaOperacionalErro(f"pilot_report_sem_ingest raiz={raiz}")
-    return execucoes[-1]
+    execucoes = sorted(raiz.glob("execucao_*"), reverse=True) if raiz.is_dir() else []
+    ignoradas = 0
+    for execucao in (e for e in execucoes if e.is_dir()):
+        faltando = [n for n in ARQUIVOS_DA_INGESTAO if not (execucao / n).is_file()]
+        if not faltando:
+            return execucao
+        ignoradas += 1
+        logger.warning(
+            "pilot_report_ingest_incompleto execucao=%s faltando=%s",
+            execucao.name,
+            ",".join(faltando),
+        )
+    raise ConfigInvalida(f"pilot_report_sem_ingest_completo raiz={raiz} incompletas={ignoradas}")
 
 
 def _datasets_do_ingest(execucao: Path) -> list[DatasetRef]:
@@ -76,15 +93,13 @@ def _manifesto_lido(execucao: Path, manifesto: Path) -> EstadoManifesto:
     """O prefixo do manifesto que a ingestão leu, conferido pelo hash encadeado da última linha.
 
     Raises:
-        ConfigInvalida: posição não registrada, além do manifesto atual ou com hash divergente.
+        ConfigInvalida: posição ilegível, além do manifesto atual ou com hash divergente.
     """
     caminho = execucao / NOME_POSICAO_MANIFESTO
-    if not caminho.is_file():
-        raise ConfigInvalida(f"pilot_report_sem_posicao_do_manifesto ingest={execucao.name}")
     try:
         posicao = json.loads(caminho.read_text(encoding="utf-8"))
         linhas, cabeca = posicao["linhas"], posicao["cabeca_sha256"]
-    except (ValueError, KeyError, TypeError) as erro:
+    except (OSError, ValueError, KeyError, TypeError) as erro:
         raise ConfigInvalida(f"pilot_report_posicao_ilegivel ingest={execucao.name}") from erro
     atual = Manifesto(manifesto).ler()
     if type(linhas) is not int or not 0 <= linhas <= len(atual.linhas):
@@ -120,12 +135,12 @@ def _selecoes(
 
 
 def executar_pilot_report(args: argparse.Namespace, config: RunConfig) -> int:
-    """Lê a última execução do `ingest`, seleciona as versões e grava o relatório do piloto.
+    """Lê a última execução completa do `ingest`, seleciona as versões e grava o relatório.
 
     Raises:
-        ConfigInvalida: configuração sem piloto, território inválido ou posição do manifesto
-            lida pela ingestão ausente ou divergente do manifesto atual.
-        FalhaOperacionalErro: nenhuma execução do `ingest` em `raiz_saidas`.
+        ConfigInvalida: configuração sem piloto, território inválido, nenhuma execução completa
+            do `ingest` em `raiz_saidas` ou posição do manifesto lida pela ingestão ilegível ou
+            divergente do manifesto atual.
     """
     if config.piloto is None:
         raise ConfigInvalida("pilot_report_exige_piloto")

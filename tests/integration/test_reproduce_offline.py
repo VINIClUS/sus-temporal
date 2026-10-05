@@ -270,8 +270,12 @@ def reproducao(fluxo: Fluxo) -> Reproducao:
     return Reproducao(feita.codigo, feita.out, feita.conteudo, antes, _instantaneo(fluxo))
 
 
-def test_reproduce_offline_reproduz_com_hashes_logicos_iguais(reproducao: Reproducao) -> None:
+def test_reproduce_offline_reproduz_com_hashes_logicos_iguais(
+    fluxo: Fluxo, reproducao: Reproducao
+) -> None:
     assert reproducao.codigo == ExitCode.OK
+    assert reproducao.conteudo["freeze_id"] == _freeze(fluxo)
+    assert reproducao.conteudo["relatorio_refeito"].startswith("rep_")
     assert reproducao.conteudo["resultado"] == "IGUAL"
     assert set(reproducao.itens) == ITENS_DA_REPRODUCAO
     assert set(reproducao.situacoes.values()) == {"IGUAL"}

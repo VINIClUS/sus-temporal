@@ -24,7 +24,16 @@ if TYPE_CHECKING:
 RAIZ = Path(__file__).resolve().parents[2]
 PYPROJECT = RAIZ / "pyproject.toml"
 
-PERMISSIVAS: dict[str, str] = {}
+PERMISSIVAS: dict[str, str] = {
+    "MIT": "ADR 0002, critério 1: aceita; maioria dos pacotes do runtime",
+    "BSD": "ADR 0002, critério 1: classificador genérico para BSD-2-Clause ou BSD-3-Clause",
+    "BSD-3-Clause": "ADR 0002, critério 1: BSD aceita; scikit-learn, joblib, threadpoolctl",
+    "Apache-2.0": "ADR 0002, critério 1: aceita; pyarrow",
+    "Zlib": "ADR 0002, critério 1: aceita; dbc-to-dbf e componentes do numpy",
+    "PSF-2.0": "permissiva da Python Software Foundation; typing-extensions",
+    "0BSD": "permissiva sem exigência de atribuição; só na expressão SPDX composta do numpy",
+    "CC0-1.0": "dedicação ao domínio público; só na expressão SPDX composta do numpy",
+}
 EXCECOES: dict[str, str] = {}
 
 _CLASSIFICADORES = {

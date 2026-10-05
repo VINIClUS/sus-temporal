@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
     from tests.fixtures.protocolo_dados import Cenario
 
-    from sustemporal.contracts import EvaluationReport, RunResult
+    from sustemporal.contracts import EvaluationReport, RuleSpec, RunResult
 
 OUTRO_CODIGO = CODIGO_LIMPO.model_copy(update={"commit": "b" * 40})
 OUTRO_HASH = f"lh1:{'e' * 64}"
@@ -344,6 +344,22 @@ def test_cli_congela_regras_e_politicas_e_avalia_o_confirmatorio_compativel(
     assert main(["evaluate", "--config", str(config), "--freeze", freeze]) == ExitCode.OK
     (entrada,) = ler_registro(tmp_path / "frozen" / "registro_execucoes.jsonl")
     assert (entrada["modo"], entrada["freeze_id"]) == ("CONFIRMATORIO", freeze)
+
+
+def test_cli_freeze_com_catalogo_de_regras_ilegivel_sai_como_config_invalida(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    cenario_baseline(tmp_path / "saidas")
+    monkeypatch.chdir(tmp_path)
+    escrever_decisao(tmp_path / "experiments" / "decisions", "G0", "CONTINUAR")
+
+    def catalogo_ilegivel() -> list[RuleSpec]:
+        raise FileNotFoundError("catalog/familias.yaml")
+
+    monkeypatch.setattr("sustemporal.evaluation.cli.carregar_regras", catalogo_ilegivel)
+    codigo = main(["freeze", "--config", str(_config_yaml(tmp_path))])
+    assert codigo == ExitCode.CONFIG_INVALIDA
+    assert not (tmp_path / "frozen").exists()
 
 
 def test_cli_recusa_o_confirmatorio_com_execucao_de_outro_codigo(

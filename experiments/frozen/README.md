@@ -45,6 +45,12 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
   congelamento, exploratório ou inexistente é recusado (código 2) e não reabre o teste, e a
   correção só vale no confirmatório. A correção precisa de execuções diferentes das da rodada
   anterior: o `report_id` deriva das execuções, e o relatório nunca é sobrescrito.
+  A releitura final do registro, a checagem de rodada única e o append correm sob uma trava
+  entre processos (`fcntl.flock` exclusivo em `registro_execucoes.jsonl.trava`, ao lado do
+  registro; `arquivo_de_trava`), então dois `evaluate` simultâneos não repetem `seq`, não
+  quebram a cadeia e não registram duas rodadas confirmatórias: o que chega depois espera e
+  relê o registro já com a entrada do outro. O arquivo de trava, vazio, não é dado do
+  protocolo e não deve ir para o Git.
 
 ## Como cada campo do manifesto é conferido
 

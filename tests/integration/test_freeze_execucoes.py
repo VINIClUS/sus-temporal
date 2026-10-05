@@ -131,6 +131,9 @@ def _divergencias(conf: Confirmatorio, raiz: Path) -> dict[str, Callable[[], dic
             "entradas": (_particao(conf, Particao.CALIBRACAO), conf.rotulos)
         },
         "dataset_completo_sem_a_particao": lambda: {"entradas": (como_real(conf.cenario.dataset),)},
+        "hash_do_teste_em_conjunto_de_outro_esquema": lambda: {
+            "entradas": (teste.model_copy(update={"schema_id": "sigtap_procedimento.v1"}),)
+        },
     }
 
 
@@ -150,6 +153,7 @@ CASOS = [
     ("so_a_particao_de_desenvolvimento", "entradas"),
     ("calibracao_com_rotulos_do_teste", "entradas"),
     ("dataset_completo_sem_a_particao", "entradas"),
+    ("hash_do_teste_em_conjunto_de_outro_esquema", "entradas"),
 ]
 
 

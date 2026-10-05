@@ -42,7 +42,7 @@ from sustemporal.contracts.temporal import MetodoId
 from sustemporal.errors import ExitCode, PortaoRecusado
 from sustemporal.evaluation.baselines import fit_baseline
 from sustemporal.evaluation.features import FEATURES_PADRAO
-from sustemporal.evaluation.metrics import evaluate_runs
+from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -51,9 +51,10 @@ if TYPE_CHECKING:
 
     from sustemporal.contracts import EvaluationReport, RunResult, SplitManifest
 
-M_TEMP, B_ML = 0, 3
+M_TEMP, B_ATEND, B_ML = 0, 1, 3
 POR_COMPETENCIA = 30
 METODOS = ("M_TEMP", "B_ATEND", "B_PROC", "B_ML")
+NOTA = "cobertura_dos_resultados"
 
 
 @pytest.fixture(scope="module")
@@ -87,6 +88,11 @@ def _trocar(conf: Confirmatorio, raiz: Path, indice: int, **campos: object) -> l
     return [*conf.runs[:indice], nova, *conf.runs[indice + 1 :]]
 
 
+def _sem_os_primeiros(conf: Confirmatorio, metodo: MetodoId, omitidos: int) -> dict[str, str]:
+    completos = resultados_do_teste(conf.cenario, metodo)
+    return dict(sorted(completos.items())[omitidos:])
+
+
 def _mensagem(metodo: str, ausentes: int, extras: int) -> str:
     base = f"execucao_com_cobertura_incompleta metodo={metodo} ausentes={ausentes} extras={extras}"
     return f"^{re.escape(base)}$"
@@ -104,13 +110,22 @@ def test_confirmatorio_recusa_execucao_sem_resultado_de_linhas_do_teste(
 ) -> None:
     metodo = confirmatorio.runs[indice].metodo
     assert metodo is not None
-    completos = resultados_do_teste(confirmatorio.cenario, metodo)
-    runs = _trocar(
-        confirmatorio, tmp_path, indice, resultados=dict(sorted(completos.items())[omitidos:])
-    )
+    resultados = _sem_os_primeiros(confirmatorio, metodo, omitidos)
+    runs = _trocar(confirmatorio, tmp_path, indice, resultados=resultados)
     with pytest.raises(PortaoRecusado, match=_mensagem(metodo.value, omitidos, 0)):
         _avaliar(confirmatorio, tmp_path / "av", runs)
     assert not (tmp_path / "av").exists()
+
+
+def test_confirmatorio_recusa_pelo_primeiro_metodo_em_ordem_alfabetica(
+    tmp_path: Path, confirmatorio: Confirmatorio
+) -> None:
+    sem_dois = _sem_os_primeiros(confirmatorio, MetodoId.M_TEMP, 2)
+    runs = _trocar(confirmatorio, tmp_path, M_TEMP, resultados=sem_dois)
+    sem_cinco = _sem_os_primeiros(confirmatorio, MetodoId.B_ATEND, 5)
+    runs = _trocar(replace(confirmatorio, runs=runs), tmp_path, B_ATEND, resultados=sem_cinco)
+    with pytest.raises(PortaoRecusado, match=_mensagem("B_ATEND", 5, 0)):
+        _avaliar(confirmatorio, tmp_path / "av", runs)
 
 
 def test_confirmatorio_recusa_resultado_de_linha_fora_do_teste_se_a_execucao_so_declara_o_teste(
@@ -140,25 +155,32 @@ def test_confirmatorio_aceita_resultado_de_outras_particoes_se_a_execucao_as_dec
     assert nota in relatorio.notas
 
 
-def test_relatorio_confirmatorio_registra_a_cobertura_de_cada_metodo(
+def test_relatorio_confirmatorio_registra_a_cobertura_de_cada_metodo_em_ordem_alfabetica(
     tmp_path: Path, confirmatorio: Confirmatorio
 ) -> None:
     relatorio = _avaliar(confirmatorio, tmp_path / "av", confirmatorio.runs)
-    for metodo in METODOS:
-        assert f"cobertura_dos_resultados metodo={metodo} ausentes=0 extras=0" in relatorio.notas
+    notas = [nota for nota in relatorio.notas if nota.startswith(NOTA)]
+    assert notas == [f"{NOTA} metodo={m} ausentes=0 extras=0" for m in sorted(METODOS)]
 
 
+@pytest.mark.parametrize("com_manifesto", [False, True], ids=["sem_manifesto", "com_manifesto"])
 def test_exploratorio_so_registra_as_contagens_de_cobertura(
-    tmp_path: Path, cenario: Cenario
+    tmp_path: Path, cenario: Cenario, com_manifesto: bool
 ) -> None:
     assert cenario.split.rotulos_por_particao is not None
     calibracao = [lp for lp in cenario.linhas if lp.competencia_processamento == "202301"]
     parcial = {lp.row_id: "ALERTA" for lp in calibracao[:5]}
-    run = run_agregados(MetodoId.B_PROC, parcial, tmp_path / "runs")
+    run = run_agregados(MetodoId.B_PROC, parcial, tmp_path / "exploratorio")
     rotulos = cenario.split.rotulos_por_particao[Particao.CALIBRACAO]
-    relatorio = evaluate_runs([run], rotulos, cenario.split, tmp_path / "av")
+    congelamento = None
+    if com_manifesto:
+        manifesto = montar_confirmatorio(tmp_path, cenario).manifesto
+        congelamento = ReferenciaCongelamento(manifesto.freeze_id, manifesto=manifesto)
+    relatorio = evaluate_runs(
+        [run], rotulos, cenario.split, tmp_path / "av", congelamento=congelamento
+    )
     ausentes = len(calibracao) - 5
-    assert f"cobertura_dos_resultados metodo=B_PROC ausentes={ausentes} extras=0" in relatorio.notas
+    assert f"{NOTA} metodo=B_PROC ausentes={ausentes} extras=0" in relatorio.notas
     abstencao = next(m for m in relatorio.metricas if m.nome == "B_PROC.abstencao")
     assert abstencao.numerador == ausentes
 

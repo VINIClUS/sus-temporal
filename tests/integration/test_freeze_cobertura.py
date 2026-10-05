@@ -34,6 +34,7 @@ from tests.fixtures.protocolo_confirmatorio import (
     split_como_real,
 )
 from tests.fixtures.protocolo_dados import cenario_baseline
+from tests.fixtures.protocolo_insumos import entradas_das_execucoes
 from tests.fixtures.protocolo_predicoes import (
     predicoes_com_linhas_repetidas,
     predicoes_sem_linhas_do_teste,
@@ -78,7 +79,7 @@ def _avaliar(conf: Confirmatorio, out: Path, runs: list[RunResult]) -> Evaluatio
         conf.cenario.split,
         out,
         bootstrap=conf.manifesto.bootstrap,
-        congelamento=conf.referencia(),
+        congelamento=conf.referencia(entradas=entradas_das_execucoes(runs)),
     )
 
 
@@ -248,13 +249,14 @@ class ComBaselineReal:
 
     def avaliar(self, out: Path, runs: list[RunResult] | None = None) -> EvaluationReport:
         rotulos = (self.split.rotulos_por_particao or {})[Particao.TESTE]
+        avaliadas = self.runs if runs is None else runs
         return evaluate_runs(
-            self.runs if runs is None else runs,
+            avaliadas,
             rotulos,
             self.split,
             out,
             bootstrap=self.conf.manifesto.bootstrap,
-            congelamento=self.conf.referencia(),
+            congelamento=self.conf.referencia(entradas=entradas_das_execucoes(avaliadas)),
         )
 
 

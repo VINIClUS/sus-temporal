@@ -29,6 +29,7 @@ from sustemporal.contracts.experiment import (
     Portao,
     RunResult,
     SplitManifest,
+    TipoExecucao,
 )
 from sustemporal.contracts.records import DatasetRef
 from sustemporal.contracts.temporal import MetodoId
@@ -46,15 +47,17 @@ from sustemporal.evaluation.split import SUFIXO_ENTRADAS
 from sustemporal.execucoes import raiz_execucoes
 from sustemporal.gates import DIR_DECISOES, exigir_portao
 from sustemporal.rules.catalog import carregar_regras
-from sustemporal.rules.entrada import EntradaValidacao
+from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
 from sustemporal.rules.insumos import politica_padrao
 from sustemporal.runtime_info import ambiente, versao_codigo
 from sustemporal.temporal.politicas import DIRETORIO_POLITICAS, carregar_politica
 
 if TYPE_CHECKING:
     import argparse
+    from collections.abc import Sequence
 
     from sustemporal.contracts import FreezeManifest, RuleSpec, RunConfig
+    from sustemporal.contracts.experiment import DecisaoPortao
     from sustemporal.contracts.temporal import PoliticaTemporal
 
 __all__ = [
@@ -173,19 +176,21 @@ def _arquivo_da_execucao(diretorio: Path) -> Path | None:
     return existentes[0] if existentes else None
 
 
-def _execucoes(pasta: Path) -> list[RunResult]:
-    """Execuções legíveis de `pasta`; a ilegível é ignorada e registrada, e as conferências
-    recusam se faltar uma necessária."""
+def _execucoes(pasta: Path) -> list[tuple[RunResult, Path]]:
+    """Execuções legíveis de `pasta`, com o diretório de cada uma; a ilegível é ignorada e
+    registrada, e as conferências recusam se faltar uma necessária."""
     execucoes = []
     for diretorio in sorted(pasta.glob("*")):
         caminho = _arquivo_da_execucao(diretorio)
         if caminho is None:
             continue
         try:
-            execucoes.append(RunResult.model_validate_json(caminho.read_text(encoding="utf-8")))
+            run = RunResult.model_validate_json(caminho.read_text(encoding="utf-8"))
         except (OSError, ValueError) as erro:
             motivo = type(erro).__name__
             logger.warning("evaluate_execucao_ilegivel run=%s motivo=%s", diretorio.name, motivo)
+            continue
+        execucoes.append((run, diretorio))
     return execucoes
 
 
@@ -198,16 +203,56 @@ def _do_protocolo(run: RunResult, config: RunConfig, manifesto: FreezeManifest) 
     return run.config_hash == config.config_hash and entradas_do_congelamento(manifesto, run)
 
 
-def _runs(pasta: Path, config: RunConfig, manifesto: FreezeManifest) -> list[RunResult]:
+def _runs(
+    pasta: Path, config: RunConfig, manifesto: FreezeManifest
+) -> list[tuple[RunResult, Path]]:
     selecionadas = []
-    for run in _execucoes(pasta):
+    for run, diretorio in _execucoes(pasta):
         if _do_protocolo(run, config, manifesto):
-            selecionadas.append(run)
+            selecionadas.append((run, diretorio))
         else:
             logger.info("evaluate_execucao_ignorada run=%s modo=%s", run.run_id, run.modo.value)
     if not selecionadas:
         raise ConfigInvalida(f"avaliacao_sem_execucoes pasta={pasta} modo={config.modo.value}")
     return selecionadas
+
+
+def _entradas_das_regras(
+    selecionadas: Sequence[tuple[RunResult, Path]],
+) -> dict[str, EntradaValidacao]:
+    """`entrada_validacao.json` de cada execução de regras; a ilegível fica de fora e a
+    conferência recusa a execução sem entrada."""
+    entradas = {}
+    for run, diretorio in selecionadas:
+        if run.tipo is TipoExecucao.BASELINE_ML:
+            continue
+        try:
+            texto = (diretorio / ARQUIVO_ENTRADA).read_text(encoding="utf-8")
+            entradas[run.run_id] = EntradaValidacao.model_validate_json(texto)
+        except (OSError, ValueError) as erro:
+            motivo = type(erro).__name__
+            logger.warning("evaluate_entrada_ilegivel run=%s motivo=%s", run.run_id, motivo)
+    return entradas
+
+
+def _referencia(
+    freeze: str,
+    g2: DecisaoPortao | None,
+    estado: tuple[FreezeManifest, EstadoAtual],
+    selecionadas: Sequence[tuple[RunResult, Path]],
+) -> ReferenciaCongelamento:
+    """Sem G2 (exploratório) só o `freeze_id`; no confirmatório, o manifesto, o estado e as
+    entradas de validação das execuções de regras."""
+    if g2 is None:
+        return ReferenciaCongelamento(freeze)
+    manifesto, atual = estado
+    return ReferenciaCongelamento(
+        freeze,
+        referencia_decisao(DIR_DECISOES, g2),
+        manifesto=manifesto,
+        estado=atual,
+        entradas=_entradas_das_regras(selecionadas),
+    )
 
 
 def _estado_atual(
@@ -268,7 +313,9 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     registra a divergência. A segunda rodada confirmatória exige `--corrige` e `--declaracao`.
     As execuções vêm de `runs/`: no confirmatório, as do congelamento; no exploratório, só as da
     mesma `config_hash` cujas entradas são do split do congelamento, e as demais são ignoradas
-    com `evaluate_execucao_ignorada`; o manifesto ilegível, com `evaluate_execucao_ilegivel`.
+    com `evaluate_execucao_ignorada`; o manifesto ilegível, com `evaluate_execucao_ilegivel`. No
+    confirmatório lê também a `entrada_validacao.json` de cada execução de regras, conferida campo
+    a campo contra a congelada; a ilegível (`evaluate_entrada_ilegivel`) a conferência recusa.
 
     Raises:
         ConfigInvalida: congelamento ou split ausente ou inválido, correção incompleta, inválida
@@ -287,19 +334,15 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     _exigir_rodada(diretorio / REGISTRO, config, args.freeze, correcao)
     confirmatorio = config.modo is ModoExecucao.CONFIRMATORIO
     particao = Particao.TESTE if confirmatorio else Particao.CALIBRACAO
-    congelamento = ReferenciaCongelamento(args.freeze)
-    if confirmatorio:
-        g2 = exigir_portao(DIR_DECISOES, Portao.G2, freeze_id=args.freeze)
-        congelamento = ReferenciaCongelamento(
-            args.freeze, referencia_decisao(DIR_DECISOES, g2), manifesto=manifesto, estado=estado
-        )
+    g2 = exigir_portao(DIR_DECISOES, Portao.G2, freeze_id=args.freeze) if confirmatorio else None
+    selecionadas = _runs(raiz_execucoes(config), config, manifesto)
     relatorio = evaluate_runs(
-        _runs(raiz_execucoes(config), config, manifesto),
+        [run for run, _ in selecionadas],
         (split.rotulos_por_particao or {})[particao],
         split,
         raiz / "avaliacao" / args.freeze,
         bootstrap=manifesto.bootstrap,
-        congelamento=congelamento,
+        congelamento=_referencia(args.freeze, g2, (manifesto, estado), selecionadas),
     )
     corrige, declaracao = correcao
     registrar_execucao(diretorio / REGISTRO, relatorio, corrige=corrige, declaracao=declaracao)

@@ -31,8 +31,8 @@ from sustemporal.evaluation.freeze import (
     hash_protocolo,
     hashes_das_politicas,
     hashes_dos_catalogos,
-    ids_nao_populacionais,
 )
+from sustemporal.evaluation.freeze_entrada import campos_divergentes, entrada_da_execucao
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping, Sequence
@@ -99,8 +99,14 @@ CAMPOS_DO_MANIFESTO: dict[str, Campo] = {
     ),
     "catalogo_regras_sha256": Campo(estado="catalogo", execucao="catalogo"),
     "politicas_sha256": Campo(estado="politica", execucao="politica"),
-    "auxiliares": Campo(execucao="auxiliares"),
-    "snapshots": Campo(execucao="snapshots"),
+    "entradas_validacao": Campo(
+        execucao="entrada_validacao",
+        motivo=(
+            "por política, a identidade de cada campo da `EntradaValidacao` (`freeze_entrada`); a "
+            "divergência leva o nome do campo, ou `entrada_validacao` se a entrada da execução "
+            "falta, não é a dela ou não há insumos congelados para a política"
+        ),
+    ),
 }
 
 SUBCAMPOS_INFORMATIVOS = {
@@ -284,26 +290,6 @@ def _politica_divergente(manifesto: FreezeManifest, run: RunResult) -> bool:
     return run.politica_id is None or run.politica_id not in (manifesto.politicas_sha256 or {})
 
 
-def _sem_insumos_a_conferir(manifesto: FreezeManifest, run: RunResult) -> bool:
-    """Baseline não usa regras; política desconhecida já diverge em `politica`."""
-    return run.tipo is TipoExecucao.BASELINE_ML or _politica_divergente(manifesto, run)
-
-
-def _auxiliares_divergentes(manifesto: FreezeManifest, run: RunResult) -> bool:
-    if _sem_insumos_a_conferir(manifesto, run):
-        return False
-    congelados = (manifesto.auxiliares or {}).get(run.politica_id or "")
-    atuais = ids_nao_populacionais(run.entradas, manifesto.datasets)
-    return congelados is None or set(atuais) != set(congelados)
-
-
-def _snapshots_divergentes(manifesto: FreezeManifest, run: RunResult) -> bool:
-    if _sem_insumos_a_conferir(manifesto, run):
-        return False
-    congelado = (manifesto.snapshots or {}).get(run.politica_id or "")
-    return congelado is None or run.snapshot_set_id != congelado
-
-
 def _hashes_das_entradas_congeladas(manifesto: FreezeManifest, run: RunResult) -> set[str]:
     esquemas = {d.schema_id for d in manifesto.datasets}
     return {d.hash_logico for d in run.entradas if d.schema_id in esquemas}
@@ -333,8 +319,19 @@ def _entradas_divergentes(manifesto: FreezeManifest, run: RunResult) -> bool:
 
 def _divergencias_da_entrada(
     manifesto: FreezeManifest, run: RunResult, entrada: EntradaValidacao | None
-) -> dict[str, bool]:
-    raise NotImplementedError("freeze_entrada")
+) -> list[str]:
+    """Campos divergentes da entrada de validação da execução de regras contra a congelada.
+
+    Baseline não usa regras, e a política desconhecida já diverge em `politica`. Sem insumos
+    congelados para a política, sem a entrada da execução ou com a de outra execução, nada se
+    compara: `entrada_validacao`.
+    """
+    if run.tipo is TipoExecucao.BASELINE_ML or _politica_divergente(manifesto, run):
+        return []
+    congeladas = (manifesto.entradas_validacao or {}).get(run.politica_id or "")
+    if congeladas is None or entrada is None or not entrada_da_execucao(entrada, run):
+        return ["entrada_validacao"]
+    return campos_divergentes(congeladas, entrada)
 
 
 def verificar_execucao(
@@ -349,16 +346,17 @@ def verificar_execucao(
     `config` é a config confirmatória do congelamento: o protocolo dela confere com o manifesto
     (`hash_protocolo`) e o `config_hash` da execução é o dela, com `modo` e `freeze_id`. O
     ambiente (Python e dependências) é o congelado, para toda execução. Catálogo de regras,
-    política, auxiliares e snapshots valem para toda execução, menos a de baseline
+    política e entrada de validação valem para toda execução, menos a de baseline
     (`BASELINE_ML`), que não usa regras. Entre as entradas, as `sia_pa.v1` e de rótulos são a
     população e a da partição TESTE precisa estar entre elas (o baseline pode trazer outras
-    partições). O resto delas (auxiliares, seleções e cobertura) e o `snapshot_set_id` são os
-    congelados para o `politica_id` da execução; sem insumos congelados para a política, diverge.
+    partições). A `entrada_validacao.json` da execução de regras (`entrada`) é conferida campo a
+    campo contra a congelada para o `politica_id` dela (`freeze_entrada`); o `politica` dela vale
+    o hash do catálogo congelado.
 
     Raises:
         PortaoRecusado: `run_incompativel_com_congelamento run=... campo=...`, com cada identidade
-            divergente na ordem código, ambiente, config, catálogo, política, entradas,
-            auxiliares e snapshots.
+            divergente na ordem código, ambiente, config, catálogo, política, entradas e, por
+            fim, `entrada_validacao` ou os campos da entrada, na ordem dela.
     """
     divergencias = {
         "codigo": _codigo_divergente(run.codigo, manifesto),
@@ -367,11 +365,9 @@ def verificar_execucao(
         "catalogo": _catalogo_divergente(manifesto, run),
         "politica": _politica_divergente(manifesto, run),
         "entradas": _entradas_divergentes(manifesto, run),
-        "auxiliares": _auxiliares_divergentes(manifesto, run),
-        "snapshots": _snapshots_divergentes(manifesto, run),
     }
-    if manifesto.entradas_validacao is not None:
-        divergencias.update(_divergencias_da_entrada(manifesto, run, entrada))
+    for campo in _divergencias_da_entrada(manifesto, run, entrada):
+        divergencias[campo] = True
     if campos := [nome for nome, divergente in divergencias.items() if divergente]:
         raise PortaoRecusado(
             f"run_incompativel_com_congelamento run={run.run_id} campo={','.join(campos)} "

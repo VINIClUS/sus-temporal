@@ -20,6 +20,7 @@ from sustemporal.contracts.base import hash_canonico, hash_identidade
 from sustemporal.contracts.experiment import DecisaoPortao, FreezeManifest, Particao, Portao
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.features import auditar_features
+from sustemporal.evaluation.freeze_entrada import identidades_da_entrada
 from sustemporal.gates import DIR_DECISOES, exigir_portao
 from sustemporal.hashing import sha256_arquivo
 from sustemporal.rules.catalog import carregar_esquema, catalogo_sha256
@@ -27,7 +28,7 @@ from sustemporal.runtime_info import ambiente, versao_codigo
 from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from decimal import Decimal
 
     from sustemporal.contracts import (
@@ -51,7 +52,6 @@ __all__ = [
     "hash_protocolo",
     "hashes_das_politicas",
     "hashes_dos_catalogos",
-    "ids_nao_populacionais",
     "referencia_decisao",
 ]
 
@@ -104,9 +104,8 @@ class Protocolo:
     caminhos na conferência). `regras` e `politicas` dão a identidade que cada execução que usa
     regras precisa repetir; sem elas o manifesto não as registra e a conferência recusa essas
     execuções. `insumos` traz, por `politica_id`, a entrada de validação (`entrada_validacao.json`)
-    sobre o TESTE que as execuções dessa política devem usar: dos auxiliares, das seleções, da
-    cobertura e do `SnapshotSet` o manifesto grava as identidades; sem elas a conferência recusa
-    toda execução de regras.
+    sobre o TESTE que as execuções dessa política devem usar: o manifesto grava a identidade de
+    cada campo dela (`freeze_entrada`); sem insumos a conferência recusa toda execução de regras.
     """
 
     config: RunConfig
@@ -141,7 +140,7 @@ def congelar(
     """
     g0 = exigir_portao(decisoes, Portao.G0, hoje=hoje)
     _exigir_coerencia(protocolo)
-    auxiliares, snapshots = _identidades_dos_insumos(protocolo)
+    entradas_validacao = _entradas_validacao(protocolo)
     raiz = Path.cwd()
     try:
         manifesto = FreezeManifest.criar(
@@ -160,8 +159,7 @@ def congelar(
             comparacoes_primarias=COMPARACOES_PRIMARIAS,
             margens=dict(protocolo.margens),
             decisao_g0=referencia_decisao(decisoes, g0),
-            auxiliares=auxiliares,
-            snapshots=snapshots,
+            entradas_validacao=entradas_validacao,
         )
     except ValidationError as erro:
         raise ConfigInvalida(f"congelamento_invalido erro={erro}") from erro
@@ -199,31 +197,24 @@ def _exigir_insumos_do_teste(protocolo: Protocolo) -> None:
         )
 
 
-def ids_nao_populacionais(
-    entradas: Iterable[DatasetRef | None], populacao: Iterable[DatasetRef]
-) -> tuple[str, ...]:
-    """Ids, ordenados e sem repetição, das entradas de esquema que a população não usa.
+def _entradas_validacao(protocolo: Protocolo) -> dict[str, dict[str, str]] | None:
+    """Identidade de cada campo da entrada de validação, por política; None sem insumos.
 
-    `populacao` são os conjuntos congelados da população (registros e rótulos); o que sobra nas
-    `entradas` de uma execução de regras são auxiliares, seleções e cobertura. `congelar` e a
-    conferência por execução usam esta função.
+    A política resolvida que o `validate` grava vale a do catálogo congelado (`politicas_sha256`):
+    a da entrada, se vier, tem de ser essa.
     """
-    esquemas = {d.schema_id for d in populacao}
-    presentes = (d for d in entradas if d is not None)
-    return tuple(sorted({d.dataset_id for d in presentes if d.schema_id not in esquemas}))
-
-
-def _identidades_dos_insumos(
-    protocolo: Protocolo,
-) -> tuple[dict[str, tuple[str, ...]] | None, dict[str, str] | None]:
-    """Ids não populacionais e `snapshot_id` por política; None sem insumos."""
-    populacao = (protocolo.dataset, protocolo.rotulos)
-    auxiliares, snapshots = {}, {}
-    for politica, entrada in sorted(protocolo.insumos.items()):
-        refs = (entrada.dataset, *entrada.auxiliares, entrada.selecoes, entrada.cobertura)
-        auxiliares[politica] = ids_nao_populacionais(refs, populacao)
-        snapshots[politica] = entrada.snapshots.snapshot_id
-    return auxiliares or None, snapshots or None
+    catalogo = hashes_das_politicas(protocolo.politicas) or {}
+    congeladas = {}
+    for politica_id, entrada in sorted(protocolo.insumos.items()):
+        campos = identidades_da_entrada(entrada)
+        if politica_id in catalogo:
+            if entrada.politica is not None and campos["politica"] != catalogo[politica_id]:
+                raise ConfigInvalida(
+                    f"congelamento_insumos_com_politica_diferente politica={politica_id}"
+                )
+            campos["politica"] = catalogo[politica_id]
+        congeladas[politica_id] = campos
+    return congeladas or None
 
 
 def hashes_dos_catalogos(catalogos: Mapping[str, Path]) -> dict[str, str]:

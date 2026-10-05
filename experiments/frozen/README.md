@@ -13,7 +13,7 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
   `config.catalogos`. Registra o catálogo de regras de `catalog/rules`, as políticas de
   `catalog/policies` e as padrão dos baselines; sem esses campos o manifesto não prova catálogo
   nem política. Lê também os insumos de cada política em `<raiz_saidas>/split/insumos/`
-  (seção "Entradas não populacionais das execuções de regras").
+  (seção "Entrada de validação das execuções de regras").
 - `sustemporal evaluate --freeze <id>`: confirmatório. Exige config confirmatória com dados
   REAIS, G2 humano para o `freeze_id` e o manifesto conferido por inteiro (tabela abaixo) antes
   de ler qualquer dado. Avalia só o TESTE e emite as razões do TOTAL, do domínio comum e, por
@@ -71,35 +71,50 @@ divergência. A biblioteca (`evaluate_runs`) repete a conferência antes de ler 
 | `decisao_g0` | informativo | informativo | G0 só autoriza congelar (exigido em `congelar`); no teste vale o G2 do `freeze_id` |
 | `catalogo_regras_sha256` | `catalogo` | `catalogo` | digest do catálogo de regras; na execução vale para toda menos a de baseline |
 | `politicas_sha256` | `politica` | `politica` | hash de cada política do avaliador; na execução, o `politica_id` entre as congeladas (menos baseline) |
-| `auxiliares` | não se aplica | `auxiliares` | por `politica_id`, os ids dos conjuntos não populacionais (auxiliares como CNES e SIGTAP, seleções temporais e cobertura) que a execução de regras usa; a execução tem exatamente esses, e a de baseline não é conferida |
-| `snapshots` | não se aplica | `snapshots` | por `politica_id`, o `snapshot_id` (derivado do conteúdo) do `SnapshotSet` que a execução registra em `snapshot_set_id` |
+| `entradas_validacao` | não se aplica | `entrada_validacao` e o nome de cada campo da entrada | por `politica_id`, a identidade de cada campo da `EntradaValidacao` (`freeze_entrada`); a `entrada_validacao.json` de cada execução de regras é conferida campo a campo, e a de baseline não é; ver a seção abaixo |
 
-## Entradas não populacionais das execuções de regras
+## Entrada de validação das execuções de regras
 
-Uma execução de regras usa, além da população, auxiliares (CNES, SIGTAP), seleções temporais,
-cobertura e um `SnapshotSet`, e qualquer um deles muda as saídas: reingerir depois de chegar uma
-versão nova do SIGTAP, por exemplo. O manifesto fixa, por `politica_id` (a seleção e o
-`SnapshotSet` dependem da política temporal), os ids desses conjuntos (`auxiliares`) e o
-`snapshot_id` (`snapshots`). A fonte é explícita: `sustemporal freeze` lê
-`<raiz_saidas>/split/insumos/<politica_id>.json`, uma `entrada_validacao.json` (a que o
-`validate --entrada` consome) por política do protocolo (M_TEMP_PADRAO, B_ATEND e B_PROC),
-preparada antes do G2 e com a partição TESTE do split em `dataset`.
+A entrada das regras (`EntradaValidacao`: `dataset`, `snapshots`, `auxiliares`, `selecoes`,
+`cobertura`, `integridade`, `politica_documentada`, `politica` e `identidade_adicional`) muda o
+resultado delas em cada campo: outro SIGTAP, outra cobertura, outro estado de integridade que
+põe um insumo em quarentena. O congelamento fixa a entrada inteira, por `politica_id` (a seleção
+e o `SnapshotSet` dependem da política temporal), e a conferência compara cada campo. A fonte é
+explícita: `sustemporal freeze` lê `<raiz_saidas>/split/insumos/<politica_id>.json`, uma
+`entrada_validacao.json` (a que o `validate --entrada` consome) por política do protocolo
+(M_TEMP_PADRAO, B_ATEND e B_PROC), preparada antes do G2 e com a partição TESTE do split em
+`dataset`.
 
+- Identidade de cada campo (`evaluation/freeze_entrada.py`): hash canônico do valor normalizado.
+  O conjunto de dados vale pelo `dataset_id` (derivado do hash lógico, nunca o caminho), o
+  `SnapshotSet` pelo `snapshot_id`, a política pelo conteúdo, e a ordem dos conjuntos não
+  importa; coleção ou mapa vazio vale o mesmo que ausente. A identidade percorre os campos do
+  modelo, então um campo novo da entrada entra na comparação sem mexer no módulo e, se o
+  congelamento não o traz, diverge (`tests/integration/test_freeze_insumos.py` percorre
+  `EntradaValidacao.model_fields` e exige um cenário de divergência para cada campo).
+- A `politica` que o `validate` grava na entrada da execução vale a do catálogo congelado
+  (`politicas_sha256`), que o `congelar` grava como identidade dela; a do arquivo preparado, se
+  vier, tem de ser essa (`congelamento_insumos_com_politica_diferente`). Isso confere também o
+  conteúdo da política de cada execução de regras (pendência T11 #13).
 - `freeze` sai com código 2 sem a pasta (`freeze_sem_insumos_das_execucoes`), com arquivo
   ilegível (`freeze_insumos_ilegiveis`) ou de outra população
   (`congelamento_insumos_de_outra_populacao`), e não congela. `congelar` na biblioteca aceita
-  `Protocolo.insumos` vazio e então deixa os dois campos `None` (os ids de congelamentos já
-  emitidos seguem válidos); um manifesto assim recusa toda execução de regras no confirmatório.
-- Confirmatório: cada execução de regras tem as entradas não populacionais (`entradas` fora dos
-  esquemas da população e dos rótulos) e o `snapshot_set_id` iguais aos congelados para a sua
-  política, e a divergência sai como `run_incompativel_com_congelamento campo=auxiliares,snapshots`
-  (saída 4), antes de ler dados. A execução de baseline (`BASELINE_ML`) não usa regras e não é
-  conferida; a política desconhecida diverge só em `politica`. A comparação é entre ids derivados
-  do hash lógico, sem reabrir os arquivos auxiliares.
+  `Protocolo.insumos` vazio e então deixa o campo `None` (os ids de congelamentos já emitidos
+  seguem válidos); um manifesto assim recusa toda execução de regras no confirmatório.
+- Confirmatório: o `evaluate` lê a `entrada_validacao.json` de cada execução de regras
+  (`ReferenciaCongelamento.entradas` na biblioteca) e a confere campo a campo contra a congelada
+  para a política dela, antes de ler dados: `run_incompativel_com_congelamento run=<id>
+  campo=<lista>` (saída 4), com o nome de cada campo divergente na ordem da entrada (`politica`
+  é o mesmo nome da conferência da política da execução). Entrada ausente ou ilegível
+  (`evaluate_entrada_ilegivel` no log), que não é a da execução (outro `SnapshotSet` ou
+  conjuntos que ela não registrou) ou sem insumos congelados para a política dá
+  `campo=entrada_validacao`. A execução de baseline (`BASELINE_ML`) não usa regras e não é
+  conferida; a política desconhecida diverge só em `politica`.
 - Exploratório: as execuções não são conferidas uma a uma (leem a CALIBRACAO, de outra população
   e outras seleções); só o estado do avaliador é conferido e registrado.
-- Limites: o `integridade` da entrada de validação não é congelado e a seleção do arquivo não é
-  conferida contra o registro temporal (pendências T11 #26 e #27).
+- Limites: a entrada é comparada com o `RunResult` só no `SnapshotSet` e nos conjuntos que ele
+  registra, e o `run_id` não é recalculado como faz o contrafactual (pendência T11 #28); os
+  insumos são preparados à mão antes do G2 (pendência T11 #27).
 
 Outras recusas, antes de ler dados, com a mesma conferência: execução PARCIAL, FALHOU ou com
 falhas registradas (`execucao_incompleta_no_confirmatorio`), porque o que faltou viraria

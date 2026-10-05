@@ -123,7 +123,8 @@ def _exigir_congelamento_cumprido(
         raise PortaoRecusado(
             f"avaliacao_confirmatoria_sem_manifesto_do_freeze freeze={congelamento.freeze_id}"
         )
-    verificar_congelamento_completo(manifesto, replace(estado, split=split), runs)
+    estado_do_split = replace(estado, split=split)
+    verificar_congelamento_completo(manifesto, estado_do_split, runs, congelamento.entradas)
 
 
 def _modo(

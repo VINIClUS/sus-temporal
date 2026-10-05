@@ -15,6 +15,7 @@ from sustemporal.evaluation.freeze_entrada import (
     identidades_da_entrada,
 )
 from sustemporal.rules.entrada import EntradaValidacao
+from sustemporal.temporal.politicas import carregar_politica
 from tests.fixtures.protocolo_avaliacao import run_agregados
 from tests.fixtures.protocolo_insumos import (
     ARTEFATO_DO_INSUMO,
@@ -89,7 +90,7 @@ ALTERACOES = {
     "selecoes": {"selecoes": conjunto_sintetico(ESQUEMA_SELECAO, OUTRA)},
     "cobertura": {"cobertura": conjunto_sintetico(ESQUEMA_COBERTURA, OUTRA)},
     "integridade": {"integridade": {ARTEFATO_DO_INSUMO: EstadoIntegridade.NAO_VERIFICADO}},
-    "politica_documentada": {"politica_documentada": None},
+    "politica_documentada": {"politica_documentada": carregar_politica("B_PROC")},
     "politica": {"politica": None},
     "identidade_adicional": {"identidade_adicional": {"recorte_territorial": "a" * 64}},
 }

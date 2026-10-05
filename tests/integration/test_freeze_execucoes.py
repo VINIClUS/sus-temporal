@@ -173,7 +173,7 @@ CASOS = [
     ("so_a_particao_de_desenvolvimento", "entradas"),
     ("calibracao_com_rotulos_do_teste", "entradas"),
     ("dataset_completo_sem_a_particao", "entradas"),
-    ("hash_do_teste_em_conjunto_de_outro_esquema", "entradas,auxiliares"),
+    ("hash_do_teste_em_conjunto_de_outro_esquema", "entradas"),
 ]
 
 

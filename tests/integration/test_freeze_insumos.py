@@ -306,6 +306,18 @@ def test_politica_sem_insumos_congelados_recusa_so_as_execucoes_dela(
         verificar_execucao(conf.manifesto, run, config=conf.config, entrada=entrada)
 
 
+def test_entrada_sem_selecoes_nem_cobertura_e_congelada_e_conferida_sem_elas(
+    tmp_path: Path, cenario: Cenario
+) -> None:
+    base = insumos_do_teste(cenario)
+    sem_opcionais = base["B_ATEND"].model_copy(update={"selecoes": None, "cobertura": None})
+    conf = montar_confirmatorio(tmp_path, cenario, insumos={**base, "B_ATEND": sem_opcionais})
+    gravada = sem_opcionais.model_copy(update={"politica": carregar_politica("B_ATEND")})
+    run = execucao_com_entrada(conf.runs[B_ATEND], gravada)
+    assert len(run.entradas) == 1 + len(gravada.auxiliares)
+    verificar_execucao(conf.manifesto, run, config=conf.config, entrada=gravada)
+
+
 def test_manifesto_sem_insumos_nao_leva_o_campo_novo_na_identidade(
     tmp_path: Path, cenario: Cenario
 ) -> None:
@@ -392,7 +404,7 @@ def _avaliar_pela_cli(raiz: Path, freeze: str) -> int:
 
 
 def test_cli_avalia_o_confirmatorio_cujas_entradas_sao_as_congeladas(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     cenario, freeze = congelar_pela_cli(tmp_path, monkeypatch)
     runs = runs_da_cli(tmp_path, cenario, freeze)
@@ -401,6 +413,7 @@ def test_cli_avalia_o_confirmatorio_cujas_entradas_sao_as_congeladas(
     assert all((pasta / run.run_id / ARQUIVO_ENTRADA).is_file() for run in runs[:B_ML])
     assert not (pasta / runs[B_ML].run_id / ARQUIVO_ENTRADA).exists()
     assert _avaliar_pela_cli(tmp_path, freeze) == ExitCode.OK
+    assert "evaluate_entrada_ilegivel" not in capsys.readouterr().err
 
 
 def test_cli_recusa_o_confirmatorio_com_entrada_de_outra_integridade(

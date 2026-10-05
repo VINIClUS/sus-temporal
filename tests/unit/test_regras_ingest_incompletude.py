@@ -94,3 +94,13 @@ def test_partes_sem_declaracao_no_catalogo_deixam_a_competencia_insuficiente(
         "sia_pa_incompleto competencia=202302 motivo=selecao_incompleta "
         "partes_sem_declaracao completude=INDETERMINADA partes=a,b"
     )
+
+
+def test_marca_da_ingestao_prevalece_sobre_a_derivada_do_seletor(tmp_path: Path) -> None:
+    incompleto = {"202302": "parte_c_ausente"}
+    resultado = _executar(montar_ingest(tmp_path, sem_parte_b=True, sia_pa_incompleto=incompleto))
+    celula = _celula(resultado, "202302", "PROCESSAMENTO")
+    assert celula["estado"] == "INSUFICIENTE"
+    assert str(celula["motivo"]).startswith(
+        "sia_pa_incompleto competencia=202302 motivo=parte_c_ausente"
+    )

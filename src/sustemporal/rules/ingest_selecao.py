@@ -1,7 +1,8 @@
-"""Versões da produção do `validate --ingest` conferidas pelo seletor do T06."""
+"""Versões da produção do `validate --ingest` pelo seletor do T06: conferência e incompletude."""
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
@@ -12,24 +13,40 @@ from sustemporal.contracts.temporal import (
     CriterioTemporal,
     EstadoSelecao,
 )
+from sustemporal.duck import identificador_seguro
 from sustemporal.errors import ConfigInvalida
 from sustemporal.temporal.selector import selecionar_versao, uf_da_execucao
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    import duckdb
+
     from sustemporal.contracts.config import RunConfig
+    from sustemporal.contracts.temporal import SelecaoVersao
     from sustemporal.temporal.registry import RegistroTemporal
 
-__all__ = ["exigir_versao_selecionavel"]
+__all__ = ["exigir_versao_selecionavel", "marcas_de_incompletude"]
+
+logger = logging.getLogger(__name__)
 
 
 def exigir_versao_selecionavel(
     artefatos: list[str], registro: RegistroTemporal, config: RunConfig
-) -> None:
-    """Pelo seletor do T06, a pasta traz exatamente as versões selecionadas até o corte."""
+) -> dict[str, SelecaoVersao]:
+    """Pelo seletor do T06, a pasta traz exatamente as versões selecionadas até o corte.
+
+    Devolve, por competência do arquivo, as seleções `INCOMPLETA` (parte esperada ausente, parte
+    não declarada ou completude indeterminada) que a pasta aceitou.
+
+    Raises:
+        ConfigInvalida: versões concorrentes, versão não selecionada ou parte selecionada ausente.
+    """
     criterio = CriterioTemporal(fonte=FamiliaFonte.SIA_PA, base=BaseTemporal.PROCESSAMENTO)
     por_competencia: dict[str, set[str]] = defaultdict(set)
     for artefato in artefatos:
         por_competencia[str(registro.versoes[artefato].chave.competencia_arquivo)].add(artefato)
+    incompletas: dict[str, SelecaoVersao] = {}
     for competencia, da_pasta in sorted(por_competencia.items()):
         selecao = selecionar_versao(
             registro,
@@ -54,3 +71,33 @@ def exigir_versao_selecionavel(
                 f"producao_com_partes_ausentes competencia={competencia} "
                 f"ausentes={sorted(selecionadas - da_pasta)}"
             )
+        if selecao.estado is EstadoSelecao.INCOMPLETA:
+            incompletas[competencia] = selecao
+    return incompletas
+
+
+def marcas_de_incompletude(
+    con: duckdb.DuckDBPyConnection, tabela: str, incompletas: Mapping[str, SelecaoVersao]
+) -> dict[str, str]:
+    """Competência → motivo da marca `sia_pa_incompleto` derivada das seleções `INCOMPLETA`.
+
+    Vale a competência do arquivo e, como na ingestão (`propagar_incompletude`), as competências de
+    processamento que as linhas dos artefatos selecionados trazem em `tabela` (PA_MVM pode diferir
+    do nome do arquivo).
+    """
+    alvo = identificador_seguro(tabela, {tabela})
+    marcas = {
+        competencia: f"selecao_incompleta {s.motivo}" for competencia, s in incompletas.items()
+    }
+    for competencia, selecao in incompletas.items():
+        trazidas = con.execute(
+            f"SELECT DISTINCT competencia_processamento FROM {alvo} "  # noqa: S608
+            "WHERE competencia_processamento IS NOT NULL AND list_contains($a, artifact_id)",
+            {"a": list(selecao.artifact_ids)},
+        ).fetchall()
+        for (valor,) in trazidas:
+            via_arquivo = f"incompleto_via_arquivo competencia_arquivo={competencia}"
+            marcas.setdefault(str(valor), via_arquivo)
+    for competencia, motivo in sorted(marcas.items()):
+        logger.info("sia_pa_incompleto_da_selecao competencia=%s motivo=%s", competencia, motivo)
+    return marcas

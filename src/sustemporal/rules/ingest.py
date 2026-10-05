@@ -29,7 +29,7 @@ from sustemporal.ingest.coverage import build_coverage
 from sustemporal.rules.catalog import carregar_esquema, requisito_auxiliar
 from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
 from sustemporal.rules.ingest_conformidade import exigir_colunas_obrigatorias
-from sustemporal.rules.ingest_selecao import exigir_versao_selecionavel
+from sustemporal.rules.ingest_selecao import exigir_versao_selecionavel, marcas_de_incompletude
 from sustemporal.rules.preparo import conferir_tipos_fisicos
 from sustemporal.temporal.registry import RegistroTemporal
 from sustemporal.temporal.selector import partes_esperadas_do_catalogo
@@ -40,6 +40,7 @@ if TYPE_CHECKING:
     from sustemporal.contracts.artifacts import ArtifactVersion
     from sustemporal.contracts.config import RunConfig
     from sustemporal.contracts.rules import RuleSpec
+    from sustemporal.contracts.temporal import SelecaoVersao
 
 __all__ = [
     "InsumosIngest",
@@ -178,7 +179,8 @@ def _exigir_escopo_do_piloto(
 
 def _exigir_producao_coerente(
     producao: list[DatasetRef], registro: RegistroTemporal, config: RunConfig
-) -> None:
+) -> dict[str, SelecaoVersao]:
+    """Produção do SIA-PA, do piloto e das versões selecionadas; devolve as seleções INCOMPLETA."""
     artefatos = sorted({a for ref in producao for a in ref.artifact_ids})
     por_chave: dict[str, set[str]] = defaultdict(set)
     for artefato in artefatos:
@@ -192,10 +194,10 @@ def _exigir_producao_coerente(
                 f"producao_com_versoes_concorrentes chave={chave} artefatos={sorted(versoes)}"
             )
     _exigir_escopo_do_piloto(artefatos, registro, config)
-    exigir_versao_selecionavel(artefatos, registro, config)
+    incompletas = exigir_versao_selecionavel(artefatos, registro, config)
     corte = config.corte_observacao
     if corte is None:
-        return
+        return incompletas
     for artefato in artefatos:
         if not any(
             o.artifact_id == artefato
@@ -204,6 +206,7 @@ def _exigir_producao_coerente(
             for o in registro.observacoes
         ):
             raise ConfigInvalida(f"producao_observada_apos_o_corte artefato={artefato}")
+    return incompletas
 
 
 def _classificar(
@@ -426,7 +429,7 @@ def preparar_insumos_ingest(
     """
     config, registro, municipios = contexto
     producao, auxiliares, cobertura = _classificar(datasets, regras)
-    _exigir_producao_coerente(producao, registro, config)
+    incompletas = _exigir_producao_coerente(producao, registro, config)
     grupos = [producao, *(refs for refs in auxiliares.values() if refs)]
     fisicas = [_conferir(con, refs) for refs in grupos]
     if cobertura is not None:
@@ -435,6 +438,7 @@ def preparar_insumos_ingest(
     colunas = _unir(con, producao, fisicas[0])
     _exigir_row_id_unico(con)
     exclusoes = _recortar_populacao(con, colunas, municipios, _competencias_do_piloto(config))
+    incompleto = marcas_de_incompletude(con, _UNIAO, incompletas) | incompleto
     ref_producao = _gravar(con, colunas, producao, destino)
     derivados = [
         _gravar(con, _unir(con, refs, presentes), refs, destino)

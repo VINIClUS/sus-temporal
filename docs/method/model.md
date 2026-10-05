@@ -249,7 +249,15 @@ de todo conjunto) vêm antes de gravar qualquer arquivo:
   `sia_pa_incompleto competencia=AAAAMM motivo=…`, lidos por `incompletude_da_cobertura` na passada
   de conferência, antes de qualquer gravação; marca fora do formato → saída 2): nunca
   sai `DISPONIVEL` onde a ingestão marcou arquivo incompleto. Assim um registro de fora do
-  território não torna insuficiente uma célula do território. A cobertura recalculada entra na
+  território não torna insuficiente uma célula do território. O seletor do T06 também marca, mesmo
+  quando a cobertura da ingestão não tem a marca (catálogo alterado depois do ingest): a competência
+  do arquivo cuja seleção da produção é `INCOMPLETA` (parte esperada ausente, parte não declarada ou
+  partes sem declaração no catálogo) entra com `motivo=selecao_incompleta` e o motivo do seletor, e
+  as competências de processamento que as linhas dos artefatos dela trazem, como na ingestão
+  (`propagar_incompletude`), entram com `motivo=incompleto_via_arquivo competencia_arquivo=AAAAMM`
+  (`rules/ingest_selecao.py::marcas_de_incompletude`, depois do recorte); a marca da ingestão
+  prevalece quando existe. A competência fica `INSUFICIENTE`, e a linha que dependeria de uma parte
+  ausente sai `INCONCLUSIVO`, nunca `VIOLACAO`. A cobertura recalculada entra na
   avaliação e no `run_id`; a da ingestão fica registrada em `recorte_territorial.json`
   (`cobertura_da_ingestao`);
 - integridade por versão, derivada do registro: a da versão, piorada pelas observações dela —

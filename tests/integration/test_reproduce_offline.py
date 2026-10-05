@@ -372,6 +372,24 @@ def test_reproduce_com_original_auxiliar_ausente_e_inconclusivo_e_nao_divergente
     assert "ingest_sem_tabela artefatos=1 estados=ARQUIVOAUSENTE" in feita.conteudo["observacoes"]
 
 
+def test_reproduce_sem_a_entrada_original_de_uma_politica_avisa_e_nao_chama_de_divergencia(
+    fluxo: Fluxo,
+) -> None:
+    arquivo = fluxo.mundo.saidas / "split" / "insumos" / "b_atend_exploratoria.json"
+    guardado = arquivo.read_bytes()
+    arquivo.unlink()
+    try:
+        feita = reproduzir(
+            fluxo, fluxo.configs["teste"], fluxo.mundo.raiz / "reproducao_sem_entrada"
+        )
+    finally:
+        arquivo.write_bytes(guardado)
+    assert feita.codigo == ExitCode.OK
+    assert feita.conteudo["resultado"] == "IGUAL"
+    aviso = "insumos_originais_nao_conferidos politicas=b_atend_exploratoria"
+    assert aviso in feita.conteudo["observacoes"]
+
+
 def _sem_evidencias(validar: Callable[..., Mapping[Any, RunResult]]) -> Callable[..., Any]:
     """A `validar_janela` real, com as execuções devolvidas sem a saída `evidencias.v1`."""
 

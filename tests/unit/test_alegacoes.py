@@ -1,8 +1,9 @@
 """Auditoria de `docs/method/claims.md`: cada alegação com evidência exigida e estado (T14).
 
-Cada alegação é um bloco `### AL-NN — título` com campos `- **Campo:** valor`. Nenhuma pode
-estar CONFIRMADA (ou NAO_CONFIRMADA) sem decisão humana registrada em `experiments/decisions/`
-para cada portão de que depende, e o texto não traz a linguagem proibida pelo AGENTS.md.
+Cada alegação é um bloco `### AL-NN — título` com campos `- **Campo:** valor`. O estado só sai
+de PENDENTE com decisão humana que cite a alegação (`test_alegacoes_decisoes.py`) e, em
+CONFIRMADA ou NAO_CONFIRMADA, com a decisão de cada portão de que depende; o texto não traz a
+linguagem proibida pelo AGENTS.md.
 """
 
 from __future__ import annotations
@@ -49,6 +50,15 @@ DEPENDENCIAS = (
     "AVALIADORES",
     "ORIENTACAO",
     "ESBOCO",
+)
+PREFIXOS_DE_DECISAO = (
+    "alegacao_sem_decisao_humana",
+    "alegacao_sobre_esboco",
+    "estado_sem_decisao_da_alegacao",
+    "estado_diverge_da_decisao",
+    "decisoes_de_alegacao_empatadas",
+    "decisao_de_alegacao_invalida",
+    "decisao_cita_alegacao_inexistente",
 )
 RAIZES_CITAVEIS = ("tests/", "docs/", "src/", "catalog/", "config/", "scripts/", "experiments/")
 AUSENTES_DE_PROPOSITO = {
@@ -265,7 +275,7 @@ def test_alegacao_confirmatoria_depende_de_g2_e_de_dados_reais() -> None:
 
 
 def test_nenhuma_alegacao_confirmada_sem_decisao_humana_em_experiments_decisions() -> None:
-    assert _problemas_do_registro("alegacao_sem_decisao_humana", "alegacao_sobre_esboco") == []
+    assert _problemas_do_registro(*PREFIXOS_DE_DECISAO) == []
 
 
 def test_registro_nao_traz_linguagem_proibida() -> None:
@@ -326,22 +336,6 @@ def _bloco(
     return f"### AL-{n:02d} — Título {n}\n\n" + "\n".join(linhas) + "\n"
 
 
-def _registrar(diretorio: Path, nome: str, conteudo: str) -> None:
-    diretorio.mkdir(parents=True, exist_ok=True)
-    (diretorio / nome).write_text(conteudo, encoding="utf-8")
-
-
-_FREEZE = f"frz_{'a' * 64}"
-_G0 = (
-    "portao: G0\ndecisao: {}\ndata: 2025-01-15\nresponsaveis: [orientacao]\n"
-    "registrado_por_humano: true\n"
-)
-_G2 = (
-    "portao: G2\ndecisao: ABRIR_TESTE\ndata: 2025-06-01\nresponsaveis: [orientacao]\n"
-    f"registrado_por_humano: true\nfreeze_id: {_FREEZE}\n"
-)
-
-
 def _validar(texto: str, decisoes: Path, *, esboco: bool = True) -> list[str]:
     return validar_alegacoes(ler_alegacoes(texto), decisoes=decisoes, esboco_preservado=esboco)
 
@@ -393,51 +387,6 @@ def test_alegacao_confirmatoria_sem_g2_ou_sem_dados_reais_reprova(tmp_path: Path
     assert _validar(sem_g2, tmp_path) == esperado
     assert _validar(sem_dados, tmp_path) == esperado
     assert _validar(completa, tmp_path) == []
-
-
-@pytest.mark.parametrize("estado", ["CONFIRMADA", "NAO_CONFIRMADA"])
-def test_alegacao_com_resultado_sem_decisao_humana_reprova(estado: str, tmp_path: Path) -> None:
-    problemas = _validar(_bloco(estado=estado, depende="G0, DADOS_REAIS"), tmp_path / "vazio")
-    assert problemas == [f"alegacao_sem_decisao_humana id=AL-01 estado={estado} portao=G0"]
-
-
-def test_modelo_de_decisao_nao_libera_alegacao(tmp_path: Path) -> None:
-    _registrar(tmp_path, "MODELO_G0.yaml", _G0.format("CONTINUAR"))
-    problemas = _validar(_bloco(estado="CONFIRMADA"), tmp_path)
-    assert problemas == ["alegacao_sem_decisao_humana id=AL-01 estado=CONFIRMADA portao=G0"]
-
-
-def test_decisao_g0_que_nao_libera_o_portao_nao_basta(tmp_path: Path) -> None:
-    _registrar(tmp_path, "G0_2025-01-15.yaml", _G0.format("REFORMULAR"))
-    problemas = _validar(_bloco(estado="CONFIRMADA"), tmp_path)
-    assert problemas == ["alegacao_sem_decisao_humana id=AL-01 estado=CONFIRMADA portao=G0"]
-
-
-def test_decisao_humana_de_teste_em_diretorio_temporario_libera_g0(tmp_path: Path) -> None:
-    _registrar(tmp_path, "G0_2025-01-15.yaml", _G0.format("CONTINUAR"))
-    assert _validar(_bloco(estado="CONFIRMADA"), tmp_path) == []
-
-
-def test_alegacao_confirmatoria_exige_a_decisao_g2_do_congelamento(tmp_path: Path) -> None:
-    texto = _bloco(estado="CONFIRMADA", natureza="CONFIRMATORIA", depende="G2, DADOS_REAIS")
-    esperado = ["alegacao_sem_decisao_humana id=AL-01 estado=CONFIRMADA portao=G2"]
-    assert _validar(texto, tmp_path) == esperado
-    _registrar(tmp_path, "G2_2025-06-01.yaml", _G2)
-    assert _validar(texto, tmp_path) == []
-
-
-def test_alegacao_pendente_ou_exploratoria_nao_exige_decisao(tmp_path: Path) -> None:
-    assert _validar(_bloco(estado="PENDENTE"), tmp_path) == []
-    assert _validar(_bloco(estado="EXPLORATORIA", depende="G2, DADOS_REAIS"), tmp_path) == []
-
-
-def test_esboco_pendente_impede_alegacao_que_depende_dele(tmp_path: Path) -> None:
-    _registrar(tmp_path, "G0_2025-01-15.yaml", _G0.format("CONTINUAR"))
-    texto = _bloco(estado="CONFIRMADA", depende="G0, DADOS_REAIS, ESBOCO")
-    assert _validar(texto, tmp_path, esboco=False) == [
-        "alegacao_sobre_esboco_pendente id=AL-01 estado=CONFIRMADA"
-    ]
-    assert _validar(texto, tmp_path, esboco=True) == []
 
 
 @pytest.mark.parametrize(

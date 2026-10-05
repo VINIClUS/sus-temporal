@@ -147,6 +147,7 @@ def _estratos(linhas: Sequence[LinhaAvaliada]) -> dict[str, list[LinhaAvaliada]]
         for chave, valor in (
             ("instrumento", linha.instrumento),
             ("competencia", linha.competencia),
+            ("estabelecimento", linha.cnes),
         ):
             estratos.setdefault(f"{chave}={valor}", []).append(linha)
     return estratos
@@ -185,7 +186,9 @@ def calcular_metricas(
 
     A população inteira (inconclusivas e linhas sem situação do método inclusive) fica nos
     denominadores de cobertura; o domínio comum vem de `no_dominio_comum`, definido sem o
-    resultado dos métodos; rejeição sem alerta só é fora de escopo com causa documentada.
+    resultado dos métodos; rejeição sem alerta só é fora de escopo com causa documentada. Os
+    estratos são TOTAL, domínio comum e, por valor, instrumento, competência e estabelecimento
+    (CNES); valor ausente forma o estrato `chave=None`.
     """
     metricas: list[ValorMetrica] = []
     for estrato, subconjunto in _estratos(linhas).items():

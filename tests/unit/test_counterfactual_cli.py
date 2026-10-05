@@ -16,8 +16,8 @@ from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.base import hash_canonico
 from sustemporal.contracts.counterfactual import CounterfactualSearchResult, Executabilidade
 from sustemporal.contracts.experiment import EstadoExecucao
+from sustemporal.execucoes import ler_execucao, raiz_execucoes
 from sustemporal.explanation import counterfactual_sobreposicao
-from sustemporal.explanation.cli import localizar_execucao
 from sustemporal.explanation.counterfactual import search_counterfactuals
 from sustemporal.explanation.counterfactual_cli import (
     diretorio_contrafactual,
@@ -25,6 +25,7 @@ from sustemporal.explanation.counterfactual_cli import (
     identidade_contrafactual,
 )
 from sustemporal.explanation.counterfactual_contexto import (
+    ContextoContrafactual,
     ContextoIndisponivel,
     contexto_da_execucao,
 )
@@ -136,7 +137,11 @@ def test_argumento_invalido_da_saida_2(execucao: Execucao) -> None:
 
 
 def _pasta_da_execucao(execucao: Execucao) -> Path:
-    return _saidas(execucao) / "runs" / execucao.run_id
+    return raiz_execucoes(execucao.config) / execucao.run_id
+
+
+def _contexto(execucao: Execucao) -> ContextoContrafactual:
+    return contexto_da_execucao(raiz_execucoes(execucao.config), execucao.run_id, execucao.config)
 
 
 def test_entrada_da_execucao_ausente_da_saida_2(tmp_path: Path) -> None:
@@ -160,7 +165,7 @@ def test_entrada_divergente_do_run_id_da_saida_2(tmp_path: Path) -> None:
 
 
 def test_busca_de_dois_argumentos_resolve_pela_execucao(execucao: Execucao) -> None:
-    run = localizar_execucao(_saidas(execucao), execucao.run_id)
+    run = ler_execucao(raiz_execucoes(execucao.config), execucao.run_id)
     bundle = montar_explicacao(run, execucao.ausencia, runtime=execucao.config.runtime).bundle
     resultado = search_counterfactuals(bundle, execucao.config)
     assert [[o.op_id for o in s.operacoes] for s in resultado.solucoes] == [[_INCLUIR]]
@@ -171,7 +176,29 @@ def test_execucao_sem_entrada_gravada_tem_contexto_ausente(tmp_path: Path) -> No
     execucao = executar_validacao_sintetica(tmp_path)
     (_pasta_da_execucao(execucao) / ARQUIVO_ENTRADA).unlink()
     with pytest.raises(ContextoIndisponivel, match="contexto_da_execucao_ausente run="):
-        contexto_da_execucao(_saidas(execucao), execucao.run_id, execucao.config)
+        _contexto(execucao)
+
+
+def test_so_descobre_a_execucao_em_runs(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    execucao = executar_validacao_sintetica(tmp_path)
+    fora = _saidas(execucao) / "validacao"
+    fora.mkdir()
+    _pasta_da_execucao(execucao).rename(fora / execucao.run_id)
+    assert _rodar(execucao, execucao.ausencia) == 2
+    erro = f"counterfactual_recusado erro=execucao_inexistente run={execucao.run_id}"
+    assert erro in caplog.text
+    assert not _destino(execucao, execucao.ausencia).exists()
+
+
+def test_so_le_a_entrada_da_execucao_em_runs(tmp_path: Path) -> None:
+    execucao = executar_validacao_sintetica(tmp_path)
+    fora = _saidas(execucao) / "validacao" / execucao.run_id
+    fora.mkdir(parents=True)
+    (_pasta_da_execucao(execucao) / ARQUIVO_ENTRADA).rename(fora / ARQUIVO_ENTRADA)
+    with pytest.raises(ContextoIndisponivel, match="contexto_da_execucao_ausente run="):
+        _contexto(execucao)
+    assert _rodar(execucao, execucao.ausencia) == 2
+    assert not _destino(execucao, execucao.ausencia).exists()
 
 
 def test_catalogo_de_operacoes_diferente_gera_outro_destino(
@@ -231,7 +258,7 @@ def test_entrada_ilegivel_e_recusa_de_contexto(tmp_path: Path, conteudo: bytes) 
     execucao = executar_validacao_sintetica(tmp_path)
     (_pasta_da_execucao(execucao) / ARQUIVO_ENTRADA).write_bytes(conteudo)
     with pytest.raises(ContextoIndisponivel, match="contrafactual_sem_contexto"):
-        contexto_da_execucao(_saidas(execucao), execucao.run_id, execucao.config)
+        _contexto(execucao)
     assert _rodar(execucao, execucao.ausencia) == 2
 
 
@@ -249,7 +276,7 @@ def test_run_result_nao_utf8_e_recusa_de_execucao(
     with pytest.raises(
         ContextoIndisponivel, match=r"contrafactual_sem_contexto .*execucao_ilegivel"
     ):
-        contexto_da_execucao(_saidas(execucao), execucao.run_id, execucao.config)
+        _contexto(execucao)
 
 
 @pytest.mark.parametrize(

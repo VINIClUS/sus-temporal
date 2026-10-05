@@ -176,21 +176,27 @@ def _arquivo_da_execucao(diretorio: Path) -> Path | None:
     return existentes[0] if existentes else None
 
 
+def _manifesto_da_execucao(diretorio: Path) -> RunResult | None:
+    caminho = _arquivo_da_execucao(diretorio)
+    if caminho is None:
+        return None
+    return RunResult.model_validate_json(caminho.read_text(encoding="utf-8"))
+
+
 def _execucoes(pasta: Path) -> list[tuple[RunResult, Path]]:
-    """Execuções legíveis de `pasta`, com o diretório de cada uma; a ilegível é ignorada e
-    registrada, e as conferências recusam se faltar uma necessária."""
+    """Execuções legíveis de `pasta`, com o diretório de cada uma; a pasta ou o manifesto que o
+    sistema nega abrir, truncado ou fora do contrato é ignorado e registrado, e as conferências
+    recusam se faltar uma execução necessária."""
     execucoes = []
     for diretorio in sorted(pasta.glob("*")):
-        caminho = _arquivo_da_execucao(diretorio)
-        if caminho is None:
-            continue
         try:
-            run = RunResult.model_validate_json(caminho.read_text(encoding="utf-8"))
+            run = _manifesto_da_execucao(diretorio)
         except (OSError, ValueError) as erro:
             motivo = type(erro).__name__
             logger.warning("evaluate_execucao_ilegivel run=%s motivo=%s", diretorio.name, motivo)
             continue
-        execucoes.append((run, diretorio))
+        if run is not None:
+            execucoes.append((run, diretorio))
     return execucoes
 
 
@@ -313,7 +319,8 @@ def executar_evaluate(args: argparse.Namespace, config: RunConfig) -> int:
     registra a divergência. A segunda rodada confirmatória exige `--corrige` e `--declaracao`.
     As execuções vêm de `runs/`: no confirmatório, as do congelamento; no exploratório, só as da
     mesma `config_hash` cujas entradas são do split do congelamento, e as demais são ignoradas
-    com `evaluate_execucao_ignorada`; o manifesto ilegível, com `evaluate_execucao_ilegivel`. No
+    com `evaluate_execucao_ignorada`; o manifesto ou a pasta ilegível, com
+    `evaluate_execucao_ilegivel`. No
     confirmatório lê também a `entrada_validacao.json` de cada execução de regras, conferida campo
     a campo contra a congelada; a ilegível (`evaluate_entrada_ilegivel`) a conferência recusa.
 

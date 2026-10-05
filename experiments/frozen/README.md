@@ -22,9 +22,9 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
   `run_result.json` do motor de regras (`validate` grava ali por padrão, `raiz_execucoes(config)`)
   ou o `run.json` do baseline; os dois no mesmo diretório são recusados (`execucao_ambigua`). Entram só as
   execuções confirmatórias do mesmo `freeze_id`; as demais são ignoradas
-  (`evaluate_execucao_ignorada` no log); o manifesto ilegível (truncado, UTF-8 inválido ou fora
-  do contrato) também, com `evaluate_execucao_ilegivel`, e as conferências recusam se faltar uma
-  execução necessária; sem nenhuma, o comando sai com código 2 (`avaliacao_sem_execucoes`). Cada
+  (`evaluate_execucao_ignorada` no log); o manifesto ilegível (truncado, UTF-8 inválido, fora
+  do contrato ou que o sistema nega abrir) também, com `evaluate_execucao_ilegivel`, e as
+  conferências recusam se faltar uma execução necessária; sem nenhuma, o comando sai com código 2 (`avaliacao_sem_execucoes`). Cada
   método precisa de resultado para todo registro do TESTE (seção "Cobertura dos resultados").
 - `sustemporal evaluate --freeze <id> --exploratory`: explícito. Avalia só a CALIBRACAO e
   registra a divergência do manifesto em vez de recusar. Entram só as execuções exploratórias com

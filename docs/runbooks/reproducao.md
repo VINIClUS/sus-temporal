@@ -195,7 +195,7 @@ diretório de trabalho e ficam fora do Git (`.gitignore`: `data/*`, `outputs/*`)
 |---|---|---|---|
 | Originais imutáveis | `raiz_dados` | `data/` | `raw/sha256/<2 primeiros>/<sha256>.<ext>`, endereçados pelo hash |
 | Manifestos | `raiz_manifestos` | `manifests/` | `aquisicao.jsonl` (append-only), `.ancora`, `.trava`; `vigilancia.jsonl` |
-| Saídas | `raiz_saidas` | `outputs/` | `ingest/`, `pilot/`, `runs/`, `explicacoes/`, `anotacao/` |
+| Saídas | `raiz_saidas` | `outputs/` | `ingest/`, `pilot/`, `runs/`, `validacao/`, `explicacoes/`, `anotacao/` |
 | Congelamentos | `dir_congelamentos` | `experiments/frozen/` | `<freeze_id>.json`, resolvido pelo id |
 | Decisões G0, G1, G2 | fixo | `experiments/decisions/` | só humanos; `MODELO_*` nunca libera portão |
 
@@ -203,6 +203,12 @@ Cada execução grava sob um id que resolve artefatos exatos (`execucao_<instant
 `val_<hash>`), sem diretório "latest" mutável. O manifesto de aquisição guarda cada observação,
 inclusive a repetida; os hashes lógicos dos conjuntos ficam em `datasets.jsonl` e nos
 `run_result.json`.
+
+**Destino do `validate`.** `validate --ingest` grava em `<raiz_saidas>/runs/<run_id>/`, onde o
+`explain` e o `evaluate` procuram as execuções. `validate --entrada` grava em
+`<raiz_saidas>/validacao/` por padrão; para o `evaluate` enxergar essa execução, rode com
+`--saida <raiz_saidas>/runs`. Alinhar os dois destinos no código é pendência do orquestrador (ORQ-21
+em `docs/PENDENCIAS.md`).
 
 ## 7. O que exige rede ou dados reais
 
@@ -218,7 +224,9 @@ onde fica o detalhe.
 auxiliar --competencias-atendimento ARQUIVO`. Antes, compare a listagem observada com
 `catalog/sources.yaml` e registre a conferência em `docs/references/fontes.md`. Detalhe:
 `docs/runbooks/piloto_local.md`, seção 1. Temporários `store/tmp/baixando_*` deixados por
-interrupção forçada são removidos à mão, sem nenhuma aquisição em curso.
+interrupção forçada são removidos à mão, sem nenhuma aquisição em curso. O manifesto grava
+`bytes_recebidos` de cada observação: o maior arquivo real calibra os tetos de ZIP, de DBF
+descomprimido e de membro (`LimitesZip`, `LIMITE_DBF_PADRAO`, `limite_membro_bytes`).
 
 ### 7.2 Partes esperadas por competência
 
@@ -246,7 +254,9 @@ de cada original. O modo `AMOSTRAL` reduz o custo em arquivos estaduais.
 `ingest` e `pilot-report` sobre as seis competências (`config/pilot.yaml`): `docs/runbooks/
 piloto_local.md`, seção 3. A amostra manual estratificada (competência, instrumento, `PA_INDICA`)
 compara o bruto com o canônico, sobretudo as linhas com `CODIFICACAO_INVALIDA` e as contradições
-de rótulo.
+de rótulo. Revise `resultados.jsonl` antes de ler o relatório: arquivo que excede um teto,
+leiaute divergente ou competência incompleta aparece ali como quarentena, `FORA_DO_RECORTE` ou
+`FORA_DO_CORTE`, com o motivo.
 
 ### 7.6 Registro da execução e decisão G0
 

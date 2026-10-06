@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -10,7 +11,13 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
-from sustemporal.contracts.base import Confirmacao, DocRef, OrigemDados, Proveniencia
+from sustemporal.contracts.base import (
+    Confirmacao,
+    DocRef,
+    EstadoDocumento,
+    OrigemDados,
+    Proveniencia,
+)
 from sustemporal.contracts.counterfactual import AlvoOperacao, OperationSpec
 from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.explanation.counterfactual_contexto import ContextoContrafactual
@@ -50,6 +57,7 @@ ART_ST = artefato(4)
 _ST = "cnes_estabelecimento.v1"
 _PF = "cnes_estab_cbo.v1"
 _INSTANTE = datetime(2026, 10, 4, 12, 0, tzinfo=UTC)
+_SHA256_SINTETICO = hashlib.sha256(b"documento SINTETICO de teste").hexdigest()
 
 
 def relogio() -> datetime:
@@ -181,10 +189,12 @@ def montar(
 
 
 def _docref_sintetica(oficial: bool) -> DocRef:
+    """Oficial: documento SINTETICO tratado como lido e preservado (cópia + SHA-256)."""
     return DocRef(
         doc_id="SINTETICO_DOC_OPERACAO",
         titulo="Documento SINTETICO de teste; não é fonte",
-        estado="PENDENTE",
+        estado=EstadoDocumento.PRESERVADO if oficial else EstadoDocumento.PENDENTE,
+        sha256=_SHA256_SINTETICO if oficial else None,
         proveniencia=Proveniencia.OFICIAL_DOCUMENTO if oficial else Proveniencia.SECUNDARIA,
         confirmacao=Confirmacao.CONFIRMADO if oficial else Confirmacao.A_CONFIRMAR,
     )

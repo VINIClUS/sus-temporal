@@ -270,6 +270,14 @@
     },
     "title": "Orcamento",
     "type": "object"
+   },
+   "OrigemDados": {
+    "enum": [
+     "SINTETICO",
+     "REAL"
+    ],
+    "title": "OrigemDados",
+    "type": "string"
    }
   },
   "additionalProperties": false,
@@ -303,6 +311,17 @@
    },
    "orcamento": {
     "$ref": "#/$defs/Orcamento"
+   },
+   "origem_dados": {
+    "anyOf": [
+     {
+      "$ref": "#/$defs/OrigemDados"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null
    },
    "regras_alvo": {
     "items": {

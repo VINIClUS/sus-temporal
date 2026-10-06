@@ -1,9 +1,11 @@
+import hashlib
+
 import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import ValidationError
 
-from sustemporal.contracts.base import DocRef
+from sustemporal.contracts.base import DocRef, OrigemDados
 from sustemporal.contracts.config import OrcamentoContrafactual
 from sustemporal.contracts.counterfactual import (
     AlvoOperacao,
@@ -20,13 +22,19 @@ from sustemporal.contracts.counterfactual import (
 )
 
 _IMUTAVEIS = ["cid", "cid_principal", "cid_secundario", "idade", "sexo", "data_atendimento"]
+_SHA256_SINTETICO = hashlib.sha256(b"documento SINTETICO de teste").hexdigest()
 
 
-def _docref(proveniencia: str = "OFICIAL_DOCUMENTO", confirmacao: str = "CONFIRMADO") -> DocRef:
+def _docref(
+    proveniencia: str = "OFICIAL_DOCUMENTO",
+    confirmacao: str = "CONFIRMADO",
+    estado: str = "PRESERVADO",
+) -> DocRef:
     return DocRef(
         doc_id="manual_cnes",
         titulo="Manual CNES",
-        estado="PENDENTE",
+        estado=estado,
+        sha256=_SHA256_SINTETICO if estado == "PRESERVADO" else None,
         proveniencia=proveniencia,
         confirmacao=confirmacao,
     )
@@ -247,15 +255,40 @@ def test_custo_negativo_nao_certifica_minimalidade() -> None:
         {"referencia": _docref(proveniencia="INFERIDA")},
         {"referencia": _docref(confirmacao="A_CONFIRMAR")},
         {"referencia": _docref(proveniencia="OFICIAL_VISTO_EM_BUSCA", confirmacao="A_CONFIRMAR")},
+        {"referencia": _docref(proveniencia="OFICIAL_VISTO_EM_BUSCA", estado="PENDENTE")},
+        {"referencia": _docref(proveniencia="OFICIAL_VISTO_EM_BUSCA")},
+        {"referencia": _docref(estado="PENDENTE")},
+        {"referencia": _docref(proveniencia="OFICIAL_ARQUIVO")},
+    ],
+    ids=[
+        "autoridade_desconhecida",
+        "secundaria",
+        "inferida",
+        "documento_a_confirmar",
+        "visto_em_busca_a_confirmar",
+        "visto_em_busca_pendente",
+        "visto_em_busca_preservado",
+        "documento_pendente",
+        "arquivo_preservado",
     ],
 )
-def test_governanca_municipal_exige_autoridade_e_referencia_oficial_confirmada(
+def test_governanca_municipal_exige_autoridade_e_documento_oficial_preservado_e_confirmado(
     campos: dict[str, object],
 ) -> None:
     fora = _operacao(governanca=Governanca.FORA_DA_GOVERNANCA_MUNICIPAL, **campos)
     assert fora.governanca is Governanca.FORA_DA_GOVERNANCA_MUNICIPAL
     with pytest.raises(ValidationError, match="governanca_municipal_sem_documentacao"):
         _operacao(**campos)
+
+
+def test_governanca_municipal_aceita_documento_oficial_preservado_e_confirmado() -> None:
+    referencia = _operacao().referencia
+    assert (referencia.proveniencia, referencia.estado, referencia.confirmacao) == (
+        "OFICIAL_DOCUMENTO",
+        "PRESERVADO",
+        "CONFIRMADO",
+    )
+    assert referencia.sha256 == _SHA256_SINTETICO
 
 
 @pytest.mark.parametrize("schema_id", ["sigtap_procedimento.v1", "cobertura.v1", "territorio.v1"])
@@ -289,6 +322,14 @@ def test_orcamento_exige_valores_positivos(
     assert modelo.model_validate({"max_operacoes": 1, "max_candidatos": 1}).max_operacoes == 1
     with pytest.raises(ValidationError, match="orcamento_invalido"):
         modelo.model_validate(campos)
+
+
+def test_resultado_registra_a_origem_dos_dados_opcional() -> None:
+    assert "origem_dados" in CounterfactualSearchResult.model_fields
+    assert _resultado().origem_dados is None
+    assert _resultado(origem_dados="SINTETICO").origem_dados is OrigemDados.SINTETICO
+    with pytest.raises(ValidationError):
+        _resultado(origem_dados="FICTICIO")
 
 
 def test_solucao_precisa_revalidar_todas_as_regras_alvo() -> None:

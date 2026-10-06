@@ -6,6 +6,7 @@ do `explain` real e os insumos de `entrada_validacao.json`, conferidos pelo `run
 A saída fica em `<raiz_saidas>/contrafactuais/<run_id>/id_<identidade>/row_<sha256(row_id)[:32]>/`,
 com `contrafactual.json` e `identidade.json` (SHA-256 de `catalog/operations.yaml`, versão do
 código e competência AAAAMM do relógio, a as-of, lida uma vez e usada em toda a busca).
+`contrafactual.json` leva a origem dos dados da execução, fora da identidade.
 """
 
 from __future__ import annotations
@@ -48,6 +49,8 @@ from sustemporal.explanation.counterfactual_sobreposicao import (
 )
 from sustemporal.explanation.evidence import EvidenciaDivergente
 from sustemporal.explanation.explain import ExplicacaoIndisponivel, montar_explicacao
+from sustemporal.explanation.explain_texto import TemplateInvalido
+from sustemporal.explanation.prov import ProvIncompleto
 from sustemporal.runtime_info import versao_codigo
 
 if TYPE_CHECKING:
@@ -75,6 +78,8 @@ _RECUSAS = (
     ContextoIndisponivel,
     SemViolacao,
     CatalogoOperacoesInvalido,
+    TemplateInvalido,
+    ProvIncompleto,
 )
 _FALHAS = (
     EvidenciaDivergente,
@@ -189,7 +194,7 @@ def _buscar(
     contexto = replace(contexto_da_execucao(execucoes, run_id, config), relogio=relogio)
     resultado = search_counterfactuals(
         bundle, config, contexto=contexto, operacoes=catalogo.operacoes
-    )
+    ).model_copy(update={"origem_dados": run.origem_dados})
     identidade = json.dumps(catalogo.identidade, ensure_ascii=False, indent=2, sort_keys=True)
     return {
         ARQUIVO_RESULTADO: resultado.model_dump_json(indent=2).encode("utf-8"),

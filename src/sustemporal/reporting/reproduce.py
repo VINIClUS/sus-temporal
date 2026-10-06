@@ -58,6 +58,10 @@ from sustemporal.reporting.reproduce_etapas import (
     janela_do_ingest,
     validar_janela,
 )
+from sustemporal.reporting.reproduce_manifesto import (
+    manifesto_do_congelamento,
+    observacoes_do_recorte,
+)
 from sustemporal.reporting.reproduce_rede import sem_rede
 from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
 from sustemporal.runtime_info import ambiente, versao_codigo
@@ -76,6 +80,7 @@ __all__ = ["configurar_parser", "executar_reproduce", "reproduce"]
 logger = logging.getLogger(__name__)
 
 DIRETORIO_REPRODUCAO = "reproducao"
+DIRETORIO_MANIFESTOS = "manifestos"
 RELATORIO = "reproducao.json"
 
 
@@ -116,7 +121,9 @@ def _exigir_destino_novo(out: Path) -> None:
 
 
 def _config_em(config: RunConfig, out: Path) -> RunConfig:
-    runtime = config.runtime.model_copy(update={"raiz_saidas": str(out)})
+    """A config com as saídas e o manifesto de aquisição (a cópia do congelamento) em `out`."""
+    destinos = {"raiz_saidas": str(out), "raiz_manifestos": str(out / DIRETORIO_MANIFESTOS)}
+    runtime = config.runtime.model_copy(update=destinos)
     return config.model_copy(update={"runtime": runtime})
 
 
@@ -321,8 +328,14 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
     em_out = _config_em(config, out)
     with sem_rede():
         original = _original(config, freeze_id)
+        recorte = manifesto_do_congelamento(
+            Path(config.runtime.raiz_manifestos),
+            Path(em_out.runtime.raiz_manifestos),
+            manifesto.criado_em,
+        )
         pasta = _ingerir(em_out)
         indisponiveis, observacoes = _antes_de_refazer(config, manifesto, estados_do_ingest(pasta))
+        observacoes = [*observacoes_do_recorte(recorte), *observacoes]
         if indisponiveis:
             _registrar(config, out, None, indisponiveis, observacoes)
             exigir_conferido(indisponiveis)

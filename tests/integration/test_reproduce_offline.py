@@ -13,7 +13,7 @@ import json
 import socket
 from collections import Counter
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pyarrow.parquet as pq
 import pytest
@@ -22,6 +22,7 @@ from tests.fixtures.reproducao_fluxo import (
     Reproducao,
     adquirir_e_ingerir,
     artefatos_do_sia_pa,
+    coleta_depois_do_congelamento,
     congelar_e_avaliar,
     derivar,
     iniciar,
@@ -29,6 +30,8 @@ from tests.fixtures.reproducao_fluxo import (
     linha_do_ingest,
     metricas_refeitas,
     reproduzir,
+    sem_evidencias,
+    sem_os_artefatos,
     validar_janelas,
 )
 from tests.fixtures.reproducao_mundo import COMPETENCIAS, JANELAS, comando, escrever_config
@@ -36,6 +39,7 @@ from tests.fixtures.reproducao_parquet import adulterar_coluna, reordenar_linhas
 
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts import FamiliaFonte
+from sustemporal.contracts.artifacts import ResultadoTentativa
 from sustemporal.contracts.counterfactual import CounterfactualSearchResult, MotivoParada
 from sustemporal.contracts.evaluation import EvaluationReport
 from sustemporal.contracts.experiment import (
@@ -48,10 +52,14 @@ from sustemporal.contracts.experiment import (
 from sustemporal.errors import ExitCode
 from sustemporal.evaluation.freeze_registro import ler_registro
 from sustemporal.explanation.cli import diretorio_explicacao
-from sustemporal.reporting.reproduce_etapas import validar_janela
+from sustemporal.reporting.reproduce_etapas import (
+    competencias_da_particao,
+    derivar_protocolo,
+    validar_janela,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping
+    from collections.abc import Iterator
 
 pytestmark = pytest.mark.slow
 
@@ -234,10 +242,16 @@ def test_evaluate_exploratorio_registra_a_rodada_e_annotation_export_prepara_o_p
 
 @pytest.fixture(scope="module")
 def reproducao(fluxo: Fluxo) -> Reproducao:
-    """`reproduce --offline` com a config do protocolo, no destino padrão (1 thread)."""
-    antes = instantaneo(fluxo)
-    feita = reproduzir(fluxo, fluxo.configs["teste"])
-    return Reproducao(feita.codigo, feita.out, feita.conteudo, antes, instantaneo(fluxo))
+    """`reproduce --offline` com a config do protocolo, no destino padrão (1 thread).
+
+    Roda com um arquivo novo, uma republicação e uma ausência registrados depois do congelamento:
+    o que o congelamento não resolveu não entra na reconstrução.
+    """
+    with coleta_depois_do_congelamento(fluxo) as coletadas:
+        antes = instantaneo(fluxo)
+        feita = reproduzir(fluxo, fluxo.configs["teste"])
+        depois = instantaneo(fluxo)
+    return Reproducao(feita.codigo, feita.out, feita.conteudo, antes, depois, tuple(coletadas))
 
 
 def test_reproduce_offline_reproduz_com_hashes_logicos_iguais(
@@ -271,7 +285,7 @@ def test_reproduce_registra_a_diferenca_de_codigo_sem_chamar_de_divergencia(
     reproducao: Reproducao,
 ) -> None:
     assert reproducao.codigo == ExitCode.OK
-    (observacao,) = reproducao.conteudo["observacoes"]
+    *_, observacao = reproducao.conteudo["observacoes"]
     assert observacao.startswith("codigo_diferente_do_congelado")
 
 
@@ -295,6 +309,32 @@ def test_reproduce_refaz_o_split_com_os_artefatos_inspecionados_do_congelamento(
     refeito = reproducao.out / "split" / f"{item['obtido']}.json"
     split = SplitManifest.model_validate_json(refeito.read_text(encoding="utf-8"))
     assert split.artefatos_inspecionados == inspecionados
+
+
+def test_reproduce_ignora_o_que_foi_coletado_depois_do_congelamento(
+    fluxo: Fluxo, reproducao: Reproducao
+) -> None:
+    resultados = [o.resultado for o in reproducao.coletadas]
+    assert resultados == [ResultadoTentativa.OBTIDO] * 2 + [ResultadoTentativa.NAO_ENCONTRADO]
+    assert all(o.observado_em > _manifesto(fluxo).criado_em for o in reproducao.coletadas)
+    assert reproducao.codigo == ExitCode.OK
+    assert set(reproducao.situacoes.values()) == {"IGUAL"}
+    assert reproducao.conteudo["observacoes"][:2] == [
+        "artefatos_fora_do_congelamento_ignorados n=2",
+        "observacoes_posteriores_ao_congelamento_ignoradas n=3",
+    ]
+
+
+def test_reproduce_mantem_na_janela_o_arquivo_cuja_competencia_difere_da_das_linhas(
+    fluxo: Fluxo, reproducao: Reproducao
+) -> None:
+    teste = (_manifesto(fluxo).split.particoes or {})[Particao.TESTE]
+    (artefato,) = teste.artifact_ids
+    versoes = Manifesto(fluxo.mundo.raiz / "manifestos" / "aquisicao.jsonl").ler().versoes
+    assert str(versoes[artefato].chave.competencia_arquivo) == "202401"
+    assert competencias_da_particao(teste) == ("202402",)
+    assert reproducao.codigo == ExitCode.OK
+    assert reproducao.conteudo["resultado"] == "IGUAL"
 
 
 def test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual(
@@ -410,26 +450,12 @@ def test_reproduce_sem_a_entrada_original_de_uma_politica_avisa_e_nao_chama_de_d
     assert aviso in feita.conteudo["observacoes"]
 
 
-def _sem_evidencias(validar: Callable[..., Mapping[Any, RunResult]]) -> Callable[..., Any]:
-    """A `validar_janela` real, com as execuções devolvidas sem a saída `evidencias.v1`."""
-
-    def refeita(*argumentos: Any, **nomeados: Any) -> dict[Any, RunResult]:
-        execucoes = validar(*argumentos, **nomeados)
-        return {
-            metodo: run.model_copy(
-                update={"saidas": tuple(s for s in run.saidas if s.schema_id != EVIDENCIAS)}
-            )
-            for metodo, run in execucoes.items()
-        }
-
-    return refeita
-
-
 def test_reproduce_com_saida_que_a_reconstrucao_nao_emitiu_e_divergente(
     fluxo: Fluxo, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(
-        "sustemporal.reporting.reproduce.validar_janela", _sem_evidencias(validar_janela)
+        "sustemporal.reporting.reproduce.validar_janela",
+        sem_evidencias(validar_janela, EVIDENCIAS),
     )
     destino = fluxo.mundo.raiz / "reproducao_sem_evidencias"
     feita = reproduzir(fluxo, fluxo.configs["teste"], destino)
@@ -438,6 +464,22 @@ def test_reproduce_com_saida_que_a_reconstrucao_nao_emitiu_e_divergente(
     divergentes = {item for item, situacao in feita.situacoes.items() if situacao == "DIVERGENTE"}
     assert divergentes == {f"saida:{metodo}:{EVIDENCIAS}" for metodo in METODOS}
     assert {feita.itens[item]["detalhe"] for item in divergentes} == {"saida_ausente_no_refeito"}
+
+
+def test_reproduce_com_particao_vazia_e_inconclusivo_e_nao_erro_de_configuracao(
+    fluxo: Fluxo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    particoes = _manifesto(fluxo).split.particoes or {}
+    refeito = sem_os_artefatos(derivar_protocolo, particoes[Particao.TESTE].artifact_ids)
+    monkeypatch.setattr("sustemporal.reporting.reproduce.derivar_protocolo", refeito)
+    feita = reproduzir(fluxo, fluxo.configs["teste"], fluxo.mundo.raiz / "reproducao_vazia")
+    assert feita.codigo == ExitCode.FALHA_OPERACIONAL
+    assert feita.conteudo["relatorio_refeito"] is None
+    assert feita.itens["particao:TESTE"]["situacao"] == "INCONCLUSIVO"
+    assert feita.itens["particao:TESTE"]["detalhe"] == "particao_vazia"
+    assert {"conjunto:sia_pa.v1", "split:split_id"} <= set(feita.itens)
+    assert "particao:CALIBRACAO" not in feita.itens
+    assert "particao_sem_artefatos particao=TESTE" in feita.conteudo["observacoes"]
 
 
 def test_reproduce_recusa_destino_ja_usado(fluxo: Fluxo, reproducao: Reproducao) -> None:

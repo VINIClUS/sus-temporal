@@ -37,6 +37,7 @@ from sustemporal.reporting.reproduce_etapas import (
     competencias_da_particao,
     derivar_protocolo,
     janela_do_ingest,
+    janela_dos_artefatos,
 )
 from sustemporal.rules.ingest import ler_datasets
 from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO, escrever_decisao
@@ -54,7 +55,7 @@ from tests.fixtures.reproducao_mundo import (
 from tests.fixtures.sia_pa_fixtures import dbc_pa
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Iterator, Mapping
+    from collections.abc import Callable, Collection, Iterator, Mapping
 
     import pytest
 
@@ -241,6 +242,7 @@ class Reproducao:
     conteudo: dict[str, Any]
     antes: dict[str, str] = field(default_factory=dict)
     depois: dict[str, str] = field(default_factory=dict)
+    coletadas: tuple[ArtifactObservation, ...] = ()
 
     @property
     def itens(self) -> dict[str, dict[str, str]]:
@@ -345,3 +347,34 @@ def coleta_depois_do_congelamento(fluxo: Fluxo) -> Iterator[list[ArtifactObserva
     finally:
         for arquivo, conteudo in zip(arquivos, guardados, strict=True):
             arquivo.write_bytes(conteudo)
+
+
+def sem_evidencias(
+    validar: Callable[..., Mapping[Any, RunResult]], esquema: str
+) -> Callable[..., Any]:
+    """A `validar_janela` real, com as execuções devolvidas sem a saída do `esquema`."""
+
+    def refeita(*argumentos: Any, **nomeados: Any) -> dict[Any, RunResult]:
+        execucoes = validar(*argumentos, **nomeados)
+        return {
+            metodo: run.model_copy(
+                update={"saidas": tuple(s for s in run.saidas if s.schema_id != esquema)}
+            )
+            for metodo, run in execucoes.items()
+        }
+
+    return refeita
+
+
+def sem_os_artefatos(
+    derivar: Callable[..., Derivado], artefatos: Collection[str]
+) -> Callable[..., Derivado]:
+    """O `derivar_protocolo` real sobre um ingest sem `artefatos`: a partição deles fica vazia."""
+
+    def refeito(config: RunConfig, pasta: Path, destino: Path, **nomeados: Any) -> Derivado:
+        producao = (ref for ref in ler_datasets(pasta) if ref.schema_id == "sia_pa.v1")
+        restantes = {a for ref in producao for a in ref.artifact_ids} - set(artefatos)
+        janela = janela_dos_artefatos(pasta, destino.parent / "ingest_sem_artefatos", restantes)
+        return derivar(config, janela, destino, **nomeados)
+
+    return refeito

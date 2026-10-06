@@ -73,6 +73,7 @@ ESQUEMAS_DA_SAIDA = (
 )
 METODOS = ("M_TEMP", "B_ATEND", "B_PROC")
 POLITICAS = ("m_temp_nao_resolvida", "b_atend_exploratoria", "b_proc_exploratoria")
+POLITICA_ESTRAGADA = "b_atend_exploratoria"
 ITENS_DA_REPRODUCAO = {
     "conjunto:sia_pa.v1",
     "conjunto:sia_pa_rotulos.v1",
@@ -432,22 +433,46 @@ def test_reproduce_com_original_auxiliar_ausente_e_inconclusivo_e_nao_divergente
     assert "ingest_sem_tabela artefatos=1 estados=ARQUIVOAUSENTE" in feita.conteudo["observacoes"]
 
 
-def test_reproduce_sem_a_entrada_original_de_uma_politica_avisa_e_nao_chama_de_divergencia(
-    fluxo: Fluxo,
+def _entrada_alterada(arquivo: Path) -> None:
+    conteudo = json.loads(arquivo.read_text(encoding="utf-8"))
+    conteudo["identidade_adicional"] = {"recorte_territorial": "0" * 64}
+    arquivo.write_text(json.dumps(conteudo), encoding="utf-8")
+
+
+ESTRAGOS_DA_ENTRADA = {
+    "ausente": (Path.unlink, "entrada_original_ausente"),
+    "ilegivel": (lambda arquivo: arquivo.write_text('{"dataset": '), "entrada_original_ilegivel"),
+    "alterada": (_entrada_alterada, "entrada_original_alterada"),
+}
+
+
+@pytest.mark.parametrize("auxiliar", ["disponivel", "indisponivel"])
+@pytest.mark.parametrize("estrago", list(ESTRAGOS_DA_ENTRADA))
+def test_reproduce_com_a_entrada_original_que_nao_confere_e_inconclusivo_e_nao_divergente(
+    fluxo: Fluxo, estrago: str, auxiliar: str
 ) -> None:
-    arquivo = fluxo.mundo.saidas / "split" / "insumos" / "b_atend_exploratoria.json"
-    guardado = arquivo.read_bytes()
-    arquivo.unlink()
+    entrada = fluxo.mundo.saidas / "split" / "insumos" / f"{POLITICA_ESTRAGADA}.json"
+    cnes = _arquivo_original(fluxo, FamiliaFonte.CNES_ST, "202401")
+    guardados = {arquivo: arquivo.read_bytes() for arquivo in (entrada, cnes)}
+    destino = fluxo.mundo.raiz / f"reproducao_entrada_{estrago}_{auxiliar}"
+    estragar, motivo = ESTRAGOS_DA_ENTRADA[estrago]
     try:
-        feita = reproduzir(
-            fluxo, fluxo.configs["teste"], fluxo.mundo.raiz / "reproducao_sem_entrada"
-        )
+        estragar(entrada)
+        if auxiliar == "indisponivel":
+            cnes.unlink()
+        feita = reproduzir(fluxo, fluxo.configs["teste"], destino)
     finally:
-        arquivo.write_bytes(guardado)
-    assert feita.codigo == ExitCode.OK
-    assert feita.conteudo["resultado"] == "IGUAL"
-    aviso = "insumos_originais_nao_conferidos politicas=b_atend_exploratoria"
-    assert aviso in feita.conteudo["observacoes"]
+        for arquivo, conteudo in guardados.items():
+            arquivo.write_bytes(conteudo)
+    assert feita.codigo == ExitCode.FALHA_OPERACIONAL
+    assert feita.conteudo.get("resultado") == "INCONCLUSIVO"
+    assert feita.conteudo["relatorio_refeito"] is None
+    esperadas = [POLITICA_ESTRAGADA] if auxiliar == "disponivel" else POLITICAS
+    assert feita.situacoes == {f"insumos:{politica}": "INCONCLUSIVO" for politica in esperadas}
+    assert feita.itens[f"insumos:{POLITICA_ESTRAGADA}"]["detalhe"] == motivo
+    sem_auxiliar = {i["detalhe"] for i in feita.itens.values()} - {motivo}
+    assert sem_auxiliar <= {"originais_indisponiveis artefatos=1 estados=ARQUIVOAUSENTE"}
+    assert not any("insumos_originais_nao_conferidos" in o for o in feita.conteudo["observacoes"])
 
 
 def test_reproduce_com_saida_que_a_reconstrucao_nao_emitiu_e_divergente(

@@ -42,6 +42,7 @@ __all__ = [
     "Identidade",
     "Situacao",
     "comparar_auxiliares",
+    "comparar_entradas_originais",
     "comparar_execucoes",
     "comparar_insumos",
     "comparar_metricas",
@@ -397,6 +398,10 @@ def comparar_auxiliares(
         if falta:
             itens.append(_inconclusivo(f"insumos:{politica_id}", None, falta))
     return itens
+
+
+def comparar_entradas_originais(problemas: Mapping[str, str]) -> list[Comparacao]:
+    raise NotImplementedError
 
 
 def comparar_notas(

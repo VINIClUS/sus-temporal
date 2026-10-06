@@ -47,8 +47,10 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Derivado",
+    "EntradasCongeladas",
     "competencias_da_janela",
     "competencias_da_particao",
+    "conferir_entradas",
     "derivar_protocolo",
     "entradas_congeladas",
     "estados_do_ingest",
@@ -337,3 +339,17 @@ def entradas_congeladas(
         else:
             logger.warning("insumo_original_nao_conferido politica=%s pasta=%s", politica_id, pasta)
     return entradas
+
+
+@dataclass(frozen=True)
+class EntradasCongeladas:
+    """Entradas originais conferidas por política e, das demais, o motivo de não valerem."""
+
+    conferidas: Mapping[str, EntradaValidacao]
+    problemas: Mapping[str, str]
+
+
+def conferir_entradas(
+    pasta: Path, identidades: Mapping[str, Mapping[str, str]]
+) -> EntradasCongeladas:
+    raise NotImplementedError

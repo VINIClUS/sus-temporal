@@ -26,6 +26,7 @@ from tests.fixtures.regras_exemplos import (
     registro,
     selecao,
 )
+from tests.fixtures.regras_nao_aplicavel import vigencia_sintetica
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -166,6 +167,16 @@ def _com_criterio_deslocado(regra: RuleSpec) -> RuleSpec:
     return regra.model_copy(update={"criterios_temporais": (criterio,)})
 
 
+def _nao_aplicavel() -> CenarioRegras:
+    """Regras só de C e vigentes só em 202001: instrumento I e atendimento 202002 ficam fora."""
+    return cenario_base(*_linhas(), registro(20, competencia_atendimento="202002"))
+
+
+def _restrita(regra: RuleSpec) -> RuleSpec:
+    vigencia = vigencia_sintetica(COMPETENCIA, COMPETENCIA)
+    return regra.model_copy(update={"instrumentos": ("C",), "vigencia": vigencia})
+
+
 def _cenarios() -> dict[str, CenarioRegras]:
     base = _base()
     ausentes = {
@@ -190,17 +201,19 @@ def _cenarios() -> dict[str, CenarioRegras]:
         "chaves_nulas_e_codigos_fora_do_padrao": _chaves_nulas(),
         "sia_em_quarentena": _sia_em_quarentena(),
         "deslocamento_de_um_mes": _deslocamento_de_um_mes(),
+        "nao_aplicavel": _nao_aplicavel(),
     }
 
 
 BATERIA = {nome: coerente(cenario) for nome, cenario in _cenarios().items()}
 _AJUSTE_DAS_REGRAS: dict[str, Callable[[RuleSpec], RuleSpec]] = {
     "deslocamento_de_um_mes": _com_criterio_deslocado,
+    "nao_aplicavel": _restrita,
 }
 
 
 def regras_da_bateria(nome: str) -> list[RuleSpec]:
-    """Regras do catálogo com o ajuste SINTETICO que o cenário pede (critério temporal)."""
+    """Regras do catálogo com o ajuste SINTETICO do cenário (critério, instrumentos, vigência)."""
     ajuste = _AJUSTE_DAS_REGRAS.get(nome)
     regras = carregar_regras()
     return regras if ajuste is None else [ajuste(regra) for regra in regras]

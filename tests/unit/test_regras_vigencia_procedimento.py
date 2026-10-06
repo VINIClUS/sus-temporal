@@ -1,11 +1,21 @@
 """Casos manuais SINTETICOS da família VIGENCIA_PROCEDIMENTO (model.md §4.4)."""
 
+import json
 from pathlib import Path
+
+import pytest
 
 from sustemporal.rules.catalog import carregar_regras
 from tests.fixtures.regras_cenario import CenarioRegras
 from tests.fixtures.regras_execucao import avaliacoes_por_chave, executar
-from tests.fixtures.regras_exemplos import artefato_sigtap_vazio, cenario_base, registro, selecao
+from tests.fixtures.regras_exemplos import (
+    ART_SIA,
+    artefato_sigtap_vazio,
+    cenario_base,
+    registro,
+    selecao,
+)
+from tests.fixtures.regras_nao_aplicavel import CASOS_NAO_APLICAVEL, avaliar_caso
 
 REGRA = "VIGENCIA_PROCEDIMENTO_SIGTAP"
 LINHA = registro()["row_id"]
@@ -49,3 +59,23 @@ def test_versao_selecionada_sem_linhas_nunca_vira_ausencia(tmp_path: Path) -> No
     }
     avaliacao = _avaliacao(tmp_path, cenario.com(selecoes=selecoes, artefatos_auxiliar=artefatos))
     assert (avaliacao["estado"], avaliacao["motivos"]) == ("INCONCLUSIVO", "COBERTURA_INSUFICIENTE")
+
+
+@pytest.mark.parametrize("caso", sorted(CASOS_NAO_APLICAVEL))
+def test_fora_dos_instrumentos_ou_da_vigencia_e_nao_aplicavel_com_evidencia(
+    tmp_path: Path, caso: str
+) -> None:
+    avaliacao, evidencia, sia = avaliar_caso(tmp_path, caso, REGRA)
+    assert (avaliacao["estado"], avaliacao["aplicabilidade"], avaliacao["motivos"]) == (
+        "NAO_APLICAVEL",
+        "NAO_APLICAVEL_DEMONSTRADA",
+        "",
+    )
+    assert (avaliacao["insumos_completos"], avaliacao["incompatibilidade_demonstrada"]) == (
+        True,
+        None,
+    )
+    esperado = CASOS_NAO_APLICAVEL[caso]
+    assert (evidencia["tipo"], evidencia["query_id"]) == ("APLICABILIDADE", esperado.query_id)
+    assert json.loads(evidencia["parametros"]) == esperado.parametros | {"rule_id": REGRA}
+    assert (evidencia["dataset_id"], evidencia["artifact_ids"]) == (sia, ART_SIA)

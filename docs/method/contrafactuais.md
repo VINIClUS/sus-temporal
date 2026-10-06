@@ -26,7 +26,11 @@ governança, verdade factual exigida, competências permitidas, alcance, custo, 
 dependências e `DocRef` com proveniência. O contrato recusa: alterar conjunto que não seja
 cadastro CNES (`cnes_*`), alterar fatos do atendimento (`sia_pa*`) ou colunas de diagnóstico,
 idade, sexo e data do atendimento, alterar vínculo individual (`altera_vinculo_individual` é
-sempre falso) e declarar governança `MUNICIPAL_DOCUMENTADA` sem documento oficial confirmado.
+sempre falso) e declarar governança `MUNICIPAL_DOCUMENTADA` sem autoridade conhecida e sem
+documento oficial lido, preservado e confirmado: a referência precisa ser `OFICIAL_DOCUMENTO`,
+`PRESERVADO` (cópia com SHA-256) e `CONFIRMADO`. URL oficial vista só em busca
+(`OFICIAL_VISTO_EM_BUSCA`) orienta a busca e não é citação (`docs/references/fontes.md`, regra 4),
+e arquivo oficial de dados (`OFICIAL_ARQUIVO`) não documenta governança; nenhum dos dois basta.
 
 Cada `op_id` tem efeito, gerador de parâmetros, precondições e dependências obrigatórias
 escritos no código (`explanation/counterfactual_operacoes.py`). Invalida o catálogo, inclusive

@@ -54,7 +54,6 @@ from sustemporal.reporting.reproduce_comparacao import (
 )
 from sustemporal.reporting.reproduce_etapas import (
     Derivado,
-    EntradasCongeladas,
     competencias_da_janela,
     conferir_entradas,
     derivar_protocolo,
@@ -68,7 +67,9 @@ from sustemporal.reporting.reproduce_manifesto import (
     observacoes_do_manifesto,
     resolver_manifesto,
 )
+from sustemporal.reporting.reproduce_politicas import politicas_congeladas
 from sustemporal.reporting.reproduce_rede import sem_rede
+from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
 from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
 from sustemporal.runtime_info import ambiente, versao_codigo
 
@@ -79,6 +80,7 @@ if TYPE_CHECKING:
     from sustemporal.contracts.evaluation import EvaluationReport
     from sustemporal.contracts.experiment import RunResult
     from sustemporal.contracts.records import DatasetRef
+    from sustemporal.contracts.rules import RuleSpec
     from sustemporal.contracts.temporal import MetodoId
 
 __all__ = ["configurar_parser", "executar_reproduce", "reproduce"]
@@ -106,6 +108,28 @@ class Refeito:
     avaliadas: Mapping[MetodoId, RunResult]
     teste: Mapping[MetodoId, RunResult]
     relatorio: EvaluationReport
+
+
+@dataclass(frozen=True)
+class Insumos:
+    """Entradas originais conferidas, a política que refaz cada método e o que não se confere.
+
+    `problemas` junta, por política congelada, a entrada original que falta, não abre ou foi
+    alterada e a política que não se resolve ou não se confere.
+    """
+
+    conferidas: Mapping[str, EntradaValidacao]
+    problemas: Mapping[str, str]
+    politicas: Mapping[MetodoId, str | None]
+
+
+@dataclass(frozen=True)
+class Preparado:
+    """O ingest refeito, as observações até aqui e a política que refaz cada método."""
+
+    pasta: Path
+    observacoes: list[str]
+    politicas: Mapping[MetodoId, str | None]
 
 
 def configurar_parser(parser: argparse.ArgumentParser) -> None:
@@ -153,13 +177,16 @@ def _ingerir(config: RunConfig) -> Path:
 
 
 def _validar_particao(
-    config: RunConfig, pasta: Path, derivado: Derivado, particao: Particao
+    config: RunConfig,
+    preparado: Preparado,
+    derivado: Derivado,
+    particao: Particao,
 ) -> Mapping[MetodoId, RunResult]:
     ref = (derivado.split.particoes or {})[particao]
     da_janela = _da_janela(config, competencias_da_janela(config, ref))
     destino = Path(config.runtime.raiz_saidas) / "janelas" / particao.value.lower()
-    janela = janela_dos_artefatos(pasta, destino, ref.artifact_ids)
-    return validar_janela(da_janela, janela)
+    janela = janela_dos_artefatos(preparado.pasta, destino, ref.artifact_ids)
+    return validar_janela(da_janela, janela, preparado.politicas)
 
 
 def _avaliar(
@@ -210,10 +237,10 @@ def _itens_sem_particao(
 
 
 def _refazer(
-    config: RunConfig, manifesto: FreezeManifest, pasta: Path, derivado: Derivado
+    config: RunConfig, manifesto: FreezeManifest, preparado: Preparado, derivado: Derivado
 ) -> Refeito:
-    avaliadas = _validar_particao(config, pasta, derivado, Particao.CALIBRACAO)
-    teste = _validar_particao(config, pasta, derivado, Particao.TESTE)
+    avaliadas = _validar_particao(config, preparado, derivado, Particao.CALIBRACAO)
+    teste = _validar_particao(config, preparado, derivado, Particao.TESTE)
     relatorio = _avaliar(config, manifesto, derivado, avaliadas)
     return Refeito(derivado, avaliadas, teste, relatorio)
 
@@ -282,26 +309,39 @@ def _observacoes(config: RunConfig, manifesto: FreezeManifest) -> list[str]:
     )
 
 
-def _insumos_originais(config: RunConfig, manifesto: FreezeManifest) -> EntradasCongeladas:
+def _regras() -> list[RuleSpec]:
+    try:
+        return carregar_regras()
+    except CatalogoInvalido as erro:
+        raise ConfigInvalida(str(erro)) from erro
+
+
+def _insumos_originais(config: RunConfig, manifesto: FreezeManifest, original: Original) -> Insumos:
+    """A entrada original de cada política congelada e a política com que refazer cada método."""
     pasta = Path(config.runtime.raiz_saidas) / "split" / "insumos"
-    return conferir_entradas(pasta, manifesto.entradas_validacao or {})
+    congeladas = manifesto.entradas_validacao or {}
+    entradas = conferir_entradas(pasta, congeladas)
+    registradas = {metodo: run.politica_id for metodo, run in original.execucoes.items()}
+    politicas = politicas_congeladas(entradas.conferidas, congeladas, registradas, _regras())
+    problemas = {**entradas.problemas, **politicas.problemas}
+    return Insumos(entradas.conferidas, problemas, politicas.por_metodo)
 
 
 def _indisponiveis(
-    manifesto: FreezeManifest, entradas: EntradasCongeladas, estados: Mapping[str, str]
+    manifesto: FreezeManifest, insumos: Insumos, estados: Mapping[str, str]
 ) -> list[Comparacao]:
-    """Itens inconclusivos: original que o ingest refeito não trouxe e entrada que não confere."""
+    """Itens inconclusivos: original que o ingest refeito não trouxe e insumo que não confere."""
     return [
         *comparar_originais(manifesto.datasets, estados),
-        *comparar_entradas_originais(entradas.problemas),
-        *comparar_auxiliares(entradas.conferidas, estados),
+        *comparar_entradas_originais(insumos.problemas),
+        *comparar_auxiliares(insumos.conferidas, estados),
     ]
 
 
-def _sem_manifesto(resolucao: Resolucao, entradas: EntradasCongeladas) -> list[Comparacao]:
-    """O item da posição do manifesto que não se sabe e as entradas originais que não conferem."""
+def _sem_manifesto(resolucao: Resolucao, insumos: Insumos) -> list[Comparacao]:
+    """O item da posição do manifesto que não se sabe e os insumos originais que não conferem."""
     item = Comparacao(ITEM_MANIFESTO, Situacao.INCONCLUSIVO, None, None, resolucao.motivo)
-    return [item, *comparar_entradas_originais(entradas.problemas)]
+    return [item, *comparar_entradas_originais(insumos.problemas)]
 
 
 def _parar_se_inconclusivo(
@@ -314,14 +354,18 @@ def _parar_se_inconclusivo(
 
 
 def _ingerir_o_original(
-    config: RunConfig, em_out: RunConfig, out: Path, manifesto: FreezeManifest
-) -> tuple[Path, list[str]]:
+    config: RunConfig,
+    em_out: RunConfig,
+    out: Path,
+    manifesto: FreezeManifest,
+    original: Original,
+) -> Preparado:
     """O ingest refeito sobre o manifesto que o original leu e as observações até aqui.
 
-    Para (`_parar_se_inconclusivo`) sem a posição do manifesto, sem original ou sem a entrada
-    original de uma política.
+    Para (`_parar_se_inconclusivo`) sem a posição do manifesto, sem original, ou com insumo
+    original (entrada ou política) que não se confere.
     """
-    entradas = _insumos_originais(config, manifesto)
+    insumos = _insumos_originais(config, manifesto, original)
     resolucao = resolver_manifesto(
         Path(config.runtime.raiz_saidas) / "ingest",
         Path(config.runtime.raiz_manifestos),
@@ -329,7 +373,7 @@ def _ingerir_o_original(
     )
     do_ambiente = _observacoes(config, manifesto)
     if resolucao.motivo:
-        _parar_se_inconclusivo(config, out, _sem_manifesto(resolucao, entradas), do_ambiente)
+        _parar_se_inconclusivo(config, out, _sem_manifesto(resolucao, insumos), do_ambiente)
     gravar_manifesto(
         Path(config.runtime.raiz_manifestos), Path(em_out.runtime.raiz_manifestos), resolucao
     )
@@ -340,8 +384,8 @@ def _ingerir_o_original(
         *observacoes_do_ingest(estados),
         *do_ambiente,
     ]
-    _parar_se_inconclusivo(config, out, _indisponiveis(manifesto, entradas, estados), observacoes)
-    return pasta, observacoes
+    _parar_se_inconclusivo(config, out, _indisponiveis(manifesto, insumos, estados), observacoes)
+    return Preparado(pasta, observacoes, insumos.politicas)
 
 
 def _parar_se_particao_vazia(
@@ -416,12 +460,12 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
     em_out = _config_em(config, out)
     with sem_rede():
         original = _original(config, freeze_id)
-        pasta, observacoes = _ingerir_o_original(config, em_out, out, manifesto)
-        derivado = _derivar(em_out, manifesto, pasta)
-        _parar_se_particao_vazia(config, out, manifesto, derivado, observacoes)
-        refeito = _refazer(em_out, manifesto, pasta, derivado)
+        preparado = _ingerir_o_original(config, em_out, out, manifesto, original)
+        derivado = _derivar(em_out, manifesto, preparado.pasta)
+        _parar_se_particao_vazia(config, out, manifesto, derivado, preparado.observacoes)
+        refeito = _refazer(em_out, manifesto, preparado, derivado)
         itens = _comparar(em_out, manifesto, original, refeito)
-        _registrar(config, out, refeito.relatorio, itens, observacoes)
+        _registrar(config, out, refeito.relatorio, itens, preparado.observacoes)
     exigir_conferido(itens)
     logger.info(
         "reproducao_concluida freeze=%s resultado=%s", freeze_id, resultado_geral(itens).value

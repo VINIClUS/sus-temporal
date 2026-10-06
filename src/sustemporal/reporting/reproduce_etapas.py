@@ -280,14 +280,22 @@ def validar_janela(
 ) -> dict[MetodoId, RunResult]:
     """`validate --ingest` da janela, um método por vez, gravado em `raiz_execucoes(config)`.
 
+    `politicas` dá, por método, o `config.politica_id` com que ele roda (`None`: a padrão do
+    método) e diz quais métodos rodam; sem ele, os três rodam com a config como veio. O
+    `validate` recusa a `politica_id` de um método em outro, por isso ela vai por método.
+
     Raises:
         ConfigInvalida: catálogo, política, manifesto, território ou pasta inválidos.
     """
-    if politicas is not None:
-        raise NotImplementedError
     saida = raiz_execucoes(config)
+    por_metodo = dict.fromkeys(METODOS_DE_VALIDACAO, config.politica_id)
+    if politicas is not None:
+        por_metodo = dict(politicas)
     return {
-        metodo: validar_ingest(janela, metodo, config, saida) for metodo in METODOS_DE_VALIDACAO
+        metodo: validar_ingest(
+            janela, metodo, config.model_copy(update={"politica_id": politica_id}), saida
+        )
+        for metodo, politica_id in por_metodo.items()
     }
 
 

@@ -472,13 +472,18 @@ caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=
 
 ### 5.4 Propriedades verificadas e os testes
 
-`uv run pytest tests/integration/test_reproduce_offline.py -q` leva cerca de 3 minutos (marcador
+`uv run pytest tests/integration/test_reproduce_offline.py -q` leva cerca de 2 minutos (marcador
 `slow`, que roda no CI) e usa só dados sintéticos e o FTP local em loopback. Uma reprodução
-completa custa cerca de 25 s e o CI do GitHub tem limite de 30 minutos, então as variações que não
+completa custa cerca de 15 s (22 s sem a memória de YAML, abaixo) e o CI do GitHub tem limite de 30
+minutos, então as variações que não
 mudam o conteúdo (config no estilo do `config/cohort.yaml`, 4 threads, catálogo que o congelamento
 não tinha, rótulos originais regravados) e os estragos independentes (conteúdo original adulterado,
 relatório que não é o registrado, saídas que a reconstrução não emite) rodam cada grupo numa só
-reprodução (as fixtures `reproducao_variada` e `reproducao_estragada`), lida por vários testes.
+reprodução (as fixtures `reproducao_variada` e `reproducao_estragada`), lida por vários testes. Os
+catálogos (esquemas e regras) são relidos centenas de vezes por reprodução, em YAML de Python puro:
+os dois módulos de integração da reprodução leem cada texto YAML uma vez (`yaml_em_memoria`, em
+`tests/fixtures/reproducao_fluxo.py`, só nos testes), o que tira cerca de 12 s do mundo e 7 s de
+cada reprodução.
 
 | Propriedade | Teste |
 |---|---|

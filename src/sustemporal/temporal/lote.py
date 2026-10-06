@@ -196,13 +196,15 @@ def colunas_do_esquema(esquema: Path = ESQUEMA) -> list[str]:
 
 
 def gravar_selecoes(
-    con: duckdb.DuckDBPyConnection, destino: Path, *, run_id: str, origem: OrigemDados
+    con: duckdb.DuckDBPyConnection, pasta: Path, *, run_id: str, origem: OrigemDados
 ) -> DatasetRef:
-    """Grava `selecao_versoes` em Parquet e devolve o `DatasetRef` (hash lógico sobre o esquema)."""
+    """Grava `selecao_versoes` em `pasta/<dataset_id>.parquet` e devolve o `DatasetRef`.
+
+    O nome vem do conteúdo (hash lógico sobre o esquema e os artefatos citados), como os insumos
+    derivados do `validate --ingest`: outra seleção nunca sobrescreve a que uma execução gravou.
+    """
     colunas = colunas_do_esquema()
     lista = ", ".join(identificador_seguro(c, colunas) for c in colunas)
-    destino.parent.mkdir(parents=True, exist_ok=True)
-    con.sql(f"SELECT {lista} FROM selecao_versoes").write_parquet(str(destino))  # noqa: S608
     hash_logico = hash_logico_relacao(con, TABELA, colunas)
     linhas = int(con.execute("SELECT count(*) FROM selecao_versoes").fetchall()[0][0])
     artefatos = con.execute(
@@ -210,8 +212,12 @@ def gravar_selecoes(
         "FROM selecao_versoes) WHERE a <> '' ORDER BY a"
     ).fetchall()
     ids = tuple(str(linha[0]) for linha in artefatos)
+    dataset_id = calcular_dataset_id(SCHEMA_ID, hash_logico, ids)
+    destino = pasta / f"{dataset_id}.parquet"
+    pasta.mkdir(parents=True, exist_ok=True)
+    con.sql(f"SELECT {lista} FROM selecao_versoes").write_parquet(str(destino))  # noqa: S608
     return DatasetRef(
-        dataset_id=calcular_dataset_id(SCHEMA_ID, hash_logico, ids),
+        dataset_id=dataset_id,
         schema_id=SCHEMA_ID,
         caminho=str(destino),
         hash_logico=hash_logico,

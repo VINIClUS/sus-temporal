@@ -121,7 +121,8 @@ def selecionar_em_lote(
     insumos: InsumosAvaliacao | None = None,
     relogio: Callable[[], datetime] | None = None,
 ) -> SelecaoEmLote:
-    """`selecionar_lote` → `gravar_selecoes` em `destino/<sel_id>/` e o `SnapshotSet` das chaves.
+    """`selecionar_lote` → `gravar_selecoes` em `destino/<sel_id>/<dataset_id>.parquet` e o
+    `SnapshotSet` das chaves; o nome do arquivo vem do conteúdo, nunca é sobrescrito por outro.
 
     Raises:
         ValueError: registros inválidos, conteúdo divergente do `DatasetRef` ou política inválida.
@@ -142,8 +143,8 @@ def selecionar_em_lote(
             run_id=selecao_id,
             config=config,
         )
-        caminho = destino / selecao_id / "selecao_versoes.parquet"
-        ref = gravar_selecoes(con, caminho, run_id=selecao_id, origem=dataset.origem_dados)
+        pasta = destino / selecao_id
+        ref = gravar_selecoes(con, pasta, run_id=selecao_id, origem=dataset.origem_dados)
         selecoes = _selecoes_distintas(con)
     finally:
         con.close()

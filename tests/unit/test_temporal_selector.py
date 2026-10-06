@@ -329,7 +329,7 @@ def test_gravar_selecoes_produz_dataset_com_hash_logico_e_contagem(tmp_path: Pat
     selecionar_lote(
         con, "registros", [regra()], politica, _registro(jan), run_id="run_t", config=_config()
     )
-    destino = tmp_path / "selecao_versoes.parquet"
+    destino = tmp_path / "selecao"
     dataset = gravar_selecoes(con, destino, run_id="run_t", origem=OrigemDados.SINTETICO)
     colunas = [
         "run_id",
@@ -348,4 +348,4 @@ def test_gravar_selecoes_produz_dataset_com_hash_logico_e_contagem(tmp_path: Pat
     assert dataset.linhas == len(linhas_tabela) == 2
     assert dataset.hash_logico == hash_logico_linhas(colunas, linhas_tabela)
     assert dataset.artifact_ids == (jan[1].artifact_id,)
-    assert destino.exists()
+    assert dataset.caminho == str(destino / f"{dataset.dataset_id}.parquet")

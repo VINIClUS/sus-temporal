@@ -64,9 +64,7 @@ def test_lote_passa_pela_conferencia_do_motor(tmp_path: Path, politica_id: str) 
         [(registro_producao(None, None, i).row_id, a, p) for i, (a, p) in enumerate(_LINHAS)],
     )
     selecionar_lote(con, "registros", regras, politica, _registro(), run_id="r", config=_config())
-    dataset = gravar_selecoes(
-        con, tmp_path / "selecao.parquet", run_id="r", origem=OrigemDados.SINTETICO
-    )
+    dataset = gravar_selecoes(con, tmp_path / "selecao", run_id="r", origem=OrigemDados.SINTETICO)
     carregar_selecoes(con, dataset)
     criar_regras_fontes(con, regras, politica)
     conferir_selecoes(con)

@@ -31,13 +31,14 @@ ARQUIVOS = (
     "T08",
     "T09",
     "T10",
+    "T11",
     "T12",
     "T13",
     "T14",
 )
 MARCADOR_DA_BASE = "## Base da consolidação"
 DONOS_HUMANOS = ("PQ", "OR", "AV")
-ITENS_DO_ORQUESTRADOR = 25
+ITENS_DO_ORQUESTRADOR = 38
 CAMPOS_DA_ACAO = ("Itens", "Ferramenta pronta", "Runbook", "Estado")
 
 
@@ -45,6 +46,7 @@ _SEPARADOR = re.compile(r"^\|[\s:|-]+\|$")
 _NUMERADO = re.compile(r"^(\d+)\. ")
 _CHAVE = re.compile(r"\bT(\d{2})-([bi]?\d+)\b")
 _FAIXA = re.compile(r"^([bi]?)(\d+)(?:-([bi]?)(\d+))?$")
+_TAREFA = r"(?:T\d{2}[a-z]?|Integração|Catálogo)(?:/T\d{2}[a-z]?)*"
 _ACAO = re.compile(r"^### ((?:PQ|OR|AV|EN|FE)-\d{2}) — (.+)$")
 _CAMPO = re.compile(r"^- \*\*([^*:]+):\*\*\s*(.*)$")
 _SECAO = re.compile(r"^#{1,3} ")
@@ -246,7 +248,7 @@ def test_secao_do_orquestrador_traz_todos_os_itens_com_tarefa_e_pr_de_origem() -
         f"ORQ-{n:02d}" for n in range(1, ITENS_DO_ORQUESTRADOR + 1)
     ]
     for identificador, tarefa, pr, pendencia, ferramenta, runbook in linhas:
-        assert re.fullmatch(r"T\d{2}[a-z]?(?:/T\d{2}[a-z]?)*", tarefa), f"tarefa {identificador}"
+        assert re.fullmatch(_TAREFA, tarefa), f"tarefa {identificador}"
         assert re.search(r"#\d+", pr), f"pr_de_origem {identificador}"
         assert pendencia, f"celula_vazia {identificador} campo=pendencia"
         assert ferramenta, f"celula_vazia {identificador} campo=ferramenta"

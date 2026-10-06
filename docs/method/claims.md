@@ -50,9 +50,8 @@ Cada alegação é um bloco `### AL-NN — título` com os campos abaixo.
   resultado nulo também se registra). Todo estado diferente de PENDENTE exige a decisão humana da
   regra 2 de "Regras de atualização".
 - **Limites:** o que não se conclui mesmo com a evidência.
-- **Ferramentas** e **Pendências:** os comandos e módulos previstos para produzir a evidência (nem
-  todos estão em `main` ainda: ver as ações EN-14, EN-16 e EN-18 de `docs/PENDENCIAS.md`) e as
-  chaves de pendência que bloqueiam a alegação.
+- **Ferramentas** e **Pendências:** os comandos e módulos que produzem a evidência e as chaves de
+  pendência (`docs/PENDENCIAS.md`) que bloqueiam a alegação.
 
 ## Regras de atualização
 
@@ -344,7 +343,7 @@ O que o teste não garante, e quem garante:
   principal concorrente.
 - **Ferramentas:** `src/sustemporal/evaluation/baselines.py`, `sustemporal freeze`,
   `sustemporal evaluate`
-- **Pendências:** T10-1, T10-3, T10-4, T10-5, T10-6, T10-7, T10-8
+- **Pendências:** T10-1, T10-3, T10-4, T10-5, T10-6, T10-7
 
 ### AL-15 — P1: sensibilidade por ablação
 
@@ -474,7 +473,7 @@ O que o teste não garante, e quem garante:
   recente de republicações é análise separada, não substituição de um teste com resultado
   desfavorável. Execução sintética nunca é confirmatória.
 - **Ferramentas:** `sustemporal freeze`, `sustemporal evaluate`
-- **Pendências:** T10-8, T10-2
+- **Pendências:** T10-2, T11-4, T11-11, T11-18
 
 ### AL-22 — Reprodução por terceiros
 
@@ -483,22 +482,25 @@ O que o teste não garante, e quem garante:
   de bytes Parquet com hash lógico igual são distinguidas das diferenças de conteúdo.
 - **Natureza:** DESCRITIVA
 - **Evidência exigida:** Saída de `sustemporal reproduce --freeze FREEZE_ID --offline` com código 0
-  sobre o congelamento confirmatório real, mais o relato da reprodução por um terceiro em ambiente
-  limpo (`docs/runbooks/reproducao.md`); instruções de reconstrução para os dados que não podem ser
+  e `resultado` `IGUAL` (ou `BYTES_DIFERENTES_HASH_LOGICO_IGUAL`) em `reproducao.json`, sobre o
+  congelamento confirmatório real, mais o relato da reprodução por um terceiro em ambiente limpo
+  (`docs/runbooks/reproducao.md`); instruções de reconstrução para os dados que não podem ser
   redistribuídos.
 - **Depende de:** G2, DADOS_REAIS
 - **Estado:** PENDENTE
 - **Limites:** A reprodução sobre fixtures sintéticas é teste de software e não evidência empírica.
-  Não se exige igualdade de bytes do Parquet: vale o hash lógico. Dados e documentos oficiais não
-  são redistribuídos pelo repositório, só referências, hashes e trechos curtos.
-- **Ferramentas:** `sustemporal reproduce`, `docs/runbooks/reproducao.md`
-- **Pendências:** T14-1, T14-9, T08-i6
+  O `reproduce` atual só reproduz a rodada exploratória e recusa a confirmatória, de modo que a
+  evidência exigida ainda não pode ser produzida. Não se exige igualdade de bytes do Parquet: vale
+  o hash lógico. Dados e documentos oficiais não são redistribuídos pelo repositório, só
+  referências, hashes e trechos curtos.
+- **Ferramentas:** `sustemporal reproduce`, `src/sustemporal/reporting/reproduce.py`,
+  `docs/runbooks/reproducao.md`
+- **Pendências:** T14-9, T14-13, T08-i6
 
 ## O que os testes de software verificam
 
 Cada linha é uma propriedade da implementação, verificada contra a especificação com dados
-sintéticos. Nenhuma delas é alegação da dissertação nem confirmação empírica do método. A reprodução
-offline sintética (`tests/integration/test_reproduce_offline.py`) entra na parte B da T14.
+sintéticos. Nenhuma delas é alegação da dissertação nem confirmação empírica do método.
 
 | Propriedade da implementação | Testes | Por que não é evidência empírica |
 |---|---|---|
@@ -514,5 +516,6 @@ offline sintética (`tests/integration/test_reproduce_offline.py`) entra na part
 | Anotação cega sem resultados do motor | `tests/integration/test_annotation_blinding.py` | Pacote e formulários sintéticos |
 | Valores da P3 sem dupla contagem | `tests/unit/test_values.py` | Tabelas pequenas calculadas à mão |
 | Hash lógico determinístico | `tests/unit/test_hashing.py` | Relações sintéticas |
+| Reprodução offline: hash lógico igual com bytes diferentes, 1 e 4 threads, split refeito com os artefatos inspecionados do congelamento, manifesto de aquisição até onde o `ingest` original o leu e com a configuração que ele gravou (coleta, republicação e ausência posteriores ao `ingest` ignoradas, seja qual for o instante), cada método refeito com a política da execução congelada dele (com ou sem `politica_id` na config), relatório original conferido contra o registro de rodadas, origem dos dados e catálogos contra o congelado, janela por artefatos, leiaute completo do Parquet (nomes, ordem e tipos) conferido antes de projetar o hash, nenhuma diferença perdida por interseção, padrão ou colapso (campos do split e do relatório, métrica ou saída repetida, partição ou conjunto que só um lado traz, linhagem), divergência de conteúdo, saída que só uma das execuções emitiu e item sem original (inclusive CNES ou SIGTAP ausente, entrada original ou política congelada que não se confere, posição ou configuração do ingest desconhecida) como falha, nenhum socket de rede (conexão, datagrama sem conexão e resolução de nome), e a varredura de tudo o que a cadeia lê | `tests/integration/test_reproduce_offline.py`, `tests/integration/test_reproduce_etapas.py`, `tests/unit/test_reproduce_manifesto.py`, `tests/unit/test_reproduce_comparacao.py`, `tests/unit/test_reproduce_esquema.py`, `tests/unit/test_reproduce_conjunto_completo.py`, `tests/unit/test_reproduce_conferencia.py`, `tests/unit/test_reproduce_insumos.py`, `tests/unit/test_reproduce_politicas.py`, `tests/unit/test_reproduce_original.py`, `tests/unit/test_reproduce_catalogos.py`, `tests/unit/test_reproduce_varredura.py`, `tests/unit/test_reproduce_saidas.py`, `tests/unit/test_reproduce_rede.py`, `tests/unit/test_reproduce_recusas.py` | Fluxo sintético pequeno, sempre exploratório; o `reproduce` não reproduz o confirmatório |
 | Portões G0, G1 e G2 só liberados por decisão humana | `tests/unit/test_gates.py` | Decisões de teste em diretório temporário |
 | Licenças permissivas no runtime e nada de dados ou arquivos grandes no Git | `tests/unit/test_licencas.py`, `tests/unit/test_redistribuicao.py` | Auditoria do repositório, não do método |

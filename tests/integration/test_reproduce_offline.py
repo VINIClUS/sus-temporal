@@ -86,16 +86,17 @@ ESQUEMAS_DA_SAIDA = (
 METODOS = ("M_TEMP", "B_ATEND", "B_PROC")
 POLITICAS = ("M_TEMP_PADRAO", "b_atend_exploratoria", "b_proc_exploratoria")
 POLITICA_ESTRAGADA = "b_atend_exploratoria"
+ITENS_DO_RELATORIO = {"metricas", "notas", "relatorio:campos"}
 ITENS_DA_REPRODUCAO = {
     "conjunto:sia_pa.v1",
     "conjunto:sia_pa_rotulos.v1",
     "split:split_id",
+    "split:campos",
     *(f"split:particao:{p.value}" for p in Particao),
     *(f"split:rotulos:{p.value}" for p in Particao),
     *(f"insumos:{politica}" for politica in POLITICAS),
     *(f"saida:{m}:{s}" for m in METODOS for s in ESQUEMAS_DA_SAIDA),
-    "metricas",
-    "notas",
+    *ITENS_DO_RELATORIO,
 }
 BYTES_DIFERENTES = "BYTES_DIFERENTES_HASH_LOGICO_IGUAL"
 EVIDENCIAS = "evidencias.v1"
@@ -803,8 +804,8 @@ def test_reproduce_com_relatorio_que_nao_e_o_registrado_e_inconclusivo_e_nao_div
     reproducao_estragada: Reproducao,
 ) -> None:
     feita = reproducao_estragada
-    assert _com_situacao(feita, "INCONCLUSIVO") == {"metricas", "notas"}
-    assert feita.itens["metricas"]["detalhe"] == "original_ausente"
+    assert _com_situacao(feita, "INCONCLUSIVO") == ITENS_DO_RELATORIO
+    assert {feita.itens[i]["detalhe"] for i in ITENS_DO_RELATORIO} == {"original_ausente"}
     assert feita.conteudo["relatorio_refeito"].startswith("rep_")
     observacao = "relatorio_original_nao_confere_com_o_registro campos=runs"
     assert observacao in feita.conteudo["observacoes"]
@@ -815,7 +816,7 @@ def test_reproduce_so_os_itens_estragados_saem_diferentes_do_original(
 ) -> None:
     feita = reproducao_estragada
     divergentes = DIVERGENTES_DO_CONTEUDO | DIVERGENTES_DA_SAIDA | DIVERGENTES_DO_ESQUEMA
-    iguais = ITENS_DA_REPRODUCAO - divergentes - {"metricas", "notas"}
+    iguais = ITENS_DA_REPRODUCAO - divergentes - ITENS_DO_RELATORIO
     assert set(feita.itens) == ITENS_DA_REPRODUCAO
     assert _com_situacao(feita, "DIVERGENTE") == divergentes
     assert _com_situacao(feita, "IGUAL") == iguais

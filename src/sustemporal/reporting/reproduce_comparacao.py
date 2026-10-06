@@ -22,6 +22,8 @@ from sustemporal.reporting.reproduce_arquivos import (
     comparar_saida,
     comparar_saidas,
     identidade_do_arquivo,
+    saidas_por_esquema,
+    saidas_por_metodo,
 )
 from sustemporal.reporting.reproduce_itens import Comparacao, Situacao
 
@@ -38,6 +40,7 @@ __all__ = [
     "Comparacao",
     "Identidade",
     "Situacao",
+    "campos_que_diferem",
     "comparar_auxiliares",
     "comparar_conjuntos",
     "comparar_entradas_originais",
@@ -47,6 +50,7 @@ __all__ = [
     "comparar_notas",
     "comparar_originais",
     "comparar_referencia",
+    "comparar_relatorio",
     "comparar_saida",
     "comparar_saidas",
     "comparar_split",
@@ -57,6 +61,8 @@ __all__ = [
     "observacoes_do_ingest",
     "resultado_geral",
     "rodada_registrada",
+    "saidas_por_esquema",
+    "saidas_por_metodo",
 ]
 
 logger = logging.getLogger(__name__)
@@ -112,6 +118,18 @@ def comparar_insumos(
     return Comparacao(
         item, Situacao.IGUAL, f"{len(congeladas)} campos", f"{len(congeladas)} campos"
     )
+
+
+def campos_que_diferem(a: Mapping[str, object], b: Mapping[str, object]) -> list[str]:
+    """Campos, na ordem de `a` e depois os só de `b`, que um lado não tem ou em que diferem."""
+    raise NotImplementedError
+
+
+def comparar_relatorio(
+    item: str, esperado: EvaluationReport | None, obtido: EvaluationReport
+) -> Comparacao:
+    """Os campos do relatório refeito contra os do registrado, fora os que dependem de caminho."""
+    raise NotImplementedError
 
 
 _PIOR_PRIMEIRO = (Situacao.DIVERGENTE, Situacao.INCONCLUSIVO, Situacao.BYTES_DIFERENTES)

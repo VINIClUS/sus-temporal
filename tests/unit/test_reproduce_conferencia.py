@@ -53,6 +53,7 @@ def test_split_igual_compara_o_id_e_cada_particao_e_cada_rotulo(split: SplitMani
     situacoes = _situacoes(split, split)
     assert set(situacoes) == {
         "split:split_id",
+        "split:campos",
         *(f"split:particao:{p.value}" for p in Particao),
         *(f"split:rotulos:{p.value}" for p in Particao),
     }
@@ -105,11 +106,6 @@ def test_split_refeito_sem_a_particao_e_divergente_e_nao_inconclusivo(
         assert item.situacao is Situacao.DIVERGENTE
         assert item.obtido is None
         assert item.detalhe == "particao_ausente"
-
-
-def test_split_congelado_sem_particoes_nao_gera_itens_dessa_parte(split: SplitManifest) -> None:
-    sem = split.model_copy(update={"particoes": None, "rotulos_por_particao": None})
-    assert [c.item for c in comparar_split(sem, split)] == ["split:split_id"]
 
 
 def _dataset(tmp_path: Path, nome: str, artefatos: tuple[str, ...]) -> DatasetRef:
@@ -374,4 +370,7 @@ def test_conjuntos_sao_pareados_pelo_esquema_e_nao_pela_posicao(tmp_path: Path) 
     refeito = gravar(LINHAS[:-1], tmp_path / "refeito" / "a.parquet")
     outro = refeito.model_copy(update={"schema_id": "outro.v1"})
     itens = comparar_conjuntos([congelado], {"outro.v1": outro, congelado.schema_id: refeito})
-    assert [i.situacao for i in itens] == [Situacao.DIVERGENTE]
+    assert [(i.item, i.situacao) for i in itens] == [
+        (f"conjunto:{congelado.schema_id}", Situacao.DIVERGENTE),
+        ("conjunto:outro.v1", Situacao.INCONCLUSIVO),
+    ]

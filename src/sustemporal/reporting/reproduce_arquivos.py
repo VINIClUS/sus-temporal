@@ -31,7 +31,9 @@ from sustemporal.rules.catalog import carregar_esquema
 if TYPE_CHECKING:
     from collections.abc import Collection, Iterable, Mapping
 
+    from sustemporal.contracts.experiment import RunResult
     from sustemporal.contracts.records import DatasetRef
+    from sustemporal.contracts.temporal import MetodoId
     from sustemporal.reporting.reproduce_esquema import Leiaute
 
 __all__ = [
@@ -41,6 +43,8 @@ __all__ = [
     "comparar_saida",
     "comparar_saidas",
     "identidade_do_arquivo",
+    "saidas_por_esquema",
+    "saidas_por_metodo",
 ]
 
 logger = logging.getLogger(__name__)
@@ -229,6 +233,18 @@ def comparar_execucoes(
     for metodo in dict.fromkeys([*refeitas, *originais]):
         itens += comparar_saidas(metodo, originais.get(metodo), refeitas.get(metodo))
     return itens
+
+
+def saidas_por_esquema(saidas: Iterable[DatasetRef]) -> dict[str, DatasetRef]:
+    """As saídas por `schema_id`; a repetição entra como `<schema_id>#2`, `#3`... na ordem dada."""
+    raise NotImplementedError
+
+
+def saidas_por_metodo(
+    execucoes: Mapping[MetodoId, RunResult],
+) -> dict[str, dict[str, DatasetRef]]:
+    """As saídas de cada execução, por método (`valor`) e `schema_id` (`saidas_por_esquema`)."""
+    raise NotImplementedError
 
 
 def _arquivo(ref: DatasetRef) -> Path:

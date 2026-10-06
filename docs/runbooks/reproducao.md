@@ -354,11 +354,13 @@ congelamento usou a versão de código de teste (seção 4.5); ela não é diver
 - O refeito é comparado com o congelado e com a rodada registrada do mesmo congelamento e modo (a
   última de `registro_execucoes.jsonl`, com o relatório `avaliacao/<freeze_id>/rep_*.json` e as
   execuções em `runs/`). O relatório só vale se bate com a entrada do registro (`report_id`,
-  `freeze_id`, modo, origem dos dados, lista de execuções, quantidade de métricas e de métricas
-  nulas): um relatório válido que não é o registrado (copiado de outro congelamento, trocado
-  depois) é original indisponível, os itens `metricas` e `notas` saem `INCONCLUSIVO` e a observação
-  `relatorio_original_nao_confere_com_o_registro campos=...` diz em que ele difere
-  (`sustemporal.reporting.reproduce_original`).
+  `freeze_id`, modo, origem dos dados, `decisao_g2`, lista de execuções, quantidade de métricas e
+  de métricas nulas): um relatório válido que não é o registrado (copiado de outro congelamento,
+  trocado depois) é original indisponível, os itens `metricas`, `notas` e `relatorio:campos` saem
+  `INCONCLUSIVO` e a observação `relatorio_original_nao_confere_com_o_registro campos=...` diz em
+  que ele difere (`sustemporal.reporting.reproduce_original`). O método com duas execuções
+  registradas não tem execução original (a última não substitui a primeira) e a observação
+  `execucao_registrada_repetida metodo=...` o diz.
 - Os artefatos dos auxiliares vêm da `entrada_validacao.json` original de cada política
   (`<raiz_saidas>/split/insumos/<politica_id>.json`, a que o `freeze` leu), porque o manifesto guarda
   só a identidade de cada campo. Ela só vale se existe, é legível e tem, campo a campo, a
@@ -438,7 +440,7 @@ ausente, quarentena ou falha; explica os itens `INCONCLUSIVO` de `originais_indi
 manifesto de aquisição que a reprodução leu),
 `artefatos_depois_do_ingest_ignorados n=...` e `observacoes_depois_do_ingest_ignoradas n=...` (o que
 o manifesto atual tem depois dessa posição e a cópia deixou de fora), `particao_sem_artefatos
-particao=...` (a partição refeita não tem artefatos), `relatorio_original_nao_confere_com_o_registro campos=...` (o relatório lido não é o que o registro descreve), `catalogos_diferentes_do_congelado catalogos=...` e `catalogo_de_regras_diferente_do_congelado` (o SHA-256 de um catálogo, ou do catálogo de regras, difere do congelado), `config_diferente_da_congelada` (o hash do
+particao=...` (a partição refeita não tem artefatos), `relatorio_original_nao_confere_com_o_registro campos=...` (o relatório lido não é o que o registro descreve), `execucao_registrada_repetida metodo=...` (o método tem duas execuções registradas e fica sem original), `catalogos_diferentes_do_congelado catalogos=...` e `catalogo_de_regras_diferente_do_congelado` (o SHA-256 de um catálogo, ou do catálogo de regras, difere do congelado), `config_diferente_da_congelada` (o hash do
 protocolo da config usada difere do congelado, por exemplo com outro número de threads ou outros
 caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=<commit>` e
 `pacotes_diferentes_do_congelado pacotes=<lista>`. Leia-as junto do resultado.
@@ -512,7 +514,7 @@ cada reprodução.
 | Saída registrada que a reconstrução não emitiu (`evidencias.v1`) diverge e a saída é 5; saída nova sem original, método só registrado e execução registrada ausente | `test_reproduce_com_saida_que_a_reconstrucao_nao_emitiu_e_divergente` e `tests/unit/test_reproduce_saidas.py` |
 | Entrada original da política ausente, ilegível ou alterada é inconclusão em `insumos:<politica>` (saída 5), com o auxiliar disponível ou não, e o fluxo para antes de refazer | `test_reproduce_com_a_entrada_original_que_nao_confere_e_inconclusivo_e_nao_divergente` (três estragos e, na entrada ausente, também com o auxiliar indisponível) e `tests/unit/test_reproduce_insumos.py` |
 | Cada método é refeito com a política da execução congelada dele, com a `politica_id` da config preenchida (como o `config/cohort.yaml`) ou vazia: reproduz igual nos três métodos; política congelada que o catálogo já não dá (mudada ou removida) é inconclusão em `insumos:<politica>`, nunca erro de configuração nem divergência | `test_o_congelamento_traz_a_politica_do_catalogo_em_m_temp_e_as_padrao_dos_baselines`, `test_reproduce_com_politica_id_na_config_refaz_cada_metodo_com_a_politica_congelada`, `test_reproduce_com_a_politica_congelada_que_o_catalogo_ja_nao_da_e_inconclusivo` (catálogo com a política mudada; a removida está no unitário), `tests/unit/test_reproduce_politicas.py` e, em `tests/integration/test_reproduce_etapas.py`, os `test_validar_janela_*` |
-| O relatório lido só vale se bate com a entrada do registro (`report_id`, `freeze_id`, modo, origem dos dados, execuções, métricas): relatório válido que não é o registrado é original indisponível (`metricas` e `notas` inconclusivos) | `test_reproduce_com_relatorio_que_nao_e_o_registrado_e_inconclusivo_e_nao_divergente` e `tests/unit/test_reproduce_original.py` |
+| O relatório lido só vale se bate com a entrada do registro (`report_id`, `freeze_id`, modo, origem dos dados, `decisao_g2`, execuções, métricas): relatório válido que não é o registrado é original indisponível (`metricas`, `notas` e `relatorio:campos` inconclusivos); método com duas execuções registradas fica sem original | `test_reproduce_com_relatorio_que_nao_e_o_registrado_e_inconclusivo_e_nao_divergente` e `tests/unit/test_reproduce_original.py` |
 | A configuração com que o `ingest` original rodou (UF, corte, famílias, catálogo de fontes, leiaute) tem de ser a do refeito, e a `origem_dados` tem de ser a dos conjuntos congelados; senão inconclusão (`manifesto:aquisicao`, `origem_dados`) antes do `ingest`; catálogos que mudaram são observação | `test_reproduce_sem_saber_o_que_o_ingest_leu_do_manifesto_e_inconclusivo_e_nao_divergente` (casos `configuracao_diferente` e `sem_configuracao`), `test_reproduce_com_origem_dos_dados_diferente_da_congelada_e_inconclusivo`, `tests/unit/test_reproduce_manifesto.py` e `tests/unit/test_reproduce_catalogos.py` |
 | O leiaute completo do Parquet (nomes, ordem e tipos) é conferido antes de projetar o hash: saída refeita sem `run_id`, com coluna a mais, de outro tipo ou em outra ordem é `DIVERGENTE`, nunca `IGUAL`; o mesmo vale para o original e entre as duas pontas | `tests/unit/test_reproduce_esquema.py`, os `test_saida_refeita_com_o_leiaute_estragado_*`, `test_saida_original_com_o_leiaute_estragado_*` e `test_conjunto_refeito_com_o_leiaute_estragado_*` de `tests/unit/test_reproduce_comparacao.py` e `test_reproduce_com_saida_refeita_sem_a_coluna_de_identidade_e_divergente_de_esquema` |
 | Nenhuma comparação perde diferença por interseção, `get` com padrão ou colapso por chave: métrica repetida, campo só do congelamento, partição que só um lado traz, conjunto refeito que o manifesto não tem, saída repetida, campos do split e do relatório e linhagem | `tests/unit/test_reproduce_conjunto_completo.py` |
@@ -694,8 +696,9 @@ Fora desta tabela, de propósito: a `RunResult` das execuções (`entradas`, `sn
 `politica_id`, `semente`, `config_hash`, `estado`...) não é comparada campo a campo; o conteúdo das
 saídas decide, a linhagem das saídas confere os artefatos de origem, os insumos têm a identidade
 campo a campo (`insumos:*`) e o código, o ambiente e a config diferentes são observação. O registro de
-rodadas só vale com um relatório que bata com ele, e `evaluate` recusa duas execuções do mesmo método
-(`metodo_repetido`), então a rodada registrada tem no máximo uma execução por método.
+rodadas só vale com um relatório que bata com ele (inclusive a `decisao_g2`), e o método com duas
+execuções registradas fica sem execução original, com a observação `execucao_registrada_repetida`,
+em vez de a última substituir a primeira.
 
 ## 6. Onde ficam saídas e manifestos
 

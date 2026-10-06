@@ -35,7 +35,8 @@ logger = logging.getLogger(__name__)
 class Original:
     """Rodada registrada do congelamento: o relatório e as execuções, se ainda existem.
 
-    `observacoes` diz por que um relatório lido foi recusado.
+    `observacoes` diz por que um relatório lido foi recusado e que método tem mais de uma execução
+    registrada (`execucao_registrada_repetida`), caso em que ele fica sem execução original.
     """
 
     relatorio: EvaluationReport | None
@@ -46,8 +47,8 @@ class Original:
 def campos_que_nao_conferem(relatorio: EvaluationReport, entrada: Mapping[str, Any]) -> list[str]:
     """Campos em que o relatório difere da entrada do registro, na ordem do registro.
 
-    O registro guarda `report_id`, `freeze_id`, o modo, a origem dos dados, a lista de execuções e
-    a contagem das métricas (e das nulas); campo que a entrada não traz não confere.
+    O registro guarda `report_id`, `freeze_id`, o modo, a origem dos dados, a `decisao_g2`, a lista
+    de execuções e a contagem das métricas (e das nulas); campo que a entrada não traz não confere.
     """
     nulas = sum(1 for metrica in relatorio.metricas if metrica.valor is None)
     lidos = {
@@ -55,6 +56,7 @@ def campos_que_nao_conferem(relatorio: EvaluationReport, entrada: Mapping[str, A
         "freeze_id": relatorio.freeze_id,
         "modo": relatorio.modo.value,
         "origem_dados": relatorio.origem_dados.value,
+        "decisao_g2": relatorio.decisao_g2,
         "runs": list(relatorio.runs),
         "metricas": len(relatorio.metricas),
         "metricas_nulas": nulas,
@@ -81,23 +83,38 @@ def _relatorio_registrado(
     return None, (f"relatorio_original_nao_confere_com_o_registro campos={lista}",)
 
 
-def _execucoes(config: RunConfig, entrada: Mapping[str, Any]) -> dict[MetodoId, RunResult]:
-    execucoes = {}
+def _execucoes(
+    config: RunConfig, entrada: Mapping[str, Any]
+) -> tuple[dict[MetodoId, RunResult], tuple[str, ...]]:
+    """As execuções registradas por método e a observação de cada método registrado em duplicidade.
+
+    Duas execuções do mesmo método não se distinguem pelo método: nenhuma vale como original (a
+    última não substitui a primeira) e o método fica sem original para comparar.
+    """
+    execucoes: dict[MetodoId, RunResult] = {}
+    repetidos: dict[MetodoId, None] = {}
     for run_id in entrada["runs"]:
         try:
             run = ler_execucao(raiz_execucoes(config), run_id)
         except ExecucaoNaoResolvida:
             continue
-        if run.metodo is not None:
+        if run.metodo is None:
+            continue
+        if run.metodo in execucoes or run.metodo in repetidos:
+            execucoes.pop(run.metodo, None)
+            repetidos[run.metodo] = None
+        else:
             execucoes[run.metodo] = run
-    return execucoes
+    avisos = tuple(f"execucao_registrada_repetida metodo={metodo.value}" for metodo in repetidos)
+    return execucoes, avisos
 
 
 def ler_original(config: RunConfig, freeze_id: str) -> Original:
     """A última rodada registrada do congelamento e do modo: relatório conferido e execuções.
 
     Sem registro, sem rodada do congelamento e do modo, ou com o relatório ausente, ilegível ou que
-    não bate com a entrada do registro, não há relatório; a execução ausente fica de fora.
+    não bate com a entrada do registro, não há relatório; a execução ausente fica de fora, e o
+    método com duas execuções registradas fica sem nenhuma.
 
     Raises:
         FalhaOperacionalErro: registro de rodadas adulterado.
@@ -107,4 +124,5 @@ def ler_original(config: RunConfig, freeze_id: str) -> Original:
     if entrada is None:
         return Original(None, {})
     relatorio, observacoes = _relatorio_registrado(config, freeze_id, entrada)
-    return Original(relatorio, _execucoes(config, entrada), observacoes)
+    execucoes, repetidas = _execucoes(config, entrada)
+    return Original(relatorio, execucoes, (*observacoes, *repetidas))

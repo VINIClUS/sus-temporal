@@ -7,9 +7,8 @@ import pytest
 from hypothesis import HealthCheck, given, settings
 
 from sustemporal.contracts.rules import RuleSpec
-from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.reference import agregar_referencia, avaliar_referencia
-from tests.fixtures.regras_bateria import BATERIA
+from tests.fixtures.regras_bateria import BATERIA, regras_da_bateria
 from tests.fixtures.regras_cenario import CenarioRegras, para_referencia
 from tests.fixtures.regras_estrategias import cenarios, regras_variadas
 from tests.fixtures.regras_execucao import executar, tabela
@@ -61,7 +60,7 @@ def test_motor_sql_equivale_ao_avaliador_de_referencia(
 @pytest.mark.parametrize("nome", sorted(BATERIA))
 def test_motor_sql_equivale_a_referencia_nos_exemplos_manuais(nome: str) -> None:
     cenario = BATERIA[nome]
-    regras = carregar_regras()
+    regras = regras_da_bateria(nome)
     avaliacoes, agregados, falhas = _motor(cenario, regras)
     esperadas, agregados_esperados = _referencia(cenario, regras)
     assert falhas == 0

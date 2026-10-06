@@ -13,6 +13,7 @@ from sustemporal.contracts.base import FamiliaFonte, OrigemDados
 from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.contracts.temporal import (
     BaseTemporal,
+    CompetenciaArquivo,
     CriterioTemporal,
     MetodoId,
     PoliticaTemporal,
@@ -149,11 +150,12 @@ def _selecao_coerente(
     if criterio is None or valor is None or not _COMPETENCIA.fullmatch(valor):
         nao_resolvida = {"estado": "NAO_RESOLVIDA", "base": None, "competencia_requerida": None}
         return selecao | nao_resolvida | {"artifact_ids": ""}
-    return selecao | {"base": str(criterio.base), "competencia_requerida": valor}
+    requerida = CompetenciaArquivo(valor).deslocar(criterio.deslocamento_meses).valor
+    return selecao | {"base": str(criterio.base), "competencia_requerida": requerida}
 
 
 def coerente(cenario: CenarioRegras) -> CenarioRegras:
-    """Ajusta base e competência das seleções à política e aos registros (model.md §5)."""
+    """Ajusta base e competência (base(r) + deslocamento) das seleções à política (model.md §5)."""
     registros = {str(r["row_id"]): r for r in cenario.registros}
     selecoes = tuple(
         _selecao_coerente(dict(s), registros.get(str(s["row_id"])), cenario)

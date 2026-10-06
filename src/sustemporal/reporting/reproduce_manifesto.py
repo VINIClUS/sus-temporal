@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts.artifacts import LinhaManifesto, TipoLinhaManifesto
+from sustemporal.errors import ConfigInvalida
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -79,8 +80,12 @@ def manifesto_do_congelamento(raiz_origem: Path, raiz_destino: Path, instante: d
     A observação no próprio instante entra. Um artefato só vale se alguma observação dele entrou.
 
     Raises:
+        ConfigInvalida: `raiz_destino` é a própria `raiz_origem`: o manifesto é append-only e nunca
+            é regravado.
         ManifestoCorrompido: o manifesto de origem não passa na verificação (cadeia e âncora).
     """
+    if raiz_origem.resolve() == raiz_destino.resolve():
+        raise ConfigInvalida(f"manifesto_do_congelamento_sobre_a_origem raiz={raiz_origem}")
     estado = Manifesto(raiz_origem / NOME_MANIFESTO_AQUISICAO).ler()
     mantidas = [o for o in estado.observacoes if o.observado_em <= instante]
     linhas = _linhas(mantidas, estado.versoes)

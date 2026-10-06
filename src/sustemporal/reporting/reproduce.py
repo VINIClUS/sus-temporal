@@ -27,11 +27,9 @@ from typing import TYPE_CHECKING
 
 from sustemporal.contracts.experiment import ModoExecucao, Particao
 from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro, RedeProibida
-from sustemporal.evaluation.cli import REGISTRO
 from sustemporal.evaluation.freeze import carregar_freeze, hash_protocolo
-from sustemporal.evaluation.freeze_registro import ler_registro
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
-from sustemporal.execucoes import ExecucaoNaoResolvida, ler_execucao, raiz_execucoes
+from sustemporal.execucoes import raiz_execucoes
 from sustemporal.ingest import cli as ingest_cli
 from sustemporal.reporting.reproduce_comparacao import (
     Comparacao,
@@ -46,11 +44,9 @@ from sustemporal.reporting.reproduce_comparacao import (
     comparar_referencia,
     comparar_split,
     exigir_conferido,
-    ler_relatorio_original,
     observacoes_do_ambiente,
     observacoes_do_ingest,
     resultado_geral,
-    rodada_registrada,
 )
 from sustemporal.reporting.reproduce_etapas import (
     Derivado,
@@ -67,6 +63,7 @@ from sustemporal.reporting.reproduce_manifesto import (
     observacoes_do_manifesto,
     resolver_manifesto,
 )
+from sustemporal.reporting.reproduce_original import Original, ler_original
 from sustemporal.reporting.reproduce_politicas import politicas_congeladas
 from sustemporal.reporting.reproduce_rede import sem_rede
 from sustemporal.rules.catalog import CatalogoInvalido, carregar_regras
@@ -92,14 +89,6 @@ DIRETORIO_MANIFESTOS = "manifestos"
 RELATORIO = "reproducao.json"
 ITEM_MANIFESTO = "manifesto:aquisicao"
 PARTICOES_REFEITAS = (Particao.CALIBRACAO, Particao.TESTE)
-
-
-@dataclass(frozen=True)
-class Original:
-    """Rodada registrada do congelamento: o relatório e as execuções, se ainda existem."""
-
-    relatorio: EvaluationReport | None
-    execucoes: Mapping[MetodoId, RunResult]
 
 
 @dataclass(frozen=True)
@@ -245,26 +234,6 @@ def _refazer(
     return Refeito(derivado, avaliadas, teste, relatorio)
 
 
-def _original(config: RunConfig, freeze_id: str) -> Original:
-    registro = ler_registro(Path(config.runtime.dir_congelamentos) / REGISTRO)
-    ultima = rodada_registrada(registro, freeze_id, config.modo.value)
-    if ultima is None:
-        return Original(None, {})
-    caminho = (
-        Path(config.runtime.raiz_saidas) / "avaliacao" / freeze_id / f"{ultima['report_id']}.json"
-    )
-    relatorio = ler_relatorio_original(caminho)
-    execucoes = {}
-    for run_id in ultima["runs"]:
-        try:
-            run = ler_execucao(raiz_execucoes(config), run_id)
-        except ExecucaoNaoResolvida:
-            continue
-        if run.metodo is not None:
-            execucoes[run.metodo] = run
-    return Original(relatorio, execucoes)
-
-
 def _comparar_conjuntos(manifesto: FreezeManifest, derivado: Derivado) -> list[Comparacao]:
     refeitos = {"sia_pa.v1": derivado.uniao, "sia_pa_rotulos.v1": derivado.rotulos}
     itens = []
@@ -371,7 +340,7 @@ def _ingerir_o_original(
         Path(config.runtime.raiz_manifestos),
         manifesto.datasets,
     )
-    do_ambiente = _observacoes(config, manifesto)
+    do_ambiente = [*original.observacoes, *_observacoes(config, manifesto)]
     if resolucao.motivo:
         _parar_se_inconclusivo(config, out, _sem_manifesto(resolucao, insumos), do_ambiente)
     gravar_manifesto(
@@ -459,7 +428,7 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
     _exigir_destino_novo(out)
     em_out = _config_em(config, out)
     with sem_rede():
-        original = _original(config, freeze_id)
+        original = ler_original(config, freeze_id)
         preparado = _ingerir_o_original(config, em_out, out, manifesto, original)
         derivado = _derivar(em_out, manifesto, preparado.pasta)
         _parar_se_particao_vazia(config, out, manifesto, derivado, preparado.observacoes)

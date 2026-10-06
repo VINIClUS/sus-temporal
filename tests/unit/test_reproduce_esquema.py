@@ -104,6 +104,14 @@ def test_varias_diferencas_saem_uma_vez_cada_ausentes_depois_a_mais_depois_tipo(
     assert colunas_que_diferem(ESQUEMA, leiaute) == ["run_id", "coluna_a_mais", "resultado"]
 
 
+def test_coluna_de_outro_tipo_e_fora_de_posicao_sai_uma_vez() -> None:
+    trocadas = (CANONICO[1], CANONICO[0], *CANONICO[2:])
+    assert colunas_que_diferem(ESQUEMA, _trocar(trocadas, "row_id", "BIGINT")) == [
+        "row_id",
+        "run_id",
+    ]
+
+
 def test_a_ordem_so_conta_quando_nenhuma_coluna_falta_nem_sobra() -> None:
     sem_run_id_e_trocado = (CANONICO[2], CANONICO[1], *CANONICO[3:])
     assert colunas_que_diferem(ESQUEMA, sem_run_id_e_trocado) == ["run_id"]

@@ -252,6 +252,14 @@ def test_insumos_listam_primeiro_os_campos_da_entrada_e_depois_os_so_congelados(
     assert item.detalhe == f"campos=selecoes,{AUSENTE_DA_ENTRADA}"
 
 
+def test_insumos_listam_os_campos_na_ordem_da_entrada_e_nao_na_do_congelamento() -> None:
+    entrada = _entrada()
+    mudados = {**identidades_da_entrada(entrada), "selecoes": "h" * 64, "cobertura": "h" * 64}
+    congeladas = dict(reversed(list(mudados.items())))
+    item = comparar_insumos(f"insumos:{POLITICA}", congeladas, entrada)
+    assert item.detalhe == "campos=selecoes,cobertura"
+
+
 def test_entrada_original_com_campo_so_congelado_nao_confere_e_e_alterada(tmp_path: Path) -> None:
     entrada = _entrada()
     pasta = tmp_path / "insumos"
@@ -556,7 +564,7 @@ def test_o_conteudo_diferente_vem_antes_da_linhagem(tmp_path: Path) -> None:
 def test_a_lista_de_artefatos_diferentes_sai_ordenada_e_truncada_em_cinco(tmp_path: Path) -> None:
     muitos = tuple("art_" + str(i) * 64 for i in range(7))
     esperada = _com_artefatos(_conjunto(tmp_path, "original"), ARTEFATO)
-    obtida = _com_artefatos(_conjunto(tmp_path, "refeito"), ARTEFATO, *muitos)
+    obtida = _com_artefatos(_conjunto(tmp_path, "refeito"), ARTEFATO, *reversed(muitos))
     item = comparar_referencia("conjunto:x", esperada, obtida)
     assert item.detalhe == f"linhagem_diverge diferentes=7 primeiros={','.join(muitos[:5])}"
 

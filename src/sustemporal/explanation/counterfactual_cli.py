@@ -48,6 +48,8 @@ from sustemporal.explanation.counterfactual_sobreposicao import (
 )
 from sustemporal.explanation.evidence import EvidenciaDivergente
 from sustemporal.explanation.explain import ExplicacaoIndisponivel, montar_explicacao
+from sustemporal.explanation.explain_texto import TemplateInvalido
+from sustemporal.explanation.prov import ProvIncompleto
 from sustemporal.runtime_info import versao_codigo
 
 if TYPE_CHECKING:
@@ -75,6 +77,8 @@ _RECUSAS = (
     ContextoIndisponivel,
     SemViolacao,
     CatalogoOperacoesInvalido,
+    TemplateInvalido,
+    ProvIncompleto,
 )
 _FALHAS = (
     EvidenciaDivergente,

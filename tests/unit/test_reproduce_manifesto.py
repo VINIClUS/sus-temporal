@@ -26,6 +26,7 @@ from sustemporal.reporting.reproduce_manifesto import (
     observacoes_do_manifesto,
     resolver_manifesto,
 )
+from tests.fixtures.protocolo_dados import artefato
 from tests.fixtures.protocolo_insumos import conjunto_sintetico
 from tests.fixtures.temporal_registro import observar
 
@@ -282,7 +283,7 @@ def test_sem_a_pasta_do_ingest_a_posicao_nao_se_sabe(tmp_path: Path) -> None:
 def test_congelamento_sem_sia_pa_nao_aponta_execucao_nenhuma(tmp_path: Path) -> None:
     origem, _ = _tres(tmp_path)
     _execucao(tmp_path / "ingest", "execucao_1", [], _posicao(origem, 4))
-    resolucao = _resolver(tmp_path, origem, _conjunto("art_x", esquema="sia_pa_rotulos.v1"))
+    resolucao = _resolver(tmp_path, origem, _conjunto(artefato("x"), esquema="sia_pa_rotulos.v1"))
     assert resolucao.motivo == "ingest_original_ausente execucoes=1"
 
 
@@ -372,7 +373,7 @@ def test_posicao_que_termina_numa_versao_sem_a_observacao_dela_nao_se_reproduz(
 
 
 def test_manifesto_atual_sem_arquivo_so_serve_ao_ingest_que_nao_leu_nada(tmp_path: Path) -> None:
-    uniao = _conjunto("art_a")
+    uniao = _conjunto(artefato("a"))
     _execucao(tmp_path / "ingest", "execucao_1", [uniao], {"linhas": 0, "cabeca_sha256": None})
     resolucao = resolver_manifesto(tmp_path / "ingest", tmp_path / "nao_existe", [uniao])
     assert (resolucao.motivo, resolucao.linhas) == ("", ())

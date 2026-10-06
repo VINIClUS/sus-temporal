@@ -1,10 +1,13 @@
 """Reprodução offline de um congelamento a partir dos originais locais (T14).
 
 `sustemporal reproduce --freeze FREEZE_ID --offline` resolve o manifesto exato do congelamento e
-refaz, em um diretório novo, o fluxo pequeno: ingestão dos originais do manifesto de aquisição,
-união e rótulos do SIA-PA, partições do split, as três políticas sobre a partição avaliada e sobre
-o TESTE e a avaliação. Depois compara com o congelado e com a rodada registrada por hash lógico,
-contagens e métricas (`reproduce_comparacao`). Nada é lido da rede e nada do original é alterado.
+refaz, em um diretório novo, o fluxo pequeno: ingestão dos originais do manifesto de aquisição até
+onde o `ingest` original o leu (`reproduce_manifesto`), união e rótulos do SIA-PA, partições do
+split, as três políticas sobre a partição avaliada e sobre o TESTE e a avaliação. Depois compara
+com o congelado e com a rodada registrada por hash lógico, contagens e métricas
+(`reproduce_comparacao`). Nada é lido da rede e nada do original é alterado. O que não se
+consegue conferir (o `ingest` original, a posição que ele leu, a entrada original de cada
+política, um original ausente) sai INCONCLUSIVO e a reprodução para antes de refazer.
 
 Só a rodada exploratória é reproduzida: o confirmatório exige dados reais e o G2 humano, e a
 conferência do manifesto compara a config inteira, inclusive os caminhos de `runtime` (pendência
@@ -51,6 +54,7 @@ from sustemporal.reporting.reproduce_comparacao import (
 )
 from sustemporal.reporting.reproduce_etapas import (
     Derivado,
+    EntradasCongeladas,
     competencias_da_janela,
     conferir_entradas,
     derivar_protocolo,
@@ -59,8 +63,10 @@ from sustemporal.reporting.reproduce_etapas import (
     validar_janela,
 )
 from sustemporal.reporting.reproduce_manifesto import (
-    manifesto_do_congelamento,
-    observacoes_do_recorte,
+    Resolucao,
+    gravar_manifesto,
+    observacoes_do_manifesto,
+    resolver_manifesto,
 )
 from sustemporal.reporting.reproduce_rede import sem_rede
 from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
@@ -82,6 +88,7 @@ logger = logging.getLogger(__name__)
 DIRETORIO_REPRODUCAO = "reproducao"
 DIRETORIO_MANIFESTOS = "manifestos"
 RELATORIO = "reproducao.json"
+ITEM_MANIFESTO = "manifesto:aquisicao"
 PARTICOES_REFEITAS = (Particao.CALIBRACAO, Particao.TESTE)
 
 
@@ -275,19 +282,79 @@ def _observacoes(config: RunConfig, manifesto: FreezeManifest) -> list[str]:
     )
 
 
-def _antes_de_refazer(
-    config: RunConfig, manifesto: FreezeManifest, estados: Mapping[str, str]
-) -> tuple[list[Comparacao], list[str]]:
-    """Itens inconclusivos (original indisponível, entrada original sem conferência) e avisos."""
+def _insumos_originais(config: RunConfig, manifesto: FreezeManifest) -> EntradasCongeladas:
     pasta = Path(config.runtime.raiz_saidas) / "split" / "insumos"
-    entradas = conferir_entradas(pasta, manifesto.entradas_validacao or {})
-    indisponiveis = [
+    return conferir_entradas(pasta, manifesto.entradas_validacao or {})
+
+
+def _indisponiveis(
+    manifesto: FreezeManifest, entradas: EntradasCongeladas, estados: Mapping[str, str]
+) -> list[Comparacao]:
+    """Itens inconclusivos: original que o ingest refeito não trouxe e entrada que não confere."""
+    return [
         *comparar_originais(manifesto.datasets, estados),
         *comparar_entradas_originais(entradas.problemas),
         *comparar_auxiliares(entradas.conferidas, estados),
     ]
-    observacoes = [*observacoes_do_ingest(estados), *_observacoes(config, manifesto)]
-    return indisponiveis, observacoes
+
+
+def _sem_manifesto(resolucao: Resolucao, entradas: EntradasCongeladas) -> list[Comparacao]:
+    """O item da posição do manifesto que não se sabe e as entradas originais que não conferem."""
+    item = Comparacao(ITEM_MANIFESTO, Situacao.INCONCLUSIVO, None, None, resolucao.motivo)
+    return [item, *comparar_entradas_originais(entradas.problemas)]
+
+
+def _parar_se_inconclusivo(
+    config: RunConfig, out: Path, itens: list[Comparacao], observacoes: list[str]
+) -> None:
+    """Grava o `reproducao.json` e falha, antes de refazer, se há item sem conferência."""
+    if itens:
+        _registrar(config, out, None, itens, observacoes)
+        exigir_conferido(itens)
+
+
+def _ingerir_o_original(
+    config: RunConfig, em_out: RunConfig, out: Path, manifesto: FreezeManifest
+) -> tuple[Path, list[str]]:
+    """O ingest refeito sobre o manifesto que o original leu e as observações até aqui.
+
+    Para (`_parar_se_inconclusivo`) sem a posição do manifesto, sem original ou sem a entrada
+    original de uma política.
+    """
+    entradas = _insumos_originais(config, manifesto)
+    resolucao = resolver_manifesto(
+        Path(config.runtime.raiz_saidas) / "ingest",
+        Path(config.runtime.raiz_manifestos),
+        manifesto.datasets,
+    )
+    do_ambiente = _observacoes(config, manifesto)
+    if resolucao.motivo:
+        _parar_se_inconclusivo(config, out, _sem_manifesto(resolucao, entradas), do_ambiente)
+    gravar_manifesto(
+        Path(config.runtime.raiz_manifestos), Path(em_out.runtime.raiz_manifestos), resolucao
+    )
+    pasta = _ingerir(em_out)
+    estados = estados_do_ingest(pasta)
+    observacoes = [
+        *observacoes_do_manifesto(resolucao),
+        *observacoes_do_ingest(estados),
+        *do_ambiente,
+    ]
+    _parar_se_inconclusivo(config, out, _indisponiveis(manifesto, entradas, estados), observacoes)
+    return pasta, observacoes
+
+
+def _parar_se_particao_vazia(
+    config: RunConfig,
+    out: Path,
+    manifesto: FreezeManifest,
+    derivado: Derivado,
+    observacoes: list[str],
+) -> None:
+    if vazias := _particoes_vazias(derivado):
+        itens = _itens_sem_particao(manifesto, derivado, vazias)
+        avisos = [f"particao_sem_artefatos particao={p.value}" for p in vazias]
+        _parar_se_inconclusivo(config, out, itens, [*observacoes, *avisos])
 
 
 def _comparar(
@@ -349,23 +416,9 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
     em_out = _config_em(config, out)
     with sem_rede():
         original = _original(config, freeze_id)
-        recorte = manifesto_do_congelamento(
-            Path(config.runtime.raiz_manifestos),
-            Path(em_out.runtime.raiz_manifestos),
-            manifesto.criado_em,
-        )
-        pasta = _ingerir(em_out)
-        indisponiveis, observacoes = _antes_de_refazer(config, manifesto, estados_do_ingest(pasta))
-        observacoes = [*observacoes_do_recorte(recorte), *observacoes]
-        if indisponiveis:
-            _registrar(config, out, None, indisponiveis, observacoes)
-            exigir_conferido(indisponiveis)
+        pasta, observacoes = _ingerir_o_original(config, em_out, out, manifesto)
         derivado = _derivar(em_out, manifesto, pasta)
-        if vazias := _particoes_vazias(derivado):
-            itens = _itens_sem_particao(manifesto, derivado, vazias)
-            avisos = [f"particao_sem_artefatos particao={p.value}" for p in vazias]
-            _registrar(config, out, None, itens, [*observacoes, *avisos])
-            exigir_conferido(itens)
+        _parar_se_particao_vazia(config, out, manifesto, derivado, observacoes)
         refeito = _refazer(em_out, manifesto, pasta, derivado)
         itens = _comparar(em_out, manifesto, original, refeito)
         _registrar(config, out, refeito.relatorio, itens, observacoes)

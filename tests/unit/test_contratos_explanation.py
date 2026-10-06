@@ -353,3 +353,13 @@ def test_violacao_com_evidencias_utilizaveis_de_outros_tipos_e_aceita(
     extra = _evidencia("ev_extra", tipo=tipo, n_resultados=n_resultados)
     bundle = _bundle(avaliacoes=(avaliacao,), evidencias=(_evidencia(), extra))
     assert bundle.avaliacoes[0].estado is EstadoAvaliacao.VIOLACAO
+
+
+@pytest.mark.parametrize(("tipo", "n_resultados"), _OUTROS_TIPOS)
+def test_violacao_sem_evidencia_que_sustente_a_ausencia_e_rejeitada(
+    tipo: TipoEvidencia, n_resultados: int
+) -> None:
+    violacao = _avaliacao(evidence_ids=("ev_outro_tipo",))
+    so_outro_tipo = _evidencia("ev_outro_tipo", tipo=tipo, n_resultados=n_resultados)
+    with pytest.raises(ValidationError, match="violacao_sem_ausencia_sustentada"):
+        _bundle(avaliacoes=(violacao,), evidencias=(so_outro_tipo,))

@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -17,8 +18,17 @@ from typing import TYPE_CHECKING, Any
 import pyarrow.parquet as pq
 
 from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
+from sustemporal.acquisition.fetch import fetch_source
 from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.config import load_config
+from sustemporal.contracts.artifacts import (
+    ArtifactObservation,
+    ChaveArtefato,
+    FormatoArquivo,
+    MotivoRequisicao,
+    SourceRequest,
+)
+from sustemporal.contracts.base import FamiliaFonte
 from sustemporal.contracts.experiment import Particao, RunResult, SplitManifest
 from sustemporal.evaluation.split import SUFIXO_ENTRADAS, build_splits, carregar_spec
 from sustemporal.execucoes import raiz_execucoes
@@ -38,10 +48,13 @@ from tests.fixtures.reproducao_mundo import (
     comando,
     escrever_configs,
     preparar_mundo,
+    producao_do_mes,
+    producao_por_competencia,
 )
+from tests.fixtures.sia_pa_fixtures import dbc_pa
 
 if TYPE_CHECKING:
-    from collections.abc import Collection, Mapping
+    from collections.abc import Collection, Iterator, Mapping
 
     import pytest
 
@@ -266,3 +279,69 @@ def metricas_refeitas(out: Path) -> list[dict[str, Any]]:
     """Métricas do relatório de avaliação que a reprodução refez em `out`."""
     (relatorio,) = (out / "avaliacao").rglob("rep_*.json")
     return list(json.loads(relatorio.read_text(encoding="utf-8"))["metricas"])
+
+
+def _caminho_do_manifesto(fluxo: Fluxo) -> Path:
+    return fluxo.mundo.raiz / "manifestos" / NOME_MANIFESTO_AQUISICAO
+
+
+def chave_do_sia_pa(fluxo: Fluxo, competencia: str) -> ChaveArtefato:
+    """Chave lógica do arquivo do SIA-PA da competência de arquivo pedida (o congelado)."""
+    versoes = Manifesto(_caminho_do_manifesto(fluxo)).ler().versoes.values()
+    (versao,) = (
+        v
+        for v in versoes
+        if v.chave.fonte is FamiliaFonte.SIA_PA and str(v.chave.competencia_arquivo) == competencia
+    )
+    return versao.chave
+
+
+def coletar(fluxo: Fluxo, chave: ChaveArtefato, conteudo: bytes | None) -> ArtifactObservation:
+    """Coleta local (`file://`) da `chave`, registrada no manifesto de aquisição.
+
+    Sem `conteudo` o arquivo não existe, e o manifesto registra a ausência (`NAO_ENCONTRADO`).
+    """
+    arquivo = fluxo.mundo.raiz / "coleta_posterior" / chave.nome_original
+    arquivo.unlink(missing_ok=True)
+    if conteudo is not None:
+        arquivo.parent.mkdir(parents=True, exist_ok=True)
+        arquivo.write_bytes(conteudo)
+    pedido = SourceRequest(
+        chave=chave,
+        localizador=arquivo.as_uri(),
+        formato_esperado=FormatoArquivo.DBC,
+        tamanho_maximo_bytes=1_000_000,
+        motivo=MotivoRequisicao.VIGILANCIA,
+    )
+    return fetch_source(pedido, fluxo.mundo.raiz / "dados", manifesto=_caminho_do_manifesto(fluxo))
+
+
+@contextmanager
+def coleta_depois_do_congelamento(fluxo: Fluxo) -> Iterator[list[ArtifactObservation]]:
+    """Três coletas depois do `freeze` e o manifesto de aquisição como estava ao sair.
+
+    Um arquivo novo do SIA-PA (competência 202403), a republicação de 202401 com outro conteúdo
+    (uma linha repetida) e o arquivo de 202301 que sumiu do local de coleta (ausência).
+    """
+    teste, cal = chave_do_sia_pa(fluxo, "202401"), chave_do_sia_pa(fluxo, "202301")
+    nova = ChaveArtefato(
+        fonte=FamiliaFonte.SIA_PA,
+        uf=teste.uf,
+        competencia_arquivo="202403",
+        parte=teste.parte,
+        canal=teste.canal,
+        nome_original="PASP2403a.dbc",
+    )
+    registros = producao_por_competencia()["202401"]
+    caminho = _caminho_do_manifesto(fluxo)
+    arquivos = [caminho, caminho.with_name(f"{caminho.name}.ancora")]
+    guardados = [arquivo.read_bytes() for arquivo in arquivos]
+    try:
+        yield [
+            coletar(fluxo, nova, dbc_pa(producao_do_mes("202403"))),
+            coletar(fluxo, teste, dbc_pa([*registros, registros[0]])),
+            coletar(fluxo, cal, None),
+        ]
+    finally:
+        for arquivo, conteudo in zip(arquivos, guardados, strict=True):
+            arquivo.write_bytes(conteudo)

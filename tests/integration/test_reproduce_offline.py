@@ -255,7 +255,7 @@ def test_reproduce_offline_reproduz_com_hashes_logicos_iguais(
 
 def test_reproduce_refaz_o_fluxo_inteiro_no_diretorio_novo(reproducao: Reproducao) -> None:
     assert reproducao.codigo == ExitCode.OK
-    esperados = {"ingest", "split", "janelas", "runs", "avaliacao", "reproducao.json"}
+    esperados = {"manifestos", "ingest", "split", "janelas", "runs", "avaliacao", "reproducao.json"}
     assert {p.name for p in reproducao.out.iterdir()} == esperados
     assert len(list(reproducao.out.glob("split/spl_*.json"))) == 2
     assert len(list(reproducao.out.glob("runs/val_*/run_result.json"))) == 6

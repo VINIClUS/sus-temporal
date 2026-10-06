@@ -54,6 +54,11 @@ def _quatro_casos(competencia: str) -> list[dict[str, str]]:
     ]
 
 
+def producao_do_mes(competencia: str) -> list[dict[str, str]]:
+    """Os quatro casos do SIA-PA de uma competência, atendida e processada no mesmo mês."""
+    return _quatro_casos(competencia)
+
+
 def producao_por_competencia() -> dict[str, list[dict[str, str]]]:
     """Registros do SIA-PA de cada competência de processamento, na ordem do arquivo."""
     ausencia = _linha("I", "201801", "201801", PA_CBOCOD=CBO_NO_CNES, **_REJEITADO)

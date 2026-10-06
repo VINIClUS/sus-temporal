@@ -12,6 +12,7 @@ from sustemporal.contracts.base import (
     Confirmacao,
     ContratoBase,
     DocRef,
+    EstadoDocumento,
     Falso,
     Identificador,
     Inteiro,
@@ -41,13 +42,6 @@ _COLUNAS_IMUTAVEIS = frozenset(
 )
 _PREFIXOS_FATOS_DO_ATENDIMENTO = ("sia_pa",)
 _PREFIXO_CADASTRO = "cnes_"
-_PROVENIENCIAS_OFICIAIS = frozenset(
-    {
-        Proveniencia.OFICIAL_DOCUMENTO,
-        Proveniencia.OFICIAL_ARQUIVO,
-        Proveniencia.OFICIAL_VISTO_EM_BUSCA,
-    }
-)
 
 
 class Autoridade(StrEnum):
@@ -101,9 +95,11 @@ class OperationSpec(ContratoBase):
         return self
 
     def _documentada(self) -> bool:
+        """Documento oficial lido e preservado (cópia + SHA-256) e confirmado."""
         return (
             self.autoridade is not Autoridade.DESCONHECIDA
-            and self.referencia.proveniencia in _PROVENIENCIAS_OFICIAIS
+            and self.referencia.proveniencia is Proveniencia.OFICIAL_DOCUMENTO
+            and self.referencia.estado is EstadoDocumento.PRESERVADO
             and self.referencia.confirmacao is Confirmacao.CONFIRMADO
         )
 

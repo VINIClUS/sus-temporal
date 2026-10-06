@@ -259,7 +259,7 @@ def _observacoes(
 ) -> list[str]:
     do_ambiente = observacoes_do_ambiente(
         config_igual=hash_protocolo(config) == manifesto.config_hash,
-        codigo=versao_codigo(Path.cwd()),
+        codigo=versao_codigo(),
         congelado=manifesto.codigo,
         pacotes=ambiente(Path.cwd()).pacotes,
         congelados=manifesto.ambiente.pacotes,

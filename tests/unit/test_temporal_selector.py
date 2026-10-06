@@ -29,7 +29,9 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 PF = FamiliaFonte.CNES_PF
+PA = FamiliaFonte.SIA_PA
 _ATEND = CriterioTemporal(fonte=PF, base=BaseTemporal.ATENDIMENTO)
+_PROC_PA = CriterioTemporal(fonte=PA, base=BaseTemporal.PROCESSAMENTO)
 
 
 def _registro(*itens, partes=None):
@@ -225,6 +227,25 @@ def test_multipartes_sem_declaracao_ou_com_parte_faltante_e_incompleta() -> None
     assert len(completa.artifact_ids) == 2
 
 
+def test_arquivo_sem_parte_ao_lado_das_partes_declaradas_e_extra_e_incompleta() -> None:
+    inteiro = observar(PA, "201801", "inteiro", 1)
+    a = observar(PA, "201801", "pa", 1, parte="a")
+    b = observar(PA, "201801", "pb", 1, parte="b")
+    declaradas = {(PA, "201801"): frozenset({"a", "b"})}
+    registro = _registro(inteiro, a, b, partes=declaradas)
+    selecao = selecionar_versao(registro, _PROC_PA, _comp("201801"), uf="SP")
+    assert selecao.estado is EstadoSelecao.INCOMPLETA
+    assert selecao.motivo.startswith("partes_nao_declaradas extras=sem_parte ")
+
+
+def test_declaracao_vazia_espera_so_o_arquivo_sem_parte() -> None:
+    inteiro = observar(PA, "201801", "inteiro", 1)
+    vazia = {(PA, "201801"): frozenset[str]()}
+    registro = _registro(inteiro, partes=vazia)
+    selecao = selecionar_versao(registro, _PROC_PA, _comp("201801"), uf="SP")
+    assert selecao.estado is EstadoSelecao.SELECIONADA
+
+
 def test_selecao_confere_competencia_e_fonte_do_conteudo() -> None:
     jan = observar(PF, "201801", "A", 1)
     selecao = selecionar_versao(_registro(jan), _ATEND, _comp("201801"), uf="SP")
@@ -329,7 +350,7 @@ def test_gravar_selecoes_produz_dataset_com_hash_logico_e_contagem(tmp_path: Pat
     selecionar_lote(
         con, "registros", [regra()], politica, _registro(jan), run_id="run_t", config=_config()
     )
-    destino = tmp_path / "selecao_versoes.parquet"
+    destino = tmp_path / "selecao"
     dataset = gravar_selecoes(con, destino, run_id="run_t", origem=OrigemDados.SINTETICO)
     colunas = [
         "run_id",
@@ -348,4 +369,4 @@ def test_gravar_selecoes_produz_dataset_com_hash_logico_e_contagem(tmp_path: Pat
     assert dataset.linhas == len(linhas_tabela) == 2
     assert dataset.hash_logico == hash_logico_linhas(colunas, linhas_tabela)
     assert dataset.artifact_ids == (jan[1].artifact_id,)
-    assert destino.exists()
+    assert dataset.caminho == str(destino / f"{dataset.dataset_id}.parquet")

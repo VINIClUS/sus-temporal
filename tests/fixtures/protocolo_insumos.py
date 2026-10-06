@@ -34,7 +34,10 @@ POLITICA_DOCUMENTADA = "M_TEMP_PADRAO"
 
 
 def conjunto_sintetico(esquema: str, versao: str) -> DatasetRef:
-    """Conjunto não populacional REAL sem arquivo: só a identidade importa na conferência."""
+    """Conjunto não populacional sem arquivo: só a identidade importa na conferência.
+
+    Rótulo REAL só de teste, para exercitar os portões; o conteúdo é sintético (sem dado real).
+    """
     conteudo = f"lh1:{hashlib.sha256(f'{esquema}:{versao}'.encode()).hexdigest()}"
     return DatasetRef(
         dataset_id=calcular_dataset_id(esquema, conteudo, ()),

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from sustemporal.contracts.base import FamiliaFonte
@@ -15,10 +14,12 @@ from sustemporal.contracts.temporal import (
     TipoPolitica,
 )
 from sustemporal.gates import DIR_DECISOES
+from sustemporal.runtime_info import RAIZ_DO_PACOTE
 from sustemporal.temporal.politicas import DIRETORIO_POLITICAS, carregar_politica
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+    from pathlib import Path
 
     from sustemporal.contracts.artifacts import EstadoIntegridade
     from sustemporal.contracts.config import RunConfig
@@ -59,7 +60,7 @@ class InsumosAvaliacao:
     cobertura: DatasetRef | None = None
     integridade: Mapping[str, EstadoIntegridade] = field(default_factory=dict)
     politica: PoliticaTemporal | None = None
-    raiz_codigo: Path = field(default_factory=Path)
+    raiz_codigo: Path = RAIZ_DO_PACOTE
     diretorio_decisoes: Path = DIR_DECISOES
     diretorio_politicas: Path = DIRETORIO_POLITICAS
     identidade_adicional: Mapping[str, str] = field(default_factory=dict)

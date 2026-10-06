@@ -195,8 +195,8 @@ resolvida é repassada à seleção temporal e ao motor.
 roda `selecionar_lote` sobre a tabela `registros` já conferida (conteúdo, tipos, domínio, chave e
 linhagem), com `uf` (`uf_da_execucao`: piloto ou vigilância) e `corte`
 (`RunConfig.corte_observacao`) tirados da própria `RunConfig`;
-`gravar_selecoes` grava `selecao_versoes.v1` em `out/selecoes/<sel_id>/` e devolve o `DatasetRef`
-(hash lógico sobre as colunas do esquema). O `SnapshotSet` da execução é `unir_snapshots` das
+`gravar_selecoes` grava `selecao_versoes.v1` em `out/selecoes/<sel_id>/<dataset_id>.parquet`,
+nomeado pelo conteúdo, e devolve o `DatasetRef` (hash lógico sobre as colunas do esquema). O `SnapshotSet` da execução é `unir_snapshots` das
 seleções distintas do lote (uma por chave fonte, base, competência requerida). `sel_id` deriva da
 política, do conjunto SIA-PA, do catálogo de regras, do registro temporal completo (observações,
 versões, partes esperadas), da UF e do corte. A seleção gravada volta a `evaluate_rules` como
@@ -408,12 +408,19 @@ do código que roda (`versao_codigo`, calculada uma só vez por execução e gra
 A recusa é `ConfigInvalida`: o `validate` (`--entrada` e `--ingest`) termina com saída 2. Para
 reavaliar os mesmos insumos com outro código, grave em outro destino (`--saida`); a execução
 anterior continua sendo o registro do código que a produziu. A imutabilidade cobre só
-`out/<run_id>/`: no `--ingest`, as relações derivadas (`runs/entradas/`) e as seleções
-(`runs/selecoes/`) são preparadas antes do motor e nomeadas pelo conteúdo. Das duas opções
+`out/<run_id>/`: no `--ingest`, as relações derivadas (`runs/entradas/<dataset_id>.parquet`) e as
+seleções (`runs/selecoes/<sel_id>/<dataset_id>.parquet`) são preparadas antes do motor e nomeadas
+pelo conteúdo, então outra execução nunca sobrescreve com outro conteúdo o insumo que uma execução
+anterior registrou na `entrada_validacao.json`. Das duas opções
 registradas em ORQ-05 e T14-11 (incluir o código no `run_id`, ou recusar a sobrescrita), vale a
-segunda: o id continua derivado só de insumos e configuração, em vez de mudar a cada commit. O
-limite é o da `versao_codigo`: sem git, o `CodeVersion` é `desconhecido` e `sujo`, sem
-`diff_sha256`, e duas execuções nessa condição comparam iguais.
+segunda: o id continua derivado só de insumos e configuração, em vez de mudar a cada commit. A
+versão é a do checkout que contém o pacote (`RAIZ_DO_PACOTE`, em `runtime_info`), nunca a do
+diretório de trabalho: rodar de outra pasta (`cd $MUNDO; uv run --project $REPO ...`) registra o
+commit e o `uv.lock` do checkout, no motor, no `freeze`, no `evaluate`, no baseline e no
+`reproduce`. O limite é o da `versao_codigo`: com o pacote fora de um checkout git (instalado sem
+`.git`), o `CodeVersion` é `desconhecido` e `sujo`, sem `diff_sha256`, e duas execuções nessa
+condição comparam iguais, como duas árvores sujas do mesmo commit cujo `diff_sha256` não pôde ser
+calculado (pendência em `docs/pendencias/T07.md`).
 
 ## 8. Limites declarados
 - Testes sintéticos verificam a implementação contra esta especificação, não a hipótese empírica.

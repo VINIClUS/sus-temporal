@@ -137,13 +137,13 @@ def artefato_pa(
     dbc: bytes,
     *,
     competencia: str = "201801",
-    parte: str = "a",
+    parte: str | None = "a",
     integridade: EstadoIntegridade = EstadoIntegridade.OK,
     formato: FormatoArquivo = FormatoArquivo.DBC,
 ) -> ArtifactVersion:
     sha256 = hashlib.sha256(dbc).hexdigest()
     extensao = formato.value.lower()
-    nome = f"PASP{competencia[2:]}{parte}.{extensao}"
+    nome = f"PASP{competencia[2:]}{parte or ''}.{extensao}"
     caminho = caminho_conteudo(pasta, sha256, extensao)
     caminho.parent.mkdir(parents=True, exist_ok=True)
     caminho.write_bytes(dbc)

@@ -81,7 +81,7 @@ def _config(pasta: Path, fontes: Path) -> Path:
 
 def _executar(
     pasta: Path,
-    partes_obtidas: list[str],
+    partes_obtidas: list[str | None],
     declaradas: list[str] | None,
     *,
     republicar: bool = False,
@@ -133,11 +133,12 @@ def _cobertura(pasta: Path, instrumento: str = "C") -> list[tuple[str, str, str,
         (["a"], ["a", "b"], "partes_ausentes ausentes=b"),
         (["a", "b"], ["a"], "partes_nao_declaradas extras=b"),
         (["a"], None, "completude=INDETERMINADA"),
+        ([None, "a", "b"], ["a", "b"], "partes_nao_declaradas extras=sem_parte"),
     ],
-    ids=["declarada_sem_versao", "presente_nao_declarada", "sem_declaracao"],
+    ids=["declarada_sem_versao", "presente_nao_declarada", "sem_declaracao", "sem_parte_ao_lado"],
 )
 def test_partes_do_sia_pa_incompletas_nunca_deixam_a_cobertura_disponivel(
-    tmp_path: Path, obtidas: list[str], declaradas: list[str] | None, motivo: str
+    tmp_path: Path, obtidas: list[str | None], declaradas: list[str] | None, motivo: str
 ) -> None:
     _executar(tmp_path, obtidas, declaradas)
     linhas = _cobertura(tmp_path)

@@ -21,6 +21,7 @@ PARTICOES_DO_PLANO = (
 
 
 def dataset_sintetico(linhas: int = 10) -> DatasetRef:
+    """`DatasetRef` do SIA-PA com rótulo REAL só de teste e conteúdo sintético (sem dado real)."""
     return DatasetRef(
         dataset_id=calcular_dataset_id("sia_pa.v1", HASH_LOGICO, (ARTEFATO,)),
         schema_id="sia_pa.v1",

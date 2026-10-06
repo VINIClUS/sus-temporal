@@ -10,7 +10,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from fractions import Fraction
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -36,6 +36,7 @@ from sustemporal.contracts import (
     ReferenciaHumana,
     RuntimeConfig,
 )
+from sustemporal.duck import conectar
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
 from sustemporal.evaluation.annotation import (
     COLUNAS_PACOTE,
@@ -61,6 +62,8 @@ from sustemporal.rules.catalog import carregar_esquema
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    import duckdb
 
 ESQUEMAS_DO_MOTOR = ("avaliacoes.v1", "agregados_registro.v1", "evidencias.v1")
 TERMOS_DO_MOTOR = ("VIOLACAO", "CONFORME", "INCONCLUSIVO", "NAO_APLICAVEL", "explicacao")
@@ -199,6 +202,40 @@ def test_probabilidades_de_inclusao_coerentes(cenario: CenarioAnotacao, tmp_path
     populacao = Counter(estratos[r] for r in rejeicoes)
     assert {e.nome: e.populacao for e in amostra.estratos} == dict(populacao)
     assert amostra.dimensoes_estrato == DIMENSOES_OBSERVAVEIS
+
+
+class _Gravadora:
+    """Conexão DuckDB que guarda o texto de cada consulta antes de executá-la."""
+
+    def __init__(self, con: duckdb.DuckDBPyConnection) -> None:
+        self.con = con
+        self.consultas: list[str] = []
+
+    def execute(self, sql: str, *argumentos: object) -> duckdb.DuckDBPyConnection:
+        self.consultas.append(sql)
+        return self.con.execute(sql, *argumentos)
+
+    def __getattr__(self, nome: str) -> object:
+        return getattr(self.con, nome)
+
+
+def test_rotulos_dos_estratos_entram_como_parametro_e_nao_como_literal_do_sql(
+    cenario: CenarioAnotacao, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    gravadoras: list[_Gravadora] = []
+
+    def gravar(*argumentos: Any, **opcoes: Any) -> _Gravadora:
+        gravadoras.append(_Gravadora(conectar(*argumentos, **opcoes)))
+        return gravadoras[-1]
+
+    monkeypatch.setattr("sustemporal.evaluation.annotation.conectar", gravar)
+    amostra = _preparar(cenario, tmp_path / "anotacao")
+    sql = "\n".join(consulta for g in gravadoras for consulta in g.consultas)
+    assert "AS estrato" in sql
+    assert [d for d in DIMENSOES_OBSERVAVEIS if f"'{d}='" in sql] == []
+    for estrato in amostra.estratos:
+        rotulos = [parte.split("=", 1)[0] for parte in estrato.nome.split("|")]
+        assert rotulos == list(DIMENSOES_OBSERVAVEIS)
 
 
 def test_estrato_pelo_resultado_do_metodo_e_recusado(

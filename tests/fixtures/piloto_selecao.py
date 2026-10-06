@@ -23,7 +23,7 @@ def selecao_sintetica(pasta: Path, sia_pa: DatasetRef, *, observation_ids: str) 
 
     `observation_ids` é o texto do campo (ids unidos por `;`; vazio quando nenhuma tentativa).
     """
-    destino = pasta / "selecao" / "selecao_versoes.parquet"
+    destino = pasta / "selecao"
     with closing(duckdb.connect()) as con:
         con.execute(
             "CREATE TABLE selecao_versoes AS SELECT 'run_sintetico' AS run_id, row_id, "

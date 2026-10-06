@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from sustemporal.acquisition.sources import carregar_catalogo
 from sustemporal.config import load_config
 from sustemporal.contracts import (
     CatalogoFamilias,
@@ -33,6 +34,8 @@ from sustemporal.yamlio import carregar_yaml
 
 RAIZ = Path(__file__).resolve().parents[2]
 ESQUEMAS = RAIZ / "catalog" / "schemas"
+FONTES = RAIZ / "catalog" / "sources.yaml"
+REGISTRO_DE_FONTES = RAIZ / "docs" / "references" / "fontes.md"
 CONFIGS = RAIZ / "config"
 NOMES_ESQUEMAS = (
     "sia_pa",
@@ -325,6 +328,27 @@ def test_requisitos_das_familias_existem_nos_esquemas() -> None:
             esquema = _esquema(requisito.schema_id.rsplit(".v", 1)[0])
             assert esquema.schema_id == requisito.schema_id
             assert set(requisito.campos) <= {coluna.nome for coluna in esquema.colunas}
+
+
+def _vistos_em_busca() -> set[str]:
+    """IDs que `docs/references/fontes.md` dá como OFICIAL_VISTO_EM_BUSCA (`O2–O6` é faixa)."""
+    texto = REGISTRO_DE_FONTES.read_text(encoding="utf-8")
+    linha = next(x for x in texto.splitlines() if x.startswith("| OFICIAL_VISTO_EM_BUSCA |"))
+    situacao = linha.strip().strip("|").split("|")[2]
+    ids: set[str] = set()
+    for parte in situacao.split(","):
+        casamento = re.fullmatch(r"([A-Z])(\d+)(?:–[A-Z](\d+))?", parte.strip())
+        assert casamento, f"id_ilegivel valor={parte}"
+        prefixo, inicio, fim = casamento.groups()
+        ids |= {f"{prefixo}{n}" for n in range(int(inicio), int(fim or inicio) + 1)}
+    return ids
+
+
+def test_documentos_vistos_em_busca_sao_os_que_o_registro_de_fontes_diz() -> None:
+    documentos = carregar_catalogo(FONTES).documentos
+    vistos = {d.doc_id for d in documentos if d.proveniencia is Proveniencia.OFICIAL_VISTO_EM_BUSCA}
+    assert vistos == _vistos_em_busca() & {d.doc_id for d in documentos}
+    assert {d.confirmacao for d in documentos} == {Confirmacao.A_CONFIRMAR}
 
 
 def test_territorio_drs_xi_tem_45_municipios_em_5_regioes() -> None:

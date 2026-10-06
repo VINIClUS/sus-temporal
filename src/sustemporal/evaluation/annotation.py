@@ -161,12 +161,19 @@ def _rejeicoes(
     *,
     particao: Particao,
 ) -> dict[str, str]:
-    """row_id → estrato das rejeições da partição; falha se algum registro não tem rótulo."""
-    partes = " || '|' || ".join(f"'{d}=' || {_SQL_DIMENSAO[d]}" for d in dimensoes)
+    """row_id → estrato das rejeições da partição; falha se algum registro não tem rótulo.
+
+    O rótulo de cada dimensão (`instrumento=`, …) entra como parâmetro; o SQL só traz as
+    expressões fixas de `_SQL_DIMENSAO`, escolhidas pela dimensão já conferida.
+    """
+    rotulos = {f"rotulo_{i}": f"{d}=" for i, d in enumerate(dimensoes)}
+    partes = " || '|' || ".join(
+        f"CAST(${nome} AS VARCHAR) || {_SQL_DIMENSAO[d]}"
+        for nome, d in zip(rotulos, dimensoes, strict=True)
+    )
     sql = _SQL_REJEICOES.format(partes=partes)
-    linhas = con.execute(
-        sql, {"registros": registros.caminho, "rotulos": labels.caminho}
-    ).fetchall()
+    parametros = {"registros": registros.caminho, "rotulos": labels.caminho, **rotulos}
+    linhas = con.execute(sql, parametros).fetchall()
     sem_rotulo = sum(1 for _, rotulo, _ in linhas if rotulo is None)
     if sem_rotulo:
         raise FalhaOperacionalErro(

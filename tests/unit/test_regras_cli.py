@@ -1,16 +1,22 @@
 """Comando `sustemporal validate`: mesmo motor, só a política temporal muda (SINTETICO)."""
 
+import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 
 from sustemporal import cli
 from sustemporal.contracts.experiment import RunResult
 from sustemporal.contracts.records import DatasetRef
+from sustemporal.contracts.temporal import SelecaoVersao
 from sustemporal.errors import ExitCode
+from sustemporal.rules.entrada import EntradaValidacao
+from sustemporal.temporal.selector import selecionar_versao
 from tests.fixtures.regras_cenario import materializar, snapshot_vazio
 from tests.fixtures.regras_exemplos import cenario_base, registro
+from tests.fixtures.regras_ingest import montar_ingest
 
 
 def _entrada(tmp_path: Path) -> Path:
@@ -137,3 +143,34 @@ def test_validate_com_entrada_de_producao_truncada_e_falha_operacional(tmp_path:
     argumentos += ["--entrada", str(caminho), "--saida", str(saida)]
     assert cli.main(argumentos) == ExitCode.FALHA_OPERACIONAL
     assert any(saida.rglob("falhas*.parquet"))
+
+
+def _seletor_corrigido(*argumentos: Any, **opcoes: Any) -> SelecaoVersao:
+    """O seletor depois de uma correção de código que só muda o texto do motivo."""
+    selecao = selecionar_versao(*argumentos, **opcoes)
+    return selecao.model_copy(update={"motivo": f"{selecao.motivo} texto_corrigido"})
+
+
+def _sha256(caminho: str) -> str:
+    return hashlib.sha256(Path(caminho).read_bytes()).hexdigest()
+
+
+def test_selecao_de_outra_execucao_nao_sobrescreve_a_da_primeira(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    mundo = montar_ingest(tmp_path)
+    argumentos = ["validate", "--config", str(mundo.config), "--policy", "processamento"]
+    argumentos += ["--ingest", str(mundo.pasta), "--saida", str(mundo.saida)]
+    assert cli.main(argumentos) == ExitCode.OK
+    (primeira,) = mundo.saida.glob("*/entrada_validacao.json")
+    texto = primeira.read_text(encoding="utf-8")
+    selecoes = EntradaValidacao.model_validate_json(texto).selecoes
+    assert selecoes is not None
+    antes = _sha256(selecoes.caminho)
+    monkeypatch.setattr("sustemporal.temporal.lote.selecionar_versao", _seletor_corrigido)
+    assert cli.main(argumentos) == ExitCode.OK
+    assert len(list(mundo.saida.glob("*/run_result.json"))) == 2
+    assert _sha256(selecoes.caminho) == antes
+    reexecucao = ["validate", "--config", str(mundo.config), "--policy", "processamento"]
+    reexecucao += ["--entrada", str(primeira), "--saida", str(tmp_path / "reexecucao")]
+    assert cli.main(reexecucao) == ExitCode.OK

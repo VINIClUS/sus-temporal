@@ -43,6 +43,7 @@ __all__ = [
     "motivo_sem_criterio",
     "nao_resolvida",
     "partes_esperadas_do_catalogo",
+    "partes_extras",
     "selecionar_versao",
     "select_snapshots",
     "uf_da_execucao",
@@ -130,6 +131,21 @@ def _avaliar_parte(
     return _Parte(EstadoSelecao.AUSENTE, frozenset(), tuple(o.observation_id for o in observacoes))
 
 
+def partes_extras(partes: Iterable[str | None], esperadas: frozenset[str]) -> list[str]:
+    """Partes observadas fora da declaração, em ordem.
+
+    Com partes declaradas, o arquivo sem parte observado junto de partes também é extra
+    (`sem_parte`): somado a elas, contaria as mesmas ocorrências duas vezes. Sozinho, a
+    competência segue incompleta pelas partes ausentes; na declaração vazia, é o esperado.
+    """
+    observadas = set(partes)
+    nomeadas = {parte for parte in observadas if parte is not None}
+    extras = nomeadas - esperadas
+    if esperadas and nomeadas and None in observadas:
+        extras.add("sem_parte")
+    return sorted(extras)
+
+
 def _estado_multipartes(
     partes: dict[str | None, _Parte], esperadas: frozenset[str] | None
 ) -> tuple[EstadoSelecao, str]:
@@ -140,9 +156,9 @@ def _estado_multipartes(
             EstadoSelecao.INCOMPLETA,
             f"partes_sem_declaracao completude=INDETERMINADA partes={listadas}",
         )
-    extras = {p for p in partes if p is not None} - esperadas
+    extras = partes_extras(partes, esperadas)
     if extras:
-        return EstadoSelecao.INCOMPLETA, f"partes_nao_declaradas extras={','.join(sorted(extras))}"
+        return EstadoSelecao.INCOMPLETA, f"partes_nao_declaradas extras={','.join(extras)}"
     faltantes = esperadas - {p for p in integras if p is not None}
     if faltantes:
         return EstadoSelecao.INCOMPLETA, f"partes_ausentes ausentes={','.join(sorted(faltantes))}"

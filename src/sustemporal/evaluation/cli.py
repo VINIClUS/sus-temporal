@@ -49,7 +49,7 @@ from sustemporal.gates import DIR_DECISOES, exigir_portao
 from sustemporal.rules.catalog import carregar_regras
 from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
 from sustemporal.rules.insumos import politica_padrao
-from sustemporal.runtime_info import ambiente, versao_codigo
+from sustemporal.runtime_info import RAIZ_DO_PACOTE, ambiente, versao_codigo
 from sustemporal.temporal.politicas import DIRETORIO_POLITICAS, carregar_politica
 
 if TYPE_CHECKING:
@@ -161,7 +161,7 @@ def executar_freeze(args: argparse.Namespace, config: RunConfig) -> int:
         insumos=insumos,
     )
     destino = Path(config.runtime.dir_congelamentos)
-    manifesto = congelar(protocolo, destino, codigo=versao_codigo(Path.cwd()))
+    manifesto = congelar(protocolo, destino, codigo=versao_codigo(RAIZ_DO_PACOTE))
     logger.info("freeze_emitido freeze=%s comando=%s", manifesto.freeze_id, args.comando)
     return int(ExitCode.OK)
 
@@ -272,8 +272,8 @@ def _estado_atual(
         split=split,
         features=FEATURES_PADRAO,
         datasets=[dataset, rotulos],
-        codigo=versao_codigo(Path.cwd()),
-        ambiente=ambiente(Path.cwd()),
+        codigo=versao_codigo(RAIZ_DO_PACOTE),
+        ambiente=ambiente(RAIZ_DO_PACOTE),
         regras=regras,
         politicas=_politicas_do_catalogo(regras),
     )

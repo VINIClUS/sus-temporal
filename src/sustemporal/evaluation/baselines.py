@@ -41,7 +41,7 @@ from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.sia_pa import gravar_parquet, produtor
 from sustemporal.rules.catalog import carregar_esquema
 from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
-from sustemporal.runtime_info import ambiente, versao_codigo
+from sustemporal.runtime_info import RAIZ_DO_PACOTE, ambiente, versao_codigo
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -259,7 +259,7 @@ def _resultado(
     inicio: datetime,
     fim: datetime,
 ) -> RunResult:
-    raiz = Path.cwd()
+    raiz = RAIZ_DO_PACOTE
     return RunResult(
         run_id=run_id,
         tipo=TipoExecucao.BASELINE_ML,
@@ -289,7 +289,7 @@ def _conferir_congelamento(
     if config.freeze_id is None:
         raise PortaoRecusado("confirmatorio_exige_freeze_id")
     manifesto = carregar_freeze(Path(config.runtime.dir_congelamentos), config.freeze_id)
-    raiz = Path.cwd()
+    raiz = RAIZ_DO_PACOTE
     estado = EstadoAtual(
         config=config,
         split=split,

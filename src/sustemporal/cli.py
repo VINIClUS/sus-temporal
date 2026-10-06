@@ -157,14 +157,28 @@ def _executar(funcao: Manipulador, args: argparse.Namespace, config: RunConfig) 
         return int(erro.codigo_saida)
 
 
+def _configurar_do_modulo(
+    argumentos: Sequence[str], comandos: dict[str, argparse.ArgumentParser]
+) -> Manipulador | None:
+    """Acrescenta as opções do módulo do comando antes de qualquer análise, `--help` inclusive.
+
+    O comando é o primeiro argumento que é nome de comando: antes dele só cabem `-h` e
+    `--nivel-log` (cujo valor nunca é nome de comando).
+    """
+    comando = next((argumento for argumento in argumentos if argumento in MANIPULADORES), None)
+    if comando is None:
+        return None
+    modulo, funcao = _resolver(comando)
+    configurar = getattr(modulo, "configurar_parser", None)
+    if callable(configurar):
+        configurar(comandos[comando])
+    return funcao
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     argumentos = list(sys.argv[1:] if argv is None else argv)
     parser, comandos = construir_parser()
-    preliminar, _ = parser.parse_known_args(argumentos)
-    modulo, funcao = _resolver(preliminar.comando)
-    configurar = getattr(modulo, "configurar_parser", None)
-    if callable(configurar):
-        configurar(comandos[preliminar.comando])
+    funcao = _configurar_do_modulo(argumentos, comandos)
     args = parser.parse_args(argumentos)
     configurar_log(args.nivel_log)
     try:

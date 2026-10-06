@@ -39,6 +39,7 @@ __all__ = [
     "Identidade",
     "Situacao",
     "comparar_auxiliares",
+    "comparar_conjuntos",
     "comparar_entradas_originais",
     "comparar_execucoes",
     "comparar_insumos",
@@ -138,6 +139,24 @@ def exigir_conferido(comparacoes: Sequence[Comparacao]) -> None:
         if itens:
             nomes = ",".join(itens[:_MAX_NOMES])
             raise FalhaOperacionalErro(f"{chave} itens={len(itens)} primeiros={nomes}")
+
+
+def comparar_conjuntos(
+    congelados: Sequence[DatasetRef], refeitos: Mapping[str, DatasetRef]
+) -> list[Comparacao]:
+    """Os conjuntos do manifesto contra os refeitos, pareados pelo `schema_id`.
+
+    O conjunto congelado que nenhuma etapa refaz (`sem_etapa`) fica inconclusivo.
+    """
+    itens = []
+    for esperada in congelados:
+        obtida = refeitos.get(esperada.schema_id)
+        item = f"conjunto:{esperada.schema_id}"
+        if obtida is None:
+            itens.append(Comparacao(item, Situacao.INCONCLUSIVO, None, None, "sem_etapa"))
+        else:
+            itens.append(comparar_referencia(item, esperada, obtida))
+    return itens
 
 
 def _por_particao(

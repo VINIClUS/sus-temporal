@@ -37,13 +37,13 @@ from sustemporal.reporting.reproduce_comparacao import (
     Comparacao,
     Situacao,
     comparar_auxiliares,
+    comparar_conjuntos,
     comparar_entradas_originais,
     comparar_execucoes,
     comparar_insumos,
     comparar_metricas,
     comparar_notas,
     comparar_originais,
-    comparar_referencia,
     comparar_split,
     exigir_conferido,
     observacoes_do_ambiente,
@@ -238,15 +238,7 @@ def _refazer(
 
 def _comparar_conjuntos(manifesto: FreezeManifest, derivado: Derivado) -> list[Comparacao]:
     refeitos = {"sia_pa.v1": derivado.uniao, "sia_pa_rotulos.v1": derivado.rotulos}
-    itens = []
-    for esperada in manifesto.datasets:
-        obtida = refeitos.get(esperada.schema_id)
-        item = f"conjunto:{esperada.schema_id}"
-        if obtida is None:
-            itens.append(Comparacao(item, Situacao.INCONCLUSIVO, None, None, "sem_etapa"))
-        else:
-            itens.append(comparar_referencia(item, esperada, obtida))
-    return itens
+    return comparar_conjuntos(manifesto.datasets, refeitos)
 
 
 def _comparar_insumos(

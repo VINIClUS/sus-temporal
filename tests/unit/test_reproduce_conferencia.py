@@ -17,6 +17,7 @@ from sustemporal.contracts.evaluation import EvaluationReport
 from sustemporal.contracts.experiment import CodeVersion, ModoExecucao, Particao, SplitManifest
 from sustemporal.reporting.reproduce_comparacao import (
     Situacao,
+    comparar_conjuntos,
     comparar_notas,
     comparar_originais,
     comparar_split,
@@ -351,3 +352,26 @@ def test_relatorio_original_truncado_ou_fora_do_contrato_nao_derruba_a_reproduca
     caminho = tmp_path / "rep.json"
     caminho.write_bytes(conteudo)
     assert ler_relatorio_original(caminho) is None
+
+
+def test_conjunto_congelado_com_o_refeito_igual_e_igual(tmp_path: Path) -> None:
+    congelado = gravar(LINHAS, tmp_path / "original" / "a.parquet")
+    refeito = gravar(LINHAS, tmp_path / "refeito" / "a.parquet")
+    (item,) = comparar_conjuntos([congelado], {congelado.schema_id: refeito})
+    assert item.item == f"conjunto:{congelado.schema_id}"
+    assert item.situacao is Situacao.IGUAL
+
+
+def test_conjunto_congelado_que_nenhuma_etapa_refaz_e_inconclusivo(tmp_path: Path) -> None:
+    congelado = gravar(LINHAS, tmp_path / "original" / "a.parquet")
+    (item,) = comparar_conjuntos([congelado], {})
+    assert item.situacao is Situacao.INCONCLUSIVO
+    assert item.detalhe == "sem_etapa"
+
+
+def test_conjuntos_sao_pareados_pelo_esquema_e_nao_pela_posicao(tmp_path: Path) -> None:
+    congelado = gravar(LINHAS, tmp_path / "original" / "a.parquet")
+    refeito = gravar(LINHAS[:-1], tmp_path / "refeito" / "a.parquet")
+    outro = refeito.model_copy(update={"schema_id": "outro.v1"})
+    itens = comparar_conjuntos([congelado], {"outro.v1": outro, congelado.schema_id: refeito})
+    assert [i.situacao for i in itens] == [Situacao.DIVERGENTE]

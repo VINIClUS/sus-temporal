@@ -13,6 +13,10 @@ WITH base AS (
         s.fonte AS sel_fonte,
         s.base AS sel_base,
         s.competencia_requerida AS sel_competencia,
+        CASE s.base
+            WHEN 'ATENDIMENTO' THEN r.competencia_atendimento
+            WHEN 'PROCESSAMENTO' THEN r.competencia_processamento
+        END AS sel_competencia_base,
         s.estado AS sel_estado,
         s.artifact_ids AS sel_artefatos,
         s.observation_ids AS sel_observacoes,
@@ -132,10 +136,12 @@ decisao AS (
             WHEN aplicabilidade_previa = 'NAO_APLICAVEL_DEMONSTRADA' THEN CAST([] AS VARCHAR[])
             WHEN len(motivos_previos) > 0 THEN list_sort(list_distinct(motivos_previos))
             WHEN resultado = 'CORRESPONDENCIA' THEN CAST([] AS VARCHAR[])
+            -- A chave de cobertura (Q(r), base) só certifica o mês consultado sem deslocamento.
             WHEN resultado = 'AUSENCIA'
                 AND cobertura_estado = 'DISPONIVEL'
                 AND sel_integridade_ok
-                AND sel_todas_com_linhas THEN CAST([] AS VARCHAR[])
+                AND sel_todas_com_linhas
+                AND sel_competencia = sel_competencia_base THEN CAST([] AS VARCHAR[])
             WHEN resultado = 'AUSENCIA' THEN ['COBERTURA_INSUFICIENTE']
             ELSE [resultado]
         END AS motivos

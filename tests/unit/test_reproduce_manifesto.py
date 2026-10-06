@@ -10,6 +10,7 @@ não se sabe e a reprodução é inconclusiva, nunca um corte por instante.
 from __future__ import annotations
 
 import json
+import logging
 from typing import TYPE_CHECKING
 
 import pytest
@@ -26,8 +27,10 @@ from sustemporal.reporting.reproduce_manifesto import (
     observacoes_do_manifesto,
     resolver_manifesto,
 )
+from sustemporal.reporting.reproduce_varredura import Dano
 from tests.fixtures.protocolo_dados import artefato
 from tests.fixtures.protocolo_insumos import conjunto_sintetico
+from tests.fixtures.reproducao_estragos import estragado
 from tests.fixtures.temporal_registro import observar
 
 if TYPE_CHECKING:
@@ -41,6 +44,7 @@ if TYPE_CHECKING:
 
 PA = FamiliaFonte.SIA_PA
 ANCORA = f"{NOME_MANIFESTO_AQUISICAO}.ancora"
+TRAVA = f"{NOME_MANIFESTO_AQUISICAO}.trava"
 LIDO = "manifesto_lido.json"
 CONFIGURACAO_DO_INGEST = "configuracao_ingest.json"
 CONFIGURACAO: dict[str, object] = {
@@ -427,6 +431,84 @@ def test_manifesto_atual_corrompido_deixa_a_reproducao_inconclusiva(tmp_path: Pa
     caminho = origem / NOME_MANIFESTO_AQUISICAO
     caminho.write_text(caminho.read_text(encoding="utf-8").replace("202402", "202403"))
     assert _resolver(tmp_path, origem, uniao).motivo == "manifesto_corrompido"
+
+
+ILEGIVEL = "manifesto_ilegivel erro="
+ESTRAGOS_DO_MANIFESTO = [
+    pytest.param(NOME_MANIFESTO_AQUISICAO, Dano.DIRETORIO, f"{ILEGIVEL}IsADirectoryError"),
+    pytest.param(NOME_MANIFESTO_AQUISICAO, Dano.PERMISSAO, f"{ILEGIVEL}PermissionError"),
+    pytest.param(NOME_MANIFESTO_AQUISICAO, Dano.BYTES, "manifesto_corrompido"),
+    pytest.param(ANCORA, Dano.DIRETORIO, "manifesto_corrompido"),
+    pytest.param(ANCORA, Dano.PERMISSAO, "manifesto_corrompido"),
+    pytest.param(ANCORA, Dano.BYTES, "manifesto_corrompido"),
+    pytest.param(TRAVA, Dano.DIRETORIO, f"{ILEGIVEL}IsADirectoryError"),
+    pytest.param(TRAVA, Dano.PERMISSAO, f"{ILEGIVEL}PermissionError"),
+]
+
+
+@pytest.mark.parametrize(("arquivo", "dano", "motivo"), ESTRAGOS_DO_MANIFESTO)
+def test_manifesto_atual_que_nao_abre_deixa_a_reproducao_inconclusiva(
+    tmp_path: Path, arquivo: str, dano: Dano, motivo: str
+) -> None:
+    origem, (a, _b, _c) = _tres(tmp_path)
+    uniao = _conjunto(_id(a))
+    _execucao(tmp_path / "ingest", "execucao_1", [uniao], _posicao(origem, 2))
+    with estragado(origem / arquivo, dano):
+        resolucao = _resolver(tmp_path, origem, uniao)
+    assert resolucao.motivo == motivo
+    assert (resolucao.execucao, resolucao.linhas) == ("", ())
+
+
+def test_bytes_que_nao_decodificam_na_leitura_do_manifesto_tambem_sao_corrupcao(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    origem, (a, _b, _c) = _tres(tmp_path)
+    uniao = _conjunto(_id(a))
+    _execucao(tmp_path / "ingest", "execucao_1", [uniao], _posicao(origem, 2))
+
+    def ler(_self: Manifesto) -> EstadoManifesto:
+        raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+
+    monkeypatch.setattr(Manifesto, "ler", ler)
+    assert _resolver(tmp_path, origem, uniao).motivo == "manifesto_corrompido"
+
+
+def test_manifesto_corrompido_registra_o_arquivo_e_o_erro_no_log(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    origem, (a, _b, _c) = _tres(tmp_path)
+    uniao = _conjunto(_id(a))
+    _execucao(tmp_path / "ingest", "execucao_1", [uniao], _posicao(origem, 2))
+    caminho = origem / NOME_MANIFESTO_AQUISICAO
+    with (
+        caplog.at_level(logging.WARNING, logger="sustemporal.reporting.reproduce_manifesto"),
+        estragado(caminho, Dano.BYTES),
+    ):
+        _resolver(tmp_path, origem, uniao)
+    assert f"manifesto_corrompido caminho={caminho} erro=ManifestoCorrompido" in caplog.messages
+
+
+def test_manifesto_ilegivel_registra_o_arquivo_e_o_erro_no_log(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    origem, (a, _b, _c) = _tres(tmp_path)
+    uniao = _conjunto(_id(a))
+    _execucao(tmp_path / "ingest", "execucao_1", [uniao], _posicao(origem, 2))
+    caminho = origem / NOME_MANIFESTO_AQUISICAO
+    with (
+        caplog.at_level(logging.WARNING, logger="sustemporal.reporting.reproduce_manifesto"),
+        estragado(caminho, Dano.DIRETORIO),
+    ):
+        _resolver(tmp_path, origem, uniao)
+    assert f"manifesto_ilegivel caminho={caminho} erro=IsADirectoryError" in caplog.messages
+
+
+def test_sem_a_posicao_do_ingest_o_manifesto_atual_nem_chega_a_ser_lido(tmp_path: Path) -> None:
+    origem, _ = _tres(tmp_path)
+    uniao = _conjunto(artefato("x"))
+    with estragado(origem / NOME_MANIFESTO_AQUISICAO, Dano.DIRETORIO):
+        resolucao = _resolver(tmp_path, origem, uniao)
+    assert resolucao.motivo == "ingest_original_ausente execucoes=0"
 
 
 def test_resolver_nao_altera_nada_da_origem_nem_do_ingest(tmp_path: Path) -> None:

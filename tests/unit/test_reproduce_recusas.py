@@ -12,6 +12,8 @@ from sustemporal.config import load_config
 from sustemporal.contracts.experiment import ModoExecucao
 from sustemporal.errors import ConfigInvalida, RedeProibida
 from sustemporal.reporting.reproduce import configurar_parser, executar_reproduce, reproduce
+from sustemporal.reporting.reproduce_leituras import Dano
+from tests.fixtures.reproducao_estragos import estragado
 from tests.fixtures.reproducao_mundo import Mundo, escrever_config
 
 if TYPE_CHECKING:
@@ -57,6 +59,47 @@ def test_reproduce_de_congelamento_ausente_nao_cria_o_destino(tmp_path: Path) ->
     with pytest.raises(ConfigInvalida, match=f"^congelamento_ausente freeze={FREEZE} diretorio="):
         reproduce(_config(tmp_path, freeze_id=FREEZE), destino)
     assert not destino.exists()
+
+
+@pytest.fixture
+def congelamento_lido(monkeypatch: pytest.MonkeyPatch) -> None:
+    """O congelamento já lido: o destino é conferido logo depois dele e antes de usá-lo."""
+    monkeypatch.setattr("sustemporal.reporting.reproduce.carregar_freeze", lambda *_a, **_k: None)
+
+
+@pytest.mark.usefixtures("congelamento_lido")
+def test_destino_que_nao_se_lista_sai_2_e_nao_traceback(tmp_path: Path) -> None:
+    destino = tmp_path / "out"
+    destino.mkdir()
+    with (
+        estragado(destino, Dano.PERMISSAO),
+        pytest.raises(ConfigInvalida, match=r"^reproduce_destino_ilegivel caminho=.* erro=\w+$"),
+    ):
+        reproduce(_config(tmp_path, freeze_id=FREEZE), destino)
+
+
+@pytest.mark.usefixtures("congelamento_lido")
+def test_destino_numa_pasta_que_nao_se_acessa_sai_2_e_nao_traceback(tmp_path: Path) -> None:
+    pai = tmp_path / "pai"
+    pai.mkdir()
+    with (
+        estragado(pai, Dano.PERMISSAO),
+        pytest.raises(ConfigInvalida, match=r"^reproduce_destino_ilegivel caminho=.*pai/out erro="),
+    ):
+        reproduce(_config(tmp_path, freeze_id=FREEZE), pai / "out")
+
+
+@pytest.mark.usefixtures("congelamento_lido")
+def test_destino_que_nao_se_cria_diz_o_erro_do_sistema(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def sem_espaco(self: Path, **_nomeados: object) -> None:
+        raise OSError(28, "No space left on device", str(self))
+
+    monkeypatch.setattr(Path, "mkdir", sem_espaco)
+    padrao = r"^reproduce_destino_ilegivel caminho=.* erro=OSError$"
+    with pytest.raises(ConfigInvalida, match=padrao):
+        reproduce(_config(tmp_path, freeze_id=FREEZE), tmp_path / "out")
 
 
 def test_executar_reproduce_exige_offline(tmp_path: Path) -> None:

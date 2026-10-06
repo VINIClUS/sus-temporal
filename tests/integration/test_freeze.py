@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -14,7 +15,15 @@ from tests.fixtures.protocolo_avaliacao import (
     run_agregados,
 )
 from tests.fixtures.protocolo_cli import gravar_insumos
-from tests.fixtures.protocolo_dados import Cenario, cenario_baseline
+from tests.fixtures.protocolo_confirmatorio import montar_confirmatorio
+from tests.fixtures.protocolo_dados import (
+    SPEC_PADRAO,
+    Cenario,
+    cenario_baseline,
+    coorte,
+    fontes_identidade,
+    gravar_territorio,
+)
 
 from sustemporal.cli import main
 from sustemporal.config import load_config
@@ -23,6 +32,7 @@ from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.evaluation import EvaluationReport
 from sustemporal.contracts.experiment import (
     Atributo,
+    CorrecaoMultiplicidade,
     FeatureSpec,
     ModoExecucao,
     Particao,
@@ -40,9 +50,12 @@ from sustemporal.evaluation.freeze_registro import (
     registrar_execucao,
 )
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
+from sustemporal.evaluation.split import build_splits
 from sustemporal.runtime_info import ambiente
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sustemporal.contracts.experiment import FreezeManifest
 
 CATALOGO_SIA_PA = Path(__file__).resolve().parents[2] / "catalog" / "schemas" / "sia_pa.yaml"
@@ -123,6 +136,77 @@ def test_recusa_protocolo_com_valor_a_definir(tmp_path: Path, cenario: Cenario) 
             codigo=CODIGO_LIMPO,
             relogio=relogio,
         )
+
+
+def _congelar_protocolo(tmp_path: Path, protocolo: Protocolo) -> FreezeManifest:
+    escrever_decisao(tmp_path / "decisoes", "G0", "CONTINUAR")
+    return congelar(
+        protocolo,
+        tmp_path / "frozen",
+        decisoes=tmp_path / "decisoes",
+        codigo=CODIGO_LIMPO,
+        relogio=relogio,
+    )
+
+
+def _coorte_da_config(**campos: str) -> dict[str, str]:
+    """A coorte do split do cenário, como a config do protocolo a declararia."""
+    base = {
+        "cohort_id": "coorte_sintetica",
+        "uf": "SP",
+        "territorio": "territorio.yaml",
+        "pertenca": "FIXA",
+        "inicio": "201801",
+        "fim": "202512",
+    }
+    return {**base, **campos}
+
+
+@pytest.mark.parametrize(
+    ("coorte_da_config", "motivo"),
+    [
+        (
+            {"pertenca": "A_DEFINIR"},
+            "congelamento_com_pertenca_a_definir coorte=coorte_sintetica",
+        ),
+        (
+            {"cohort_id": "outra_coorte"},
+            "congelamento_split_de_outra_coorte split=spl_[0-9a-f]+ coorte=outra_coorte",
+        ),
+    ],
+    ids=["pertenca_a_definir", "outra_coorte"],
+)
+def test_recusa_config_com_pertenca_a_definir_ou_de_outra_coorte(
+    tmp_path: Path, cenario: Cenario, coorte_da_config: dict[str, str], motivo: str
+) -> None:
+    """Auditoria final, D1: a coorte da config entra no manifesto só pelo `config_hash`."""
+    protocolo = _protocolo(cenario, coorte=_coorte_da_config(**coorte_da_config))
+    with pytest.raises(ConfigInvalida, match=f"^{motivo}$"):
+        _congelar_protocolo(tmp_path, protocolo)
+    assert not (tmp_path / "frozen").exists()
+
+
+def test_congela_com_a_coorte_do_split_e_pertenca_fixa(tmp_path: Path, cenario: Cenario) -> None:
+    manifesto = _congelar_protocolo(tmp_path, _protocolo(cenario, coorte=_coorte_da_config()))
+    assert manifesto.split.cohort_id == "coorte_sintetica"
+
+
+def test_recusa_split_construido_com_pertenca_a_definir(tmp_path: Path, cenario: Cenario) -> None:
+    """Auditoria final, D1: o split guarda a pertença só no limite `pertenca_a_definir`."""
+    split = build_splits(
+        cenario.dataset,
+        coorte(gravar_territorio(tmp_path / "territorio.yaml"), pertenca="A_DEFINIR"),
+        tmp_path / "split",
+        spec=SPEC_PADRAO,
+        fonte_por_artefato=fontes_identidade(list(cenario.linhas)),
+        rotulos=cenario.rotulos,
+    )
+    protocolo = replace(_protocolo(cenario), split=split)
+    with pytest.raises(
+        ConfigInvalida, match=f"^congelamento_split_com_pertenca_a_definir split={split.split_id}$"
+    ):
+        _congelar_protocolo(tmp_path, protocolo)
+    assert not (tmp_path / "frozen").exists()
 
 
 def _compativel(manifesto: FreezeManifest, cenario: Cenario, **trocas: Any) -> None:
@@ -243,6 +327,30 @@ def test_registro_append_only(tmp_path: Path) -> None:
     registro.write_text("\n".join(linhas) + "\n", encoding="utf-8")
     with pytest.raises(FalhaOperacionalErro, match="registro_adulterado"):
         registrar_execucao(registro, _relatorio("rep_d"), relogio=relogio)
+
+
+def _com_byte_invalido(registro: Path) -> None:
+    registrar_execucao(registro, _relatorio("rep_a"), relogio=relogio)
+    registro.write_bytes(registro.read_bytes() + b"\xff\n")
+
+
+ILEGIVEIS: dict[str, Callable[[Path], None]] = {
+    "utf8_invalido": _com_byte_invalido,
+    "diretorio": lambda registro: registro.mkdir(),
+}
+
+
+@pytest.mark.parametrize("estrago", sorted(ILEGIVEIS))
+def test_registro_ilegivel_e_falha_operacional(tmp_path: Path, estrago: str) -> None:
+    """Auditoria final, F4: o byte 0xFF ou o registro que não abre não escapam como traceback."""
+    registro = tmp_path / "registro.jsonl"
+    ILEGIVEIS[estrago](registro)
+    with pytest.raises(FalhaOperacionalErro, match="registro_adulterado motivo="):
+        ler_registro(registro)
+    with pytest.raises(FalhaOperacionalErro, match="registro_adulterado"):
+        exigir_rodada_permitida(registro, ModoExecucao.CONFIRMATORIO, FREEZE_A)
+    with pytest.raises(FalhaOperacionalErro, match="registro_adulterado"):
+        registrar_execucao(registro, _relatorio("rep_b"), relogio=relogio)
 
 
 def test_segunda_rodada_confirmatoria_exige_correcao_declarada(tmp_path: Path) -> None:
@@ -446,9 +554,12 @@ def test_cli_congela_e_avalia_exploratorio(tmp_path: Path, monkeypatch: pytest.M
     freeze = manifesto.stem
     argumentos = ["evaluate", "--config", str(config), "--freeze", freeze, "--exploratory"]
     assert main(argumentos) == ExitCode.OK
-    (entrada,) = ler_registro(raiz / "frozen" / "registro_execucoes.jsonl")
+    registro = raiz / "frozen" / "registro_execucoes.jsonl"
+    (entrada,) = ler_registro(registro)
     assert entrada["freeze_id"] == freeze
     assert entrada["modo"] == "EXPLORATORIO"
+    registro.write_bytes(registro.read_bytes() + b"\xff\n")
+    assert main(argumentos) == ExitCode.FALHA_OPERACIONAL
 
 
 def test_intervalo_reamostra_estabelecimentos(tmp_path: Path, cenario: Cenario) -> None:
@@ -513,6 +624,49 @@ def test_confirmatorio_sem_g2_e_recusado_na_biblioteca(tmp_path: Path, cenario: 
                 freeze, "experiments/decisions/g2.yaml", tmp_path / "decisoes"
             ),
         )
+
+
+@pytest.mark.parametrize("correcao", ["HOLM", "BONFERRONI"])
+def test_confirmatorio_recusa_correcao_por_multiplicidade_sem_teste_formal_implementado(
+    tmp_path: Path, cenario: Cenario, correcao: str
+) -> None:
+    """Auditoria final, D2: a correção congelada não mudava nenhum cálculo do relatório."""
+    conf = montar_confirmatorio(
+        tmp_path, cenario, bootstrap={"correcao": correcao, "reamostragens": 50}
+    )
+    with pytest.raises(
+        ConfigInvalida,
+        match=f"^avaliacao_confirmatoria_com_correcao_nao_implementada correcao={correcao} ",
+    ):
+        evaluate_runs(
+            conf.runs,
+            conf.rotulos,
+            conf.cenario.split,
+            tmp_path / "av",
+            bootstrap=conf.manifesto.bootstrap,
+            congelamento=conf.referencia(),
+        )
+    assert not (tmp_path / "av").exists()
+
+
+def test_confirmatorio_sem_teste_formal_avalia_e_declara_a_correcao(
+    tmp_path: Path, cenario: Cenario
+) -> None:
+    conf = montar_confirmatorio(tmp_path, cenario)
+    assert conf.manifesto.bootstrap.correcao is CorrecaoMultiplicidade.SEM_TESTE_FORMAL
+    relatorio = evaluate_runs(
+        conf.runs,
+        conf.rotulos,
+        conf.cenario.split,
+        tmp_path / "av",
+        bootstrap=conf.manifesto.bootstrap,
+        congelamento=conf.referencia(),
+    )
+    assert relatorio.modo is ModoExecucao.CONFIRMATORIO
+    nota = (
+        "correcao_multiplicidade=SEM_TESTE_FORMAL: sem teste formal; intervalos de 95% sem ajuste"
+    )
+    assert nota in relatorio.notas
 
 
 def test_predicoes_de_outra_execucao_nao_entram(tmp_path: Path, cenario: Cenario) -> None:

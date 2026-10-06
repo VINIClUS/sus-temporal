@@ -12,7 +12,9 @@ não convive com outro trabalho de rede no mesmo processo.
 
 Fica fora o que não passa pelo módulo `socket`: extensão em C que abra socket nativo (o DuckDB não
 instala nem carrega extensões sozinho: `sustemporal.duck.conectar`), o `_socket` usado direto, o
-descritor de um socket aberto usado por `os.write` ou `os.sendfile`, e subprocesso (T14-16).
+descritor de um socket aberto usado por `os.write` ou `os.sendfile`, o socket TLS (`ssl.SSLSocket`)
+aberto antes da guarda, cujos `send`, `sendall`, `sendfile` e `write` escrevem pelo OpenSSL sem
+passar pelos métodos de `socket.socket`, e subprocesso (T14-16). A CLI não abre esse socket.
 """
 
 from __future__ import annotations

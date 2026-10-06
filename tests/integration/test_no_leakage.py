@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 from typing import Any, cast
@@ -23,6 +24,7 @@ from tests.fixtures.protocolo_dados import (
 
 from sustemporal.contracts.experiment import Atributo, FeatureSpec, Particao, SplitManifest
 from sustemporal.errors import FalhaOperacionalErro
+from sustemporal.evaluation import split as modulo_split
 from sustemporal.evaluation.baselines import fit_baseline
 from sustemporal.evaluation.features import FEATURES_PADRAO, auditar_features
 from sustemporal.evaluation.split import build_splits
@@ -349,3 +351,33 @@ def test_coluna_de_origem_repetida_e_recusada() -> None:
     )
     with pytest.raises(ValueError, match="coluna_de_origem_repetida"):
         auditar_features(FeatureSpec(feature_set_id="f", atributos=atributos), ESQUEMAS)
+
+
+def _interpolados_entre_aspas(texto: ast.JoinedStr) -> list[str]:
+    partes = texto.values
+    return [
+        ast.unparse(parte)
+        for antes, parte, depois in zip(partes, partes[1:], partes[2:], strict=False)
+        if isinstance(parte, ast.FormattedValue)
+        and isinstance(antes, ast.Constant)
+        and str(antes.value).endswith("'")
+        and isinstance(depois, ast.Constant)
+        and str(depois.value).startswith("'")
+    ]
+
+
+@pytest.mark.parametrize(
+    "modulo",
+    sorted(Path(modulo_split.__file__).parent.glob("split*.py")),
+    ids=lambda caminho: caminho.name,
+)
+def test_sql_do_split_nao_interpola_valor_entre_aspas(modulo: Path) -> None:
+    """SQL só parametrizado: valor nenhum entra no texto da consulta entre aspas (C6)."""
+    arvore = ast.parse(modulo.read_text(encoding="utf-8"))
+    interpolados = [
+        valor
+        for no in ast.walk(arvore)
+        if isinstance(no, ast.JoinedStr)
+        for valor in _interpolados_entre_aspas(no)
+    ]
+    assert interpolados == []

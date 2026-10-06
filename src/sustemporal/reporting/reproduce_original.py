@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from sustemporal.errors import FalhaOperacionalErro
 from sustemporal.evaluation.cli import REGISTRO
 from sustemporal.evaluation.freeze_registro import ler_registro
 from sustemporal.execucoes import ExecucaoNaoResolvida, ler_execucao, raiz_execucoes
@@ -35,8 +36,9 @@ logger = logging.getLogger(__name__)
 class Original:
     """Rodada registrada do congelamento: o relatório e as execuções, se ainda existem.
 
-    `observacoes` diz por que um relatório lido foi recusado e que método tem mais de uma execução
-    registrada (`execucao_registrada_repetida`), caso em que ele fica sem execução original.
+    `observacoes` diz por que o registro não abriu (`registro_ilegivel`), por que um relatório lido
+    foi recusado e que método tem mais de uma execução registrada (`execucao_registrada_repetida`),
+    caso em que ele fica sem execução original.
     """
 
     relatorio: EvaluationReport | None
@@ -109,20 +111,44 @@ def _execucoes(
     return execucoes, avisos
 
 
+def _registro(config: RunConfig) -> tuple[list[dict[str, Any]], tuple[str, ...]]:
+    """As entradas do registro de rodadas e, se ele não abre, a observação que o diz.
+
+    O arquivo é lido antes do `ler_registro`: o que não abre (`OSError`) e o que não decodifica
+    ficam aqui, qualquer que seja o jeito de o `ler_registro` sinalizar o erro de leitura.
+
+    Raises:
+        FalhaOperacionalErro: registro adulterado ou com bytes que não decodificam.
+    """
+    caminho = Path(config.runtime.dir_congelamentos) / REGISTRO
+    try:
+        if caminho.exists():
+            caminho.read_bytes().decode("utf-8")
+        return ler_registro(caminho), ()
+    except OSError as erro:
+        tipo = type(erro).__name__
+        logger.warning("registro_ilegivel caminho=%s erro=%s", caminho, tipo)
+        return [], (f"registro_ilegivel erro={tipo}",)
+    except UnicodeDecodeError as erro:
+        raise FalhaOperacionalErro(f"registro_adulterado erro={type(erro).__name__}") from erro
+
+
 def ler_original(config: RunConfig, freeze_id: str) -> Original:
     """A última rodada registrada do congelamento e do modo: relatório conferido e execuções.
 
-    Sem registro, sem rodada do congelamento e do modo, ou com o relatório ausente, ilegível ou que
-    não bate com a entrada do registro, não há relatório; a execução ausente fica de fora, e o
-    método com duas execuções registradas fica sem nenhuma.
+    Sem registro, com o registro ilegível (diretório no lugar, sem permissão: observação
+    `registro_ilegivel`), sem rodada do congelamento e do modo, ou com o relatório ausente, ilegível
+    ou que não bate com a entrada do registro, não há relatório; a execução ausente fica de fora, e
+    o método com duas execuções registradas fica sem nenhuma.
 
     Raises:
-        FalhaOperacionalErro: registro de rodadas adulterado.
+        FalhaOperacionalErro: registro de rodadas adulterado, inclusive com bytes que não
+            decodificam.
     """
-    registro = ler_registro(Path(config.runtime.dir_congelamentos) / REGISTRO)
+    registro, ilegivel = _registro(config)
     entrada = rodada_registrada(registro, freeze_id, config.modo.value)
     if entrada is None:
-        return Original(None, {})
+        return Original(None, {}, ilegivel)
     relatorio, observacoes = _relatorio_registrado(config, freeze_id, entrada)
     execucoes, repetidas = _execucoes(config, entrada)
     return Original(relatorio, execucoes, (*observacoes, *repetidas))

@@ -21,7 +21,7 @@ from sustemporal.contracts.rules import (
     RuleSpec,
     decidir_estado,
 )
-from sustemporal.contracts.temporal import EstadoSelecao, TipoPolitica, TipoTempo
+from sustemporal.contracts.temporal import BaseTemporal, EstadoSelecao, TipoPolitica, TipoTempo
 from sustemporal.rules.reference_dominio import DOMINIO_DO_CAMPO, ConjuntoAuxiliar, escopo
 
 if TYPE_CHECKING:
@@ -59,6 +59,10 @@ _MOTIVO_DA_SELECAO: dict[EstadoSelecao, MotivoInconclusao | None] = {
 _COMPETENCIA_DO_TIPO: dict[TipoTempo, str] = {
     TipoTempo.ATENDIMENTO: "competencia_atendimento",
     TipoTempo.PROCESSAMENTO: "competencia_processamento",
+}
+_COMPETENCIA_DA_BASE: dict[str, str] = {
+    BaseTemporal.ATENDIMENTO: "competencia_atendimento",
+    BaseTemporal.PROCESSAMENTO: "competencia_processamento",
 }
 
 
@@ -335,6 +339,13 @@ def _ausencia_sustentada(
     return linha is not None and linha.get("estado") == "DISPONIVEL"
 
 
+def _sem_deslocamento(selecao: Mapping[str, object], campo: _LeitorCampo) -> bool:
+    """Passo 11: a seleção consulta a própria competência base do registro (deslocamento 0)."""
+    coluna = _COMPETENCIA_DA_BASE.get(str(selecao.get("base")))
+    competencia = None if coluna is None else campo(coluna)
+    return competencia is not None and selecao.get("competencia_requerida") == competencia
+
+
 def _versoes_com_linha(insumos: _Insumos) -> bool:
     """Passo 11: toda versão selecionada tem ao menos uma linha no conjunto auxiliar."""
     for schema, linhas in insumos.escopos.items():
@@ -361,10 +372,16 @@ def _decidir_predicado(
         return _desconhecida(frozenset({_M.APLICABILIDADE_DESCONHECIDA}))
     if isinstance(resultado, MotivoInconclusao):
         return _inconclusivo(frozenset({resultado}))
-    base = insumos.selecoes[schema].get("base")
-    chave = (regra.familia.value, campo("instrumento"), campo("competencia_processamento"), base)
+    selecao = insumos.selecoes[schema]
+    chave = (
+        regra.familia.value,
+        campo("instrumento"),
+        campo("competencia_processamento"),
+        selecao.get("base"),
+    )
     integras = all(cenario.integridade.get(a) == "OK" for a in insumos.versoes)
-    if integras and _versoes_com_linha(insumos) and _ausencia_sustentada(indices, chave):
+    sustentada = _ausencia_sustentada(indices, chave) and _sem_deslocamento(selecao, campo)
+    if integras and _versoes_com_linha(insumos) and sustentada:
         return _Desfecho(EstadoAvaliacao.VIOLACAO, Aplicabilidade.APLICAVEL, True)
     return _inconclusivo(frozenset({_M.COBERTURA_INSUFICIENTE}))
 

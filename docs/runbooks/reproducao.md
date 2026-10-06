@@ -306,7 +306,8 @@ congelamento usou a versão de código de teste (seção 4.5); ela não é diver
   (`sustemporal.reporting.reproduce_rede`).
 - O fluxo é refeito em um diretório novo (`--saida DIR`; padrão
   `<raiz_saidas>/reproducao/<freeze_id>`; um destino que já tem conteúdo, ou que é um arquivo, sai
-  com 2): `ingest` dos originais do manifesto de aquisição, conferência do ingest (artefato do
+  com 2): resolução da posição do manifesto de aquisição e das entradas originais (abaixo),
+  `ingest` dos originais do manifesto até essa posição, conferência do ingest (artefato do
   SIA-PA congelado, ou dos auxiliares CNES e SIGTAP das entradas congeladas, que não foi
   normalizado torna a reprodução inconclusiva e para aqui, antes de refazer), união do
   SIA-PA, rótulos, partições do split (com a especificação e os artefatos inspecionados gravados
@@ -314,14 +315,23 @@ congelamento usou a versão de código de teste (seção 4.5); ela não é diver
   políticas de `validate --ingest` sobre a janela da partição avaliada (CALIBRACAO) e da partição
   TESTE, e a avaliação (`evaluate_runs`, com o `bootstrap` do manifesto). Nada é gravado nas
   saídas originais nem no registro de rodadas; o `reproduce` não registra rodada.
-- O manifesto de aquisição é o do congelamento: `<saida>/manifestos/aquisicao.jsonl` é a cópia do
-  atual só com as observações até o `criado_em` do manifesto de congelamento (a observação no
-  próprio instante entra) e as versões que elas trazem, reencadeada e com âncora; o `ingest`, a
-  janela, as fontes do split e o registro temporal do `validate` da reprodução leem essa cópia
-  (`sustemporal.reporting.reproduce_manifesto`). Coleta nova, republicação, recoleta ou ausência
-  registradas depois do congelamento ficam de fora, são contadas nas observações
-  `artefatos_fora_do_congelamento_ignorados` e `observacoes_posteriores_ao_congelamento_ignoradas`
-  e nunca viram divergência; o artefato congelado sem o arquivo segue inconclusivo.
+- O manifesto de aquisição é o que o `ingest` original leu. O `reproduce` acha, em
+  `<raiz_saidas>/ingest`, as execuções (`execucao_*`) cujo SIA-PA (a união dos `artifact_ids` dos
+  conjuntos `sia_pa.v1` do `datasets.jsonl`) é o do conjunto `sia_pa.v1` congelado, e lê delas a
+  posição que o `ingest` gravou em `manifesto_lido.json` (`linhas` e o hash da última).
+  `<saida>/manifestos/aquisicao.jsonl` é o prefixo do manifesto atual até essa posição, com a
+  mesma cadeia e a âncora; o `ingest`, a janela, as fontes do split e o registro temporal do
+  `validate` da reprodução leem essa cópia (`sustemporal.reporting.reproduce_manifesto`). Coleta
+  nova, republicação, recoleta ou ausência registradas depois do `ingest` ficam de fora, seja qual
+  for o instante da observação (a coleta semanal registra o tempo todo, e `observado_em` não
+  decide): são contadas nas observações `artefatos_depois_do_ingest_ignorados` e
+  `observacoes_depois_do_ingest_ignoradas` e nunca viram divergência, e a execução e a posição
+  usadas ficam em `manifesto_do_ingest execucao=... linhas=...`. Execuções com a mesma posição
+  valem uma só. Sem execução, com candidata sem posição legível, com posições diferentes entre as
+  candidatas ou com uma posição que o manifesto atual não tem (linhas a mais, hash da última
+  diferente, fim no meio de uma transação, manifesto corrompido), a posição não se sabe: o item
+  `manifesto:aquisicao` sai `INCONCLUSIVO` com o motivo e a reprodução para antes do `ingest`,
+  nunca voltando a um corte por instante. O artefato congelado sem o arquivo segue inconclusivo.
 - A janela de cada partição refeita (a avaliada e o TESTE) é o `ingest` com só o SIA-PA dos
   artefatos que a partição registra (`janela_dos_artefatos`), nunca pelo mês das linhas. O piloto
   da janela leva as competências dos arquivos (o `validate --ingest` as exige) e as das linhas
@@ -333,9 +343,13 @@ congelamento usou a versão de código de teste (seção 4.5); ela não é diver
   execuções em `runs/`).
 - Os artefatos dos auxiliares vêm da `entrada_validacao.json` original de cada política
   (`<raiz_saidas>/split/insumos/<politica_id>.json`, a que o `freeze` leu), porque o manifesto guarda
-  só a identidade de cada campo. Ela só vale se tem, campo a campo, a identidade congelada
-  (`entradas_congeladas`); a população e os rótulos já são conferidos pelo manifesto, e a cobertura
-  e a seleção só derivam desses artefatos (T14-16).
+  só a identidade de cada campo. Ela só vale se existe, é legível e tem, campo a campo, a
+  identidade congelada (`conferir_entradas`); a população e os rótulos já são conferidos pelo
+  manifesto, e a cobertura e a seleção só derivam desses artefatos (T14-16). Ausente, ilegível ou
+  alterada depois do congelamento, ela não se ignora: o item `insumos:<politica>` sai
+  `INCONCLUSIVO` (`entrada_original_ausente`, `entrada_original_ilegivel` ou
+  `entrada_original_alterada`) e a reprodução para antes de refazer, com o auxiliar disponível ou
+  não.
 
 ### 5.2 O que é comparado
 
@@ -343,7 +357,8 @@ congelamento usou a versão de código de teste (seção 4.5); ela não é diver
 |---|---|---|
 | `conjunto:sia_pa.v1` e `conjunto:sia_pa_rotulos.v1` | linhas e hash lógico da união e dos rótulos refeitos | o declarado no manifesto e, se o arquivo original existe, o arquivo |
 | `split:split_id`, `split:particao:<P>` e `split:rotulos:<P>` | id do split (que leva a especificação, a coorte, as fontes, os rótulos e os artefatos inspecionados) e linhas e hash lógico de cada partição e dos rótulos dela | o split do manifesto |
-| `insumos:<politica>` | cada campo da `EntradaValidacao` do TESTE refeita (`dataset`, `snapshots`, `auxiliares`, `selecoes`, `cobertura`, `integridade`, `politica_documentada`, `politica` e `identidade_adicional`), pela identidade de cada campo; antes de refazer, a disponibilidade dos artefatos dos `auxiliares` (CNES e SIGTAP) | `entradas_validacao` do manifesto, gravada de `split/insumos/<politica_id>.json`; os artefatos, dessa entrada original |
+| `insumos:<politica>` | cada campo da `EntradaValidacao` do TESTE refeita (`dataset`, `snapshots`, `auxiliares`, `selecoes`, `cobertura`, `integridade`, `politica_documentada`, `politica` e `identidade_adicional`), pela identidade de cada campo; antes de refazer, que a entrada original da política confira e a disponibilidade dos artefatos dos `auxiliares` (CNES e SIGTAP) | `entradas_validacao` do manifesto, gravada de `split/insumos/<politica_id>.json`; os artefatos, dessa entrada original |
+| `manifesto:aquisicao` | só aparece quando a posição do manifesto de aquisição que o `ingest` original leu não se sabe: sempre `INCONCLUSIVO`, com o motivo em `detalhe` (`ingest_original_ausente`, `ingest_original_sem_posicao`, `ingest_original_ambiguo`, `manifesto_menor_que_o_lido_pelo_ingest`, `manifesto_diferente_do_lido_pelo_ingest`, `posicao_do_ingest_no_meio_de_uma_transacao` ou `manifesto_corrompido`) | `manifesto_lido.json` da execução do `ingest` que produziu o SIA-PA congelado |
 | `saida:<METODO>:<esquema>` | linhas e hash lógico das cinco saídas de cada método, **sem a coluna `run_id`**, pela união dos esquemas das duas execuções (e dos métodos) | as saídas da execução original |
 | `metricas` | cada métrica por nome e estrato (numerador, denominador, valor e intervalo) | o relatório da rodada registrada |
 | `notas` | as notas do relatório (recorte, especificação do bootstrap e cobertura dos resultados), como multiconjunto | as notas do relatório da rodada registrada |
@@ -359,7 +374,7 @@ outro `run_id`; por isso as saídas se comparam sem essa coluna.
 | `IGUAL` | linhas e hash lógico coincidem (e os bytes, se há arquivo original legível; sem ele, `detalhe` `original_ausente` ou `original_ilegivel` e vale o hash declarado no manifesto) | 0 |
 | `BYTES_DIFERENTES_HASH_LOGICO_IGUAL` | mesmo conteúdo, bytes de Parquet diferentes (compressão, ordem ou metadados); é relatado e não é falha | 0 |
 | `DIVERGENTE` | conteúdo diferente; inclui original que não confere com o declarado, saída registrada que a reconstrução não emitiu (`saida_ausente_no_refeito`, por exemplo `evidencias.v1`), saída nova que a execução registrada não tem (`saida_sem_original`) e método que a reconstrução não refez | 5 (`reproducao_divergente`) |
-| `INCONCLUSIVO` | falta o original para comparar (relatório, execução ou saída ausente, truncada ou fora do contrato), a partição refeita (avaliada ou TESTE) não tem artefatos (`particao_vazia`, item `particao:<P>`) ou o ingest refeito não normalizou um artefato do SIA-PA congelado ou dos auxiliares das entradas congeladas, CNES e SIGTAP (`originais_indisponiveis`: arquivo ausente, truncado, em quarentena ou com leiaute incompatível; nos auxiliares o item é `insumos:<politica>`); nunca é violação, mas também não conta como reproduzido | 5 (`reproducao_inconclusiva`) |
+| `INCONCLUSIVO` | falta o original para comparar (relatório, execução ou saída ausente, truncada ou fora do contrato), a posição do manifesto de aquisição que o `ingest` original leu não se sabe (item `manifesto:aquisicao`), a entrada original da política em `split/insumos` falta, não lê ou foi alterada (`entrada_original_ausente`, `_ilegivel` ou `_alterada`, item `insumos:<politica>`), a partição refeita (avaliada ou TESTE) não tem artefatos (`particao_vazia`, item `particao:<P>`) ou o ingest refeito não normalizou um artefato do SIA-PA congelado ou dos auxiliares das entradas congeladas, CNES e SIGTAP (`originais_indisponiveis`: arquivo ausente, truncado, em quarentena ou com leiaute incompatível; nos auxiliares o item é `insumos:<politica>`); nunca é violação, mas também não conta como reproduzido | 5 (`reproducao_inconclusiva`) |
 
 O `resultado` geral é a pior situação dos itens. `reproducao.json` é gravado antes da falha
 (`freeze_id`, `modo`, `origem_dados`, `resultado`, `relatorio_refeito`, `observacoes` e as
@@ -371,13 +386,11 @@ locais ausentes ou inválidas; 5 divergência ou item inconclusivo; 6 rede.
 `observacoes` registra o que difere sem ser, por si, divergência de conteúdo:
 `ingest_sem_tabela artefatos=N estados=...` (o ingest refeito deixou artefatos sem tabela: arquivo
 ausente, quarentena ou falha; explica os itens `INCONCLUSIVO` de `originais_indisponiveis`),
-`artefatos_fora_do_congelamento_ignorados n=...` e
-`observacoes_posteriores_ao_congelamento_ignoradas n=...` (o que o manifesto de aquisição atual tem
-depois do `criado_em` do congelamento e a cópia deixou de fora), `particao_sem_artefatos
-particao=...` (a partição refeita não tem artefatos),
-`insumos_originais_nao_conferidos politicas=...` (a entrada original dessas políticas em
-`split/insumos` falta, não lê ou foi alterada depois do congelamento: a disponibilidade dos
-auxiliares delas não foi conferida antes de refazer), `config_diferente_da_congelada` (o hash do
+`manifesto_do_ingest execucao=... linhas=...` (a execução do `ingest` original e o tamanho do
+manifesto de aquisição que a reprodução leu),
+`artefatos_depois_do_ingest_ignorados n=...` e `observacoes_depois_do_ingest_ignoradas n=...` (o que
+o manifesto atual tem depois dessa posição e a cópia deixou de fora), `particao_sem_artefatos
+particao=...` (a partição refeita não tem artefatos), `config_diferente_da_congelada` (o hash do
 protocolo da config usada difere do congelado, por exemplo com outro número de threads ou outros
 caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=<commit>` e
 `pacotes_diferentes_do_congelado pacotes=<lista>`. Leia-as junto do resultado.
@@ -396,13 +409,15 @@ caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=
   sendo falha (`arquivo_ilegivel`).
 - A disponibilidade dos auxiliares só é conferida com a `entrada_validacao.json` original de cada
   política em `<raiz_saidas>/split/insumos` (T14-16). Sem ela (ausente, ilegível ou alterada depois
-  do congelamento) a política fica sem essa conferência e a observação
-  `insumos_originais_nao_conferidos` avisa; um CNES ou SIGTAP que falte aparece então como
-  `DIVERGENTE` nos insumos e nas saídas, em vez de `INCONCLUSIVO`.
-- O corte do manifesto de aquisição é o `criado_em` do congelamento: o manifesto de congelamento
-  não guarda a posição do manifesto de aquisição nem os artefatos do `ingest`. Uma coleta feita
-  entre o `ingest` original e o `freeze` entra na reconstrução (e pode mudar a união do SIA-PA); o
-  que veio depois do `freeze` não (T14-16).
+  do congelamento) a política fica `INCONCLUSIVO` (`entrada_original_*`) e nada se refaz.
+- A posição do manifesto de aquisição vem do `ingest` original, não do congelamento: o manifesto de
+  congelamento não guarda a posição que o `freeze` leu nem a execução do `ingest`, e o `reproduce`
+  acha a execução pelo SIA-PA congelado (T14-16). Duas execuções do `ingest` sobre o mesmo SIA-PA
+  com o manifesto em posições diferentes (uma coleta semanal entre elas, por exemplo) deixam a
+  posição ambígua, e o congelamento não diz qual valeu: `INCONCLUSIVO`. Supõe-se que o `validate` e
+  o `freeze` leram o manifesto onde o `ingest` o leu; uma coleta registrada entre o `ingest` e o
+  `validate` muda o registro temporal do `validate` e pode aparecer como divergência nos `insumos`.
+  Um split derivado de uma janela, e não do `ingest` inteiro, não casa com nenhuma execução.
 - Os comandos rodam da raiz do clone (ou de um diretório com cópia de `catalog/` e `config/`):
   `config/splits.yaml`, `catalog/schemas/selecao_versoes.yaml` e `experiments/decisions` são
   relativos ao diretório de trabalho.
@@ -423,14 +438,15 @@ caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=
 | 29 itens `IGUAL` e `resultado` `IGUAL`, com o `freeze` recusado sem G0 e exploratório com a decisão de teste | `test_reproduce_offline_reproduz_com_hashes_logicos_iguais` e `test_freeze_e_recusado_sem_g0_e_com_a_decisao_de_teste_fica_exploratorio` |
 | Diretório novo e nenhum original alterado | `test_reproduce_refaz_o_fluxo_inteiro_no_diretorio_novo` e `test_reproduce_nao_altera_nenhum_original` |
 | Split congelado com artefatos inspecionados é refeito com o mesmo `split_id` (o `_refazer` os repassa a `derivar_protocolo`) | `test_reproduce_refaz_o_split_com_os_artefatos_inspecionados_do_congelamento` e, em `tests/integration/test_reproduce_etapas.py`, os `test_derivar_protocolo_*inspecionado*` (gravação no split e recusa de inspecionado no TESTE ou sem fonte) |
-| Coleta nova, republicação com outro conteúdo e ausência registradas depois do `freeze` não alteram a reprodução (igual, com a observação do que ficou de fora) | `test_reproduce_ignora_o_que_foi_coletado_depois_do_congelamento` (a reprodução padrão do módulo roda com as três coletas registradas depois do `freeze`) e `tests/unit/test_reproduce_manifesto.py` (corte, instante exato, recoleta, ausência, cadeia e âncora da cópia) |
+| Coleta nova, republicação com outro conteúdo e ausência registradas depois do `ingest` não alteram a reprodução (igual, com a observação do que ficou de fora), seja qual for o instante da observação: depois do `freeze` ou antes dele, como uma coleta feita entre o `ingest` e o `freeze` | `test_reproduce_ignora_o_que_foi_coletado_depois_do_congelamento` e `test_reproduce_ignora_o_que_foi_coletado_entre_o_ingest_e_o_congelamento` (a reprodução padrão do módulo roda com seis coletas registradas depois do `ingest`, três de cada tipo de instante) e `tests/unit/test_reproduce_manifesto.py` (execução do `ingest` pelo SIA-PA congelado, mesma posição que não é ambiguidade, posição que o manifesto não tem, prefixo com a mesma cadeia e âncora) |
+| Sem saber o que o `ingest` leu do manifesto (execução ausente, ambígua, sem posição, hash diferente, além do fim), a reprodução é inconclusiva no item `manifesto:aquisicao` e para antes do `ingest`, junto das entradas originais que não conferem | `test_reproduce_sem_saber_o_que_o_ingest_leu_do_manifesto_e_inconclusivo_e_nao_divergente` (cinco casos) e `test_reproduce_sem_o_ingest_original_relata_tambem_a_entrada_que_nao_confere` |
 | Arquivo cuja competência difere da das linhas fica na janela e reproduz igual; partição sem artefatos é inconclusiva, não erro de configuração | `test_reproduce_mantem_na_janela_o_arquivo_cuja_competencia_difere_da_das_linhas`, `test_reproduce_com_particao_vazia_e_inconclusivo_e_nao_erro_de_configuracao` e os `test_janela_dos_artefatos_*` e `test_competencias_da_janela_*` de `tests/integration/test_reproduce_etapas.py` |
 | 4 threads dão as mesmas saídas e métricas; bytes diferentes com hash lógico igual saem como tais | `test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual` |
 | Divergência de conteúdo falha (saída 5) e nomeia os itens | `test_reproduce_falha_e_nomeia_os_itens_quando_o_conteudo_original_diverge` |
 | Original do SIA-PA ausente é inconclusão (saída 5), não divergência nem reprodução | `test_reproduce_com_original_do_sia_pa_ausente_e_inconclusivo_e_nao_divergente` |
 | CNES (PF e ST) ou SIGTAP ausente é inconclusão em `insumos:<politica>` (saída 5), sem item divergente, e o fluxo para antes de refazer | `test_reproduce_com_original_auxiliar_ausente_e_inconclusivo_e_nao_divergente` (uma execução por família) e `tests/unit/test_reproduce_insumos.py` |
 | Saída registrada que a reconstrução não emitiu (`evidencias.v1`) diverge e a saída é 5; saída nova sem original, método só registrado e execução registrada ausente | `test_reproduce_com_saida_que_a_reconstrucao_nao_emitiu_e_divergente` e `tests/unit/test_reproduce_saidas.py` |
-| Sem a entrada original de uma política, a reprodução segue e a observação avisa | `test_reproduce_sem_a_entrada_original_de_uma_politica_avisa_e_nao_chama_de_divergencia` |
+| Entrada original da política ausente, ilegível ou alterada é inconclusão em `insumos:<politica>` (saída 5), com o auxiliar disponível ou não, e o fluxo para antes de refazer | `test_reproduce_com_a_entrada_original_que_nao_confere_e_inconclusivo_e_nao_divergente` (três estragos, com e sem o auxiliar) e `tests/unit/test_reproduce_insumos.py` |
 | Recusas: destino em uso ou arquivo, sem `--offline`, rede permitida, congelamento inexistente, confirmatório | os testes `test_reproduce_recusa_*`, `test_reproduce_exige_offline`, `test_reproduce_de_congelamento_inexistente_*` e `test_reproduce_nao_reproduz_congelamento_confirmatorio`, e `tests/unit/test_reproduce_recusas.py` |
 | Nenhuma conexão sai do processo | `test_reproduce_roda_sob_a_guarda_de_rede` e `tests/unit/test_reproduce_rede.py` |
 | Comparação por hash lógico, contagens e métricas; inconclusivo falha | `tests/unit/test_reproduce_comparacao.py` e `tests/unit/test_reproduce_conferencia.py` (split, originais, notas, ambiente e rodada registrada) |

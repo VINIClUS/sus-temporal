@@ -145,7 +145,7 @@ def test_intervalo_por_blocos_sorteia_competencias_inteiras_contra_contas_a_mao(
     assert blocos is not None
     assert total.valor == Decimal(valor)
     assert total.ic is not None
-    assert getattr(total.ic, "replicas_validas", None) == SPEC.reamostragens
+    assert total.ic.replicas_validas == SPEC.reamostragens
     if por_estabelecimento is not None:
         esperado = tuple(Decimal(x) for x in por_estabelecimento)
         assert (total.ic.inferior, total.ic.superior) == esperado
@@ -155,7 +155,7 @@ def test_intervalo_por_blocos_sorteia_competencias_inteiras_contra_contas_a_mao(
     assert blocos.ic is not None
     assert (blocos.ic.inferior, blocos.ic.superior) == tuple(Decimal(x) for x in por_blocos)
     assert blocos.ic.nivel == SPEC.confianca
-    assert getattr(blocos.ic, "replicas_validas", None) == SPEC.reamostragens
+    assert blocos.ic.replicas_validas == SPEC.reamostragens
 
 
 def _cobertura_de_rejeicoes_do_m_temp(

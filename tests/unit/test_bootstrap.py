@@ -38,7 +38,7 @@ def test_intervalo_contem_a_estimativa_e_respeita_o_nivel() -> None:
     assert intervalo is not None
     assert intervalo.nivel == Decimal("0.95")
     assert intervalo.inferior <= Decimal("0.5") <= intervalo.superior
-    assert getattr(intervalo, "replicas_validas", None) == SPEC.reamostragens
+    assert intervalo.replicas_validas == SPEC.reamostragens
 
 
 def test_um_unico_conglomerado_nao_finge_variabilidade() -> None:
@@ -75,8 +75,8 @@ def test_intervalo_registra_as_replicas_validas() -> None:
     diferenca = intervalo_diferenca(numeradores, sem_sinal, denominadores, grupos, SPEC_DO_PLANO)
     assert razao is not None
     assert diferenca is not None
-    assert getattr(razao, "replicas_validas", None) == validas
-    assert getattr(diferenca, "replicas_validas", None) == validas
+    assert razao.replicas_validas == validas
+    assert diferenca.replicas_validas == validas
 
 
 def test_sem_denominador_positivo_nao_ha_intervalo() -> None:

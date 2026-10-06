@@ -47,10 +47,13 @@ SPEC = BootstrapSpec(reamostragens=1000, semente=2027)
 # rejeições no A e todos os registros no B. Cada estabelecimento tem os mesmos registros nos dois
 # blocos, então a razão por estabelecimento não varia (intervalo de um ponto só), e a por blocos
 # varia entre os extremos de cada bloco (cada extremo sai em 1/4 das réplicas de dois blocos).
-ESPERADO: dict[tuple[str, str], tuple[str, tuple[str, str] | None, tuple[str, str]]] = {
+# Por estabelecimento, None é intervalo não conferido à mão. Por blocos, None é intervalo não
+# estimável: os alertas do M_TEMP estão só no bloco A, um só conglomerado com denominador
+# positivo, e toda réplica válida repetiria a estimativa (auditoria final, D3).
+ESPERADO: dict[tuple[str, str], tuple[str, tuple[str, str] | None, tuple[str, str] | None]] = {
     ("M_TEMP", "cobertura_rejeicoes"): ("0.5", ("0.5", "0.5"), ("0", "1")),
     ("M_TEMP", "cobertura_verificabilidade"): ("0.5", ("0.5", "0.5"), ("0", "1")),
-    ("M_TEMP", "precisao_alertas"): ("1", ("1", "1"), ("1", "1")),
+    ("M_TEMP", "precisao_alertas"): ("1", ("1", "1"), None),
     ("M_TEMP", "falsos_alertas_aprovacoes"): ("0", ("0", "0"), ("0", "0")),
     ("B_ATEND", "cobertura_rejeicoes"): ("1", ("1", "1"), ("1", "1")),
     ("B_ATEND", "cobertura_verificabilidade"): ("1", ("1", "1"), ("1", "1")),
@@ -112,7 +115,7 @@ def test_relatorio_traz_os_dois_intervalos_para_cada_metrica_com_intervalo(
             assert (chave, BLOCOS) in metricas, chave
             total, blocos = metricas[(chave, "TOTAL")], metricas[(chave, BLOCOS)]
             assert total.ic is not None, chave
-            assert blocos.ic is not None, chave
+            assert (blocos.ic is None) == (ESPERADO[(metodo, nome)][2] is None), chave
             estimativa = (total.numerador, total.denominador, total.valor)
             assert (blocos.numerador, blocos.denominador, blocos.valor) == estimativa, chave
 
@@ -142,12 +145,17 @@ def test_intervalo_por_blocos_sorteia_competencias_inteiras_contra_contas_a_mao(
     assert blocos is not None
     assert total.valor == Decimal(valor)
     assert total.ic is not None
-    assert blocos.ic is not None
-    assert (blocos.ic.inferior, blocos.ic.superior) == tuple(Decimal(x) for x in por_blocos)
-    assert blocos.ic.nivel == SPEC.confianca
+    assert getattr(total.ic, "replicas_validas", None) == SPEC.reamostragens
     if por_estabelecimento is not None:
         esperado = tuple(Decimal(x) for x in por_estabelecimento)
         assert (total.ic.inferior, total.ic.superior) == esperado
+    if por_blocos is None:
+        assert blocos.ic is None
+        return
+    assert blocos.ic is not None
+    assert (blocos.ic.inferior, blocos.ic.superior) == tuple(Decimal(x) for x in por_blocos)
+    assert blocos.ic.nivel == SPEC.confianca
+    assert getattr(blocos.ic, "replicas_validas", None) == SPEC.reamostragens
 
 
 def _cobertura_de_rejeicoes_do_m_temp(

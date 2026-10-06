@@ -285,6 +285,7 @@ def test_reproduce_offline_reproduz_com_hashes_logicos_iguais(
     assert set(reproducao.situacoes.values()) == {"IGUAL"}
     assert reproducao.conteudo["modo"] == "EXPLORATORIO"
     assert reproducao.conteudo["origem_dados"] == "SINTETICO"
+    assert reproducao.conteudo["origem_dados_config"] == "SINTETICO"
 
 
 def test_reproduce_refaz_o_fluxo_inteiro_no_diretorio_novo(reproducao: Reproducao) -> None:
@@ -684,7 +685,8 @@ def test_reproduce_com_origem_dos_dados_diferente_da_congelada_e_inconclusivo(
     feita = reproduzir(fluxo, _config_com_origem_real(fluxo), destino)
     assert feita.codigo == ExitCode.FALHA_OPERACIONAL
     assert feita.conteudo.get("resultado") == "INCONCLUSIVO"
-    assert feita.conteudo["origem_dados"] == "REAL"
+    assert feita.conteudo["origem_dados"] == "SINTETICO"
+    assert feita.conteudo["origem_dados_config"] == "REAL"
     assert feita.situacoes == {"origem_dados": "INCONCLUSIVO"}
     item = feita.itens["origem_dados"]
     assert (item["esperado"], item["obtido"]) == ("SINTETICO", "REAL")

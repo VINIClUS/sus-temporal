@@ -22,7 +22,7 @@ if TYPE_CHECKING:
     from sustemporal.contracts.records import DatasetRef
     from sustemporal.contracts.rules import RuleSpec
 
-__all__ = ["item_da_origem", "observacoes_dos_catalogos"]
+__all__ = ["item_da_origem", "observacoes_dos_catalogos", "origens_do_relatorio"]
 
 
 def _sha256(caminho: str | None) -> str | None:
@@ -68,3 +68,10 @@ def item_da_origem(origem: OrigemDados | None, datasets: Iterable[DatasetRef]) -
     return [
         Comparacao("origem_dados", Situacao.INCONCLUSIVO, ",".join(congeladas), obtida, detalhe)
     ]
+
+
+def origens_do_relatorio(
+    origem: OrigemDados | None, datasets: Iterable[DatasetRef]
+) -> dict[str, str | None]:
+    """`origem_dados` e `origem_dados_config` do topo do `reproducao.json`."""
+    raise NotImplementedError

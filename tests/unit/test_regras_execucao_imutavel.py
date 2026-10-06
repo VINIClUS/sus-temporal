@@ -1,10 +1,13 @@
 """Execução imutável: o motor recusa regravar `out/<run_id>` com outro código (SINTETICO).
 
-O `run_id` não inclui a versão do código; `versao_codigo` é a fronteira com o git e é simulada.
+O `run_id` não inclui a versão do código; `versao_codigo` é a fronteira com o git e é simulada,
+salvo no teste da raiz do código, que usa o git do checkout e um repositório temporário.
 """
 
 import hashlib
 import os
+import shutil
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -22,7 +25,9 @@ from tests.fixtures.regras_cenario import materializar, snapshot_vazio
 from tests.fixtures.regras_exemplos import cenario_base, registro
 from tests.fixtures.regras_ingest import montar_ingest
 from tests.unit.test_regras_cli import _entrada
+from tests.unit.test_runtime_info import _repositorio
 
+CHECKOUT = Path(__file__).resolve().parents[2]
 LIMPO = CodeVersion(commit="a" * 40, sujo=False, versao_pacote="0.1.0")
 OUTRO_COMMIT = LIMPO.model_copy(update={"commit": "b" * 40})
 SUJO = LIMPO.model_copy(update={"sujo": True, "diff_sha256": "1" * 64})
@@ -145,6 +150,31 @@ def test_run_result_ilegivel_recusa_e_deixa_intacta_a_execucao_anterior(
     assert str(recusa.value) == f"execucao_existente_ilegivel run={primeira.run_id}"
     assert recusa.value.codigo_saida is ExitCode.CONFIG_INVALIDA
     assert _retrato(destino) == antes
+
+
+def _head(raiz: Path) -> str:
+    saida = subprocess.run(
+        ["git", "rev-parse", "HEAD"], cwd=raiz, check=True, capture_output=True, text=True
+    )
+    return saida.stdout.strip()
+
+
+def test_codigo_e_o_do_checkout_do_pacote_e_nao_o_do_diretorio_de_trabalho(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    if shutil.which("git") is None:
+        pytest.skip("git_indisponivel")
+    try:
+        esperado = _head(CHECKOUT)
+    except subprocess.CalledProcessError:
+        pytest.skip("sem_repositorio_git")
+    alheio = _repositorio(tmp_path)
+    monkeypatch.chdir(alheio)
+    resultado = _executar(_mundo(tmp_path), tmp_path / "saida")
+    assert resultado.codigo.commit == esperado
+    assert resultado.codigo.commit not in {_head(alheio), "desconhecido"}
+    trava = hashlib.sha256((CHECKOUT / "uv.lock").read_bytes()).hexdigest()
+    assert resultado.ambiente.uv_lock_sha256 == trava
 
 
 def test_versao_do_codigo_e_calculada_uma_so_vez_por_execucao(

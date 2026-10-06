@@ -472,9 +472,12 @@ def test_cli_congela_e_avalia_exploratorio(tmp_path: Path, monkeypatch: pytest.M
     freeze = manifesto.stem
     argumentos = ["evaluate", "--config", str(config), "--freeze", freeze, "--exploratory"]
     assert main(argumentos) == ExitCode.OK
-    (entrada,) = ler_registro(raiz / "frozen" / "registro_execucoes.jsonl")
+    registro = raiz / "frozen" / "registro_execucoes.jsonl"
+    (entrada,) = ler_registro(registro)
     assert entrada["freeze_id"] == freeze
     assert entrada["modo"] == "EXPLORATORIO"
+    registro.write_bytes(registro.read_bytes() + b"\xff\n")
+    assert main(argumentos) == ExitCode.FALHA_OPERACIONAL
 
 
 def test_intervalo_reamostra_estabelecimentos(tmp_path: Path, cenario: Cenario) -> None:

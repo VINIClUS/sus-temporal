@@ -67,7 +67,37 @@ AUSENTES_DE_PROPOSITO = {
     "docs/spec/esboco_original.pdf": "esboço PENDENTE em docs/spec/manifest.yaml",
     "tests/integration/test_reproduce_offline.py": "entregue na parte B da T14",
 }
+_SEM_NEGACAO = r"(?:(?!\bnao\b|\bnunca\b|\bjamais\b|\bsem\b)[^.;]){0,80}?"
+_AGENTE = (
+    r"\b(?:alteracao|alteracoes|mudanca|mudancas|ajuste|ajustes|correcao|correcoes|"
+    r"atualizacao|atualizacoes|operacao|operacoes)\b"
+)
+_EFEITO_ATIVO = (
+    r"\b(?:modifica|modificam|modificou|modificaram|altera|alteram|alterou|alteraram|"
+    r"muda|mudam|mudou|mudaram|reescreve|reescrevem|reescreveu|reescreveram|reabre|reabrem|"
+    r"reabriu|reabriram|corrige|corrigem|corrigiu|corrigiram|retifica|retificam|retificou|"
+    r"retroage|retroagem|retroagiu)\b"
+)
+_COMPETENCIA_ENCERRADA = r"\bcompetencias?\s+(?:ja\s+)?(?:encerrad|fechad)\w*"
+_EFEITO_PASSIVO = (
+    r"\b(?:e|sao|foi|foram|sera|serao)\s+"
+    r"(?:modificad|alterad|reescrit|reabert|corrigid|retificad)\w*"
+)
 PROIBIDAS = {
+    "altera competência encerrada": (
+        _AGENTE
+        + _SEM_NEGACAO
+        + _EFEITO_ATIVO
+        + r"[^.;]{0,60}?"
+        + _COMPETENCIA_ENCERRADA
+        + "|"
+        + _COMPETENCIA_ENCERRADA
+        + _SEM_NEGACAO
+        + _EFEITO_PASSIVO
+        + r"\s+(?:pela|pelas|por)\b"
+        + _SEM_NEGACAO
+        + _AGENTE
+    ),
     "garante aprovação": r"garant\w*\s+(?:a\s+|de\s+)?aprovacao|aprovacao\s+garantid[ao]s?",
     "assegura aprovação": r"assegur\w*\s+(?:a\s+|de\s+)?aprovacao",
     "perda financeira": r"perdas?\s+financeiras?",
@@ -419,10 +449,38 @@ def test_linguagem_proibida_e_detectada_com_acento_caixa_e_quebra_de_linha(frase
 @pytest.mark.parametrize(
     "frase",
     [
+        "A alteração atual modifica a competência encerrada.",
+        "A alteração feita hoje altera o resultado de competências já encerradas.",
+        "O ajuste no cadastro atual corrige a competência fechada.",
+        "As alterações atuais reescrevem competências encerradas.",
+        "A mudança no CNES reabriu a competência encerrada de 2019.",
+        "A operação modificou, retroativamente, a competência já encerrada.",
+        "A competência encerrada é modificada pela alteração atual.",
+        "Competências fechadas foram alteradas pela correção do cadastro.",
+        "A alteração\natual  MODIFICA a competência\nENCERRADA.",
+    ],
+)
+def test_afirmar_que_alteracao_atual_modifica_competencia_encerrada_e_detectado(
+    frase: str,
+) -> None:
+    assert termos_proibidos(frase) == ["altera competência encerrada"]
+
+
+@pytest.mark.parametrize(
+    "frase",
+    [
         "A explicação não atribui o motivo registrado pelo sistema oficial.",
         "Valor de tabela não aprovado não equivale a dinheiro perdido.",
         "Nenhum teste de software é confirmação empírica.",
         "A aprovação do registro continua dependendo do processamento.",
+        "Uma alteração atual não modifica a competência encerrada.",
+        "A alteração atual nunca altera competência já encerrada.",
+        "Não assegura que uma alteração atual modificaria uma competência encerrada.",
+        "Contrafactual lido como se modificasse uma competência encerrada não é evidência.",
+        "A alteração atual não pode modificar competência fechada.",
+        "A republicação da fonte modifica a competência encerrada no portal oficial.",
+        "A alteração atual modifica o cadastro; a competência encerrada fica como estava.",
+        "Competência encerrada: a alteração hipotética é hipótese passada.",
     ],
 )
 def test_redacao_alternativa_nao_e_confundida_com_linguagem_proibida(frase: str) -> None:

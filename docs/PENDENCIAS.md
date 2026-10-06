@@ -23,14 +23,14 @@ ou de decisão humana foi fechada. Nada aqui é resultado empírico.
 
 | Dono | Ações | Itens dos arquivos T*.md |
 |---|---|---|
-| Pesquisador | 11 | 70 |
-| Orientação | 8 | 29 |
+| Pesquisador | 12 | 73 |
+| Orientação | 9 | 37 |
 | Avaliadores | 3 | 3 |
-| Engenharia | 19 | 84 |
-| Fechadas | 2 | 22 |
-| Orquestrador (seção 5) | 25 linhas `ORQ` | fora dos arquivos T*.md |
+| Engenharia | 24 | 97 |
+| Fechadas | 3 | 36 |
+| Orquestrador (seção 5) | 38 linhas `ORQ` | fora dos arquivos T*.md |
 
-Total de itens dos arquivos T*.md: 208 em 13 arquivos.
+Total de itens dos arquivos T*.md: 246 em 14 arquivos.
 
 **Manutenção.** Quem registrar pendência nova em `docs/pendencias/TNN.md` avisa o orquestrador ou
 a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arquivo). O teste
@@ -182,10 +182,24 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
   nas wheels); T14-7 (esboço original PENDENTE: conferir os enunciados das alegações); T14-9
   (reprodução do congelamento real por um terceiro)
 - **Ferramenta pronta:** `tests/unit/test_licencas.py`, `tests/unit/test_redistribuicao.py`,
-  `docs/spec/manifest.yaml` e `sustemporal reproduce` (parte B).
+  `docs/spec/manifest.yaml` e `sustemporal reproduce` (só reproduz o exploratório).
 - **Runbook:** `docs/runbooks/reproducao.md` §5 e §8.
 - **Estado:** aberta (decisão humana)
 - **Nota:** A licença escolhida precisa caber na allowlist de licenças permissivas do runtime.
+
+### PQ-12 — Congelar, validar e avaliar no mesmo ambiente e na raiz do repositório
+
+- **Itens:** T11-15 (manifesto sem catalogo_regras_sha256 ou politicas_sha256: congelar de novo);
+  T11-22 (plataforma do Ambiente é informativa: sistema e arquitetura podem mudar resultados
+  numéricos); T11-23 (ambiente observado a partir do diretório de trabalho: congelar, validar e
+  avaliar sempre da raiz do repositório)
+- **Ferramenta pronta:** `sustemporal freeze` (registra `catalogo_regras_sha256` e
+  `politicas_sha256`), `ambiente` (`src/sustemporal/runtime_info.py`) e a observação
+  `pacotes_diferentes_do_congelado` do `reproduce`.
+- **Runbook:** `docs/runbooks/reproducao.md` §5.3 (comandos da raiz do clone) e §7.6.
+- **Estado:** aberta (rotina do pesquisador antes do G2)
+- **Nota:** Se a reprodução entre máquinas for requisito do teste, registrar família do sistema e
+  arquitetura em campos próprios do `Ambiente` e conferi-los (T11-22).
 
 ## 2. Orientação
 
@@ -271,9 +285,9 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
   (hiperparâmetros fixos, sem busca); T12-i3 (confirmar tamanho, estratos e faixa de volume no
   protocolo congelado)
 - **Ferramenta pronta:** `FEATURES_PADRAO` (`src/sustemporal/evaluation/features.py`),
-  `config/splits.yaml`, `sustemporal freeze` (o manipulador entra com o PR #29) e
+  `config/splits.yaml`, `sustemporal freeze` e
   `docs/method/annotation.md`.
-- **Runbook:** `docs/runbooks/reproducao.md` §4.4 (portões e freeze) e §7.9.
+- **Runbook:** `docs/runbooks/reproducao.md` §4.4 e §4.5 (portões e freeze) e §7.9.
 - **Estado:** aberta (decisão humana antes do G2)
 - **Nota:** Congelar população, rótulos, políticas, catálogo, atributos, métricas, sementes e
   artefatos antes do teste.
@@ -288,6 +302,23 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 - **Nota:** O estado de uma alegação só muda por PR de humano com a decisão da alegação em
   `experiments/decisions/alegacoes/<AAAA-MM-DD>.yaml` (regra 2 de `docs/method/claims.md`) e, em
   CONFIRMADA e NAO_CONFIRMADA, a decisão de cada portão.
+
+### OR-09 — Protocolo do teste (G2): estatística, margens, dimensionamento e populações-alvo
+
+- **Itens:** T11-1 (correção por multiplicidade A_DEFINIR em config/splits.yaml); T11-2 (margens de
+  relevância prática não definidas); T11-3 (dimensionamento do estudo); T11-4 (G2 e teste
+  confirmatório: nenhum resultado confirmatório existe); T11-5 (bootstrap: 2000 reamostragens,
+  semente 2027 e as duas populações-alvo); T11-7 (domínio comum avaliável); T11-17 (lista exata
+  das políticas do protocolo); T11-18 (corrige só aceita alvo do mesmo freeze_id)
+- **Ferramenta pronta:** `sustemporal freeze` e `sustemporal evaluate --freeze FREEZE_ID`
+  (`src/sustemporal/evaluation/cli.py`), `config/splits.yaml` (`Protocolo`) e
+  `experiments/decisions/MODELO_G0.yaml` (G2 é registro humano no mesmo diretório).
+- **Runbook:** `docs/runbooks/reproducao.md` §4.5 (congelamento e avaliação exploratórios sobre o
+  mundo sintético) e §7.6.
+- **Estado:** aberta (decisão humana antes do G2)
+- **Nota:** Fixar HOLM, BONFERRONI ou SEM_TESTE_FORMAL, as margens e o domínio comum sem olhar
+  resultados do teste, e congelá-los antes do G2. A rodada confirmatória é única e exige dados
+  REAIS, `freeze` compatível e o G2 que a libere.
 
 ## 3. Avaliadores
 
@@ -335,9 +366,12 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 
 ### EN-02 — Âncora de integridade dos registros append-only
 
-- **Itens:** T02-5 (âncora do manifesto ao lado dele: apagar os dois não é detectado)
+- **Itens:** T02-5 (âncora do manifesto ao lado dele: apagar os dois não é detectado); T11-11
+  (o registro de rodadas do congelamento não detecta truncamento do sufixo); T11-30 (arquivo de
+  trava do registro fora do .gitignore e leitura sem a trava)
 - **Ferramenta pronta:** `EstadoManifesto.cabeca_sha256`
-  (`src/sustemporal/acquisition/manifest.py`).
+  (`src/sustemporal/acquisition/manifest.py`) e `ler_registro`
+  (`src/sustemporal/evaluation/freeze_registro.py`).
 - **Runbook:** —
 - **Estado:** aberta (T14 e execução)
 - **Nota:** Registrar a cabeça no `RunResult` ou no congelamento; ver também ORQ-10.
@@ -465,8 +499,7 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 - **Itens:** T08-i4 (atividades de aquisição e transformação no PROV sem instantes); T08-i5
   (registro com código fora do padrão recusa a explicação); T08-i8 (integração com a seleção em
   lote); T08-i9 (reexecução de evidências por query_id, allowlist); T08-i10 (T09 consome
-  ExplanationBundle); T08-i13 (ElementosProv incoerente em chamada direta, P2 do #24); T09-i10
-  (explain deixa escapar UnicodeDecodeError de run_result.json não UTF-8)
+  ExplanationBundle); T08-i13 (ElementosProv incoerente em chamada direta, P2 do #24)
 - **Ferramenta pronta:** `src/sustemporal/explanation/explain.py`, `evidence.py` e `prov.py`.
 - **Runbook:** —
 - **Estado:** aberta (T08-i13) e registrada
@@ -475,29 +508,34 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 
 ### EN-13 — Contrafactuais (T09)
 
-- **Itens:** T09-i8 (validate --ingest não grava o CNES ST: busca sai SEM_OPERACAO_ADMISSIVEL);
+- **Itens:** T07-i20 (CNES ST no contexto do validate --ingest: duas escolhas conservadoras);
   T09-i9 (identidade do resultado inclui o mês do relógio, as-of); T09-i11 (operações dependem do
   CNES ST da competência); T09-i13 (revalidação restrita ao conjunto SIA-PA do contexto); T09-i14
   (competência aberta sem instante de observação); T09-i16 (search_counterfactuals sem contexto
   resolve os insumos; falta o instante da competência aberta)
 - **Ferramenta pronta:** `src/sustemporal/explanation/counterfactual.py`,
   `counterfactual_contexto.py` e a CLI `sustemporal counterfactual`
-  (`src/sustemporal/explanation/counterfactual_cli.py`).
+  (`src/sustemporal/explanation/counterfactual_cli.py`); `CADASTROS_DO_CONTEXTO`
+  (`src/sustemporal/rules/ingest_cadastros.py`).
 - **Runbook:** —
-- **Estado:** aberta (T09-i8 é decisão do dono do `validate --ingest`)
-- **Nota:** Sem o CNES ST da competência, inclusão e reclassificação ficam inadmissíveis. Ver
-  ORQ-04, ORQ-23 e ORQ-24.
+- **Estado:** aberta (CNES ST multipartes: ORQ-27)
+- **Nota:** Sem o CNES ST da competência no contexto, inclusão e reclassificação ficam
+  inadmissíveis. O `validate --ingest` o grava desde o #34 quando o registro temporal e o corte o
+  confirmam (T09-i8, fechado). Ver ORQ-04, ORQ-27 e ORQ-30.
 
 ### EN-14 — Coortes, classificador e congelamento (T10 e T11)
 
 - **Itens:** T10-3 (fonte_por_artefato ainda não derivado do manifesto); T10-7 (aprovação parcial e
-  DESCONHECIDO fora do ajuste); T10-8 (fit_baseline em CONFIRMATORIO recusado até o freeze
-  verificado)
+  DESCONHECIDO fora do ajuste)
 - **Ferramenta pronta:** `build_splits` (`src/sustemporal/evaluation/split.py`) e `fit_baseline`
   (`src/sustemporal/evaluation/baselines.py`).
 - **Runbook:** —
-- **Estado:** aberta (depende do PR #29)
-- **Nota:** `fit_baseline` em CONFIRMATORIO segue recusado até o `freeze` verificado.
+- **Estado:** aberta
+- **Nota:** Desde o #29, `fit_baseline` em CONFIRMATORIO carrega o `FreezeManifest` do `freeze_id` e o
+  confere antes de abrir qualquer arquivo (T10-8, fechado). `reproduce_etapas.derivar_protocolo`
+  deriva o mapa `fonte_por_artefato` do manifesto de aquisição (fonte, UF, competência do arquivo e
+  parte) para o fluxo pequeno e para o `reproduce`; a derivação na integração em lote (T10-3) segue
+  aberta.
 
 ### EN-15 — Vigilância: comparação linha a linha das demais famílias
 
@@ -512,45 +550,110 @@ a S9 para refazer esta consolidação (só a S9 e o orquestrador editam este arq
 - **Itens:** T13-b5 (etapas de contrafactuais e métricas NAO_MEDIDO no harness)
 - **Ferramenta pronta:** `src/sustemporal/evaluation/performance.py` (`etapa_pendente`).
 - **Runbook:** —
-- **Estado:** aberta (depende do PR #29)
-- **Nota:** Montar as etapas de `search_counterfactuals` e `evaluate_runs` quando entrarem.
+- **Estado:** aberta
+- **Nota:** Montar as etapas de `search_counterfactuals` e `evaluate_runs`, já em `main`.
 
 ### EN-17 — Anotação: integrações com o congelamento e o motor
 
 - **Itens:** T12-i5 (prepare_annotation_sample usa split.particoes); T12-i6 (adaptador de
-  avaliacoes.v1 para row_id e famílias do motor)
-- **Ferramenta pronta:** `src/sustemporal/evaluation/annotation.py` e `annotation_cli.py`.
+  avaliacoes.v1 para row_id e famílias do motor); T11-6 (causa fora de escopo vem de causas=,
+  referência da anotação humana)
+- **Ferramenta pronta:** `src/sustemporal/evaluation/annotation.py` e `annotation_cli.py`;
+  `evaluate_runs` (`causas=`, `src/sustemporal/evaluation/metrics.py`).
 - **Runbook:** —
 - **Estado:** aberta
 - **Nota:** A comparação recebe `row_id` e famílias do motor só depois da referência FECHADA.
 
 ### EN-18 — Parte B e entrega da T14
 
-- **Itens:** T14-1 (parte B: reproduce e executar_reproduce); T14-2 (parte B: teste ponta a ponta
-  offline pela CLI); T14-3 (parte B: atualizar runbook e claims e reconsolidar pendências); T14-4
-  (README final do projeto); T14-10 (pacote de exemplos e relatório final); T14-12 (caminhos
-  absolutos em DatasetRef e saída da reprodução em out novo); T08-i6 (DatasetRef.caminho absoluto:
-  explicação depende dos mesmos caminhos)
-- **Ferramenta pronta:** `src/sustemporal/reporting/reproduce.py` (`reproduce`, hoje
-  `NotImplementedError`) e `sustemporal reproduce --freeze FREEZE_ID --offline`.
-- **Runbook:** `docs/runbooks/reproducao.md` §4.4 e §5.
-- **Estado:** parte B (depende do PR #29)
-- **Nota:** Resolver os artefatos pelo `freeze_id`, comparar hashes lógicos e gravar em `out` novo.
+- **Itens:** T14-4 (README final do projeto); T14-10 (pacote de exemplos e relatório final);
+  T14-12 (caminhos absolutos em DatasetRef e saída da reprodução em out novo); T14-13 (o reproduce
+  só reproduz o exploratório); T08-i6 (DatasetRef.caminho absoluto: explicação depende dos mesmos
+  caminhos)
+- **Ferramenta pronta:** `sustemporal reproduce --freeze FREEZE_ID --offline`
+  (`src/sustemporal/reporting/reproduce.py`, com `reproduce_comparacao.py`, `reproduce_etapas.py` e
+  `reproduce_rede.py`) e o `reproducao.json` que ele grava.
+- **Runbook:** `docs/runbooks/reproducao.md` §4.5 e §5.
+- **Estado:** aberta (README e relatório final; confirmatório e caminhos relativos)
+- **Nota:** O `reproduce` resolve o manifesto pelo `freeze_id`, compara por hash lógico sem o
+  `run_id`, grava em `out` novo e recusa o confirmatório (ver PQ-11 e a alegação AL-22).
 
 ### EN-19 — Identidade das execuções: run_id e versão do código
 
-- **Itens:** T14-11 (decisão: run_id do validate e a versão do código)
+- **Itens:** T14-11 (decisão: run_id do validate e a versão do código); T07-i21 (o run_id do
+  --ingest depende dos caminhos da config)
 - **Ferramenta pronta:** `evaluate_rules` (`src/sustemporal/rules/engine.py`), que compara o
   `codigo` do `run_result.json` existente com `versao_codigo` (`src/sustemporal/runtime_info.py`).
 - **Runbook:** —
 - **Estado:** fechada (opção (b): o motor recusa regravar `out/<run_id>` com outro código; PR #36)
 - **Nota:** Ver ORQ-05 e `docs/pendencias/T14.md` item 11; o método está em
-  `docs/method/model.md` §7 ("Execução imutável").
+  `docs/method/model.md` §7 ("Execução imutável"). O `reproduce` compara as saídas sem a
+  coluna `run_id` (ORQ-29).
+
+### EN-20 — Conferência das execuções e da cobertura no `evaluate` (T11)
+
+- **Itens:** T11-24 (cobertura dos resultados: extras sem conferir a partição); T11-25
+  (`evaluate --exploratory` escolhe execuções pelo config_hash e não aceita --runs); T11-28
+  (entrada_validacao.json ligada ao RunResult só por SnapshotSet e conjuntos não populacionais);
+  T11-29 (execucao_ambigua recusa a avaliação inteira)
+- **Ferramenta pronta:** `evaluate_runs` (`src/sustemporal/evaluation/metrics.py`) e
+  `sustemporal evaluate` (`src/sustemporal/evaluation/cli.py`).
+- **Runbook:** `docs/runbooks/reproducao.md` §4.5 e §6.
+- **Estado:** aberta
+- **Nota:** O exploratório registra as contagens nas notas e ignora a execução ilegível; o
+  confirmatório recusa. Decisões do S5 e do orquestrador (donos de `evaluation/`).
+
+### EN-21 — Relatório, split e retomada do `evaluate` (T11)
+
+- **Itens:** T11-19 (retomada após falha entre gravar o relatório e registrar a rodada); T11-20
+  (estratos por estabelecimento: relatório grande e razões instáveis); T11-21 (split_id sem
+  validação de conteúdo)
+- **Ferramenta pronta:** `sustemporal evaluate`, `EvaluationReport.tabelas` e `SplitManifest`
+  (`src/sustemporal/contracts/experiment.py`).
+- **Runbook:** `docs/runbooks/reproducao.md` §7.8 (escala).
+- **Estado:** aberta
+- **Nota:** Ver ORQ-15 e ORQ-22. O `reproduce` compara o `split_id` refeito com o congelado.
+
+### EN-22 — Preparo do protocolo e catálogos congelados (T11 e T14)
+
+- **Itens:** T11-8 (convenção de entradas da CLI e lista completa de catálogos congelados); T11-27
+  (insumos congelados preparados à mão, sem comando); T14-14 (nenhum comando prepara união,
+  rótulos, partições e insumos); T14-16 (o manifesto guarda só a identidade dos insumos, não os
+  artefatos dos auxiliares)
+- **Ferramenta pronta:** `src/sustemporal/reporting/reproduce_etapas.py` (`janela_do_ingest`,
+  `derivar_protocolo` e `validar_janela`) e `build_splits` (`src/sustemporal/evaluation/split.py`).
+- **Runbook:** `docs/runbooks/reproducao.md` §4.5 e §6 ("Entradas do `freeze` e do `evaluate`").
+- **Estado:** aberta (decisão do orquestrador: `src/sustemporal/cli.py` é dele)
+- **Nota:** As etapas valem para o fluxo pequeno e para o `reproduce`; com dados reais falta o
+  comando e a conferência dos insumos contra o registro temporal e o corte congelados. O
+  `reproduce` lê os artefatos dos auxiliares da entrada original em `split/insumos`; congelá-los
+  no manifesto tira essa dependência (T14-16).
+
+### EN-23 — Ablações sobre o `evaluate_runs` (T11 e T13)
+
+- **Itens:** T11-9 (ablações de CNES ou SIGTAP ficam fora do PR do T11)
+- **Ferramenta pronta:** `evaluate_runs` e `src/sustemporal/evaluation/ablation.py`.
+- **Runbook:** —
+- **Estado:** aberta
+- **Nota:** Reusar `evaluate_runs` com as execuções de ablação (S8, T13).
+
+### EN-24 — Padrões relativos ao diretório de trabalho
+
+- **Itens:** T14-15 (padrões relativos ao cwd: selecao_versoes.yaml, config/splits.yaml,
+  experiments/decisions e config/runtime.yaml)
+- **Ferramenta pronta:** `temporal/lote.py`, `evaluation/split.py`, `gates.py` e `cli.py` (em
+  `src/sustemporal/`); o teste `tests/integration/test_reproduce_offline.py` roda de um diretório
+  com cópias de `catalog/` e `config/`.
+- **Runbook:** `docs/runbooks/reproducao.md` §5.3.
+- **Estado:** aberta (donos dos módulos e orquestrador)
+- **Nota:** Resolver a partir do pacote ou de um campo do `RunConfig`.
 
 ## 5. Pendências de engenharia registradas pelo orquestrador
 
-Itens da nota do orquestrador para a S9, todos abertos, salvo o ORQ-02 (esquemas promovidos no
-PR #35) e o ORQ-05 (execução imutável, PR #36). Cada linha traz a tarefa, o PR de origem, a
+Itens da nota do orquestrador para a S9, todos abertos, salvo ORQ-02 (esquemas promovidos no PR
+#35), ORQ-05 (execução imutável, PR #36), ORQ-21, ORQ-23 e ORQ-25 (resolvidos no #34), ORQ-24
+(resolvido em parte no #34; o resto é o ORQ-27), ORQ-28 (resolvido no #29), ORQ-26, ORQ-29 e ORQ-31
+(tratados na parte B da T14) e ORQ-30 (escolha aceita). Cada linha traz a tarefa, o PR de origem, a
 ferramenta pronta e o passo do runbook (`—` quando não há passo: é mudança de código). Os números
 de comentário e de P2 são os do GitHub nos PRs indicados.
 
@@ -576,11 +679,24 @@ de comentário e de P2 são os do GitHub nos PRs indicados.
 | ORQ-18 | T05 | #31 (P2 4180502312) | O `report_id` deve vir dos ids das tabelas publicadas, ou incluir o hash do mapa de observações e do conteúdo do arquivo de território. | `build_pilot_report` (`src/sustemporal/reporting/report.py`) | — |
 | ORQ-19 | T05 | #31 | `build_pilot_report` chamada como biblioteca sem `chaves` não detecta versões concorrentes. A CLI sempre passa `chaves`. | `sustemporal pilot-report` (a CLI passa `chaves`) | `docs/runbooks/piloto_local.md` §3 |
 | ORQ-20 | T07 | #27 (P2 4180512815) | Normalizar as colunas anuláveis ausentes (`instrumento`, `competencia_atendimento`) antes do recálculo da cobertura no `validate --ingest`, ou conferir antes de `_gravar`. Hoje o resultado são saídas parciais. | `src/sustemporal/rules/validate_ingest.py` e `src/sustemporal/rules/ingest_conformidade.py` | — |
-| ORQ-21 | T07/T11 | #27 e #29 (integração; a nota não cita um PR) | O `validate` grava por padrão em `<raiz_saidas>/validacao` (modo `--entrada`; o modo `--ingest` já grava em `<raiz_saidas>/runs`), e o `evaluate` procura execuções em `<raiz_saidas>/runs`. Hoje é preciso rodar `validate --saida <raiz_saidas>/runs`. Alinhar os destinos (PR do orquestrador) ou documentar no runbook (S9): documentado em `docs/runbooks/reproducao.md` §6; o alinhamento no código segue aberto. | `validate --saida` (`src/sustemporal/rules/cli.py`) | `docs/runbooks/reproducao.md` §6 |
+| ORQ-21 | T07/T11 | #27 e #29 (integração; a nota não cita um PR) | **Resolvida no #34**: o `validate` grava em `<raiz_saidas>/runs` nos dois modos (`--saida` desvia a gravação) e o `explain` e o `counterfactual` leem só ali, pelo leitor comum. A troca no `evaluate` (`raiz_execucoes(config)`) entrou com o #29 (ORQ-28). Texto original: o `validate` gravava por padrão em `<raiz_saidas>/validacao` (modo `--entrada`) e o `evaluate` procura execuções em `<raiz_saidas>/runs`. | `raiz_execucoes` (`src/sustemporal/execucoes.py`) e `validate --saida` (`src/sustemporal/rules/cli.py`) | `docs/runbooks/reproducao.md` §6 |
 | ORQ-22 | T11 | #29 | Pendências #20 (relatório grande e razões instáveis com muitos estabelecimentos no teste de escala de SP; sem intervalo por estrato) e #21 (`split_id` sem validação de conteúdo no contrato `SplitManifest`). | `evaluate_runs` (`src/sustemporal/evaluation/metrics.py`, T11 no PR #29) e `SplitManifest` (`src/sustemporal/contracts/experiment.py`) | `docs/runbooks/reproducao.md` §7.8 (escala) |
-| ORQ-23 | T09 | #28 (P2 4182986818) | O `counterfactual` procura execuções só em `<raiz_saidas>/runs` e `<raiz_saidas>/validacao`, e não acha as gravadas com `validate --saida <dir>`. Tratar junto com o alinhamento dos destinos do `validate` e do `evaluate` (ORQ-21). | `validate --saida` (`src/sustemporal/rules/cli.py`) e `execucao_legivel` (`src/sustemporal/explanation/counterfactual_contexto.py`) | `docs/runbooks/reproducao.md` §6 |
-| ORQ-24 | T07/T09 | #28 | O `validate --ingest` não grava o CNES ST no contexto da execução (`preparar_insumos_ingest` repassa só os auxiliares que as regras exigem). Por isso a busca contrafactual sobre execuções `--ingest` sai vazia (`SEM_OPERACAO_ADMISSIVEL`). A decisão é de S4 e do orquestrador; o registro está em `docs/pendencias/T09.md` (T09-i8). | `preparar_insumos_ingest` (`src/sustemporal/rules/ingest.py`) e `entrada_validacao.json` | `docs/runbooks/reproducao.md` §4.4 |
-| ORQ-25 | T08 | #28 | `explanation/cli.py::localizar_execucao` deixa escapar `UnicodeDecodeError` com `run_result.json` não UTF-8. Corrigir no PR de integração (helper comum de `explain` e `counterfactual`). | `localizar_execucao` (`src/sustemporal/explanation/cli.py`) e `execucao_legivel` (`src/sustemporal/explanation/counterfactual_contexto.py`), que recusa com saída 2 | — |
+| ORQ-23 | T09 | #28 (P2 4182986818) | **Resolvida no #34**: o `counterfactual` lê pelo leitor comum e só procura em `<raiz_saidas>/runs`; uma execução gravada com `validate --saida <dir>` não é achada, por desenho (documentado no runbook). Texto original: o `counterfactual` procurava execuções só em `<raiz_saidas>/runs` e `<raiz_saidas>/validacao` e não achava as gravadas com `--saida`. | `ler_execucao` (`src/sustemporal/execucoes.py`) | `docs/runbooks/reproducao.md` §6 |
+| ORQ-24 | T07/T09 | #28 | **Resolvida em parte no #34**: o `validate --ingest` grava o CNES ST no contexto da execução quando o registro temporal e o corte de observação o confirmam (`CADASTROS_DO_CONTEXTO`); sem ele a busca segue `SEM_OPERACAO_ADMISSIVEL`. O CNES ST multipartes completo resta (ORQ-27). Texto original: o `validate --ingest` não gravava o CNES ST no contexto e a busca contrafactual sobre execuções `--ingest` saía vazia. | `CADASTROS_DO_CONTEXTO` (`src/sustemporal/rules/ingest_cadastros.py`) e `entrada_validacao.json` | `docs/runbooks/reproducao.md` §4.4 |
+| ORQ-25 | T08 | #28 | **Resolvida no #34**: `explain` e `counterfactual` leem pelo leitor comum, e um `run_result.json` que não é UTF-8 sai com 2 nos dois. Texto original: `explanation/cli.py::localizar_execucao` deixava escapar `UnicodeDecodeError`. | `ler_execucao` (`src/sustemporal/execucoes.py`) | — |
+| ORQ-26 | T14 | #33 (P2 4183881393) | **Feita na parte B**: `PROIBIDAS` ganha a chave `altera competência encerrada`, com casos de afirmação e de redação alternativa como regressão (P2 4183881393 do #33). | `PROIBIDAS` (`tests/unit/test_alegacoes.py`) e `docs/method/claims.md` | `docs/runbooks/reproducao.md` §3 |
+| ORQ-27 | T09 | #34 (P2 4184603142) | CNES ST multipartes completo no contexto: `_artefato` exige candidato único, então as operações dependentes do CNES saem inadmissíveis com um CNES ST em várias partes. Tratar a seleção completa como uma versão lógica editável. | `_artefato` (`src/sustemporal/explanation/counterfactual_sobreposicao.py`) e `CADASTROS_DO_CONTEXTO` (`src/sustemporal/rules/ingest_cadastros.py`) | — |
+| ORQ-28 | Integração | #34 (PR final do orquestrador) | **Resolvida no #29**: `executar_evaluate` procura as execuções em `raiz_execucoes(config)`. Texto original: depois do merge do #29, trocar `raiz / "runs"` em `evaluation/cli.py::executar_evaluate` por `raiz_execucoes(config)`. | `raiz_execucoes` (`src/sustemporal/execucoes.py`) e `executar_evaluate` (`src/sustemporal/evaluation/cli.py`) | `docs/runbooks/reproducao.md` §6 |
+| ORQ-29 | T07/T14 | #34 | O `run_id` do `--ingest` depende dos caminhos da config (`piloto.territorio`, `catalogos`), o que afeta a comparação entre ambientes no `reproduce`. **Tratada na parte B**: o `reproduce` compara por hash lógico, contagens e métricas e não usa o `run_id` (as saídas se comparam sem essa coluna). A identidade do `run_id` segue em ORQ-05 e T07-i21. | `comparar_saida` (`src/sustemporal/reporting/reproduce_comparacao.py`) | `docs/runbooks/reproducao.md` §5.2 |
+| ORQ-30 | T07 | #34 | Escolhas conservadoras aceitas pelo orquestrador: o cadastro do contexto só entra com a seleção SELECIONADA, conferido por competência (duas versões do CNES ST da mesma competência tiram a competência do contexto), e o motivo do cadastro ignorado vai só para o log (`cadastro_do_contexto_ignorado`). | `CADASTROS_DO_CONTEXTO` (`src/sustemporal/rules/ingest_cadastros.py`) | — |
+| ORQ-31 | T14 | #34 (a nota não cita o número; vem das mudanças de T07, T08 e T09) | **Feita na parte B**: reconsolidar T07, T08 e T09 em `docs/PENDENCIAS.md` (o teste avisa `pendencia_nao_reconsolidada`); a base inclui agora T10, T11 e T14 atualizados. | `tests/unit/test_pendencias.py` | `docs/runbooks/reproducao.md` §3 |
+| ORQ-32 | Catálogo | #35 | `SCHEMA_PREDICOES` (`evaluation/baselines.py`, S5) segue como constante em código; o YAML em `catalog/schemas/` tem a mesma estrutura, conferida por teste. Trocar a constante por `carregar_esquema` (EN-07, parcial). | `carregar_esquema` (`src/sustemporal/rules/catalog.py`) e `SCHEMA_PREDICOES` (`src/sustemporal/evaluation/baselines.py`) | — |
+| ORQ-33 | T07/T05 | #27 e #31 (a nota não cita o número) | O `validate --ingest` ainda constrói o registro temporal do manifesto atual, e não do `manifesto_lido.json` da ingestão; hoje o descompasso só leva a recusa, nunca a resultado errado. Alinhar ao `pilot-report` (ver ORQ-03). | `manifesto_lido.json` gravado pelo `ingest` e `src/sustemporal/rules/validate_ingest.py` | `docs/runbooks/piloto_local.md` §3 |
+| ORQ-34 | T11 | #29 (P2 4188421498) | Pasta de execução com `run.json` e `run_result.json` é tratada como ilegível em `_execucoes`; hoje aborta o `evaluate` inteiro. | `_arquivo_da_execucao` e `_execucoes` (`src/sustemporal/evaluation/cli.py`) | — |
+| ORQ-35 | T11 | #29 (P2 4188421514) | A seleção exploratória deve exigir a população de CALIBRACAO, não a união dos hashes congelados. | `_do_protocolo` e `_runs` (`src/sustemporal/evaluation/cli.py`) e `entradas_do_congelamento` (`src/sustemporal/evaluation/freeze_conferencia.py`) | — |
+| ORQ-36 | T11 | #29 (ressalvas do agente) | A `entrada_validacao.json` fica ligada ao `RunResult` só em parte, e o `run_id` não é recalculado (T11 #28). A leitura do registro não toma a trava (T11 #30). A trava `fcntl` só funciona em Linux e macOS. | `src/sustemporal/evaluation/freeze_conferencia.py` e `arquivo_de_trava` (`src/sustemporal/evaluation/freeze_registro.py`) | — |
+| ORQ-37 | Integração | #36 (P2 4189335331) | Com `--saida` dentro do checkout e fora de pasta ignorada, a segunda execução igual vê o próprio resultado anterior como árvore suja e é recusada. Excluir a árvore de saída do `versao_codigo`, ou recusar esse destino com mensagem clara. | `versao_codigo` (`src/sustemporal/runtime_info.py`) e `_exigir_execucao_imutavel` (`src/sustemporal/rules/engine.py`) | `docs/runbooks/reproducao.md` §6 |
+| ORQ-38 | T13b | #25 (o harness; o T09 no #28 e o T11 no #29 já estão no main) | No harness de desempenho, `ETAPAS_PENDENTES` ainda marca `metricas` como `T11_evaluate_runs_fora_do_main` e `contrafactuais` como `T09_etapa_nao_montada_no_harness`. Montar as duas etapas no harness ou, no mínimo, corrigir o motivo: a etapa existe no main e só não foi montada no harness. O arquivo é da S8. | `ETAPAS_PENDENTES` (`src/sustemporal/evaluation/performance.py`) e `evaluate_runs` (`src/sustemporal/evaluation/metrics.py`) | — |
 
 ## 6. Fechadas, aceitas ou resolvidas (histórico)
 
@@ -595,10 +711,17 @@ de comentário e de P2 são os do GitHub nos PRs indicados.
   (INTERROMPIDO com bytes não cai em AUSENTE, fechada); T07-i10 (validate --ingest lê a pasta do
   ingest, resolvido); T08-i11 (OSError ao publicar falha.json, resolvido); T08-i12 (registro fora do
   sia_pa.v1 recusado, resolvido); T09-i7 (CLI do counterfactual lê entrada_validacao.json, resolvido
-  no #27 e testado no #28); T09-i17 (precondição fora das admitidas pelo op_id é recusada, resolvido
+  no #27 e testado no #28); T09-i8 (validate --ingest grava o CNES ST no contexto quando o registro
+  e o corte o confirmam, resolvido no #34); T09-i10 (explain e counterfactual leem pelo leitor
+  comum, resolvido no #34); T09-i17 (precondição fora das admitidas pelo op_id é recusada, resolvido
   no PR2); T12-i7 (rótulos que não cobrem a partição, resolvido); T13-5 (comparação que não
   normaliza vira INCONCLUSIVO, fechada); T13-8 (listagem ilegível e revisão só em deletadas,
-  fechada); T13-b3 (rótulo contraditório no denominador da P3, fechada)
+  fechada); T13-b3 (rótulo contraditório no denominador da P3, fechada); T10-8 (fit_baseline em CONFIRMATORIO confere o FreezeManifest, fechada no PR2 do
+  T11); T10-9 (coorte esparsa com partições vazias, fechada); T10-10 (coluna de origem repetida
+  recusada, fechada); T11-10 (evaluate aceita --corrige e --declaracao, fechada); T11-12 (resultado
+  duplicado do mesmo row_id, fechada); T11-13 (política resolvida na entrada_validacao.json,
+  fechada); T11-14 (insumos das execuções de regras no manifesto, fechada); T11-16 (bootstrap do
+  manifesto no confirmatório, fechada); T11-26 (integridade na entrada congelada, fechada)
 - **Ferramenta pronta:** os testes dos PRs citados em cada arquivo de `docs/pendencias/`.
 - **Runbook:** —
 - **Estado:** fechada
@@ -614,6 +737,15 @@ de comentário e de P2 são os do GitHub nos PRs indicados.
 - **Estado:** aceita ou integrada
 - **Nota:** A guarda do Bash protege contra acidente; o `pre-push` é a segunda camada.
 
+### FE-03 — Entregas da parte B da T14
+
+- **Itens:** T14-1 (reproduce e executar_reproduce); T14-2 (teste ponta a ponta offline pela CLI);
+  T14-3 (runbook, claims e reconsolidação das pendências)
+- **Ferramenta pronta:** `sustemporal reproduce` e `tests/integration/test_reproduce_offline.py`.
+- **Runbook:** `docs/runbooks/reproducao.md` §4.5 e §5.
+- **Estado:** fechada
+- **Nota:** O que a parte B deixou aberto está em EN-18, EN-22 e EN-24.
+
 ## Base da consolidação
 
 Itens e SHA-256 de cada arquivo de `docs/pendencias/` na data da consolidação. Enquanto o arquivo
@@ -627,10 +759,11 @@ for o mesmo, o teste exige que os itens dele sejam exatamente estes.
 | T04 | 1-41 | 41 | 4f8f5c22697aebf8353393237c39c5937cd45b92ea05b00fc30a8abe0f59cf08 |
 | T05 | 1-20 | 20 | 7644b9cbf2147643a7b670bbbdb2f99b50f5abc0696aa73595867b81aa11423d |
 | T06 | 1-11 | 11 | a2455e84a8448014a82fb5f3d590841666ec9cce32dbcc9c2be4552f079ac507 |
-| T07 | i1-i19 | 19 | 8c9bb346bc6c877e15dc850ea73109b27d7af6a8bf0268b14fb7b28d3245c2d9 |
-| T08 | i1-i13 | 13 | 88fa2192a6c047937a3203ff2b294f3d98447aedcdb1151323cd0e22b3cf7d66 |
-| T09 | i1-i18 | 18 | f9f98534d42eedd29fcb7fc27d0c64352b4b1c873298746c2ffecaff5a827e3d |
-| T10 | 1-8 | 8 | cea4697cfa0ff9560eaa99dff1d0540e7a301fdbf0529d728ccd7c832a50fdb5 |
+| T07 | i1-i21 | 21 | 05f05372f5129f16540a00076f07c38748c700f5e165c93c3787adfc5b0d3b5e |
+| T08 | i1-i13 | 13 | 99e9ab502bd9e767bcd3163b954dd7fd7bf86a03bfa1bae7d7bd9a888d245af3 |
+| T09 | i1-i18 | 18 | 5c1cd767168e80543a75299aee2349ae0076f0a3056f099fe430ac8ea767c7a6 |
+| T10 | 1-10 | 10 | 7a8463fc7a1040d43b621c45f97bdb4fb2c2502979d33532807fbc53c49abbf4 |
+| T11 | 1-30 | 30 | b12f79f362d973e24a411a6726e201c5a5d6c06627dac5dd10bbabe96a3fd00a |
 | T12 | i1-i7 | 7 | f6454780722eb379be317e9853861ef3bbf5ca3f8889802fcfa48f35ada1543c |
 | T13 | 1-6, 8, b1-b5 | 12 | 73d222a03774e97c9698daad4678de33e52906d918061b7b3ba751f12fd0ba15 |
-| T14 | 1-12 | 12 | f4d208f98623e9be0abbb46d79239edb9ca2b43476fd355c5feb9e234c255a1f |
+| T14 | 1-16 | 16 | 145fa8c52e85c4042389abeb3ec8a0c1418fedb80e5618224941b1e74f83d99a |

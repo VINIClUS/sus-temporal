@@ -24,6 +24,7 @@ __all__ = [
     "COMPARACOES",
     "Conferencia",
     "Conferido",
+    "Dano",
     "Fonte",
     "Tratamento",
 ]
@@ -48,6 +49,14 @@ class Conferencia(StrEnum):
     INDIRETA = "INDIRETA"
     RECUSA = "RECUSA"
     NENHUMA = "NENHUMA"
+
+
+class Dano(StrEnum):
+    """O que se faz a um arquivo que a cadeia abre para ele não abrir."""
+
+    DIRETORIO = "DIRETORIO"
+    PERMISSAO = "PERMISSAO"
+    BYTES = "BYTES"
 
 
 @dataclass(frozen=True)

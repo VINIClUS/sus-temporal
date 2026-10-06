@@ -193,7 +193,7 @@ def _buscar(
     contexto = replace(contexto_da_execucao(execucoes, run_id, config), relogio=relogio)
     resultado = search_counterfactuals(
         bundle, config, contexto=contexto, operacoes=catalogo.operacoes
-    )
+    ).model_copy(update={"origem_dados": run.origem_dados})
     identidade = json.dumps(catalogo.identidade, ensure_ascii=False, indent=2, sort_keys=True)
     return {
         ARQUIVO_RESULTADO: resultado.model_dump_json(indent=2).encode("utf-8"),

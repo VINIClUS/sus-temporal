@@ -17,6 +17,7 @@ from sustemporal.contracts.base import (
     Identificador,
     Inteiro,
     InteiroNaoNegativo,
+    OrigemDados,
     Proveniencia,
 )
 from sustemporal.contracts.records import SchemaId
@@ -175,6 +176,7 @@ class CounterfactualSearchResult(ContratoBase):
     custo_max_explorado_completo: InteiroNaoNegativo
     motivo_parada: MotivoParada
     aprovacao_garantida: Falso = False
+    origem_dados: OrigemDados | None = None
 
     @model_validator(mode="after")
     def _coerencia(self) -> CounterfactualSearchResult:

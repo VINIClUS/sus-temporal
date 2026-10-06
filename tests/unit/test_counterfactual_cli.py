@@ -15,7 +15,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
-from sustemporal.contracts.base import hash_canonico
+from sustemporal.contracts.base import OrigemDados, hash_canonico
 from sustemporal.contracts.counterfactual import CounterfactualSearchResult, Executabilidade
 from sustemporal.contracts.experiment import EstadoExecucao, RunResult
 from sustemporal.execucoes import ler_execucao, raiz_execucoes
@@ -92,6 +92,14 @@ def test_ausencia_pela_cli_publica_hipotese_sem_aprovacao(execucao: Execucao) ->
     assert resultado.aprovacao_garantida is False
     bruto = json.loads((_destino(execucao, execucao.ausencia) / "contrafactual.json").read_text())
     assert bruto["aprovacao_garantida"] is False
+
+
+def test_contrafactual_registra_a_origem_dos_dados_da_execucao(execucao: Execucao) -> None:
+    assert _rodar(execucao, execucao.ausencia) == 0
+    run = ler_execucao(raiz_execucoes(execucao.config), execucao.run_id)
+    assert run.origem_dados is OrigemDados.SINTETICO
+    texto = (_destino(execucao, execucao.ausencia) / "contrafactual.json").read_text("utf-8")
+    assert json.loads(texto).get("origem_dados") == "SINTETICO"
 
 
 def test_saida_e_imutavel_e_derivada_de_run_e_row(execucao: Execucao) -> None:

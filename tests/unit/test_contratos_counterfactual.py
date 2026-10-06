@@ -5,7 +5,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 from pydantic import ValidationError
 
-from sustemporal.contracts.base import DocRef
+from sustemporal.contracts.base import DocRef, OrigemDados
 from sustemporal.contracts.config import OrcamentoContrafactual
 from sustemporal.contracts.counterfactual import (
     AlvoOperacao,
@@ -322,6 +322,14 @@ def test_orcamento_exige_valores_positivos(
     assert modelo.model_validate({"max_operacoes": 1, "max_candidatos": 1}).max_operacoes == 1
     with pytest.raises(ValidationError, match="orcamento_invalido"):
         modelo.model_validate(campos)
+
+
+def test_resultado_registra_a_origem_dos_dados_opcional() -> None:
+    assert "origem_dados" in CounterfactualSearchResult.model_fields
+    assert _resultado().origem_dados is None
+    assert _resultado(origem_dados="SINTETICO").origem_dados is OrigemDados.SINTETICO
+    with pytest.raises(ValidationError):
+        _resultado(origem_dados="FICTICIO")
 
 
 def test_solucao_precisa_revalidar_todas_as_regras_alvo() -> None:

@@ -162,10 +162,116 @@ CAMPOS_DA_CONFIG: dict[str, Tratamento] = {
     ),
 }
 
-CAMPOS_DA_REFERENCIA: dict[str, Tratamento] = {}
+CAMPOS_DA_REFERENCIA: dict[str, Tratamento] = {
+    "dataset_id": _t(
+        F.ORIGINAL,
+        C.INDIRETA,
+        "deriva de esquema, hash lógico e artefatos; o das saídas leva o `run_id`",
+    ),
+    "schema_id": _t(
+        F.ORIGINAL, C.ITEM, "pareia o item e dá o leiaute esperado: `esquema_divergente`"
+    ),
+    "caminho": _t(F.NENHUMA, C.NENHUMA, "onde o arquivo está; o conteúdo decide"),
+    "hash_logico": _t(F.ORIGINAL, C.ITEM, "recalculado do arquivo, nunca lido da referência"),
+    "linhas": _t(F.ORIGINAL, C.ITEM, "recontada do arquivo: `refeito_diverge`"),
+    "artifact_ids": _t(F.ORIGINAL, C.ITEM, "multiconjunto de artefatos: `linhagem_diverge`"),
+    "origem_dados": _t(F.CONGELAMENTO, C.ITEM, "item `origem_dados`, antes de refazer"),
+    "produzido_por": _t(
+        F.NENHUMA, C.NENHUMA, "rótulo do código que gravou; o código diferente é observação"
+    ),
+    "reconciliacao": _t(
+        F.ORIGINAL, C.INDIRETA, "contagem derivada do conteúdo; o hash lógico cobre as linhas"
+    ),
+    "multiplicidade": _t(
+        F.ORIGINAL, C.INDIRETA, "contagem derivada do conteúdo; o hash lógico conta a repetição"
+    ),
+}
 
-CAMPOS_DO_SPLIT: dict[str, Tratamento] = {}
+CAMPOS_DO_SPLIT: dict[str, Tratamento] = {
+    "split_id": _t(F.CONGELAMENTO, C.ITEM, "`split:split_id`"),
+    "spec": _t(F.CONGELAMENTO, C.ITEM, "`split:campos`; a do manifesto é a que refaz"),
+    "dataset_hash": _t(F.CONGELAMENTO, C.ITEM, "`split:campos`"),
+    "linhas_por_particao": _t(F.CONGELAMENTO, C.ITEM, "`split:campos`"),
+    "hash_por_particao": _t(F.CONGELAMENTO, C.ITEM, "`split:campos`"),
+    "artefatos_inspecionados": _t(
+        F.CONGELAMENTO, C.ITEM, "`split:campos`; vêm do manifesto e entram no `split_id`"
+    ),
+    "artefatos_teste": _t(F.CONGELAMENTO, C.ITEM, "`split:campos`"),
+    "cohort_id": _t(F.CONGELAMENTO, C.ITEM, "`split:campos`"),
+    "particoes": _t(
+        F.CONGELAMENTO, C.ITEM, "`split:particao:*`, pela união das chaves das duas pontas"
+    ),
+    "exclusoes": _t(F.CONGELAMENTO, C.ITEM, "`split:campos`"),
+    "limites": _t(F.CONGELAMENTO, C.ITEM, "`split:campos`"),
+    "rotulos_por_particao": _t(
+        F.CONGELAMENTO, C.ITEM, "`split:rotulos:*`, pela união das chaves das duas pontas"
+    ),
+}
 
-CAMPOS_DO_RELATORIO: dict[str, Tratamento] = {}
+CAMPOS_DO_RELATORIO: dict[str, Tratamento] = {
+    "report_id": _t(
+        F.REGISTRO,
+        C.INDIRETA,
+        "o original só vale se bate com o registro; o refeito deriva do caminho",
+    ),
+    "modo": _t(F.REGISTRO, C.ITEM, "`relatorio:campos`"),
+    "origem_dados": _t(F.REGISTRO, C.ITEM, "`relatorio:campos`"),
+    "freeze_id": _t(F.REGISTRO, C.ITEM, "`relatorio:campos`"),
+    "decisao_g2": _t(F.ORIGINAL, C.ITEM, "`relatorio:campos`"),
+    "runs": _t(
+        F.REGISTRO, C.ITEM, "`relatorio:campos` só pela quantidade; os ids derivam do caminho"
+    ),
+    "metricas": _t(F.ORIGINAL, C.ITEM, "`metricas`: multiconjunto por nome, estrato e valor"),
+    "tabelas": _t(F.ORIGINAL, C.ITEM, "`relatorio:campos`: esquema, linhas e hash lógico"),
+    "notas": _t(F.ORIGINAL, C.ITEM, "`notas`: multiconjunto"),
+    "criado_em": _t(F.NENHUMA, C.NENHUMA, "instante da execução; o conteúdo decide"),
+}
 
-COMPARACOES: dict[str, Conferido] = {}
+COMPARACOES: dict[str, Conferido] = {
+    "conjunto:*": Conferido(
+        "o leiaute (nomes, ordem e tipos) do refeito, do original e entre os dois; os esquemas "
+        "pela união do manifesto e dos refeitos (`sem_etapa`, `conjunto_nao_congelado`); linhas, "
+        "hash lógico e linhagem",
+        "`caminho` e `produzido_por`",
+    ),
+    "split:split_id": Conferido(
+        "o id, que leva a especificação, a coorte, as fontes, os rótulos e os artefatos "
+        "inspecionados",
+        "nada",
+    ),
+    "split:campos": Conferido(
+        "todos os campos do manifesto do split, menos o id e as referências; campo novo do "
+        "contrato entra sozinho",
+        "nada",
+    ),
+    "split:particao:*": Conferido(
+        "as partições da população pela união das chaves (`particao_ausente`, "
+        "`particao_sem_original`, `particao_nao_congelada`) e, em cada uma, o leiaute, o hash "
+        "lógico e a linhagem",
+        "`caminho` e `produzido_por`",
+    ),
+    "split:rotulos:*": Conferido(
+        "as partições dos rótulos, como `split:particao:*`",
+        "`caminho` e `produzido_por`",
+    ),
+    "saida:*": Conferido(
+        "o leiaute completo dos dois lados, inclusive a coluna `run_id`; os esquemas e os métodos "
+        "pela união; a saída repetida (`<esquema>#2`); o hash lógico e a linhagem",
+        "os valores de `run_id`, que derivam do caminho, e só depois do leiaute",
+    ),
+    "insumos:*": Conferido(
+        "a união dos campos da identidade da entrada: o campo só do congelamento, ou só da "
+        "entrada refeita, é divergência",
+        "nada",
+    ),
+    "metricas": Conferido(
+        "o multiconjunto de (nome, estrato, valor): a métrica repetida conta cada vez", "nada"
+    ),
+    "notas": Conferido("o multiconjunto das notas: a nota repetida conta cada vez", "nada"),
+    "relatorio:campos": Conferido(
+        "`modo`, `origem_dados`, `freeze_id`, `decisao_g2`, a quantidade de execuções e as tabelas "
+        "(esquema, linhas e hash lógico); campo novo do contrato entra sozinho",
+        "`report_id`, `criado_em` e os ids das execuções (derivam do caminho e do relógio); "
+        "`metricas` e `notas` têm item próprio",
+    ),
+}

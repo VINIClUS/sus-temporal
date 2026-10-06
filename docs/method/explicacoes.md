@@ -10,7 +10,12 @@ que a execução declara:
   `agregados_registro.v1` e `falhas.v1`. Cada uma precisa existir uma vez, ter
   `produzido_por == run.run_id` e conferir linhas e hash lógico com o `DatasetRef`
   (`rules.conteudo.verificar_conteudo`). Linha com `run_id` de outra execução recusa a explicação
-  inteira (`saida_mistura_execucoes`).
+  inteira (`saida_mistura_execucoes`). Como o hash lógico cobre só as colunas do esquema presentes
+  no arquivo, cada saída também precisa ter todas as colunas do esquema canônico
+  (`saida_incoerente_com_contrato schema=… faltam=…`), e valor que o contrato não aceita (`rule_id`
+  ou `fonte` nulos, `parametros` que não é objeto JSON, `chaves_amostra` que não é lista, por
+  exemplo) recusa a explicação (`saida_incoerente_com_contrato`). O `counterfactual` lê pelo mesmo
+  leitor e recusa igual.
 - **Entradas** (`RunResult.entradas`): o `sia_pa.v1` de onde vem o registro e os conjuntos
   auxiliares que as evidências citam, também conferidos pelo hash.
 - **Regras**: o catálogo (ou `regras=`, keyword-only) cujo `catalogo_sha256` bate com
@@ -28,11 +33,11 @@ e `run_id` gravado diferente (`execucao_incoerente`). Nunca há diretório "late
 A saída vai para `<raiz_saidas>/explicacoes/<run_id>/row_<sha256(row_id)[:32]>/`: `bundle.json`,
 `prov.provn`, `prov.json` (os bytes cujo SHA-256 está em `prov_json_sha256`), `explicacao.txt` e
 `reexecucoes.json`. Execução ou linha inexistente ou incoerente: saída 2 com mensagem
-`chave=valor`, inclusive saída ilegível ou divergente (`saida_ilegivel`, `conteudo_divergente`),
-e a explicação anterior do mesmo diretório é removida. Evidência divergente: saída 5 e só
-`falha.json` (`FalhaOperacional`, relógio injetado). Falha de gravação: 5. A publicação é atômica:
-os arquivos vão para um diretório temporário irmão, renomeado para o destino só no fim; nunca fica
-explicação parcial.
+`chave=valor`, inclusive saída ilegível, divergente ou fora do esquema (`saida_ilegivel`,
+`conteudo_divergente`, `saida_incoerente_com_contrato`), e a explicação anterior do mesmo diretório
+é removida. Evidência divergente: saída 5 e só `falha.json` (`FalhaOperacional`, relógio
+injetado). Falha de gravação: 5. A publicação é atômica: os arquivos vão para um diretório
+temporário irmão, renomeado para o destino só no fim; nunca fica explicação parcial.
 Execução `FALHOU`, ou falha operacional registrada para o registro ou para a execução inteira
 (`falhas.v1` com `row_id` nulo), recusa a explicação: nunca "nenhuma violação verificada" sobre
 avaliação incompleta.
@@ -59,7 +64,12 @@ avaliação da regra, `parametros` = chaves buscadas), o conjunto (`dataset_id`,
 `artifact_ids` das versões selecionadas), a cobertura, a integridade e `n_resultados = 0`. Só
 sustenta violação com cobertura `DISPONIVEL`, integridade `OK` e zero resultados; fonte incompleta
 leva a `INCONCLUSIVO` no motor e o contrato do bundle recusa violação sustentada por evidência
-`FONTE_INCOMPLETA` ou por ausência sem cobertura.
+`FONTE_INCOMPLETA` ou por ausência sem cobertura, e violação sem ao menos uma evidência que
+sustente ausência (citando só `VINCULO_ENCONTRADO`, por exemplo). Nas quatro famílias do primeiro
+incremento a violação é sempre ausência no escopo selecionado (`docs/method/model.md` §3.3, passo
+11, e §4), inclusive vigência do procedimento e instrumento de registro: nenhuma declara outra
+evidência de incompatibilidade. Família cuja violação se prove por outro tipo de evidência exige
+ampliar `TipoEvidencia` e o contrato, nunca aceitar violação sem evidência que a sustente.
 
 Antes de citar uma evidência, `explanation/evidence.py`:
 
@@ -90,6 +100,9 @@ que o documento declara; avaliações e evidências também as declaram em `sus:
 `exigir_relacoes` recusa documento sem qualquer das quatro relações ou sem alguma aresta exigida. Evidência de ausência ou de fonte incompleta carrega `sus:limitacao`: o
 resultado vazio não prova inexistência no mundo real; a relação PROV só registra a consulta e o
 conjunto consultado. Aquisição e transformação não têm instantes: a execução não os declara.
+PROV-N e PROV-JSON saem do mesmo documento (`exportar`); um teste confere que os dois têm as mesmas
+entidades, atividades e arestas `wasDerivedFrom`, com as arestas exigidas, e que evidências,
+avaliações e versões selecionadas do bundle estão entre as entidades.
 
 ## 5. Templates (`explanation/templates/afirmacoes.yaml`)
 Texto só por templates fixos (`string.Template`), nunca por LLM. Cada template declara as

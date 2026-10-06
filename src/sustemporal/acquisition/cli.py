@@ -155,8 +155,10 @@ def _ja_obtidas(manifesto: Path, store: Path) -> set[str]:
     """Pedidos cuja observação mais recente é OBTIDO com bytes guardados ainda íntegros.
 
     A observação mais recente decide: uma versão antiga íntegra não cobre a mais nova perdida.
+    O fragmento de uma escrita interrompida é separado antes da leitura (`Manifesto.preparar`),
+    como no `fetch_source`; a passada de documentos lê o manifesto antes de qualquer obtenção.
     """
-    estado = Manifesto(manifesto).ler()
+    estado = Manifesto(manifesto).preparar()
     recentes = {o.request_sha256: o for o in estado.observacoes}
     obtidas: set[str] = set()
     for pedido, observacao in recentes.items():
@@ -343,7 +345,8 @@ def executar_watch(
 ) -> int:
     """Observa de novo a janela de competências e compara com as versões observadas antes.
 
-    Toda tentativa vira observação, inclusive sem mudança. O relatório
+    Toda tentativa vira observação, inclusive sem mudança. Antes de ler as versões anteriores,
+    o fragmento de uma escrita interrompida é separado (`Manifesto.preparar`). O relatório
     (`<raiz_manifestos>/vigilancia.jsonl`) recebe uma linha por comparação e um resumo que só
     fala das observações da pesquisa. A cadência é do agendador externo (cron/systemd).
 
@@ -354,6 +357,7 @@ def executar_watch(
     _vigilancia(config)
     _origem_dados(config)
     store, manifesto = _caminhos(config)
+    Manifesto(manifesto).preparar()
     anteriores = versoes_anteriores(manifesto)
     rede = config.runtime.rede_permitida
     buscar = partial(

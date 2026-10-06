@@ -52,7 +52,6 @@ __all__ = [
     "competencias_da_particao",
     "conferir_entradas",
     "derivar_protocolo",
-    "entradas_congeladas",
     "estados_do_ingest",
     "janela_do_ingest",
     "janela_dos_artefatos",
@@ -63,6 +62,9 @@ logger = logging.getLogger(__name__)
 
 _UNIAO = "uniao_sia_pa"
 _NORMALIZADO = "NORMALIZADO"
+_ENTRADA_AUSENTE = "entrada_original_ausente"
+_ENTRADA_ILEGIVEL = "entrada_original_ilegivel"
+_ENTRADA_ALTERADA = "entrada_original_alterada"
 
 
 @dataclass(frozen=True)
@@ -308,37 +310,19 @@ def estados_do_ingest(pasta: Path) -> dict[str, str]:
     return estados
 
 
-def _ler_entrada(caminho: Path) -> EntradaValidacao | None:
+def _ler_entrada(caminho: Path) -> EntradaValidacao | str:
+    """A entrada gravada em `caminho` ou o motivo (`entrada_original_*`) de não poder usá-la."""
     try:
         return EntradaValidacao.model_validate_json(caminho.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return _ENTRADA_AUSENTE
     except (OSError, ValueError):
-        return None
+        return _ENTRADA_ILEGIVEL
 
 
 def _confere(identidades: Mapping[str, str], entrada: EntradaValidacao) -> bool:
     divergentes = campos_divergentes(identidades, entrada)
     return all(campo == "politica" and entrada.politica is None for campo in divergentes)
-
-
-def entradas_congeladas(
-    pasta: Path, identidades: Mapping[str, Mapping[str, str]]
-) -> dict[str, EntradaValidacao]:
-    """`pasta/<politica_id>.json` de cada política congelada, se for a entrada congelada.
-
-    O manifesto guarda só a identidade de cada campo; a entrada original (a que o `freeze` leu em
-    `split/insumos`) dá os artefatos dos auxiliares. Entra só a que existe, é legível e tem, campo a
-    campo, a identidade congelada; a ausente, a ilegível e a alterada depois do congelamento ficam
-    de fora. A política resolvida que a entrada não traz vale a do catálogo congelado, como no
-    `freeze`.
-    """
-    entradas = {}
-    for politica_id in sorted(identidades):
-        entrada = _ler_entrada(pasta / f"{politica_id}.json")
-        if entrada is not None and _confere(identidades[politica_id], entrada):
-            entradas[politica_id] = entrada
-        else:
-            logger.warning("insumo_original_nao_conferido politica=%s pasta=%s", politica_id, pasta)
-    return entradas
 
 
 @dataclass(frozen=True)
@@ -352,4 +336,25 @@ class EntradasCongeladas:
 def conferir_entradas(
     pasta: Path, identidades: Mapping[str, Mapping[str, str]]
 ) -> EntradasCongeladas:
-    raise NotImplementedError
+    """`pasta/<politica_id>.json` de cada política congelada, se for a entrada congelada.
+
+    O manifesto guarda só a identidade de cada campo; a entrada original (a que o `freeze` leu em
+    `split/insumos`) dá os artefatos dos auxiliares. Vale a que existe, é legível e tem, campo a
+    campo, a identidade congelada. A política resolvida que a entrada não traz vale a do catálogo
+    congelado, como no `freeze`. A que falta, não abre ou foi alterada depois do congelamento não
+    se ignora: entra em `problemas` com o motivo (`entrada_original_ausente`, `_ilegivel` ou
+    `_alterada`), porque sem ela a disponibilidade dos auxiliares não se confere.
+    """
+    conferidas: dict[str, EntradaValidacao] = {}
+    problemas: dict[str, str] = {}
+    for politica_id in sorted(identidades):
+        lida = _ler_entrada(pasta / f"{politica_id}.json")
+        if isinstance(lida, str):
+            problemas[politica_id] = lida
+        elif _confere(identidades[politica_id], lida):
+            conferidas[politica_id] = lida
+        else:
+            problemas[politica_id] = _ENTRADA_ALTERADA
+    for politica_id, motivo in problemas.items():
+        logger.warning("entrada_original_nao_conferida politica=%s motivo=%s", politica_id, motivo)
+    return EntradasCongeladas(conferidas, problemas)

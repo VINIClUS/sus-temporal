@@ -57,7 +57,6 @@ __all__ = [
     "ler_relatorio_original",
     "observacoes_do_ambiente",
     "observacoes_do_ingest",
-    "observacoes_dos_insumos",
     "resultado_geral",
     "rodada_registrada",
 ]
@@ -401,7 +400,16 @@ def comparar_auxiliares(
 
 
 def comparar_entradas_originais(problemas: Mapping[str, str]) -> list[Comparacao]:
-    raise NotImplementedError
+    """Um item inconclusivo por política cuja entrada original não pôde ser conferida.
+
+    `problemas` traz o motivo (`entrada_original_ausente`, `_ilegivel` ou `_alterada`). Sem a
+    entrada não se sabe de que artefatos os auxiliares dependiam, e a diferença nos insumos
+    refeitos não prova divergência. Mesmo item (`insumos:<politica>`) que a comparação refeita.
+    """
+    return [
+        Comparacao(f"insumos:{politica_id}", Situacao.INCONCLUSIVO, None, None, motivo)
+        for politica_id, motivo in sorted(problemas.items())
+    ]
 
 
 def comparar_notas(
@@ -472,16 +480,6 @@ def observacoes_do_ingest(estados: Mapping[str, str]) -> list[str]:
         return []
     nomes = ",".join(sorted({estados[artefato] for artefato in falhas}))
     return [f"ingest_sem_tabela artefatos={len(falhas)} estados={nomes}"]
-
-
-def observacoes_dos_insumos(congeladas: Collection[str], conferidas: Collection[str]) -> list[str]:
-    """Políticas congeladas cuja entrada original não pôde ser conferida.
-
-    Sem ela não se sabe de que artefatos os auxiliares dependiam: a disponibilidade deles não é
-    conferida antes de refazer, e a diferença nos insumos aparece como divergência.
-    """
-    faltam = sorted(set(congeladas) - set(conferidas))
-    return [f"insumos_originais_nao_conferidos politicas={','.join(faltam)}"] if faltam else []
 
 
 def rodada_registrada(

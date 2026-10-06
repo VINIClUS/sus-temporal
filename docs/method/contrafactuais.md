@@ -26,7 +26,11 @@ governança, verdade factual exigida, competências permitidas, alcance, custo, 
 dependências e `DocRef` com proveniência. O contrato recusa: alterar conjunto que não seja
 cadastro CNES (`cnes_*`), alterar fatos do atendimento (`sia_pa*`) ou colunas de diagnóstico,
 idade, sexo e data do atendimento, alterar vínculo individual (`altera_vinculo_individual` é
-sempre falso) e declarar governança `MUNICIPAL_DOCUMENTADA` sem documento oficial confirmado.
+sempre falso) e declarar governança `MUNICIPAL_DOCUMENTADA` sem autoridade conhecida e sem
+documento oficial lido, preservado e confirmado: a referência precisa ser `OFICIAL_DOCUMENTO`,
+`PRESERVADO` (cópia com SHA-256) e `CONFIRMADO`. URL oficial vista só em busca
+(`OFICIAL_VISTO_EM_BUSCA`) orienta a busca e não é citação (`docs/references/fontes.md`, regra 4),
+e arquivo oficial de dados (`OFICIAL_ARQUIVO`) não documenta governança; nenhum dos dois basta.
 
 Cada `op_id` tem efeito, gerador de parâmetros, precondições e dependências obrigatórias
 escritos no código (`explanation/counterfactual_operacoes.py`). Invalida o catálogo, inclusive
@@ -122,11 +126,14 @@ vêm da pasta exata de `bundle.run_id` (`contexto_da_execucao`, §3.1); sem eles
    relógio, lido uma vez no início e usado em toda a busca: ele decide competência fechada e
    executabilidade). Outro catálogo, outro código ou outro mês publica em outro diretório e nunca
    sobrescreve uma hipótese já publicada; instantes do mesmo mês compartilham o destino.
-   `identidade.json` registra `competencia_as_of`.
+   `identidade.json` registra `competencia_as_of`. `contrafactual.json` traz a `origem_dados` da
+   execução (`SINTETICO` ou `REAL`), que não entra na identidade.
 
 Saída 0 com resultado publicado; 2 para argumento, execução, linha ou insumos ausentes,
 ilegíveis (inclusive `run_result.json` ou `entrada_validacao.json` com bytes que não são UTF-8) ou
-divergentes e para linha sem violação (nada a buscar; a recusa remove o resultado anterior);
+divergentes, para saída da execução que o `explain` recusa ao recompor o bundle (as mesmas recusas
+dele, inclusive `TemplateInvalido` e `ProvIncompleto`) e para linha sem violação (nada a buscar; a
+recusa remove o resultado anterior);
 5 para falha operacional (evidência divergente, cadastro ilegível, linha de base que não
 reproduz a violação, motor sem concluir): o resultado anterior é removido antes de gravar
 `falha.json`, então nunca sobra um `contrafactual.json` antigo, mesmo se a falha não puder ser

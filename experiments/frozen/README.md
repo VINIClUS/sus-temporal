@@ -9,8 +9,13 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
 ## Comandos
 
 - `sustemporal freeze --config <cfg>`: exige G0 humano em `experiments/decisions/`. Recusa
-  `A_DEFINIR`, código sujo, catálogo ausente e catálogo que a config não declara em
-  `config.catalogos`. Registra o catálogo de regras de `catalog/rules`, as políticas de
+  `A_DEFINIR` no conteúdo do manifesto (a correção por multiplicidade do bootstrap, por
+  exemplo) e a pertença geográfica `A_DEFINIR`, que o manifesto não guarda como campo: na coorte
+  da config (`congelamento_com_pertenca_a_definir`) e no split, que o `build_splits` marca com o
+  limite `pertenca_a_definir` (`congelamento_split_com_pertenca_a_definir`, também para split
+  construído antes desta conferência). Com `coorte` na config, recusa o split de outra coorte
+  (`congelamento_split_de_outra_coorte`). Todas saem com código 2. Recusa ainda código sujo,
+  catálogo ausente e catálogo que a config não declara em `config.catalogos`. Registra o catálogo de regras de `catalog/rules`, as políticas de
   `catalog/policies` e as padrão dos baselines; sem esses campos o manifesto não prova catálogo
   nem política. Lê também os insumos de cada política em `<raiz_saidas>/split/insumos/`
   (seção "Entrada de validação das execuções de regras").
@@ -25,7 +30,10 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
   dos alertas e falsos alertas em aprovações), por método, traz dois: o do TOTAL, que sorteia
   estabelecimentos inteiros, e o do estrato `sensibilidade_blocos_temporais`, que sorteia
   competências inteiras (a mesma estimativa, a mesma máquina e a semente do manifesto); a
-  diferença pareada já trazia os dois.
+  diferença pareada já trazia os dois. Cada intervalo registra `replicas_validas`, as réplicas
+  com denominador positivo que entram nos percentis; com menos de dois conglomerados de
+  denominador positivo o intervalo é nulo, porque toda réplica válida repetiria a estimativa
+  (pendência T11 #31 para um limite numérico).
   As execuções vêm de `<raiz_saidas>/runs/<run_id>/`: o
   `run_result.json` do motor de regras (`validate` grava ali por padrão, `raiz_execucoes(config)`)
   ou o `run.json` do baseline; os dois no mesmo diretório são recusados (`execucao_ambigua`). Entram só as
@@ -42,7 +50,9 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
   para o manifesto ilegível) e, sem nenhuma, o comando sai com código 2
   (`avaliacao_sem_execucoes`), sem relatório nem registro.
 - `registro_execucoes.jsonl`: registro append-only, em que cada linha leva o próprio hash e o
-  da anterior. Toda avaliação entra, inclusive a de resultado nulo. Depois da abertura do teste,
+  da anterior. Toda avaliação entra, inclusive a de resultado nulo. Registro com a cadeia de
+  hashes quebrada, com UTF-8 inválido ou que o sistema nega abrir é falha operacional
+  (`registro_adulterado`; o `evaluate` sai com código 5). Depois da abertura do teste,
   nova rodada confirmatória do mesmo congelamento exige `corrige` + `declaracao`, e a rodada
   anterior permanece. Na CLI: `sustemporal evaluate --freeze <id> --corrige <report_id>
   --declaracao <texto>`, os dois juntos; sem eles a segunda rodada sai com código 4. `corrige`
@@ -78,7 +88,7 @@ divergência. A biblioteca (`evaluate_runs`) repete a conferência antes de ler 
 | `datasets` | `entradas` | `entradas` | estado: cada dataset do avaliador é do congelamento; execução: entradas `sia_pa.v1` e de rótulos congeladas, com a população da partição TESTE entre elas (o baseline pode trazer outras partições); auxiliares, seleções e cobertura não entram no manifesto |
 | `split` | `split` | não se aplica | comparado por inteiro, não só pelo `split_id`, que não deriva do conteúdo |
 | `features` | `features` | não se aplica | lista positiva de atributos |
-| `bootstrap` | `bootstrap` | não se aplica | o `evaluate_runs` confirmatório usa o do manifesto e recusa outro (`avaliacao_confirmatoria_com_bootstrap_diferente_do_congelado`) |
+| `bootstrap` | `bootstrap` | não se aplica | o `evaluate_runs` confirmatório usa o do manifesto e recusa outro (`avaliacao_confirmatoria_com_bootstrap_diferente_do_congelado`); nenhum teste formal está implementado, então recusa também a correção HOLM ou BONFERRONI (`avaliacao_confirmatoria_com_correcao_nao_implementada`, código 2; pendência T11 #32), e todo relatório traz a nota `correcao_multiplicidade=<valor>: sem teste formal; intervalos de 95% sem ajuste` |
 | `metricas` | `metricas` | não se aplica | as métricas do avaliador (`METRICAS_PROTOCOLO`) |
 | `comparacoes_primarias` | `comparacoes` | `metodos` | as do avaliador; o confirmatório exige a execução de cada método (M_TEMP, B_ATEND e B_PROC) e, se falta algum, recusa (`avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias`) |
 | `margens` | informativo | informativo | a avaliação não usa margens de relevância prática (pendência T11 #2) |

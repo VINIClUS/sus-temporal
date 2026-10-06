@@ -203,6 +203,42 @@ def test_qualquer_motivo_de_inconclusao_impede_violacao(motivo: MotivoInconclusa
     assert estado is EstadoAvaliacao.INCONCLUSIVO
 
 
+@pytest.mark.parametrize(
+    ("aplicabilidade", "esperado"),
+    [
+        ("DESCONHECIDA", EstadoAvaliacao.INCONCLUSIVO),
+        ("NAO_APLICAVEL_DEMONSTRADA", EstadoAvaliacao.NAO_APLICAVEL),
+        ("APLICAVEL", EstadoAvaliacao.VIOLACAO),
+    ],
+)
+def test_decidir_estado_normaliza_aplicabilidade_em_texto(
+    aplicabilidade: str, esperado: EstadoAvaliacao
+) -> None:
+    assert decidir_estado(aplicabilidade, True, True, ()) is esperado
+
+
+def test_decidir_estado_recusa_aplicabilidade_fora_do_dominio() -> None:
+    with pytest.raises(ValueError, match="APLICAVEL_TALVEZ"):
+        decidir_estado("APLICAVEL_TALVEZ", True, True, ())
+
+
+@pytest.mark.parametrize(
+    ("aplicabilidade", "completos", "incompatibilidade"),
+    [
+        (Aplicabilidade.APLICAVEL, "false", True),
+        (Aplicabilidade.APLICAVEL, True, "false"),
+        (Aplicabilidade.APLICAVEL, 1, True),
+        (Aplicabilidade.APLICAVEL, True, 0),
+        (Aplicabilidade.NAO_APLICAVEL_DEMONSTRADA, "false", None),
+    ],
+)
+def test_decidir_estado_exige_bool_estrito(
+    aplicabilidade: Aplicabilidade, completos: object, incompatibilidade: object
+) -> None:
+    with pytest.raises(TypeError, match="decidir_estado_exige_bool"):
+        decidir_estado(aplicabilidade, completos, incompatibilidade, ())
+
+
 @pytest.mark.parametrize(_NOMES_COMBINACAO, _COMBINACOES)
 def test_avaliacao_so_aceita_o_estado_da_tabela(
     aplicabilidade: Aplicabilidade,

@@ -107,6 +107,19 @@
       "default": "0.95",
       "title": "Nivel"
      },
+     "replicas_validas": {
+      "anyOf": [
+       {
+        "ge": 0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Replicas Validas"
+     },
      "superior": {
       "anyOf": [
        {
@@ -397,6 +410,19 @@
     "default": "0.95",
     "title": "Nivel"
    },
+   "replicas_validas": {
+    "anyOf": [
+     {
+      "ge": 0,
+      "type": "integer"
+     },
+     {
+      "type": "null"
+     }
+    ],
+    "default": null,
+    "title": "Replicas Validas"
+   },
    "superior": {
     "anyOf": [
      {
@@ -446,6 +472,19 @@
       ],
       "default": "0.95",
       "title": "Nivel"
+     },
+     "replicas_validas": {
+      "anyOf": [
+       {
+        "ge": 0,
+        "type": "integer"
+       },
+       {
+        "type": "null"
+       }
+      ],
+      "default": null,
+      "title": "Replicas Validas"
      },
      "superior": {
       "anyOf": [

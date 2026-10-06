@@ -115,14 +115,22 @@ em todos os passos (campo insuficiente, vigência, chave de cobertura). `I(r)` f
     `VINCULO_ENCONTRADO`); ausência; aplicabilidade desconhecida
     (`DESCONHECIDA`, `M = {APLICABILIDADE_DESCONHECIDA}`); ou motivo de inconclusão.
 11. Ausência só sustenta `VIOLACAO` (`NOT EXISTS`) quando, além do escopo não vazio: a cobertura
-    `cobertura.v1` na chave `(g.familia, I(r), Q(r), base de S(r, g, f))` é `DISPONIVEL`, toda
+    `cobertura.v1` na chave `(g.familia, I(r), Q(r), base de S(r, g, f))` é `DISPONIVEL`, a
+    competência requerida de `S(r, g, f)` é a própria competência base do registro (`A(r)` na base
+    `ATENDIMENTO`, `Q(r)` na base `PROCESSAMENTO`, ou seja, deslocamento 0), toda
     versão selecionada tem integridade `OK` e toda versão selecionada tem ao menos uma linha no
     conjunto auxiliar. Então incompatibilidade verdadeira, evidência
     `AUSENCIA_NA_FONTE` (zero resultados, cobertura e integridade registradas). Senão
     `COBERTURA_INSUFICIENTE`, incompatibilidade nula. Chave de cobertura sem linha, `Q(r)` nulo ou
     matriz não fornecida contam como cobertura insuficiente (matriz com coluna de tipo físico diferente
     do esquema canônico, como competência numérica, não é utilizável e conta como não fornecida); integridade não informada conta como
-    não `OK`.
+    não `OK`. A chave da matriz não carrega o deslocamento: a célula certifica as competências
+    auxiliares sem deslocamento (`Q(r)` na base `PROCESSAMENTO`; na base `ATENDIMENTO`, as
+    competências de atendimento dos registros do instrumento processados em `Q(r)`), não o mês
+    `base(r) + deslocamento` consultado (§5). Por isso, com deslocamento diferente de 0, a ausência
+    sai `COBERTURA_INSUFICIENTE` mesmo com a célula `DISPONIVEL` (guarda conservadora, até a matriz
+    considerar o mês consultado; pendência em `docs/pendencias/T07.md`). A correspondência
+    encontrada não depende da matriz e continua `CONFORME`.
 
 `insumos_completos` é verdadeiro exatamente quando `M` não contém motivo diferente de
 `APLICABILIDADE_DESCONHECIDA` (no passo 2 também verdadeiro). Motivos são gravados ordenados e sem

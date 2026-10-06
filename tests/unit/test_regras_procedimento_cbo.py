@@ -1,5 +1,6 @@
 """Casos manuais SINTETICOS da família PROCEDIMENTO_CBO (model.md §4.1)."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -7,8 +8,15 @@ import pytest
 from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.rules.catalog import carregar_regras
 from tests.fixtures.regras_cenario import CenarioRegras
-from tests.fixtures.regras_execucao import avaliacoes_por_chave, executar, regras_so_de_c, tabela
-from tests.fixtures.regras_exemplos import ART_SIGTAP, cenario_base, cobertura_completa, registro
+from tests.fixtures.regras_execucao import avaliacoes_por_chave, executar, tabela
+from tests.fixtures.regras_exemplos import (
+    ART_SIA,
+    ART_SIGTAP,
+    cenario_base,
+    cobertura_completa,
+    registro,
+)
+from tests.fixtures.regras_nao_aplicavel import CASOS_NAO_APLICAVEL, avaliar_caso
 
 REGRA = "PROC_CBO_SIGTAP"
 LINHA = registro()["row_id"]
@@ -88,15 +96,24 @@ def test_procedimento_sem_ocupacao_listada_tem_aplicabilidade_desconhecida(tmp_p
     assert avaliacao["motivos"] == "APLICABILIDADE_DESCONHECIDA"
 
 
-def test_instrumento_fora_da_regra_e_nao_aplicavel_com_evidencia(tmp_path: Path) -> None:
-    resultado = executar(tmp_path, cenario_base(registro(instrumento="I")), regras=regras_so_de_c())
-    avaliacao = avaliacoes_por_chave(resultado)[(LINHA, REGRA)]
-    assert (avaliacao["estado"], avaliacao["aplicabilidade"]) == (
+@pytest.mark.parametrize("caso", sorted(CASOS_NAO_APLICAVEL))
+def test_fora_dos_instrumentos_ou_da_vigencia_e_nao_aplicavel_com_evidencia(
+    tmp_path: Path, caso: str
+) -> None:
+    avaliacao, evidencia, sia = avaliar_caso(tmp_path, caso, REGRA)
+    assert (avaliacao["estado"], avaliacao["aplicabilidade"], avaliacao["motivos"]) == (
         "NAO_APLICAVEL",
         "NAO_APLICAVEL_DEMONSTRADA",
+        "",
     )
-    tipos = {e["evidence_id"]: e["tipo"] for e in tabela(resultado, "evidencias.v1")}
-    assert tipos[avaliacao["evidence_ids"]] == "APLICABILIDADE"
+    assert (avaliacao["insumos_completos"], avaliacao["incompatibilidade_demonstrada"]) == (
+        True,
+        None,
+    )
+    esperado = CASOS_NAO_APLICAVEL[caso]
+    assert (evidencia["tipo"], evidencia["query_id"]) == ("APLICABILIDADE", esperado.query_id)
+    assert json.loads(evidencia["parametros"]) == esperado.parametros | {"rule_id": REGRA}
+    assert (evidencia["dataset_id"], evidencia["artifact_ids"]) == (sia, ART_SIA)
 
 
 def test_instrumento_nulo_deixa_aplicabilidade_desconhecida(tmp_path: Path) -> None:

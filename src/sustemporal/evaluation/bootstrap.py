@@ -4,6 +4,10 @@ A unidade sorteada é o conglomerado inteiro: no bootstrap por estabelecimento, 
 mensal do estabelecimento entra ou sai junta; na sensibilidade por blocos temporais, cada
 competência é um bloco. Nenhuma das duas finge independência entre linhas, e nenhuma protege
 contra toda forma de dependência ao mesmo tempo (a outra dimensão continua correlacionada).
+
+A réplica com denominador zero fica fora dos percentis, e o intervalo registra quantas sobraram
+(`replicas_validas`). Com menos de dois conglomerados de denominador positivo, toda réplica válida
+repete a estimativa: a largura zero seria construção, não precisão, e o intervalo é nulo.
 """
 
 from __future__ import annotations
@@ -23,6 +27,7 @@ if TYPE_CHECKING:
 __all__ = ["intervalo_diferenca", "intervalo_razao", "reamostrar_razao"]
 
 _CASAS = Decimal("0.000001")
+_MINIMO_DE_CONGLOMERADOS = 2
 
 
 def _somas_reamostradas(
@@ -59,6 +64,11 @@ def reamostrar_razao(
         return np.where(denominador > 0, numerador / denominador, np.nan)
 
 
+def _estimavel(denominadores: Sequence[int], grupos: Sequence[str]) -> bool:
+    positivos = {g for g, d in zip(grupos, denominadores, strict=True) if d > 0}
+    return len(positivos) >= _MINIMO_DE_CONGLOMERADOS
+
+
 def _intervalo(replicas: np.ndarray, spec: BootstrapSpec) -> IntervaloConfianca | None:
     validas = replicas[~np.isnan(replicas)]
     if validas.size == 0:
@@ -69,6 +79,7 @@ def _intervalo(replicas: np.ndarray, spec: BootstrapSpec) -> IntervaloConfianca 
         inferior=Decimal(repr(float(inferior))).quantize(_CASAS, rounding=ROUND_HALF_EVEN),
         superior=Decimal(repr(float(superior))).quantize(_CASAS, rounding=ROUND_HALF_EVEN),
         nivel=spec.confianca,
+        replicas_validas=int(validas.size),
     )
 
 
@@ -78,7 +89,9 @@ def intervalo_razao(
     grupos: Sequence[str],
     spec: BootstrapSpec,
 ) -> IntervaloConfianca | None:
-    """Intervalo percentil; None quando nenhuma réplica tem denominador positivo."""
+    """Intervalo percentil; None com menos de dois conglomerados de denominador positivo."""
+    if not _estimavel(denominadores, grupos):
+        return None
     return _intervalo(reamostrar_razao(numeradores, denominadores, grupos, spec), spec)
 
 
@@ -89,8 +102,11 @@ def intervalo_diferenca(
     grupos: Sequence[str],
     spec: BootstrapSpec,
 ) -> IntervaloConfianca | None:
-    """Intervalo da diferença pareada (a − b)/denominador, com o mesmo sorteio para os dois."""
-    if not grupos:
+    """Intervalo da diferença pareada (a − b)/denominador, com o mesmo sorteio para os dois.
+
+    None com menos de dois conglomerados de denominador positivo.
+    """
+    if not _estimavel(denominadores, grupos):
         return None
     a, b, denominador = _somas_reamostradas(
         [numeradores_a, numeradores_b, denominadores], grupos, spec

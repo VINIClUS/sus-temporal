@@ -1,5 +1,7 @@
 # Partições e reamostragem (plano §7): proposta inicial por competência de processamento,
-# congelada antes do teste (G2); correção por multiplicidade ainda a definir no protocolo.
+# congelada antes do teste (G2). A correção por multiplicidade é decisão do pesquisador: HOLM e
+# BONFERRONI exigem implementar antes os testes formais (pendência T11 #32), e até lá o
+# `evaluate` confirmatório os recusa; SEM_TESTE_FORMAL reporta só intervalos sem ajuste.
 base: runtime.yaml
 particoes:
   base_temporal: PROCESSAMENTO

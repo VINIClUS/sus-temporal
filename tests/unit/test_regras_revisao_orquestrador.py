@@ -87,11 +87,13 @@ def test_b2_registro_em_quarentena_tem_aplicabilidade_desconhecida(
         assert avaliacao["motivos"] == "APLICABILIDADE_DESCONHECIDA;ARQUIVO_EM_QUARENTENA"
 
 
-def _snapshot(competencia: str = COMPETENCIA) -> SnapshotSet:
+def _snapshot(
+    competencia: str = COMPETENCIA, *, base: BaseTemporal = BaseTemporal.ATENDIMENTO
+) -> SnapshotSet:
     selecoes = tuple(
         SelecaoVersao(
             fonte=fonte,
-            base=BaseTemporal.ATENDIMENTO,
+            base=base,
             competencia_requerida=CompetenciaArquivo(competencia),
             estado=EstadoSelecao.SELECIONADA,
             artifact_ids=(artefato_,),
@@ -111,29 +113,30 @@ def _snapshot(competencia: str = COMPETENCIA) -> SnapshotSet:
 
 
 def _politica_m_temp(
-    deslocamento: int = 0, tipo: TipoPolitica = TipoPolitica.DOCUMENTADA
+    deslocamento: int = 0,
+    tipo: TipoPolitica = TipoPolitica.DOCUMENTADA,
+    *,
+    base: BaseTemporal = BaseTemporal.ATENDIMENTO,
 ) -> PoliticaTemporal:
     return PoliticaTemporal(
         politica_id="m_temp_sintetica",
         tipo=tipo,
         metodo=MetodoId.M_TEMP,
         criterios=tuple(
-            CriterioTemporal(
-                fonte=f, base=BaseTemporal.ATENDIMENTO, deslocamento_meses=deslocamento
-            )
+            CriterioTemporal(fonte=f, base=base, deslocamento_meses=deslocamento)
             for f in (FamiliaFonte.CNES_PF, FamiliaFonte.SIGTAP)
         ),
         documento=_DOCUMENTO if tipo is TipoPolitica.DOCUMENTADA else None,
     )
 
 
-def _regras_com_criterio(deslocamento: int) -> list[RuleSpec]:
+def _regras_com_criterio(
+    deslocamento: int, *, base: BaseTemporal = BaseTemporal.ATENDIMENTO
+) -> list[RuleSpec]:
     regras = []
     for regra in carregar_regras():
         fonte = next(r.fonte for r in regra.requisitos_fonte if r.fonte is not FamiliaFonte.SIA_PA)
-        criterio = CriterioTemporal(
-            fonte=fonte, base=BaseTemporal.ATENDIMENTO, deslocamento_meses=deslocamento
-        )
+        criterio = CriterioTemporal(fonte=fonte, base=base, deslocamento_meses=deslocamento)
         regras.append(regra.model_copy(update={"criterios_temporais": (criterio,)}))
     return regras
 
@@ -181,6 +184,40 @@ def test_i3_deslocamento_escolhe_o_mes_certo(tmp_path: Path) -> None:
         COMPETENCIA
     }
     assert {_estado(resultado, regra)[0] for regra in REGRAS} == {"CONFORME"}
+
+
+@pytest.mark.parametrize(
+    ("base", "atendimento", "processamento"),
+    [
+        (BaseTemporal.ATENDIMENTO, "202002", COMPETENCIA),
+        (BaseTemporal.PROCESSAMENTO, COMPETENCIA, "202002"),
+    ],
+)
+def test_c1_ausencia_no_mes_deslocado_nao_vira_violacao_pela_cobertura_de_q(
+    tmp_path: Path, base: BaseTemporal, atendimento: str, processamento: str
+) -> None:
+    """Deslocamento -1 consulta 202001; a matriz só tem a chave Q(r) e não certifica esse mês."""
+    linha = registro(
+        cbo="999999", competencia_atendimento=atendimento, competencia_processamento=processamento
+    )
+    cenario = cenario_base(linha)
+    cobertura = tuple(
+        dict(c) | {"competencia": processamento, "base_temporal": str(base)}
+        for c in cenario.cobertura or ()
+    )
+    cenario = cenario.com(politica=_politica_m_temp(-1, base=base), cobertura=cobertura)
+    resultado = executar(
+        tmp_path,
+        cenario,
+        regras=_regras_com_criterio(-1, base=base),
+        snapshot=_snapshot(base=base),
+        derivar_selecao=True,
+    )
+    assert {s["competencia_requerida"] for s in tabela(resultado, "selecao_versoes.v1")} == {
+        COMPETENCIA
+    }
+    for regra in (PROC, "ESTAB_CBO_CNES"):
+        assert _estado(resultado, regra) == ("INCONCLUSIVO", "COBERTURA_INSUFICIENTE")
 
 
 def test_i3_cobertura_e_consultada_pela_competencia_de_processamento(tmp_path: Path) -> None:

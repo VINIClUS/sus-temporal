@@ -27,6 +27,7 @@ class IntervaloConfianca(ContratoBase):
     inferior: DecimalExato
     superior: DecimalExato
     nivel: DecimalExato = Decimal("0.95")
+    replicas_validas: InteiroNaoNegativo | None = None
 
     @model_validator(mode="after")
     def _ordem(self) -> IntervaloConfianca:

@@ -253,15 +253,23 @@ def test_a_uniao_congelada_em_mais_de_um_conjunto_vale_pelo_todo(tmp_path: Path)
     assert resolucao.motivo == ""
 
 
-def test_conjuntos_que_nao_sao_do_sia_pa_nao_entram_na_comparacao(tmp_path: Path) -> None:
+def test_conjunto_do_ingest_que_nao_e_do_sia_pa_nao_entra_na_comparacao(tmp_path: Path) -> None:
     origem, (a, b, c) = _tres(tmp_path)
     cnes = _conjunto(_id(c), esquema="cnes_estab_cbo.v1")
-    _execucao(
-        tmp_path / "ingest", "execucao_1", [_conjunto(_id(a), _id(b)), cnes], _posicao(origem, 4)
-    )
+    conjuntos = [_conjunto(_id(a), _id(b)), cnes]
+    _execucao(tmp_path / "ingest", "execucao_1", conjuntos, _posicao(origem, 4))
+    resolucao = _resolver(tmp_path, origem, _conjunto(_id(a), _id(b)))
+    assert resolucao.motivo == ""
+    assert resolucao.execucao == "execucao_1"
+
+
+def test_conjunto_congelado_que_nao_e_do_sia_pa_nao_entra_na_comparacao(tmp_path: Path) -> None:
+    origem, (a, b, c) = _tres(tmp_path)
+    _execucao(tmp_path / "ingest", "execucao_1", [_conjunto(_id(a), _id(b))], _posicao(origem, 4))
     rotulos = _conjunto(_id(c), esquema="sia_pa_rotulos.v1")
     resolucao = _resolver(tmp_path, origem, _conjunto(_id(a), _id(b)), rotulos)
     assert resolucao.motivo == ""
+    assert resolucao.execucao == "execucao_1"
 
 
 def test_sem_execucao_do_ingest_com_o_sia_pa_congelado_a_posicao_nao_se_sabe(
@@ -328,6 +336,16 @@ def test_execucao_candidata_sem_posicao_legivel_deixa_a_posicao_desconhecida(
     assert (resolucao.execucao, resolucao.linhas) == ("", ())
 
 
+def test_todas_as_candidatas_sem_posicao_aparecem_no_motivo_em_ordem(tmp_path: Path) -> None:
+    origem, (a, _b, _c) = _tres(tmp_path)
+    uniao = _conjunto(_id(a))
+    _execucao(tmp_path / "ingest", "execucao_2", [uniao])
+    _execucao(tmp_path / "ingest", "execucao_1", [uniao])
+    _execucao(tmp_path / "ingest", "execucao_3", [uniao], _posicao(origem, 2))
+    motivo = _resolver(tmp_path, origem, uniao).motivo
+    assert motivo == "ingest_original_sem_posicao execucao=execucao_1,execucao_2"
+
+
 def test_posicao_com_json_quebrado_tambem_e_sem_posicao(tmp_path: Path) -> None:
     origem, (a, _b, _c) = _tres(tmp_path)
     uniao = _conjunto(_id(a))
@@ -338,13 +356,14 @@ def test_posicao_com_json_quebrado_tambem_e_sem_posicao(tmp_path: Path) -> None:
     )
 
 
-def test_posicao_alem_do_fim_do_manifesto_atual_nao_se_reproduz(tmp_path: Path) -> None:
+@pytest.mark.parametrize("lidas", [7, 9])
+def test_posicao_alem_do_fim_do_manifesto_atual_nao_se_reproduz(tmp_path: Path, lidas: int) -> None:
     origem, (a, _b, _c) = _tres(tmp_path)
     uniao = _conjunto(_id(a))
-    posicao = {"linhas": 9, "cabeca_sha256": "0" * 64}
+    posicao = {"linhas": lidas, "cabeca_sha256": "0" * 64}
     _execucao(tmp_path / "ingest", "execucao_1", [uniao], posicao)
     resolucao = _resolver(tmp_path, origem, uniao)
-    assert resolucao.motivo == "manifesto_menor_que_o_lido_pelo_ingest linhas=9 atual=6"
+    assert resolucao.motivo == f"manifesto_menor_que_o_lido_pelo_ingest linhas={lidas} atual=6"
     assert (resolucao.execucao, resolucao.linhas) == ("", ())
 
 

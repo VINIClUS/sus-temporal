@@ -216,6 +216,18 @@ def test_cada_politica_tem_a_sua_conferencia_e_o_resto_segue(tmp_path: Path) -> 
     assert resultado.problemas == {"b_proc": ALTERADA, "m_temp": AUSENTE}
 
 
+def test_cada_entrada_que_nao_confere_deixa_uma_linha_de_log_com_o_motivo(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    entrada = _entrada(_conjunto("cnes_estab_cbo.v1", A1))
+    congeladas = {**_congelada(tmp_path, entrada), "b_proc": identidades_da_entrada(entrada)}
+    with caplog.at_level("WARNING", logger="sustemporal.reporting.reproduce_etapas"):
+        conferir_entradas(tmp_path / "insumos", congeladas)
+    assert [r.getMessage() for r in caplog.records] == [
+        f"entrada_original_nao_conferida politica=b_proc motivo={AUSENTE}"
+    ]
+
+
 def test_politica_com_entrada_nao_conferida_vira_item_inconclusivo_com_o_motivo() -> None:
     itens = comparar_entradas_originais(
         {"b_proc": ALTERADA, "b_atend": AUSENTE, "m_temp": ILEGIVEL}

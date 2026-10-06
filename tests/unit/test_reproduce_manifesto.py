@@ -193,6 +193,13 @@ def test_a_copia_nunca_e_gravada_sobre_o_manifesto_de_origem(tmp_path: Path) -> 
     assert {n: (origem / n).read_bytes() for n in antes} == antes
 
 
+def test_a_copia_recusa_o_mesmo_diretorio_escrito_de_outro_modo(tmp_path: Path) -> None:
+    origem = _origem(tmp_path, [observar(PA, "202401", "a", 1)])
+    com_volta = origem / "volta" / ".."
+    with pytest.raises(ConfigInvalida, match="manifesto_do_congelamento_sobre_a_origem"):
+        manifesto_do_congelamento(origem, com_volta, instante(3))
+
+
 def test_a_origem_nao_e_alterada(tmp_path: Path) -> None:
     origem = _origem(tmp_path, [observar(PA, "202401", "a", 1), observar(PA, "202402", "b", 5)])
     antes = {n: (origem / n).read_bytes() for n in (NOME_MANIFESTO_AQUISICAO, ANCORA)}

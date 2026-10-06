@@ -11,11 +11,13 @@ que a execução declara:
   `produzido_por == run.run_id` e conferir linhas e hash lógico com o `DatasetRef`
   (`rules.conteudo.verificar_conteudo`). Linha com `run_id` de outra execução recusa a explicação
   inteira (`saida_mistura_execucoes`). Como o hash lógico cobre só as colunas do esquema presentes
-  no arquivo, cada saída também precisa ter todas as colunas do esquema canônico
-  (`saida_incoerente_com_contrato schema=… faltam=…`), e valor que o contrato não aceita (`rule_id`
-  ou `fonte` nulos, `parametros` que não é objeto JSON, `chaves_amostra` que não é lista, por
-  exemplo) recusa a explicação (`saida_incoerente_com_contrato`). O `counterfactual` lê pelo mesmo
-  leitor e recusa igual.
+  no arquivo, os nomes das colunas de cada saída também precisam ser exatamente os do esquema
+  canônico, nem a menos nem a mais (`saida_incoerente_com_contrato schema=… faltam=…` ou
+  `sobram=…`), e valor que o contrato não aceita (`rule_id` ou `fonte` nulos, `parametros` que não
+  é objeto JSON, `chaves_amostra` que não é lista, por exemplo) recusa a explicação
+  (`saida_incoerente_com_contrato`). Os tipos físicos não são conferidos: o contrato valida cada
+  valor lido (pendência em `docs/pendencias/T08.md`). O `counterfactual` lê pelo mesmo leitor e
+  recusa igual.
 - **Entradas** (`RunResult.entradas`): o `sia_pa.v1` de onde vem o registro e os conjuntos
   auxiliares que as evidências citam, também conferidos pelo hash.
 - **Regras**: o catálogo (ou `regras=`, keyword-only) cujo `catalogo_sha256` bate com

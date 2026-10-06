@@ -88,9 +88,9 @@ def _sql_classificacao(spec: SplitSpec, cohort: CohortSpec) -> tuple[str, dict[s
     for i, intervalo in enumerate(spec.intervalos):
         parametros[f"p{i}_ini"] = str(intervalo.inicio)
         parametros[f"p{i}_fim"] = str(intervalo.fim)
+        parametros[f"p{i}_nome"] = intervalo.particao.value
         casos.append(
-            f"WHEN competencia_processamento BETWEEN $p{i}_ini AND $p{i}_fim "
-            f"THEN '{intervalo.particao.value}'"
+            f"WHEN competencia_processamento BETWEEN $p{i}_ini AND $p{i}_fim THEN $p{i}_nome"
         )
     instrumentos = ""
     if cohort.instrumentos:

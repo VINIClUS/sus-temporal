@@ -7,7 +7,11 @@ conteúdo refeito decide se o resultado é igual ou divergente).
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from sustemporal.evaluation.freeze import hash_das_regras
+from sustemporal.hashing import sha256_arquivo
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -17,10 +21,31 @@ if TYPE_CHECKING:
 __all__ = ["observacoes_dos_catalogos"]
 
 
+def _sha256(caminho: str | None) -> str | None:
+    if caminho is None:
+        return None
+    try:
+        return sha256_arquivo(Path(caminho))
+    except OSError:
+        return None
+
+
 def observacoes_dos_catalogos(
     congelados: Mapping[str, str],
     catalogos: Mapping[str, str],
     regras_congeladas: str | None,
     regras: Sequence[RuleSpec],
 ) -> list[str]:
-    raise NotImplementedError
+    """Linhas de `observacoes` para o catálogo que mudou, sumiu ou que só um dos lados tem.
+
+    `congelados` e `catalogos` (a config) são por nome; `regras_congeladas` é o SHA-256 do
+    catálogo de regras no manifesto (sem ele, as regras não são conferidas).
+    """
+    observacoes = []
+    nomes = {*congelados, *catalogos}
+    diferentes = sorted(n for n in nomes if _sha256(catalogos.get(n)) != congelados.get(n))
+    if diferentes:
+        observacoes.append(f"catalogos_diferentes_do_congelado catalogos={','.join(diferentes)}")
+    if regras_congeladas is not None and hash_das_regras(regras) != regras_congeladas:
+        observacoes.append("catalogo_de_regras_diferente_do_congelado")
+    return observacoes

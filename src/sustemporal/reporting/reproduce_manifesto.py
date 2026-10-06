@@ -20,7 +20,7 @@ from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import EstadoManifesto, Manifesto, ManifestoCorrompido
 from sustemporal.errors import ConfigInvalida
 from sustemporal.evaluation.split import SCHEMA_ENTRADA
-from sustemporal.ingest.cli import NOME_POSICAO_MANIFESTO
+from sustemporal.ingest.cli import NOME_CONFIGURACAO_INGEST, NOME_POSICAO_MANIFESTO
 from sustemporal.rules.ingest import ler_datasets
 
 if TYPE_CHECKING:
@@ -115,6 +115,35 @@ def _posicao_unica(candidatas: list[Path]) -> tuple[_Posicao | None, str]:
     return distintas.pop(), ""
 
 
+def _configuracao_gravada(pasta: Path) -> dict[str, object] | None:
+    try:
+        bruta = json.loads((pasta / NOME_CONFIGURACAO_INGEST).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return bruta if isinstance(bruta, dict) else None
+
+
+def _configuracao_diferente(candidatas: list[Path], configuracao: Mapping[str, object]) -> str:
+    """O motivo de o ingest original não ter a configuração do refeito, ou vazio se a tem.
+
+    Todas as candidatas têm de tê-la: a que o congelamento usou não se sabe qual é.
+    """
+    gravadas = {pasta.name: _configuracao_gravada(pasta) for pasta in candidatas}
+    sem = [nome for nome, gravada in gravadas.items() if gravada is None]
+    if sem:
+        return f"ingest_original_sem_configuracao execucao={','.join(sem)}"
+    validas = [gravada for gravada in gravadas.values() if gravada is not None]
+    campos = list(configuracao)
+    campos += [c for gravada in validas for c in gravada if c not in campos]
+    campos = list(dict.fromkeys(campos))
+    diferentes = [c for c in campos if any(g.get(c) != configuracao.get(c) for g in validas)]
+    return (
+        f"ingest_original_com_configuracao_diferente campos={','.join(diferentes)}"
+        if diferentes
+        else ""
+    )
+
+
 def _ate_a_posicao(atual: EstadoManifesto, posicao: _Posicao) -> tuple[LinhaManifesto, ...] | str:
     """As linhas do manifesto atual até a posição lida, ou o motivo de ele não as ter."""
     if posicao.linhas > len(atual.linhas):
@@ -150,13 +179,13 @@ def resolver_manifesto(
     posição que o manifesto atual não tem (linhas a mais, hash da última diferente ou fim no meio
     de uma transação), `motivo` diz por quê.
     """
-    if configuracao is not None:
-        raise NotImplementedError
     candidatas, execucoes = _candidatas(raiz_ingest, _sia_pa(congelados))
     if not candidatas:
         return Resolucao(motivo=f"ingest_original_ausente execucoes={execucoes}")
     posicao, motivo = _posicao_unica(candidatas)
     if posicao is None:
+        return Resolucao(motivo=motivo)
+    if configuracao is not None and (motivo := _configuracao_diferente(candidatas, configuracao)):
         return Resolucao(motivo=motivo)
     try:
         atual = Manifesto(raiz_origem / NOME_MANIFESTO_AQUISICAO).ler()

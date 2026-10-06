@@ -25,12 +25,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from sustemporal.contracts.base import OrigemDados
 from sustemporal.contracts.experiment import ModoExecucao, Particao
 from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro, RedeProibida
 from sustemporal.evaluation.freeze import carregar_freeze, hash_protocolo
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 from sustemporal.execucoes import raiz_execucoes
 from sustemporal.ingest import cli as ingest_cli
+from sustemporal.ingest.cli import configuracao_do_ingest
+from sustemporal.reporting.reproduce_catalogos import observacoes_dos_catalogos
 from sustemporal.reporting.reproduce_comparacao import (
     Comparacao,
     Situacao,
@@ -269,13 +272,17 @@ def _saidas_por_metodo(
 
 
 def _observacoes(config: RunConfig, manifesto: FreezeManifest) -> list[str]:
-    return observacoes_do_ambiente(
+    do_ambiente = observacoes_do_ambiente(
         config_igual=hash_protocolo(config) == manifesto.config_hash,
         codigo=versao_codigo(Path.cwd()),
         congelado=manifesto.codigo,
         pacotes=ambiente(Path.cwd()).pacotes,
         congelados=manifesto.ambiente.pacotes,
     )
+    catalogos = observacoes_dos_catalogos(
+        manifesto.catalogos_sha256, config.catalogos, manifesto.catalogo_regras_sha256, _regras()
+    )
+    return [*do_ambiente, *catalogos]
 
 
 def _regras() -> list[RuleSpec]:
@@ -307,10 +314,23 @@ def _indisponiveis(
     ]
 
 
-def _sem_manifesto(resolucao: Resolucao, insumos: Insumos) -> list[Comparacao]:
-    """O item da posição do manifesto que não se sabe e os insumos originais que não conferem."""
-    item = Comparacao(ITEM_MANIFESTO, Situacao.INCONCLUSIVO, None, None, resolucao.motivo)
-    return [item, *comparar_entradas_originais(insumos.problemas)]
+def _item_do_manifesto(resolucao: Resolucao) -> list[Comparacao]:
+    """O item da posição do manifesto de aquisição que não se sabe (vazio se se sabe)."""
+    if not resolucao.motivo:
+        return []
+    return [Comparacao(ITEM_MANIFESTO, Situacao.INCONCLUSIVO, None, None, resolucao.motivo)]
+
+
+def _item_da_origem(config: RunConfig, manifesto: FreezeManifest) -> list[Comparacao]:
+    """Item inconclusivo se a origem dos dados da config não é a dos conjuntos congelados."""
+    congeladas = sorted({dataset.origem_dados.value for dataset in manifesto.datasets})
+    obtida = (config.origem_dados or OrigemDados.SINTETICO).value
+    if congeladas == [obtida]:
+        return []
+    detalhe = "origem_dados_diferente_do_congelado"
+    return [
+        Comparacao("origem_dados", Situacao.INCONCLUSIVO, ",".join(congeladas), obtida, detalhe)
+    ]
 
 
 def _parar_se_inconclusivo(
@@ -339,10 +359,13 @@ def _ingerir_o_original(
         Path(config.runtime.raiz_saidas) / "ingest",
         Path(config.runtime.raiz_manifestos),
         manifesto.datasets,
+        configuracao_do_ingest(config),
     )
     do_ambiente = [*original.observacoes, *_observacoes(config, manifesto)]
-    if resolucao.motivo:
-        _parar_se_inconclusivo(config, out, _sem_manifesto(resolucao, insumos), do_ambiente)
+    antes = [*_item_do_manifesto(resolucao), *_item_da_origem(config, manifesto)]
+    if antes:
+        itens = [*antes, *comparar_entradas_originais(insumos.problemas)]
+        _parar_se_inconclusivo(config, out, itens, do_ambiente)
     gravar_manifesto(
         Path(config.runtime.raiz_manifestos), Path(em_out.runtime.raiz_manifestos), resolucao
     )

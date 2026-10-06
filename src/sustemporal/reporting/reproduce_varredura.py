@@ -56,6 +56,93 @@ def _t(fonte: Fonte, conferencia: Conferencia, efeito: str) -> Tratamento:
 
 F, C = Fonte, Conferencia
 
-CAMPOS_DO_CONGELAMENTO: dict[str, Tratamento] = {}
+CAMPOS_DO_CONGELAMENTO: dict[str, Tratamento] = {
+    "freeze_id": _t(
+        F.CONGELAMENTO, C.RECUSA, "recomputado do conteúdo; adulterado ou de outro id sai 2"
+    ),
+    "criado_em": _t(F.NENHUMA, C.NENHUMA, "informativo; já não decide o manifesto de aquisição"),
+    "config_hash": _t(
+        F.CONGELAMENTO, C.OBSERVACAO, "`config_diferente_da_congelada`; o conteúdo decide"
+    ),
+    "codigo": _t(
+        F.CONGELAMENTO, C.OBSERVACAO, "`codigo_diferente_do_congelado`; o conteúdo decide"
+    ),
+    "ambiente": _t(
+        F.CONGELAMENTO, C.OBSERVACAO, "`pacotes_diferentes_do_congelado`; o conteúdo decide"
+    ),
+    "catalogos_sha256": _t(F.CONGELAMENTO, C.OBSERVACAO, "`catalogos_diferentes_do_congelado`"),
+    "datasets": _t(
+        F.CONGELAMENTO, C.ITEM, "`conjunto:*` por hash lógico; acha o ingest e a origem"
+    ),
+    "split": _t(F.CONGELAMENTO, C.ITEM, "`split:*`; a `spec` e os inspecionados vêm dele"),
+    "features": _t(F.NENHUMA, C.NENHUMA, "a avaliação por regras não usa features"),
+    "bootstrap": _t(F.CONGELAMENTO, C.INDIRETA, "o do manifesto vale; `metricas` e `notas`"),
+    "metricas": _t(F.CODIGO, C.INDIRETA, "constante do código; `metricas` do relatório registrado"),
+    "comparacoes_primarias": _t(F.CODIGO, C.INDIRETA, "constante do código; `notas` do relatório"),
+    "margens": _t(F.NENHUMA, C.NENHUMA, "a avaliação não usa margens (T11 #2)"),
+    "decisao_g0": _t(F.NENHUMA, C.NENHUMA, "só autoriza congelar"),
+    "catalogo_regras_sha256": _t(
+        F.CONGELAMENTO, C.OBSERVACAO, "`catalogo_de_regras_diferente_do_congelado`"
+    ),
+    "politicas_sha256": _t(
+        F.CONGELAMENTO, C.ITEM, "a política refeita é a congelada; senão `insumos:*` inconclusivo"
+    ),
+    "entradas_validacao": _t(
+        F.CONGELAMENTO, C.ITEM, "`insumos:*`: entrada original e identidade campo a campo"
+    ),
+}
 
-CAMPOS_DA_CONFIG: dict[str, Tratamento] = {}
+CAMPOS_DA_CONFIG: dict[str, Tratamento] = {
+    "versao": _t(F.NENHUMA, C.NENHUMA, "não lido pela cadeia"),
+    "modo": _t(F.REGISTRO, C.RECUSA, "só o exploratório; a rodada é a do modo no registro"),
+    "origem_dados": _t(
+        F.CONGELAMENTO, C.ITEM, "`origem_dados` inconclusivo se difere dos conjuntos"
+    ),
+    "runtime.duckdb_memoria": _t(F.NENHUMA, C.NENHUMA, "desempenho; o conteúdo não depende"),
+    "runtime.duckdb_threads": _t(
+        F.NENHUMA, C.NENHUMA, "desempenho; 1 e 4 threads dão o mesmo conteúdo"
+    ),
+    "runtime.raiz_dados": _t(
+        F.ORIGINAL, C.ITEM, "SHA-256 do bruto conferido pelo ingest; quarentena inconclusiva"
+    ),
+    "runtime.raiz_manifestos": _t(
+        F.ORIGINAL, C.ITEM, "só até a posição que o ingest leu (`manifesto:aquisicao`)"
+    ),
+    "runtime.raiz_saidas": _t(
+        F.ORIGINAL, C.ITEM, "ingest, `split/insumos`, relatório e execuções originais"
+    ),
+    "runtime.dir_congelamentos": _t(
+        F.CONGELAMENTO, C.RECUSA, "manifesto com id recomputado e registro encadeado"
+    ),
+    "runtime.rede_permitida": _t(F.NENHUMA, C.RECUSA, "recusado (saída 6)"),
+    "runtime.verificacao_fidelidade": _t(
+        F.NENHUMA, C.NENHUMA, "limite: o ingest original não registra o modo"
+    ),
+    "piloto.uf": _t(F.ORIGINAL, C.ITEM, "`configuracao_ingest.json`: `manifesto:aquisicao`"),
+    "piloto.competencias_processamento": _t(
+        F.CONGELAMENTO, C.INDIRETA, "a janela vem da partição; a cobertura na identidade"
+    ),
+    "piloto.territorio": _t(
+        F.CONGELAMENTO, C.ITEM, "`recorte_territorial` na identidade dos insumos"
+    ),
+    "piloto.familias_fontes": _t(
+        F.ORIGINAL, C.ITEM, "`configuracao_ingest.json`: `manifesto:aquisicao`"
+    ),
+    "vigilancia": _t(F.NENHUMA, C.NENHUMA, "não lido: o piloto é exigido"),
+    "coorte": _t(F.CONFIG, C.INDIRETA, "o `split_id` leva a coorte; diferente diverge"),
+    "particoes": _t(
+        F.CONGELAMENTO, C.NENHUMA, "a `spec` do manifesto vale; a da config é ignorada"
+    ),
+    "bootstrap": _t(F.CONGELAMENTO, C.NENHUMA, "o do manifesto vale; o da config é ignorado"),
+    "metodos": _t(F.CODIGO, C.INDIRETA, "refaz os três métodos; método sem registro diverge"),
+    "politica_id": _t(F.CONGELAMENTO, C.ITEM, "cada método refaz com a política congelada dele"),
+    "semente": _t(F.NENHUMA, C.NENHUMA, "não lida pela cadeia (o bootstrap tem a do manifesto)"),
+    "contrafactual": _t(F.NENHUMA, C.NENHUMA, "não lido pela cadeia"),
+    "corte_observacao": _t(
+        F.ORIGINAL, C.ITEM, "`configuracao_ingest.json` e `snapshots` dos insumos"
+    ),
+    "freeze_id": _t(F.CONGELAMENTO, C.RECUSA, "o da CLI; config com outro sai 2"),
+    "catalogos": _t(
+        F.CONGELAMENTO, C.ITEM, "fontes e leiaute pelo ingest original; os demais, observação"
+    ),
+}

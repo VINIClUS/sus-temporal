@@ -32,7 +32,11 @@ from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 from sustemporal.execucoes import raiz_execucoes
 from sustemporal.ingest import cli as ingest_cli
 from sustemporal.ingest.cli import configuracao_do_ingest
-from sustemporal.reporting.reproduce_catalogos import item_da_origem, observacoes_dos_catalogos
+from sustemporal.reporting.reproduce_catalogos import (
+    item_da_origem,
+    observacoes_dos_catalogos,
+    origens_do_relatorio,
+)
 from sustemporal.reporting.reproduce_comparacao import (
     Comparacao,
     Situacao,
@@ -323,12 +327,18 @@ def _original_ilegivel(erro: OSError, config: RunConfig) -> list[Comparacao]:
     return [Comparacao(ITEM_ORIGINAIS, Situacao.INCONCLUSIVO, None, None, detalhe)]
 
 
+def _cabecalho(config: RunConfig, manifesto: FreezeManifest) -> dict[str, object]:
+    """O topo do `reproducao.json`: o congelamento, o modo e as origens dos dados."""
+    origens = origens_do_relatorio(config.origem_dados, manifesto.datasets)
+    return {"freeze_id": config.freeze_id, "modo": config.modo.value, **origens}
+
+
 def _parar_se_inconclusivo(
-    config: RunConfig, out: Path, itens: list[Comparacao], observacoes: list[str]
+    cabecalho: Mapping[str, object], out: Path, itens: list[Comparacao], observacoes: list[str]
 ) -> None:
     """Grava o `reproducao.json` e falha, antes de refazer, se há item sem conferência."""
     if itens:
-        _registrar(config, out, None, itens, observacoes)
+        _registrar(cabecalho, out, None, itens, observacoes)
         exigir_conferido(itens)
 
 
@@ -345,6 +355,7 @@ def _ingerir_o_original(
     original (entrada ou política) que não se confere.
     """
     regras = _regras()
+    cabecalho = _cabecalho(config, manifesto)
     insumos = _insumos_originais(config, manifesto, original, regras)
     resolucao = resolver_manifesto(
         Path(config.runtime.raiz_saidas) / "ingest",
@@ -357,7 +368,7 @@ def _ingerir_o_original(
     antes = [*_item_do_manifesto(resolucao), *origem]
     if antes:
         itens = [*antes, *comparar_entradas_originais(insumos.problemas)]
-        _parar_se_inconclusivo(config, out, itens, do_ambiente)
+        _parar_se_inconclusivo(cabecalho, out, itens, do_ambiente)
     gravar_manifesto(
         Path(config.runtime.raiz_manifestos), Path(em_out.runtime.raiz_manifestos), resolucao
     )
@@ -366,7 +377,7 @@ def _ingerir_o_original(
     except OSError as erro:
         itens_do_original = _original_ilegivel(erro, config)
         avisos = [*observacoes_do_manifesto(resolucao), *do_ambiente]
-        _parar_se_inconclusivo(config, out, itens_do_original, avisos)
+        _parar_se_inconclusivo(cabecalho, out, itens_do_original, avisos)
         raise
     estados = estados_do_ingest(pasta)
     observacoes = [
@@ -374,12 +385,12 @@ def _ingerir_o_original(
         *observacoes_do_ingest(estados),
         *do_ambiente,
     ]
-    _parar_se_inconclusivo(config, out, _indisponiveis(manifesto, insumos, estados), observacoes)
+    _parar_se_inconclusivo(cabecalho, out, _indisponiveis(manifesto, insumos, estados), observacoes)
     return Preparado(pasta, observacoes, insumos.politicas)
 
 
 def _parar_se_particao_vazia(
-    config: RunConfig,
+    cabecalho: Mapping[str, object],
     out: Path,
     manifesto: FreezeManifest,
     derivado: Derivado,
@@ -388,7 +399,7 @@ def _parar_se_particao_vazia(
     if vazias := _particoes_vazias(derivado):
         itens = _itens_sem_particao(manifesto, derivado, vazias)
         avisos = [f"particao_sem_artefatos particao={p.value}" for p in vazias]
-        _parar_se_inconclusivo(config, out, itens, [*observacoes, *avisos])
+        _parar_se_inconclusivo(cabecalho, out, itens, [*observacoes, *avisos])
 
 
 def _comparar(
@@ -411,17 +422,14 @@ def _comparar(
 
 
 def _registrar(
-    config: RunConfig,
+    cabecalho: Mapping[str, object],
     out: Path,
     relatorio: EvaluationReport | None,
     itens: list[Comparacao],
     observacoes: list[str],
 ) -> None:
-    origem = config.origem_dados
     conteudo = {
-        "freeze_id": config.freeze_id,
-        "modo": config.modo.value,
-        "origem_dados": origem.value if origem else None,
+        **cabecalho,
         "resultado": resultado_geral(itens).value,
         "relatorio_refeito": relatorio.report_id if relatorio else None,
         "observacoes": observacoes,
@@ -453,10 +461,11 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
         original = ler_original(config, freeze_id)
         preparado = _ingerir_o_original(config, em_out, out, manifesto, original)
         derivado = _derivar(em_out, manifesto, preparado.pasta)
-        _parar_se_particao_vazia(config, out, manifesto, derivado, preparado.observacoes)
+        cabecalho = _cabecalho(config, manifesto)
+        _parar_se_particao_vazia(cabecalho, out, manifesto, derivado, preparado.observacoes)
         refeito = _refazer(em_out, manifesto, preparado, derivado)
         itens = _comparar(em_out, manifesto, original, refeito)
-        _registrar(config, out, refeito.relatorio, itens, preparado.observacoes)
+        _registrar(cabecalho, out, refeito.relatorio, itens, preparado.observacoes)
     exigir_conferido(itens)
     logger.info(
         "reproducao_concluida freeze=%s resultado=%s", freeze_id, resultado_geral(itens).value

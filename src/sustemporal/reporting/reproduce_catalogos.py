@@ -3,7 +3,8 @@
 O manifesto guarda o SHA-256 de cada catálogo que a config declara e o do catálogo de regras. A
 reprodução usa os de agora: se diferem, a diferença vira observação (não impede a conferência: o
 conteúdo refeito decide se o resultado é igual ou divergente). A origem dos dados da config tem de
-ser a dos conjuntos congelados; senão a reprodução é inconclusiva.
+ser a dos conjuntos congelados; senão a reprodução é inconclusiva. O topo do `reproducao.json` traz
+a origem dos conjuntos congelados (`origem_dados`) e a da config (`origem_dados_config`).
 """
 
 from __future__ import annotations
@@ -55,13 +56,21 @@ def observacoes_dos_catalogos(
     return observacoes
 
 
+def _origens(datasets: Iterable[DatasetRef]) -> list[str]:
+    return sorted({dataset.origem_dados.value for dataset in datasets})
+
+
+def _declarada(origem: OrigemDados | None) -> str:
+    """A origem declarada na config; sem ela vale `SINTETICO`, como no `ingest`."""
+    return (origem or OrigemDados.SINTETICO).value
+
+
 def item_da_origem(origem: OrigemDados | None, datasets: Iterable[DatasetRef]) -> list[Comparacao]:
     """Item inconclusivo se a origem dos dados da config não é a dos conjuntos congelados.
 
     Sem `origem_dados` na config vale `SINTETICO`, como no `ingest`.
     """
-    congeladas = sorted({dataset.origem_dados.value for dataset in datasets})
-    obtida = (origem or OrigemDados.SINTETICO).value
+    congeladas, obtida = _origens(datasets), _declarada(origem)
     if congeladas == [obtida]:
         return []
     detalhe = "origem_dados_diferente_do_congelado"
@@ -73,5 +82,13 @@ def item_da_origem(origem: OrigemDados | None, datasets: Iterable[DatasetRef]) -
 def origens_do_relatorio(
     origem: OrigemDados | None, datasets: Iterable[DatasetRef]
 ) -> dict[str, str | None]:
-    """`origem_dados` e `origem_dados_config` do topo do `reproducao.json`."""
-    raise NotImplementedError
+    """`origem_dados` e `origem_dados_config` do topo do `reproducao.json`.
+
+    `origem_dados` é a dos conjuntos do manifesto congelado, como nos outros artefatos (várias,
+    separadas por vírgula; `None` se o manifesto não traz conjuntos); `origem_dados_config` é a
+    declarada na config, e `SINTETICO` sem declaração.
+    """
+    return {
+        "origem_dados": ",".join(_origens(datasets)) or None,
+        "origem_dados_config": _declarada(origem),
+    }

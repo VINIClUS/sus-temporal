@@ -8,6 +8,7 @@ UDP e o servidor TCP ficam fora da guarda e nada chega a eles.
 
 from __future__ import annotations
 
+import gc
 import os
 import socket
 from contextlib import closing, suppress
@@ -165,6 +166,21 @@ def test_familia_que_nao_e_inet_nem_unix_tambem_e_recusada() -> None:
         socket.socket(socket.AF_NETLINK, socket.SOCK_RAW)
 
 
+@pytest.mark.skipif(
+    not os.path.isdir("/proc/self/fd"), reason="contagem de descritores só no Linux"
+)
+def test_socket_de_rede_recusado_nao_deixa_descritor_aberto() -> None:
+    antes = len(os.listdir("/proc/self/fd"))
+    with sem_rede():
+        for _ in range(3):
+            with pytest.raises(RedeProibida):
+                socket.socket()
+            with pytest.raises(RedeProibida):
+                socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    gc.collect()
+    assert len(os.listdir("/proc/self/fd")) == antes
+
+
 def test_servidor_de_rede_tambem_nao_abre() -> None:
     with sem_rede(), pytest.raises(RedeProibida):
         socket.create_server(("127.0.0.1", 0))
@@ -175,8 +191,11 @@ def test_socket_de_rede_a_partir_de_descritor_e_recusado_e_o_descritor_fica_com_
         descritor = os.dup(original.fileno())
     try:
         with sem_rede():
-            with pytest.raises(RedeProibida):
+            with pytest.raises(RedeProibida) as recusa:
                 socket.socket(fileno=descritor)
+            del recusa
+            gc.collect()
+            os.fstat(descritor)
             with pytest.raises(RedeProibida):
                 socket.socket(socket.AF_INET, socket.SOCK_DGRAM, fileno=descritor)
         os.fstat(descritor)
@@ -188,6 +207,8 @@ def test_socket_de_rede_a_partir_de_descritor_e_recusado_e_o_descritor_fica_com_
 def test_af_unix_e_permitido_dentro_da_guarda() -> None:
     with sem_rede():
         with closing(socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)):
+            pass
+        with closing(socket.socket(family=socket.AF_UNIX, type=socket.SOCK_DGRAM)):
             pass
         esquerdo, direito = socket.socketpair()
         with closing(esquerdo), closing(direito):
@@ -227,6 +248,12 @@ def test_ao_sair_do_bloco_a_rede_volta_ao_que_era(
     with closing(socket.socket(socket.AF_INET, socket.SOCK_DGRAM)) as emissor:
         emissor.sendto(b"voltou", receptor.getsockname())
     assert receptor.recvfrom(16)[0] == b"voltou"
+
+
+def test_a_guarda_registra_uma_linha_de_log(caplog: pytest.LogCaptureFixture) -> None:
+    with caplog.at_level("INFO", logger="sustemporal.reporting.reproduce_rede"), sem_rede():
+        pass
+    assert caplog.messages == ["rede_bloqueada contexto=reproduce_offline"]
 
 
 def test_a_rede_volta_ao_que_era_mesmo_com_erro_no_bloco() -> None:

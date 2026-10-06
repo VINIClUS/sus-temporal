@@ -146,6 +146,24 @@ def test_modulo_do_comando_pode_acrescentar_argumentos(
     assert manipuladores_falsos.CHAMADAS == ["ingest:1:sim"]
 
 
+@pytest.mark.parametrize(
+    ("argumentos", "opcoes"),
+    [
+        (["validate", "--help"], ("--policy", "--entrada", "--ingest", "--saida")),
+        (["--nivel-log", "WARNING", "reproduce", "--help"], ("--freeze", "--saida")),
+    ],
+    ids=["validate", "reproduce"],
+)
+def test_ajuda_do_comando_lista_as_opcoes_do_modulo(
+    argumentos: list[str], opcoes: tuple[str, ...], capsys: pytest.CaptureFixture[str]
+) -> None:
+    with pytest.raises(SystemExit) as saida:
+        cli.main(argumentos)
+    assert saida.value.code == 0
+    ajuda = capsys.readouterr().out
+    assert [opcao for opcao in opcoes if opcao not in ajuda] == []
+
+
 def test_validate_exige_politica_do_plano(config_valida: Path) -> None:
     with pytest.raises(SystemExit):
         cli.main(["validate", "--config", str(config_valida), "--policy", "mes_vizinho"])

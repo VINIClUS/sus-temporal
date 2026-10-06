@@ -13,7 +13,7 @@ import json
 import shutil
 import socket
 from collections import Counter
-from contextlib import contextmanager
+from contextlib import closing, contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -908,4 +908,36 @@ def test_reproduce_roda_sob_a_guarda_de_rede(fluxo: Fluxo, monkeypatch: pytest.M
 
     monkeypatch.setattr("sustemporal.ingest.cli.executar_ingest", tenta_conectar)
     destino = fluxo.mundo.raiz / "reproducao_guarda"
+    assert reproduzir(fluxo, fluxo.configs["teste"], destino).codigo == ExitCode.REDE_PROIBIDA
+
+
+def _ingest_que_tenta(operacao: Callable[[], object]) -> Callable[..., int]:
+    """O `ingest` troca por uma operação de rede que a guarda tem de recusar antes de ela voltar."""
+
+    def executar(*_args: object, **_kwargs: object) -> int:
+        operacao()
+        raise AssertionError("rede_nao_recusada")
+
+    return executar
+
+
+def test_reproduce_recusa_datagrama_de_socket_aberto_antes_da_guarda(
+    fluxo: Fluxo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with closing(socket.socket(socket.AF_INET, socket.SOCK_DGRAM)) as emissor:
+        envio = _ingest_que_tenta(lambda: emissor.sendto(b"datagrama", ("127.0.0.1", 9)))
+        monkeypatch.setattr("sustemporal.ingest.cli.executar_ingest", envio)
+        destino = fluxo.mundo.raiz / "reproducao_guarda_datagrama"
+        assert reproduzir(fluxo, fluxo.configs["teste"], destino).codigo == ExitCode.REDE_PROIBIDA
+
+
+def test_reproduce_recusa_abrir_socket_de_rede_sob_a_guarda(
+    fluxo: Fluxo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def abrir() -> None:
+        with suppress(OSError), closing(socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)):
+            pass
+
+    monkeypatch.setattr("sustemporal.ingest.cli.executar_ingest", _ingest_que_tenta(abrir))
+    destino = fluxo.mundo.raiz / "reproducao_guarda_socket"
     assert reproduzir(fluxo, fluxo.configs["teste"], destino).codigo == ExitCode.REDE_PROIBIDA

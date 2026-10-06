@@ -94,12 +94,18 @@ def _linhas(
 
 
 def _exigir_colunas(con: duckdb.DuckDBPyConnection, ref: DatasetRef) -> None:
+    """Nomes físicos iguais aos do esquema: o hash lógico não vê coluna fora dele."""
     descricao = _linhas(con, "DESCRIBE SELECT * FROM read_parquet($c)", {"c": ref.caminho})
-    fisicas = {str(coluna["column_name"]) for coluna in descricao}
-    faltam = [c.nome for c in carregar_esquema(ref.schema_id).colunas if c.nome not in fisicas]
-    if faltam:
+    fisicas = [str(coluna["column_name"]) for coluna in descricao]
+    esperadas = [c.nome for c in carregar_esquema(ref.schema_id).colunas]
+    diferencas = {
+        "faltam": [nome for nome in esperadas if nome not in fisicas],
+        "sobram": [nome for nome in fisicas if nome not in esperadas],
+    }
+    detalhe = " ".join(f"{chave}={','.join(nomes)}" for chave, nomes in diferencas.items() if nomes)
+    if detalhe:
         raise ExplicacaoIndisponivel(
-            f"saida_incoerente_com_contrato schema={ref.schema_id} faltam={','.join(faltam)}"
+            f"saida_incoerente_com_contrato schema={ref.schema_id} {detalhe}"
         )
 
 

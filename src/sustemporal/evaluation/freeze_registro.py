@@ -58,17 +58,26 @@ def _canonico(conteudo: dict[str, Any]) -> str:
     return json.dumps(conteudo, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
+def _linhas(registro: Path) -> list[str]:
+    try:
+        if not registro.exists():
+            return []
+        return registro.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeDecodeError) as erro:
+        motivo = type(erro).__name__
+        raise FalhaOperacionalErro(f"registro_adulterado motivo={motivo}") from erro
+
+
 def ler_registro(registro: Path) -> list[dict[str, Any]]:
     """Entradas do registro, conferindo o encadeamento de cada linha com a anterior.
 
     Raises:
-        FalhaOperacionalErro: linha alterada, removida, reordenada ou ilegível.
+        FalhaOperacionalErro: linha alterada, removida, reordenada ou ilegível, UTF-8 inválido
+            ou arquivo que o sistema nega abrir.
     """
-    if not registro.exists():
-        return []
     entradas: list[dict[str, Any]] = []
     anterior = None
-    for numero, linha in enumerate(registro.read_text(encoding="utf-8").splitlines()):
+    for numero, linha in enumerate(_linhas(registro)):
         try:
             entrada = json.loads(linha)
             proprio = entrada.pop("hash")

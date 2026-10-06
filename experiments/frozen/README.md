@@ -42,7 +42,9 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
   para o manifesto ilegível) e, sem nenhuma, o comando sai com código 2
   (`avaliacao_sem_execucoes`), sem relatório nem registro.
 - `registro_execucoes.jsonl`: registro append-only, em que cada linha leva o próprio hash e o
-  da anterior. Toda avaliação entra, inclusive a de resultado nulo. Depois da abertura do teste,
+  da anterior. Toda avaliação entra, inclusive a de resultado nulo. Registro com a cadeia de
+  hashes quebrada, com UTF-8 inválido ou que o sistema nega abrir é falha operacional
+  (`registro_adulterado`; o `evaluate` sai com código 5). Depois da abertura do teste,
   nova rodada confirmatória do mesmo congelamento exige `corrige` + `declaracao`, e a rodada
   anterior permanece. Na CLI: `sustemporal evaluate --freeze <id> --corrige <report_id>
   --declaracao <texto>`, os dois juntos; sem eles a segunda rodada sai com código 4. `corrige`

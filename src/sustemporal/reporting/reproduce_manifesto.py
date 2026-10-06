@@ -24,7 +24,7 @@ from sustemporal.ingest.cli import NOME_POSICAO_MANIFESTO
 from sustemporal.rules.ingest import ler_datasets
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping
     from pathlib import Path
 
     from sustemporal.contracts.artifacts import LinhaManifesto
@@ -137,7 +137,10 @@ def _recorte(atual: EstadoManifesto, mantidas: tuple[LinhaManifesto, ...]) -> Re
 
 
 def resolver_manifesto(
-    raiz_ingest: Path, raiz_origem: Path, congelados: Iterable[DatasetRef]
+    raiz_ingest: Path,
+    raiz_origem: Path,
+    congelados: Iterable[DatasetRef],
+    configuracao: Mapping[str, object] | None = None,
 ) -> Resolucao:
     """O manifesto de `raiz_origem` até onde o `ingest` que produziu o SIA-PA congelado o leu.
 
@@ -147,6 +150,8 @@ def resolver_manifesto(
     posição que o manifesto atual não tem (linhas a mais, hash da última diferente ou fim no meio
     de uma transação), `motivo` diz por quê.
     """
+    if configuracao is not None:
+        raise NotImplementedError
     candidatas, execucoes = _candidatas(raiz_ingest, _sia_pa(congelados))
     if not candidatas:
         return Resolucao(motivo=f"ingest_original_ausente execucoes={execucoes}")

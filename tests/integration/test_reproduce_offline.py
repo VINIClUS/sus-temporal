@@ -62,7 +62,7 @@ from sustemporal.reporting.reproduce_etapas import (
 from sustemporal.temporal.politicas import DIRETORIO_POLITICAS
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 pytestmark = pytest.mark.slow
 
@@ -563,35 +563,57 @@ def test_reproduce_com_saida_que_a_reconstrucao_nao_emitiu_e_divergente(
     assert {feita.itens[item]["detalhe"] for item in divergentes} == {"saida_ausente_no_refeito"}
 
 
+def _alterar_json(arquivo: Path, **trocas: object) -> None:
+    conteudo = json.loads(arquivo.read_text(encoding="utf-8"))
+    arquivo.write_text(json.dumps({**conteudo, **trocas}), encoding="utf-8")
+
+
 def _estragar_o_ingest(fluxo: Fluxo, como: str, fora: Path, copia: Path) -> str:
     """Estraga o ingest original de um jeito e devolve o motivo que a reprodução deve dar."""
     assert fluxo.ingest is not None
     pasta = fluxo.ingest
-    posicao = pasta / "manifesto_lido.json"
-    lido = json.loads(posicao.read_text(encoding="utf-8"))
-    linhas = lido["linhas"]
-    if como == "ausente":
-        pasta.rename(fora)
-        return "ingest_original_ausente execucoes=0"
-    if como == "ambigua":
+    posicao, configuracao = pasta / "manifesto_lido.json", pasta / "configuracao_ingest.json"
+    linhas = json.loads(posicao.read_text(encoding="utf-8"))["linhas"]
+
+    def com_outra_posicao() -> None:
         shutil.copytree(pasta, copia)
-        (copia / "manifesto_lido.json").write_text(json.dumps({**lido, "linhas": linhas - 1}))
-        return "ingest_original_ambiguo candidatas=2 posicoes=2"
-    if como == "sem_posicao":
-        posicao.write_text("{", encoding="utf-8")
-        return f"ingest_original_sem_posicao execucao={pasta.name}"
-    if como == "cabeca_diferente":
-        posicao.write_text(json.dumps({**lido, "cabeca_sha256": "0" * 64}), encoding="utf-8")
-        return f"manifesto_diferente_do_lido_pelo_ingest linhas={linhas}"
-    posicao.write_text(json.dumps({**lido, "linhas": linhas + 1000}), encoding="utf-8")
-    return f"manifesto_menor_que_o_lido_pelo_ingest linhas={linhas + 1000} atual={linhas}"
+        _alterar_json(copia / "manifesto_lido.json", linhas=linhas - 1)
+
+    estragos: dict[str, tuple[Callable[[], object], str]] = {
+        "ausente": (lambda: pasta.rename(fora), "ingest_original_ausente execucoes=0"),
+        "ambigua": (com_outra_posicao, "ingest_original_ambiguo candidatas=2 posicoes=2"),
+        "sem_posicao": (
+            lambda: posicao.write_text("{", encoding="utf-8"),
+            f"ingest_original_sem_posicao execucao={pasta.name}",
+        ),
+        "cabeca_diferente": (
+            lambda: _alterar_json(posicao, cabeca_sha256="0" * 64),
+            f"manifesto_diferente_do_lido_pelo_ingest linhas={linhas}",
+        ),
+        "alem_do_fim": (
+            lambda: _alterar_json(posicao, linhas=linhas + 1000),
+            f"manifesto_menor_que_o_lido_pelo_ingest linhas={linhas + 1000} atual={linhas}",
+        ),
+        "configuracao_diferente": (
+            lambda: _alterar_json(configuracao, uf="RJ"),
+            "ingest_original_com_configuracao_diferente campos=uf",
+        ),
+        "sem_configuracao": (
+            configuracao.unlink,
+            f"ingest_original_sem_configuracao execucao={pasta.name}",
+        ),
+    }
+    estrago, motivo = estragos[como]
+    estrago()
+    return motivo
 
 
 @contextmanager
 def _ingest_original_assim(fluxo: Fluxo, como: str) -> Iterator[str]:
     assert fluxo.ingest is not None
     pasta = fluxo.ingest
-    guardado = (pasta / "manifesto_lido.json").read_bytes()
+    arquivos = [pasta / "manifesto_lido.json", pasta / "configuracao_ingest.json"]
+    guardados = {arquivo: arquivo.read_bytes() for arquivo in arquivos}
     fora = fluxo.mundo.raiz / "ingest_guardado"
     copia = pasta.with_name("execucao_99991231T235959999999Z_copia")
     try:
@@ -600,11 +622,21 @@ def _ingest_original_assim(fluxo: Fluxo, como: str) -> Iterator[str]:
         if fora.exists():
             fora.rename(pasta)
         shutil.rmtree(copia, ignore_errors=True)
-        (pasta / "manifesto_lido.json").write_bytes(guardado)
+        for arquivo, conteudo in guardados.items():
+            arquivo.write_bytes(conteudo)
 
 
 @pytest.mark.parametrize(
-    "como", ["ausente", "ambigua", "sem_posicao", "cabeca_diferente", "alem_do_fim"]
+    "como",
+    [
+        "ausente",
+        "ambigua",
+        "sem_posicao",
+        "cabeca_diferente",
+        "alem_do_fim",
+        "configuracao_diferente",
+        "sem_configuracao",
+    ],
 )
 def test_reproduce_sem_saber_o_que_o_ingest_leu_do_manifesto_e_inconclusivo_e_nao_divergente(
     fluxo: Fluxo, como: str
@@ -617,6 +649,24 @@ def test_reproduce_sem_saber_o_que_o_ingest_leu_do_manifesto_e_inconclusivo_e_na
     assert feita.conteudo["relatorio_refeito"] is None
     assert feita.situacoes == {"manifesto:aquisicao": "INCONCLUSIVO"}
     assert feita.itens["manifesto:aquisicao"]["detalhe"] == motivo
+    assert not (destino / "ingest").exists()
+
+
+def test_reproduce_com_origem_dos_dados_diferente_da_congelada_e_inconclusivo(
+    fluxo: Fluxo,
+) -> None:
+    texto = fluxo.configs["teste"].read_text(encoding="utf-8")
+    real = fluxo.mundo.raiz / "config_origem_real.yaml"
+    real.write_text(texto.replace("origem_dados: SINTETICO", "origem_dados: REAL"))
+    destino = fluxo.mundo.raiz / "reproducao_origem_real"
+    feita = reproduzir(fluxo, real, destino)
+    assert feita.codigo == ExitCode.FALHA_OPERACIONAL
+    assert feita.conteudo.get("resultado") == "INCONCLUSIVO"
+    assert feita.conteudo["origem_dados"] == "REAL"
+    assert feita.situacoes == {"origem_dados": "INCONCLUSIVO"}
+    item = feita.itens["origem_dados"]
+    assert (item["esperado"], item["obtido"]) == ("SINTETICO", "REAL")
+    assert item["detalhe"] == "origem_dados_diferente_do_congelado"
     assert not (destino / "ingest").exists()
 
 

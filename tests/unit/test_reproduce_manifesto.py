@@ -42,6 +42,14 @@ if TYPE_CHECKING:
 PA = FamiliaFonte.SIA_PA
 ANCORA = f"{NOME_MANIFESTO_AQUISICAO}.ancora"
 LIDO = "manifesto_lido.json"
+CONFIGURACAO_DO_INGEST = "configuracao_ingest.json"
+CONFIGURACAO: dict[str, object] = {
+    "uf": "SP",
+    "corte_observacao": None,
+    "familias_fontes": ["CNES_PF", "CNES_ST", "SIA_PA", "SIGTAP"],
+    "catalogo_fontes_sha256": "a" * 64,
+    "leiaute_sia_pa_sha256": "b" * 64,
+}
 SIA_PA = "sia_pa.v1"
 
 
@@ -75,7 +83,11 @@ def _conjunto(*artefatos: str, esquema: str = SIA_PA) -> DatasetRef:
 
 
 def _execucao(
-    raiz: Path, nome: str, conjuntos: Iterable[DatasetRef], posicao: object = None
+    raiz: Path,
+    nome: str,
+    conjuntos: Iterable[DatasetRef],
+    posicao: object = None,
+    configuracao: object = None,
 ) -> Path:
     pasta = raiz / nome
     pasta.mkdir(parents=True)
@@ -83,6 +95,8 @@ def _execucao(
     (pasta / "datasets.jsonl").write_text(linhas, encoding="utf-8")
     if posicao is not None:
         (pasta / LIDO).write_text(json.dumps(posicao), encoding="utf-8")
+    if configuracao is not None:
+        (pasta / CONFIGURACAO_DO_INGEST).write_text(json.dumps(configuracao), encoding="utf-8")
     return pasta
 
 
@@ -95,8 +109,13 @@ def _tres(tmp_path: Path) -> tuple[Path, list[Evento]]:
     return _origem(tmp_path, eventos), eventos
 
 
-def _resolver(tmp_path: Path, origem: Path, *congelados: DatasetRef) -> Resolucao:
-    return resolver_manifesto(tmp_path / "ingest", origem, congelados)
+def _resolver(
+    tmp_path: Path,
+    origem: Path,
+    *congelados: DatasetRef,
+    configuracao: dict[str, object] | None = None,
+) -> Resolucao:
+    return resolver_manifesto(tmp_path / "ingest", origem, congelados, configuracao)
 
 
 def test_a_copia_leva_so_o_que_o_ingest_leu_e_o_resto_fica_de_fora(tmp_path: Path) -> None:
@@ -418,6 +437,101 @@ def test_resolver_nao_altera_nada_da_origem_nem_do_ingest(tmp_path: Path) -> Non
     antes = {arquivo: arquivo.read_bytes() for arquivo in arquivos}
     _resolver(tmp_path, origem, uniao)
     assert {arquivo: arquivo.read_bytes() for arquivo in arquivos} == antes
+
+
+def _com_configuracao(tmp_path: Path, *nomes: str, **trocas: object) -> tuple[Path, DatasetRef]:
+    """Ingest com a `CONFIGURACAO` gravada em cada execução de `nomes` e a origem de 3 arquivos."""
+    origem, (a, b, _c) = _tres(tmp_path)
+    uniao = _conjunto(_id(a), _id(b))
+    for nome in nomes:
+        gravada = {**CONFIGURACAO, **trocas}
+        _execucao(tmp_path / "ingest", nome, [uniao], _posicao(origem, 4), gravada)
+    return origem, uniao
+
+
+def test_ingest_gravado_com_a_configuracao_do_refeito_se_resolve(tmp_path: Path) -> None:
+    origem, uniao = _com_configuracao(tmp_path, "execucao_1")
+    resolucao = _resolver(tmp_path, origem, uniao, configuracao=CONFIGURACAO)
+    assert resolucao.motivo == ""
+    assert resolucao.execucao == "execucao_1"
+
+
+@pytest.mark.parametrize(
+    ("campo", "gravado"),
+    [
+        ("uf", "RJ"),
+        ("corte_observacao", "2026-01-01T00:00:00+00:00"),
+        ("familias_fontes", ["SIA_PA"]),
+        ("catalogo_fontes_sha256", "c" * 64),
+        ("leiaute_sia_pa_sha256", "d" * 64),
+    ],
+)
+def test_ingest_gravado_com_outra_configuracao_nao_e_o_que_o_refeito_faria(
+    tmp_path: Path, campo: str, gravado: object
+) -> None:
+    origem, uniao = _com_configuracao(tmp_path, "execucao_1", **{campo: gravado})
+    resolucao = _resolver(tmp_path, origem, uniao, configuracao=CONFIGURACAO)
+    assert resolucao.motivo == f"ingest_original_com_configuracao_diferente campos={campo}"
+    assert (resolucao.execucao, resolucao.linhas) == ("", ())
+
+
+def test_campos_diferentes_saem_na_ordem_da_configuracao_do_refeito(tmp_path: Path) -> None:
+    origem, uniao = _com_configuracao(
+        tmp_path, "execucao_1", leiaute_sia_pa_sha256="d" * 64, uf="RJ"
+    )
+    motivo = _resolver(tmp_path, origem, uniao, configuracao=CONFIGURACAO).motivo
+    assert motivo == "ingest_original_com_configuracao_diferente campos=uf,leiaute_sia_pa_sha256"
+
+
+def test_campo_a_mais_na_configuracao_gravada_tambem_diferencia(tmp_path: Path) -> None:
+    origem, uniao = _com_configuracao(tmp_path, "execucao_1", novo_campo="x")
+    motivo = _resolver(tmp_path, origem, uniao, configuracao=CONFIGURACAO).motivo
+    assert motivo == "ingest_original_com_configuracao_diferente campos=novo_campo"
+
+
+def test_todas_as_candidatas_tem_de_ter_a_configuracao_do_refeito(tmp_path: Path) -> None:
+    origem, uniao = _com_configuracao(tmp_path, "execucao_1")
+    _execucao(
+        tmp_path / "ingest",
+        "execucao_2",
+        [uniao],
+        _posicao(origem, 4),
+        {**CONFIGURACAO, "uf": "RJ"},
+    )
+    motivo = _resolver(tmp_path, origem, uniao, configuracao=CONFIGURACAO).motivo
+    assert motivo == "ingest_original_com_configuracao_diferente campos=uf"
+
+
+@pytest.mark.parametrize("gravada", ["{", "[1, 2]", '"texto"', "null"])
+def test_configuracao_gravada_ilegivel_deixa_a_execucao_sem_configuracao(
+    tmp_path: Path, gravada: str
+) -> None:
+    origem, uniao = _com_configuracao(tmp_path, "execucao_1")
+    (tmp_path / "ingest" / "execucao_1" / CONFIGURACAO_DO_INGEST).write_text(gravada)
+    motivo = _resolver(tmp_path, origem, uniao, configuracao=CONFIGURACAO).motivo
+    assert motivo == "ingest_original_sem_configuracao execucao=execucao_1"
+
+
+def test_execucao_sem_arquivo_de_configuracao_e_sem_configuracao(tmp_path: Path) -> None:
+    origem, (a, b, _c) = _tres(tmp_path)
+    uniao = _conjunto(_id(a), _id(b))
+    _execucao(tmp_path / "ingest", "execucao_2", [uniao], _posicao(origem, 4))
+    _execucao(tmp_path / "ingest", "execucao_1", [uniao], _posicao(origem, 4))
+    motivo = _resolver(tmp_path, origem, uniao, configuracao=CONFIGURACAO).motivo
+    assert motivo == "ingest_original_sem_configuracao execucao=execucao_1,execucao_2"
+
+
+def test_sem_a_configuracao_do_refeito_a_do_ingest_nao_e_conferida(tmp_path: Path) -> None:
+    origem, uniao = _com_configuracao(tmp_path, "execucao_1", uf="RJ")
+    assert _resolver(tmp_path, origem, uniao).motivo == ""
+
+
+def test_posicao_desconhecida_vem_antes_da_configuracao(tmp_path: Path) -> None:
+    origem, uniao = _com_configuracao(tmp_path, "execucao_1")
+    posicao = {**_posicao(origem, 4), "linhas": 5}
+    _execucao(tmp_path / "ingest", "execucao_2", [uniao], posicao, {**CONFIGURACAO, "uf": "RJ"})
+    motivo = _resolver(tmp_path, origem, uniao, configuracao=CONFIGURACAO).motivo
+    assert motivo == "ingest_original_ambiguo candidatas=2 posicoes=2"
 
 
 def test_a_copia_gravada_e_o_prefixo_do_original_com_a_mesma_cadeia_e_a_ancora(

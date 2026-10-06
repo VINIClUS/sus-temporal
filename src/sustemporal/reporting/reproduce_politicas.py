@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from sustemporal.contracts.base import hash_canonico
 from sustemporal.errors import ConfigInvalida
-from sustemporal.rules.insumos import METODOS_DE_VALIDACAO, MetodoInvalido, politica_padrao
+from sustemporal.rules.insumos import METODOS_DE_VALIDACAO, politica_padrao
 from sustemporal.temporal.politicas import DIRETORIO_POLITICAS, carregar_politica
 
 if TYPE_CHECKING:
@@ -75,12 +75,13 @@ def _como_reproduzir(
     """`config.politica_id` que faz o `validate` resolver exatamente `politica`, ou o motivo.
 
     `None` é a política padrão do método; senão, a do catálogo com o mesmo id e o mesmo conteúdo.
+    Só se chama com política de método de validação por regras, o único que tem padrão.
     """
+    if politica == politica_padrao(politica.metodo, list(regras)):
+        return None, ""
     try:
-        if politica == politica_padrao(politica.metodo, list(regras)):
-            return None, ""
         do_catalogo = carregar_politica(politica.politica_id, diretorio)
-    except (MetodoInvalido, ConfigInvalida):
+    except ConfigInvalida:
         return None, _INDISPONIVEL
     if do_catalogo != politica:
         return None, _INDISPONIVEL

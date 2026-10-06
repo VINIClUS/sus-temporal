@@ -8,14 +8,16 @@ import io
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 
 from sustemporal.contracts.artifacts import EstadoIntegridade
 from sustemporal.contracts.base import hash_canonico
 from sustemporal.contracts.counterfactual import CounterfactualSearchResult, Executabilidade
-from sustemporal.contracts.experiment import EstadoExecucao
+from sustemporal.contracts.experiment import EstadoExecucao, RunResult
 from sustemporal.execucoes import ler_execucao, raiz_execucoes
 from sustemporal.explanation import counterfactual_sobreposicao
 from sustemporal.explanation.counterfactual import search_counterfactuals
@@ -43,9 +45,7 @@ from tests.fixtures.contrafactual_execucao import (
     Execucao,
     executar_validacao_sintetica,
 )
-
-if TYPE_CHECKING:
-    from sustemporal.contracts.experiment import RunResult
+from tests.fixtures.regras_cenario import reemitir
 
 _INCLUIR = "INCLUIR_CBO_NO_ESTABELECIMENTO"
 _AS_OF = "202610"
@@ -277,6 +277,47 @@ def test_run_result_nao_utf8_e_recusa_de_execucao(
         ContextoIndisponivel, match=r"contrafactual_sem_contexto .*execucao_ilegivel"
     ):
         _contexto(execucao)
+
+
+def _conforme_sem_evidencia(execucao: Execucao) -> None:
+    """Avaliação CONFORME da linha de ausência sem `evidence_ids`, com o DatasetRef reemitido."""
+    arquivo = _pasta_da_execucao(execucao) / "run_result.json"
+    run = RunResult.model_validate_json(arquivo.read_text(encoding="utf-8"))
+    ref = next(r for r in run.saidas if r.schema_id == "avaliacoes.v1")
+    tabela = pq.read_table(ref.caminho)
+    linhas = tabela.to_pylist()
+    conforme = next(
+        linha
+        for linha in linhas
+        if linha["row_id"] == execucao.ausencia and linha["estado"] == "CONFORME"
+    )
+    conforme["evidence_ids"] = ""
+    pq.write_table(pa.Table.from_pylist(linhas, tabela.schema), ref.caminho)
+    saidas = tuple(reemitir(r) if r.schema_id == ref.schema_id else r for r in run.saidas)
+    arquivo.write_text(
+        run.model_copy(update={"saidas": saidas}).model_dump_json(), encoding="utf-8"
+    )
+
+
+def _codigo_ou_excecao(execucao: Execucao, row: str) -> int | str:
+    """Código de saída da CLI ou, se uma exceção escapar dela, o tipo da exceção."""
+    try:
+        return _rodar(execucao, row)
+    except Exception as erro:
+        return f"excecao_escapou tipo={type(erro).__name__}"
+
+
+def test_cli_recusa_saida_incoerente_e_remove_o_resultado_anterior(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    execucao = executar_validacao_sintetica(tmp_path)
+    assert _rodar(execucao, execucao.ausencia) == 0
+    destino = _destino(execucao, execucao.ausencia)
+    assert (destino / "contrafactual.json").exists()
+    _conforme_sem_evidencia(execucao)
+    assert _codigo_ou_excecao(execucao, execucao.ausencia) == 2
+    assert "counterfactual_recusado erro=template_sem_referencia" in caplog.text
+    assert not destino.exists()
 
 
 @pytest.mark.parametrize(

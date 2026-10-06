@@ -57,6 +57,9 @@ Tudo o que depende de dados reais ou de decisão humana: aquisição real e conf
 piloto e decisão G0, decisões G1 e G2, comparações do teste, anotação humana, escala (DRS XI e SP) e
 licença de publicação. A lista por dono, com a ferramenta pronta e o passo do runbook de cada item,
 está em `docs/PENDENCIAS.md`.
+A correção por multiplicidade congelada (`bootstrap.correcao`) ainda não é aplicada: os intervalos
+são de 95% sem ajuste, e HOLM ou BONFERRONI exigem implementar antes os testes formais, decisão do
+pesquisador registrada em `docs/pendencias/T11.md`.
 
 ## Como rodar
 ```bash

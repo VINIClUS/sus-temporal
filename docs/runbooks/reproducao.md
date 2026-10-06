@@ -52,8 +52,8 @@ num clone normal de `main` (com a referência `origin/main`) ela registra
 28 min 33 s, com 4.221 testes passando e 1 desmarcado (medido em 2026-10-06 numa máquina de 4
 núcleos, depois da rodada 4 do #37; a rodada 5 acrescentou testes, e o tempo e a contagem dela estão
 no corpo do PR); o tempo varia com a máquina e a carga. O CI do GitHub tem
-limite de 30 minutos e já levou 27 min 53 s (#37, rodada 2) e 24 min 12 s (rodada 3): a suíte está
-perto dele.
+limite de 30 minutos e já levou 27 min 53 s (#37, rodada 2), 24 min 12 s (rodada 3) e 28 min 32 s (rodada 4): a suíte
+está perto dele, e cada teste novo que refaz o fluxo todo (cerca de 25 s) pesa.
 
 Recortes úteis: `uv run pytest tests/unit -q` (rápido) e `uv run pytest tests/integration -q`
 (CLI e FTP local). O `pytest` exclui por padrão os marcadores `network`, `real_data` e `perf`, e o
@@ -473,7 +473,12 @@ caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=
 ### 5.4 Propriedades verificadas e os testes
 
 `uv run pytest tests/integration/test_reproduce_offline.py -q` leva cerca de 3 minutos (marcador
-`slow`, que roda no CI) e usa só dados sintéticos e o FTP local em loopback.
+`slow`, que roda no CI) e usa só dados sintéticos e o FTP local em loopback. Uma reprodução
+completa custa cerca de 25 s e o CI do GitHub tem limite de 30 minutos, então as variações que não
+mudam o conteúdo (config no estilo do `config/cohort.yaml`, 4 threads, catálogo que o congelamento
+não tinha, rótulos originais regravados) e os estragos independentes (conteúdo original adulterado,
+relatório que não é o registrado, saídas que a reconstrução não emite) rodam cada grupo numa só
+reprodução (as fixtures `reproducao_variada` e `reproducao_estragada`), lida por vários testes.
 
 | Propriedade | Teste |
 |---|---|
@@ -488,8 +493,8 @@ caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=
 | Original do SIA-PA ausente é inconclusão (saída 5), não divergência nem reprodução | `test_reproduce_com_original_do_sia_pa_ausente_e_inconclusivo_e_nao_divergente` |
 | CNES (PF e ST) ou SIGTAP ausente é inconclusão em `insumos:<politica>` (saída 5), sem item divergente, e o fluxo para antes de refazer | `test_reproduce_com_original_auxiliar_ausente_e_inconclusivo_e_nao_divergente` (uma execução por família) e `tests/unit/test_reproduce_insumos.py` |
 | Saída registrada que a reconstrução não emitiu (`evidencias.v1`) diverge e a saída é 5; saída nova sem original, método só registrado e execução registrada ausente | `test_reproduce_com_saida_que_a_reconstrucao_nao_emitiu_e_divergente` e `tests/unit/test_reproduce_saidas.py` |
-| Entrada original da política ausente, ilegível ou alterada é inconclusão em `insumos:<politica>` (saída 5), com o auxiliar disponível ou não, e o fluxo para antes de refazer | `test_reproduce_com_a_entrada_original_que_nao_confere_e_inconclusivo_e_nao_divergente` (três estragos, com e sem o auxiliar) e `tests/unit/test_reproduce_insumos.py` |
-| Cada método é refeito com a política da execução congelada dele, com a `politica_id` da config preenchida (como o `config/cohort.yaml`) ou vazia: reproduz igual nos três métodos; política congelada que o catálogo já não dá (mudada ou removida) é inconclusão em `insumos:<politica>`, nunca erro de configuração nem divergência | `test_o_congelamento_traz_a_politica_do_catalogo_em_m_temp_e_as_padrao_dos_baselines`, `test_reproduce_com_politica_id_na_config_refaz_cada_metodo_com_a_politica_congelada`, `test_reproduce_com_a_politica_congelada_que_o_catalogo_ja_nao_da_e_inconclusivo` (dois estragos), `tests/unit/test_reproduce_politicas.py` e, em `tests/integration/test_reproduce_etapas.py`, os `test_validar_janela_*` |
+| Entrada original da política ausente, ilegível ou alterada é inconclusão em `insumos:<politica>` (saída 5), com o auxiliar disponível ou não, e o fluxo para antes de refazer | `test_reproduce_com_a_entrada_original_que_nao_confere_e_inconclusivo_e_nao_divergente` (três estragos e, na entrada ausente, também com o auxiliar indisponível) e `tests/unit/test_reproduce_insumos.py` |
+| Cada método é refeito com a política da execução congelada dele, com a `politica_id` da config preenchida (como o `config/cohort.yaml`) ou vazia: reproduz igual nos três métodos; política congelada que o catálogo já não dá (mudada ou removida) é inconclusão em `insumos:<politica>`, nunca erro de configuração nem divergência | `test_o_congelamento_traz_a_politica_do_catalogo_em_m_temp_e_as_padrao_dos_baselines`, `test_reproduce_com_politica_id_na_config_refaz_cada_metodo_com_a_politica_congelada`, `test_reproduce_com_a_politica_congelada_que_o_catalogo_ja_nao_da_e_inconclusivo` (catálogo com a política mudada; a removida está no unitário), `tests/unit/test_reproduce_politicas.py` e, em `tests/integration/test_reproduce_etapas.py`, os `test_validar_janela_*` |
 | O relatório lido só vale se bate com a entrada do registro (`report_id`, `freeze_id`, modo, origem dos dados, execuções, métricas): relatório válido que não é o registrado é original indisponível (`metricas` e `notas` inconclusivos) | `test_reproduce_com_relatorio_que_nao_e_o_registrado_e_inconclusivo_e_nao_divergente` e `tests/unit/test_reproduce_original.py` |
 | A configuração com que o `ingest` original rodou (UF, corte, famílias, catálogo de fontes, leiaute) tem de ser a do refeito, e a `origem_dados` tem de ser a dos conjuntos congelados; senão inconclusão (`manifesto:aquisicao`, `origem_dados`) antes do `ingest`; catálogos que mudaram são observação | `test_reproduce_sem_saber_o_que_o_ingest_leu_do_manifesto_e_inconclusivo_e_nao_divergente` (casos `configuracao_diferente` e `sem_configuracao`), `test_reproduce_com_origem_dos_dados_diferente_da_congelada_e_inconclusivo`, `tests/unit/test_reproduce_manifesto.py` e `tests/unit/test_reproduce_catalogos.py` |
 | Todo campo do `FreezeManifest` e da config tem tratamento na varredura, e as tabelas da seção 5.5 são as do módulo | `tests/unit/test_reproduce_varredura.py` |

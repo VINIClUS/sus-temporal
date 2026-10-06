@@ -126,11 +126,14 @@ vêm da pasta exata de `bundle.run_id` (`contexto_da_execucao`, §3.1); sem eles
    relógio, lido uma vez no início e usado em toda a busca: ele decide competência fechada e
    executabilidade). Outro catálogo, outro código ou outro mês publica em outro diretório e nunca
    sobrescreve uma hipótese já publicada; instantes do mesmo mês compartilham o destino.
-   `identidade.json` registra `competencia_as_of`.
+   `identidade.json` registra `competencia_as_of`. `contrafactual.json` traz a `origem_dados` da
+   execução (`SINTETICO` ou `REAL`), que não entra na identidade.
 
 Saída 0 com resultado publicado; 2 para argumento, execução, linha ou insumos ausentes,
 ilegíveis (inclusive `run_result.json` ou `entrada_validacao.json` com bytes que não são UTF-8) ou
-divergentes e para linha sem violação (nada a buscar; a recusa remove o resultado anterior);
+divergentes, para saída da execução que o `explain` recusa ao recompor o bundle (as mesmas recusas
+dele, inclusive `TemplateInvalido` e `ProvIncompleto`) e para linha sem violação (nada a buscar; a
+recusa remove o resultado anterior);
 5 para falha operacional (evidência divergente, cadastro ilegível, linha de base que não
 reproduz a violação, motor sem concluir): o resultado anterior é removido antes de gravar
 `falha.json`, então nunca sobra um `contrafactual.json` antigo, mesmo se a falha não puder ser

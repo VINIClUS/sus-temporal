@@ -6,6 +6,7 @@ do `explain` real e os insumos de `entrada_validacao.json`, conferidos pelo `run
 A saída fica em `<raiz_saidas>/contrafactuais/<run_id>/id_<identidade>/row_<sha256(row_id)[:32]>/`,
 com `contrafactual.json` e `identidade.json` (SHA-256 de `catalog/operations.yaml`, versão do
 código e competência AAAAMM do relógio, a as-of, lida uma vez e usada em toda a busca).
+`contrafactual.json` leva a origem dos dados da execução, fora da identidade.
 """
 
 from __future__ import annotations

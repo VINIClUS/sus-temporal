@@ -45,11 +45,13 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Derivado",
+    "competencias_da_janela",
     "competencias_da_particao",
     "derivar_protocolo",
     "entradas_congeladas",
     "estados_do_ingest",
     "janela_do_ingest",
+    "janela_dos_artefatos",
     "validar_janela",
 ]
 
@@ -122,6 +124,14 @@ def janela_do_ingest(
     (destino / "datasets.jsonl").write_text("".join(f"{linha}\n" for linha in linhas), "utf-8")
     logger.info("janela_do_ingest destino=%s competencias=%s", destino, sorted(pedidas))
     return destino
+
+
+def janela_dos_artefatos(pasta: Path, destino: Path, artefatos: Collection[str]) -> Path:
+    raise NotImplementedError("janela_dos_artefatos")
+
+
+def competencias_da_janela(config: RunConfig, particao: DatasetRef) -> tuple[str, ...]:
+    raise NotImplementedError("competencias_da_janela")
 
 
 def competencias_da_particao(particao: DatasetRef) -> tuple[str, ...]:

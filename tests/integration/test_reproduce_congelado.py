@@ -20,9 +20,12 @@ from tests.fixtures.reproducao_fluxo import (
     validar_janelas,
 )
 
+from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
+from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts.artifacts import ResultadoTentativa
-from sustemporal.contracts.experiment import FreezeManifest
+from sustemporal.contracts.experiment import FreezeManifest, Particao
 from sustemporal.errors import ExitCode
+from sustemporal.reporting.reproduce_etapas import competencias_da_particao
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -58,3 +61,18 @@ def test_reproduce_ignora_o_que_foi_coletado_depois_do_congelamento(fluxo: Fluxo
     assert set(feita.situacoes.values()) == {"IGUAL"}
     assert "artefatos_fora_do_congelamento_ignorados n=2" in feita.conteudo["observacoes"]
     assert "observacoes_posteriores_ao_congelamento_ignoradas n=3" in feita.conteudo["observacoes"]
+
+
+def test_reproduce_mantem_na_janela_o_arquivo_cuja_competencia_difere_da_das_linhas(
+    fluxo: Fluxo,
+) -> None:
+    particoes = _congelado(fluxo).split.particoes or {}
+    teste = particoes[Particao.TESTE]
+    (artefato,) = teste.artifact_ids
+    versoes = Manifesto(fluxo.mundo.raiz / "manifestos" / NOME_MANIFESTO_AQUISICAO).ler().versoes
+    assert str(versoes[artefato].chave.competencia_arquivo) == "202401"
+    assert competencias_da_particao(teste) == ("202402",)
+    feita = reproduzir(fluxo, fluxo.configs["teste"], fluxo.mundo.raiz / "reproducao_outro_mes")
+    assert feita.codigo == ExitCode.OK
+    assert feita.conteudo["resultado"] == "IGUAL"
+    assert set(feita.situacoes.values()) == {"IGUAL"}

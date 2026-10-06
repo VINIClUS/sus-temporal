@@ -29,10 +29,12 @@ from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
 from sustemporal.evaluation.split import SCHEMA_ENTRADA
 from sustemporal.execucoes import ler_execucao, raiz_execucoes
 from sustemporal.reporting.reproduce_etapas import (
+    competencias_da_janela,
     competencias_da_particao,
     derivar_protocolo,
     estados_do_ingest,
     janela_do_ingest,
+    janela_dos_artefatos,
     validar_janela,
 )
 from sustemporal.rules.ingest import ler_datasets
@@ -169,7 +171,7 @@ def test_cada_particao_traz_as_competencias_da_sua_janela(derivado: Fluxo) -> No
     assert {p: competencias_da_particao(ref) for p, ref in particoes.items()} == {
         Particao.DESENVOLVIMENTO: ("201801", "201803"),
         Particao.CALIBRACAO: ("202301",),
-        Particao.TESTE: ("202401",),
+        Particao.TESTE: ("202402",),
     }
 
 
@@ -306,3 +308,71 @@ def test_derivar_protocolo_recusa_inspecionado_sem_fonte_no_manifesto(
         ValueError, match=r"^split_sem_fonte_para_artefato inspecionados=1 primeiro="
     ):
         _derivar(derivado, tmp_path / "fora", (fora,))
+
+
+def test_janela_dos_artefatos_traz_so_o_sia_pa_dos_artefatos_pedidos(
+    ingerido: Fluxo, tmp_path: Path
+) -> None:
+    assert ingerido.ingest is not None
+    (cal,) = artefatos_do_sia_pa(ingerido, "cal")
+    pasta = janela_dos_artefatos(ingerido.ingest, tmp_path / "cal", [cal])
+    (sia_pa,) = _sia_pa(pasta)
+    assert sia_pa.artifact_ids == (cal,)
+
+
+def test_janela_dos_artefatos_deixa_todos_os_auxiliares_como_estao(
+    ingerido: Fluxo, tmp_path: Path
+) -> None:
+    assert ingerido.ingest is not None
+    (cal,) = artefatos_do_sia_pa(ingerido, "cal")
+    pasta = janela_dos_artefatos(ingerido.ingest, tmp_path / "cal", [cal])
+    assert _auxiliares(pasta) == _auxiliares(ingerido.ingest)
+    assert _auxiliares(pasta)
+
+
+def test_janela_dos_artefatos_sem_artefatos_nao_inventa_producao(
+    ingerido: Fluxo, tmp_path: Path
+) -> None:
+    assert ingerido.ingest is not None
+    pasta = janela_dos_artefatos(ingerido.ingest, tmp_path / "vazia", [])
+    assert _sia_pa(pasta) == []
+    assert _auxiliares(pasta)
+
+
+def test_janela_dos_artefatos_traz_o_arquivo_cuja_competencia_difere_da_das_linhas(
+    ingerido: Fluxo, tmp_path: Path
+) -> None:
+    assert ingerido.ingest is not None
+    (teste,) = artefatos_do_sia_pa(ingerido, "teste")
+    pasta = janela_dos_artefatos(ingerido.ingest, tmp_path / "teste", [teste])
+    (sia_pa,) = _sia_pa(pasta)
+    assert sia_pa.artifact_ids == (teste,)
+    assert competencias_da_particao(sia_pa) == ("202402",)
+
+
+def test_janela_dos_artefatos_recusa_conjunto_com_artefatos_de_dentro_e_de_fora(
+    ingerido: Fluxo, tmp_path: Path
+) -> None:
+    falsa = tmp_path / "ingest_misto"
+    falsa.mkdir()
+    misto, _ = _dataset_misto(ingerido)
+    (falsa / "datasets.jsonl").write_text(misto.model_dump_json() + "\n", encoding="utf-8")
+    with pytest.raises(ConfigInvalida, match="janela_com_dataset_misto"):
+        janela_dos_artefatos(falsa, tmp_path / "j", [misto.artifact_ids[0]])
+
+
+def test_competencias_da_janela_juntam_as_do_arquivo_e_as_das_linhas(derivado: Fluxo) -> None:
+    particoes = (derivado.split.particoes if derivado.split else None) or {}
+    config = derivado.config("teste")
+    assert {p: competencias_da_janela(config, ref) for p, ref in particoes.items()} == {
+        Particao.DESENVOLVIMENTO: ("201801", "201803"),
+        Particao.CALIBRACAO: ("202301",),
+        Particao.TESTE: ("202401", "202402"),
+    }
+
+
+def test_competencias_da_janela_recusa_artefato_fora_do_manifesto(derivado: Fluxo) -> None:
+    particoes = (derivado.split.particoes if derivado.split else None) or {}
+    orfa = particoes[Particao.CALIBRACAO].model_copy(update={"artifact_ids": ("art_" + "0" * 64,)})
+    with pytest.raises(ConfigInvalida, match="janela_artefato_fora_do_manifesto"):
+        competencias_da_janela(derivado.config("teste"), orfa)

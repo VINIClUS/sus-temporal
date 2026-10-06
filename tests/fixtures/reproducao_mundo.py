@@ -3,9 +3,11 @@
 Os arquivos de SIA-PA, CNES (PF e ST) e SIGTAP são gerados por código e servidos por um FTP local
 (`servidor_ftp`); nada aqui provém de fonte oficial nem é resultado empírico. As competências de
 processamento ficam em três janelas, que o protocolo separa em partições: DEV (201801 e 201803),
-CAL (202301) e TESTE (202401). Em DEV há uma linha de cada situação do cartão da T14: ausência
-(CBO fora do CNES), mês faltante (atendimento 201802 sem arquivos) e borda de 2018 (atendimento
-201712, antes do recorte). Os arquivos de 201712 e 201802 não existem de propósito.
+CAL (202301) e TESTE (arquivo de 202401). Em DEV há uma linha de cada situação do cartão da T14:
+ausência (CBO fora do CNES), mês faltante (atendimento 201802 sem arquivos) e borda de 2018
+(atendimento 201712, antes do recorte). Os arquivos de 201712 e 201802 não existem de propósito.
+O arquivo de 202401 traz linhas processadas em 202402 (o ingest aceita: PA_MVM pode diferir do nome
+do arquivo), e por isso o piloto da janela TESTE lista as duas competências.
 """
 
 from __future__ import annotations
@@ -29,8 +31,8 @@ if TYPE_CHECKING:
 RAIZ = Path(__file__).resolve().parents[2]
 FONTES = RAIZ / "catalog" / "sources.yaml"
 DRS_XI = RAIZ / "catalog" / "territorio" / "drs_xi.yaml"
-JANELAS = {"dev": ("201801", "201803"), "cal": ("202301",), "teste": ("202401",)}
-COMPETENCIAS = tuple(c for janela in JANELAS.values() for c in janela)
+JANELAS = {"dev": ("201801", "201803"), "cal": ("202301",), "teste": ("202401", "202402")}
+COMPETENCIAS = ("201801", "201803", "202301", "202401")
 ATENDIMENTO = ("201712", "201801", "201802", "201803", "202301", "202401")
 PROCEDIMENTO = "0101010010"
 CBO_NO_CNES, CBO_FORA_DO_CNES = "225125", "223505"
@@ -44,13 +46,17 @@ def _linha(instrumento: str, processamento: str, atendimento: str, **campos: str
     return registro(instrumento, processamento, atendimento, PA_PROC_ID=PROCEDIMENTO, **campos)
 
 
-def _quatro_casos(competencia: str) -> list[dict[str, str]]:
-    """Alerta com rejeição, alerta com aprovação, rejeição sem alerta e aprovação sem alerta."""
+def _quatro_casos(competencia: str, processamento: str | None = None) -> list[dict[str, str]]:
+    """Alerta com rejeição, alerta com aprovação, rejeição sem alerta e aprovação sem alerta.
+
+    Atendidos em `competencia` e processados em `processamento` (padrão: o mesmo mês).
+    """
+    mes = processamento or competencia
     return [
-        _linha("I", competencia, competencia, PA_CBOCOD=CBO_FORA_DO_CNES, **_REJEITADO),
-        _linha("I", competencia, competencia, PA_CBOCOD=CBO_FORA_DO_CNES, **_APROVADO),
-        _linha("C", competencia, competencia, PA_CBOCOD=CBO_NO_CNES, **_REJEITADO),
-        _linha("C", competencia, competencia, PA_CBOCOD=CBO_NO_CNES, **_APROVADO),
+        _linha("I", mes, competencia, PA_CBOCOD=CBO_FORA_DO_CNES, **_REJEITADO),
+        _linha("I", mes, competencia, PA_CBOCOD=CBO_FORA_DO_CNES, **_APROVADO),
+        _linha("C", mes, competencia, PA_CBOCOD=CBO_NO_CNES, **_REJEITADO),
+        _linha("C", mes, competencia, PA_CBOCOD=CBO_NO_CNES, **_APROVADO),
     ]
 
 
@@ -60,7 +66,7 @@ def producao_do_mes(competencia: str) -> list[dict[str, str]]:
 
 
 def producao_por_competencia() -> dict[str, list[dict[str, str]]]:
-    """Registros do SIA-PA de cada competência de processamento, na ordem do arquivo."""
+    """Registros do SIA-PA de cada arquivo (pela competência do arquivo), na ordem do arquivo."""
     ausencia = _linha("I", "201801", "201801", PA_CBOCOD=CBO_NO_CNES, **_REJEITADO)
     borda_de_2018 = _linha("C", "201801", "201712", **_APROVADO)
     mes_faltante = _linha("C", "201803", "201802", **_APROVADO)
@@ -69,7 +75,7 @@ def producao_por_competencia() -> dict[str, list[dict[str, str]]]:
         "201801": [ausencia, borda_de_2018],
         "201803": [mes_faltante, conforme],
         "202301": _quatro_casos("202301"),
-        "202401": _quatro_casos("202401"),
+        "202401": _quatro_casos("202401", "202402"),
     }
 
 

@@ -49,9 +49,10 @@ propriedade de arquivos só julga branch `claude/*` e PR contra `docs/process/pr
 num clone normal de `main` (com a referência `origin/main`) ela registra
 `propriedade_ignorada motivo=fora_de_pr` e passa; numa cópia sem `origin/main` sai com
 `propriedade_erro base_ausente`. A execução completa passou na máquina de desenvolvimento em
-29 min 51 s, com 4.176 testes passando e 1 desmarcado (medido em 2026-10-06 numa máquina de 4
-núcleos, depois da rodada 3 do #37); o tempo varia com a máquina e a carga. O CI do GitHub tem
-limite de 30 minutos e já levou 27 min 53 s (#37, rodada 2): a suíte está perto dele.
+28 min 33 s, com 4.221 testes passando e 1 desmarcado (medido em 2026-10-06 numa máquina de 4
+núcleos, depois da rodada 4 do #37); o tempo varia com a máquina e a carga. O CI do GitHub tem
+limite de 30 minutos e já levou 27 min 53 s (#37, rodada 2) e 24 min 12 s (rodada 3): a suíte está
+perto dele.
 
 Recortes úteis: `uv run pytest tests/unit -q` (rápido) e `uv run pytest tests/integration -q`
 (CLI e FTP local). O `pytest` exclui por padrão os marcadores `network`, `real_data` e `perf`, e o

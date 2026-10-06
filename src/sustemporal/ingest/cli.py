@@ -35,7 +35,11 @@ from sustemporal.ingest.dbf import ArquivoAusente, QuarentenaLeitura
 from sustemporal.ingest.registry import normalizador
 from sustemporal.ingest.sigtap_zip import carregar_leiautes_sigtap
 from sustemporal.ingest.territorio import carregar_territorio
-from sustemporal.temporal.selector import partes_esperadas_do_catalogo, uf_da_execucao
+from sustemporal.temporal.selector import (
+    partes_esperadas_do_catalogo,
+    partes_extras,
+    uf_da_execucao,
+)
 
 if TYPE_CHECKING:
     import argparse
@@ -322,9 +326,9 @@ def _incompletude(obtidas: set[str | None], esperadas: frozenset[str] | None) ->
         if not nomeadas:
             return None
         return f"partes_sem_declaracao completude=INDETERMINADA partes={','.join(sorted(nomeadas))}"
-    extras = nomeadas - esperadas
+    extras = partes_extras(obtidas, esperadas)
     if extras:
-        return f"partes_nao_declaradas extras={','.join(sorted(extras))}"
+        return f"partes_nao_declaradas extras={','.join(extras)}"
     faltantes = esperadas - nomeadas
     if faltantes:
         return f"partes_ausentes ausentes={','.join(sorted(faltantes))}"

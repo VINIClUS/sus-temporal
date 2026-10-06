@@ -86,6 +86,11 @@ NOTAS = (
         "registros sem CNES formam um único conglomerado SEM_CNES"
     ),
     (
+        "replicas_validas: cada intervalo registra quantas réplicas tiveram denominador positivo "
+        "e entraram nos percentis; com menos de dois conglomerados de denominador positivo o "
+        "intervalo é nulo (não estimável: toda réplica válida repetiria a estimativa)"
+    ),
+    (
         "associacao_de_resultado: métricas contra PA_INDICA medem concordância de resultado, "
         "não correção da causa"
     ),

@@ -414,7 +414,7 @@ caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=
 
 ### 5.4 Propriedades verificadas e os testes
 
-`uv run pytest tests/integration/test_reproduce_offline.py -q` leva cerca de 2 minutos e meio (marcador
+`uv run pytest tests/integration/test_reproduce_offline.py -q` leva cerca de 3 minutos (marcador
 `slow`, que roda no CI) e usa só dados sintéticos e o FTP local em loopback.
 
 | Propriedade | Teste |

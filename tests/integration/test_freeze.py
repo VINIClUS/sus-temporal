@@ -43,6 +43,8 @@ from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 from sustemporal.runtime_info import ambiente
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sustemporal.contracts.experiment import FreezeManifest
 
 CATALOGO_SIA_PA = Path(__file__).resolve().parents[2] / "catalog" / "schemas" / "sia_pa.yaml"
@@ -243,6 +245,30 @@ def test_registro_append_only(tmp_path: Path) -> None:
     registro.write_text("\n".join(linhas) + "\n", encoding="utf-8")
     with pytest.raises(FalhaOperacionalErro, match="registro_adulterado"):
         registrar_execucao(registro, _relatorio("rep_d"), relogio=relogio)
+
+
+def _com_byte_invalido(registro: Path) -> None:
+    registrar_execucao(registro, _relatorio("rep_a"), relogio=relogio)
+    registro.write_bytes(registro.read_bytes() + b"\xff\n")
+
+
+ILEGIVEIS: dict[str, Callable[[Path], None]] = {
+    "utf8_invalido": _com_byte_invalido,
+    "diretorio": lambda registro: registro.mkdir(),
+}
+
+
+@pytest.mark.parametrize("estrago", sorted(ILEGIVEIS))
+def test_registro_ilegivel_e_falha_operacional(tmp_path: Path, estrago: str) -> None:
+    """Auditoria final, F4: o byte 0xFF ou o registro que não abre não escapam como traceback."""
+    registro = tmp_path / "registro.jsonl"
+    ILEGIVEIS[estrago](registro)
+    with pytest.raises(FalhaOperacionalErro, match="registro_adulterado motivo="):
+        ler_registro(registro)
+    with pytest.raises(FalhaOperacionalErro, match="registro_adulterado"):
+        exigir_rodada_permitida(registro, ModoExecucao.CONFIRMATORIO, FREEZE_A)
+    with pytest.raises(FalhaOperacionalErro, match="registro_adulterado"):
+        registrar_execucao(registro, _relatorio("rep_b"), relogio=relogio)
 
 
 def test_segunda_rodada_confirmatoria_exige_correcao_declarada(tmp_path: Path) -> None:

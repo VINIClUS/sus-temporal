@@ -225,6 +225,25 @@ def test_validar_janela_roda_as_tres_politicas_e_grava_em_runs(derivado: Fluxo) 
         assert ler_execucao(raiz_execucoes(config), run.run_id) == run
 
 
+def test_validar_janela_refaz_cada_metodo_com_a_politica_pedida(derivado: Fluxo) -> None:
+    config = derivado.config("teste_cohort")
+    janela = _janela(derivado, derivado.mundo.saidas / "janelas" / "teste_politicas", ("202401",))
+    pedidas = {MetodoId.M_TEMP: "M_TEMP_PADRAO", MetodoId.B_ATEND: "B_ATEND", MetodoId.B_PROC: None}
+    execucoes = validar_janela(config, janela, pedidas)
+    assert {metodo: run.politica_id for metodo, run in execucoes.items()} == {
+        MetodoId.M_TEMP: "M_TEMP_PADRAO",
+        MetodoId.B_ATEND: "B_ATEND",
+        MetodoId.B_PROC: "b_proc_exploratoria",
+    }
+    assert all(run.estado is EstadoExecucao.CONCLUIDA for run in execucoes.values())
+
+
+def test_validar_janela_so_refaz_os_metodos_pedidos(derivado: Fluxo) -> None:
+    janela = _janela(derivado, derivado.mundo.saidas / "janelas" / "teste_um", ("202401",))
+    execucoes = validar_janela(derivado.config("teste"), janela, {MetodoId.B_PROC: None})
+    assert set(execucoes) == {MetodoId.B_PROC}
+
+
 def test_estados_do_ingest_trazem_o_estado_de_cada_artefato(ingerido: Fluxo) -> None:
     assert ingerido.ingest is not None
     estados = estados_do_ingest(ingerido.ingest)

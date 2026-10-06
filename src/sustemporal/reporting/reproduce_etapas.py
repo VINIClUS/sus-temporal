@@ -274,15 +274,21 @@ def derivar_protocolo(
 
 
 def validar_janela(
-    config: RunConfig, janela: Path, metodos: Collection[MetodoId] = METODOS_DE_VALIDACAO
+    config: RunConfig,
+    janela: Path,
+    politicas: Mapping[MetodoId, str | None] | None = None,
 ) -> dict[MetodoId, RunResult]:
     """`validate --ingest` da janela, um método por vez, gravado em `raiz_execucoes(config)`.
 
     Raises:
         ConfigInvalida: catálogo, política, manifesto, território ou pasta inválidos.
     """
+    if politicas is not None:
+        raise NotImplementedError
     saida = raiz_execucoes(config)
-    return {metodo: validar_ingest(janela, metodo, config, saida) for metodo in metodos}
+    return {
+        metodo: validar_ingest(janela, metodo, config, saida) for metodo in METODOS_DE_VALIDACAO
+    }
 
 
 def estados_do_ingest(pasta: Path) -> dict[str, str]:

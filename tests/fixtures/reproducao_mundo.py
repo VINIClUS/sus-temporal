@@ -37,6 +37,8 @@ ATENDIMENTO = ("201712", "201801", "201802", "201803", "202301", "202401")
 PROCEDIMENTO = "0101010010"
 CBO_NO_CNES, CBO_FORA_DO_CNES = "225125", "223505"
 POLITICAS = ("documented", "atendimento", "processamento")
+POLITICA_DOCUMENTADA = "M_TEMP_PADRAO"
+METODOS_DA_CONFIG = ("M_TEMP", "B_ATEND", "B_PROC")
 _REJEITADO = {"PA_INDICA": "0", "PA_QTDAPR": "0", "PA_VALAPR": "0.00"}
 _APROVADO = {"PA_INDICA": "5"}
 _NIVEL = ["--nivel-log", "WARNING"]
@@ -139,9 +141,18 @@ class Mundo:
 
 
 def escrever_config(
-    mundo: Mundo, nome: str, competencias: tuple[str, ...], *, threads: int = 1, rede: bool = False
+    mundo: Mundo,
+    nome: str,
+    competencias: tuple[str, ...],
+    *,
+    threads: int = 1,
+    rede: bool = False,
+    politica_id: str | None = None,
 ) -> Path:
-    """Configuração do fluxo: mesmos caminhos e catálogos, só o recorte do piloto muda."""
+    """Configuração do fluxo: mesmos caminhos e catálogos, só o recorte do piloto muda.
+
+    Com `politica_id` a config traz também a lista dos três métodos, como o `config/cohort.yaml`.
+    """
     lista = ", ".join(f'"{c}"' for c in competencias)
     linhas = [
         'versao: "1"',
@@ -172,17 +183,27 @@ def escrever_config(
         "  correcao: HOLM",
         "  reamostragens: 50",
     ]
+    if politica_id is not None:
+        linhas += [f"metodos: [{', '.join(METODOS_DA_CONFIG)}]", f"politica_id: {politica_id}"]
     caminho = mundo.config(nome)
     caminho.write_text("\n".join(linhas) + "\n", encoding="utf-8")
     return caminho
 
 
 def escrever_configs(mundo: Mundo, *, threads: int = 1) -> Mapping[str, Path]:
-    """Configurações de cada janela: DEV, CAL e TESTE (a do protocolo, que também ingere)."""
-    return {
+    """Configurações de cada janela: DEV, CAL e TESTE (a do protocolo, que também ingere).
+
+    `teste_cohort` é a do protocolo como o `config/cohort.yaml`: lista os três métodos e traz a
+    `politica_id` do M_TEMP, que o `validate` recusa nos outros dois.
+    """
+    base = {
         nome: escrever_config(mundo, nome, competencias, threads=threads)
         for nome, competencias in JANELAS.items()
     }
+    cohort = escrever_config(
+        mundo, "teste_cohort", JANELAS["teste"], threads=threads, politica_id=POLITICA_DOCUMENTADA
+    )
+    return {**base, "teste_cohort": cohort}
 
 
 def preparar_mundo(raiz: Path) -> Mundo:

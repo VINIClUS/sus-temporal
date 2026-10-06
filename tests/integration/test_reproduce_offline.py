@@ -59,6 +59,7 @@ from sustemporal.reporting.reproduce_etapas import (
     derivar_protocolo,
     validar_janela,
 )
+from sustemporal.temporal.politicas import DIRETORIO_POLITICAS
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -74,7 +75,7 @@ ESQUEMAS_DA_SAIDA = (
     "falhas.v1",
 )
 METODOS = ("M_TEMP", "B_ATEND", "B_PROC")
-POLITICAS = ("m_temp_nao_resolvida", "b_atend_exploratoria", "b_proc_exploratoria")
+POLITICAS = ("M_TEMP_PADRAO", "b_atend_exploratoria", "b_proc_exploratoria")
 POLITICA_ESTRAGADA = "b_atend_exploratoria"
 ITENS_DA_REPRODUCAO = {
     "conjunto:sia_pa.v1",
@@ -359,6 +360,25 @@ def test_reproduce_mantem_na_janela_o_arquivo_cuja_competencia_difere_da_das_lin
     assert reproducao.conteudo["resultado"] == "IGUAL"
 
 
+def test_o_congelamento_traz_a_politica_do_catalogo_em_m_temp_e_as_padrao_dos_baselines(
+    fluxo: Fluxo,
+) -> None:
+    assert set(_manifesto(fluxo).entradas_validacao or {}) == set(POLITICAS)
+    assert "M_TEMP_PADRAO" in (_manifesto(fluxo).politicas_sha256 or {})
+
+
+def test_reproduce_com_politica_id_na_config_refaz_cada_metodo_com_a_politica_congelada(
+    fluxo: Fluxo,
+) -> None:
+    config = fluxo.configs["teste_cohort"]
+    feita = reproduzir(fluxo, config, fluxo.mundo.raiz / "reproducao_politica_na_config")
+    assert feita.codigo == ExitCode.OK
+    assert feita.conteudo["resultado"] == "IGUAL"
+    assert set(feita.itens) == ITENS_DA_REPRODUCAO
+    assert set(feita.situacoes.values()) == {"IGUAL"}
+    assert "config_diferente_da_congelada" in feita.conteudo["observacoes"]
+
+
 def test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual(
     fluxo: Fluxo, reproducao: Reproducao
 ) -> None:
@@ -494,6 +514,37 @@ def test_reproduce_com_a_entrada_original_que_nao_confere_e_inconclusivo_e_nao_d
     sem_auxiliar = {i["detalhe"] for i in feita.itens.values()} - {motivo}
     assert sem_auxiliar <= {"originais_indisponiveis artefatos=1 estados=ARQUIVOAUSENTE"}
     assert not any("insumos_originais_nao_conferidos" in o for o in feita.conteudo["observacoes"])
+
+
+POLITICA_DO_CATALOGO_MUDADA = """politica_id: M_TEMP_PADRAO
+tipo: ALTERNATIVA_EXPLORATORIA
+metodo: M_TEMP
+criterios:
+  - fonte: CNES_ST
+    base: ATENDIMENTO
+    deslocamento_meses: "0"
+"""
+
+
+@pytest.mark.parametrize("estrago", ["mudada", "ausente"])
+def test_reproduce_com_a_politica_congelada_que_o_catalogo_ja_nao_da_e_inconclusivo(
+    fluxo: Fluxo, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, estrago: str
+) -> None:
+    catalogo = tmp_path / "policies"
+    shutil.copytree(DIRETORIO_POLITICAS, catalogo)
+    if estrago == "ausente":
+        (catalogo / "M_TEMP_PADRAO.yaml").unlink()
+    else:
+        (catalogo / "M_TEMP_PADRAO.yaml").write_text(POLITICA_DO_CATALOGO_MUDADA, encoding="utf-8")
+    monkeypatch.setattr("sustemporal.reporting.reproduce_politicas.DIRETORIO_POLITICAS", catalogo)
+    destino = fluxo.mundo.raiz / f"reproducao_politica_{estrago}"
+    feita = reproduzir(fluxo, fluxo.configs["teste"], destino)
+    assert feita.codigo == ExitCode.FALHA_OPERACIONAL
+    assert feita.conteudo.get("resultado") == "INCONCLUSIVO"
+    assert feita.conteudo["relatorio_refeito"] is None
+    assert feita.situacoes == {"insumos:M_TEMP_PADRAO": "INCONCLUSIVO"}
+    assert feita.itens["insumos:M_TEMP_PADRAO"]["detalhe"] == "politica_congelada_indisponivel"
+    assert not (destino / "janelas").exists()
 
 
 def test_reproduce_com_saida_que_a_reconstrucao_nao_emitiu_e_divergente(

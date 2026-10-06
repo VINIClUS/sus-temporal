@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import pyarrow.parquet as pq
+import pytest
 
 from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.fetch import fetch_source
@@ -36,6 +37,7 @@ from sustemporal.contracts.experiment import (
     RunResult,
     SplitManifest,
 )
+from sustemporal.contracts.temporal import MetodoId
 from sustemporal.evaluation.split import SUFIXO_ENTRADAS, build_splits, carregar_spec
 from sustemporal.execucoes import raiz_execucoes
 from sustemporal.reporting.reproduce_etapas import (
@@ -45,10 +47,13 @@ from sustemporal.reporting.reproduce_etapas import (
     janela_do_ingest,
     janela_dos_artefatos,
 )
+from sustemporal.rules import insumos as regras_insumos
 from sustemporal.rules.ingest import ler_datasets
+from sustemporal.temporal.politicas import carregar_politica
 from tests.fixtures.protocolo_avaliacao import CODIGO_LIMPO, escrever_decisao
 from tests.fixtures.reproducao_mundo import (
     JANELAS,
+    POLITICA_DOCUMENTADA,
     POLITICAS,
     Mundo,
     adquirir,
@@ -63,8 +68,6 @@ from tests.fixtures.sia_pa_fixtures import dbc_pa
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterator, Mapping
     from datetime import datetime
-
-    import pytest
 
     from sustemporal.contracts.config import RunConfig
 
@@ -108,6 +111,31 @@ def _runs(fluxo: Fluxo, janela: str) -> set[str]:
     return {p.name for p in raiz.glob("val_*")} if raiz.is_dir() else set()
 
 
+@contextmanager
+def _m_temp_pela_politica_do_catalogo(ativo: bool) -> Iterator[None]:
+    """O M_TEMP do original usa `M_TEMP_PADRAO`, que depois deixa de ser a padrão do método.
+
+    O `validate --ingest` só escolhe a política por `config.politica_id`, que o `validate` recusa
+    em outro método e que o `evaluate` exige igual em todas as execuções do protocolo: um M_TEMP
+    com a política do catálogo ao lado dos baselines padrão não sai da CLI. Aqui a padrão do M_TEMP
+    é trocada só enquanto o original é validado, para o `reproduce` achar o congelado com uma
+    política que não é a padrão do método.
+    """
+    if not ativo:
+        yield
+        return
+    padrao = regras_insumos.politica_padrao
+
+    def trocada(metodo: Any, regras: Any) -> Any:
+        if metodo is MetodoId.M_TEMP:
+            return carregar_politica(POLITICA_DOCUMENTADA)
+        return padrao(metodo, regras)
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(regras_insumos, "politica_padrao", trocada)
+        yield
+
+
 def _validar(fluxo: Fluxo, janela: str, politica: str, pasta: Path) -> None:
     antes = _runs(fluxo, janela)
     configuracao = str(fluxo.configs[janela])
@@ -120,7 +148,8 @@ def _validar(fluxo: Fluxo, janela: str, politica: str, pasta: Path) -> None:
         "--ingest",
         str(pasta),
     ]
-    fluxo.codigos[f"validate_{janela}_{politica}"] = comando(*argumentos)
+    with _m_temp_pela_politica_do_catalogo(politica == "documented"):
+        fluxo.codigos[f"validate_{janela}_{politica}"] = comando(*argumentos)
     (novo,) = _runs(fluxo, janela) - antes
     caminho = raiz_execucoes(fluxo.config(janela)) / novo / "run_result.json"
     fluxo.execucoes[(janela, politica)] = RunResult.model_validate_json(caminho.read_text("utf-8"))

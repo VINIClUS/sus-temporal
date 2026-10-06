@@ -1,9 +1,11 @@
-"""Varredura do que a cadeia do `reproduce` lê: de onde vem cada campo e como se confere (T14).
+"""Varredura do que a cadeia do `reproduce` lê e compara: cada campo e cada comparação (T14).
 
 A reprodução tem de refazer o que foi registrado, e o que ela não consegue conferir sai
 INCONCLUSIVO. Cada campo do `FreezeManifest` e da config (inclusive os de `runtime` e `piloto`)
-tem aqui o tratamento: a fonte da verdade, como a diferença aparece e o efeito. Um teste percorre
-os campos dos contratos e falha se um campo novo ficar sem tratamento, como em
+tem aqui o tratamento: a fonte da verdade, como a diferença aparece e o efeito. O mesmo vale para
+os campos que as comparações projetam ou deixam de fora (`DatasetRef`, `SplitManifest` e
+`EvaluationReport`), e `COMPARACOES` diz o que cada comparação confere antes de projetar. Um
+teste percorre os campos dos contratos e falha se um campo novo ficar sem tratamento, como em
 `freeze_conferencia.CAMPOS_DO_MANIFESTO`; campo lido e não conferido é limite declarado (T14-16),
 com efeito conservador: divergência ou inconclusão, nunca reprodução falsa.
 """
@@ -15,8 +17,13 @@ from enum import StrEnum
 
 __all__ = [
     "CAMPOS_DA_CONFIG",
+    "CAMPOS_DA_REFERENCIA",
     "CAMPOS_DO_CONGELAMENTO",
+    "CAMPOS_DO_RELATORIO",
+    "CAMPOS_DO_SPLIT",
+    "COMPARACOES",
     "Conferencia",
+    "Conferido",
     "Fonte",
     "Tratamento",
 ]
@@ -48,6 +55,14 @@ class Tratamento:
     fonte: Fonte
     conferencia: Conferencia
     efeito: str
+
+
+@dataclass(frozen=True)
+class Conferido:
+    """O que uma comparação confere antes de projetar, filtrar ou ignorar, e o que deixa de fora."""
+
+    antes: str
+    fora: str
 
 
 def _t(fonte: Fonte, conferencia: Conferencia, efeito: str) -> Tratamento:
@@ -146,3 +161,11 @@ CAMPOS_DA_CONFIG: dict[str, Tratamento] = {
         F.CONGELAMENTO, C.ITEM, "fontes e leiaute pelo ingest original; os demais, observação"
     ),
 }
+
+CAMPOS_DA_REFERENCIA: dict[str, Tratamento] = {}
+
+CAMPOS_DO_SPLIT: dict[str, Tratamento] = {}
+
+CAMPOS_DO_RELATORIO: dict[str, Tratamento] = {}
+
+COMPARACOES: dict[str, Conferido] = {}

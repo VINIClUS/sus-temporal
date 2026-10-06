@@ -7,6 +7,7 @@ import io
 import warnings
 import zipfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from tests.fixtures.aquisicao_dados import (
@@ -15,6 +16,7 @@ from tests.fixtures.aquisicao_dados import (
     TransporteFalso,
     dbc_sintetico,
 )
+from tests.fixtures.aquisicao_queda import QUEDAS
 
 from sustemporal import cli
 from sustemporal.acquisition.fetch import fetch_source
@@ -35,7 +37,11 @@ from sustemporal.contracts.base import CanalPublicacao, FamiliaFonte
 from sustemporal.contracts.temporal import CompetenciaArquivo
 from sustemporal.errors import ExitCode
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
 CATALOGO = Path("catalog/sources.yaml")
+_PDF = b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n"
 
 
 def _requisicao(localizador: str, formato: FormatoArquivo = FormatoArquivo.DBC) -> SourceRequest:
@@ -222,6 +228,37 @@ def test_acquire_com_listagem_ausente_ou_vazia_nao_sai_ok(
     catalogo.write_text(texto, encoding="utf-8")
     config = _config(tmp_path, catalogo)
     assert cli.main(["acquire", "--config", str(config)]) == ExitCode.FALHA_OPERACIONAL
+
+
+def _documentos_locais(tmp_path: Path) -> Path:
+    """Catálogo de fontes com cada documento servido por file://, em HTML ou PDF SINTETICO."""
+    pasta = tmp_path / "documentos"
+    pasta.mkdir()
+    texto = CATALOGO.read_text(encoding="utf-8")
+    for documento in carregar_catalogo(CATALOGO).documentos:
+        local = pasta / documento.doc_id
+        html = f"<!doctype html><html><body>{documento.doc_id}</body></html>".encode()
+        local.write_bytes(_PDF if documento.formato is FormatoArquivo.PDF else html)
+        texto = texto.replace(documento.localizador, local.as_uri())
+    catalogo = tmp_path / "sources.yaml"
+    catalogo.write_text(texto, encoding="utf-8")
+    return catalogo
+
+
+@pytest.mark.parametrize("queda", QUEDAS.values(), ids=QUEDAS)
+def test_passada_documentos_recupera_a_escrita_interrompida_do_manifesto(
+    tmp_path: Path, queda: Callable[[Path], str]
+) -> None:
+    config = _config(tmp_path, _documentos_locais(tmp_path))
+    argumentos = ["acquire", "--config", str(config), "--passada", "documentos"]
+    assert cli.main(argumentos) == ExitCode.OK
+    manifesto = tmp_path / "manifests" / "aquisicao.jsonl"
+    observacoes = Manifesto(manifesto).ler().observacoes
+    interrompida = queda(manifesto)
+    assert cli.main(argumentos) == ExitCode.OK
+    assert Manifesto(manifesto).ler().observacoes == observacoes
+    (fragmento,) = manifesto.parent.glob("aquisicao.jsonl.fragmento.*")
+    assert fragmento.read_text(encoding="utf-8") == interrompida
 
 
 def test_manifesto_zerado_com_ancora_presente_e_corrompido(tmp_path: Path) -> None:

@@ -9,9 +9,11 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from tests.fixtures.aquisicao_dados import Relogio, servidor_ftp
+from tests.fixtures.aquisicao_queda import QUEDAS
 from tests.fixtures.sia_pa_fixtures import artefato_pa, dbc_pa, leiaute_pa, registro_pa
 
 from sustemporal.acquisition.cli import executar_watch
@@ -33,10 +35,10 @@ from sustemporal.contracts.artifacts import (
 )
 from sustemporal.contracts.base import CanalPublicacao, FamiliaFonte, OrigemDados
 from sustemporal.contracts.config import RuntimeConfig
-from sustemporal.errors import ExitCode
+from sustemporal.errors import ErroSustemporal, ExitCode
 
 if TYPE_CHECKING:
-    import pytest
+    from collections.abc import Callable
 
 CATALOGO = Path("catalog/sources.yaml")
 _R1 = registro_pa(PA_PROC_ID="0301010072")
@@ -248,6 +250,26 @@ def test_watch_no_recorte_registra_inalterada_e_revisao_real(tmp_path: Path) -> 
     resultados = {chave: r for chave, (r, _m) in _por_chave(linhas).items()}
     assert resultados == {("202511", "a"): "INALTERADA", ("202512", "a"): "REVISAO_REAL"}
     assert str(linhas[-1]["resumo"]).startswith("revisao_observada")
+
+
+@pytest.mark.parametrize("queda", QUEDAS.values(), ids=QUEDAS)
+def test_watch_seguinte_recupera_a_escrita_interrompida_do_manifesto(
+    tmp_path: Path, queda: Callable[[Path], str]
+) -> None:
+    _ambiente_watch(tmp_path)
+    _executar(tmp_path)
+    manifesto = tmp_path / "manifests" / "aquisicao.jsonl"
+    anteriores = len(Manifesto(manifesto).ler().observacoes)
+    interrompida = queda(manifesto)
+    try:
+        codigo, linhas = _executar(tmp_path)
+    except ErroSustemporal as erro:
+        codigo, linhas = int(erro.codigo_saida), []
+    assert codigo == ExitCode.OK
+    assert {r for r, _m in _por_chave(linhas).values()} == {"INALTERADA"}
+    assert len(Manifesto(manifesto).ler().observacoes) > anteriores
+    (fragmento,) = manifesto.parent.glob("aquisicao.jsonl.fragmento.*")
+    assert fragmento.read_text(encoding="utf-8") == interrompida
 
 
 def test_sem_mudanca_e_janela_completa_diz_sem_revisao_observada(tmp_path: Path) -> None:

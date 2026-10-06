@@ -82,6 +82,7 @@ logger = logging.getLogger(__name__)
 DIRETORIO_REPRODUCAO = "reproducao"
 DIRETORIO_MANIFESTOS = "manifestos"
 RELATORIO = "reproducao.json"
+PARTICOES_REFEITAS = (Particao.CALIBRACAO, Particao.TESTE)
 
 
 @dataclass(frozen=True)
@@ -173,12 +174,37 @@ def _avaliar(
     )
 
 
-def _refazer(config: RunConfig, manifesto: FreezeManifest, pasta: Path) -> Refeito:
+def _derivar(config: RunConfig, manifesto: FreezeManifest, pasta: Path) -> Derivado:
     destino = Path(config.runtime.raiz_saidas) / "split"
     split = manifesto.split
-    derivado = derivar_protocolo(
+    return derivar_protocolo(
         config, pasta, destino, spec=split.spec, inspecionados=split.artefatos_inspecionados
     )
+
+
+def _particoes_vazias(derivado: Derivado) -> list[Particao]:
+    refs = derivado.split.particoes or {}
+    return [particao for particao in PARTICOES_REFEITAS if not refs[particao].artifact_ids]
+
+
+def _itens_sem_particao(
+    manifesto: FreezeManifest, derivado: Derivado, vazias: list[Particao]
+) -> list[Comparacao]:
+    """Conjuntos e split refeitos e, por partição sem artefatos, o item inconclusivo dela."""
+    sem_artefatos = [
+        Comparacao(f"particao:{p.value}", Situacao.INCONCLUSIVO, None, None, "particao_vazia")
+        for p in vazias
+    ]
+    return [
+        *_comparar_conjuntos(manifesto, derivado),
+        *comparar_split(manifesto.split, derivado.split),
+        *sem_artefatos,
+    ]
+
+
+def _refazer(
+    config: RunConfig, manifesto: FreezeManifest, pasta: Path, derivado: Derivado
+) -> Refeito:
     avaliadas = _validar_particao(config, pasta, derivado, Particao.CALIBRACAO)
     teste = _validar_particao(config, pasta, derivado, Particao.TESTE)
     relatorio = _avaliar(config, manifesto, derivado, avaliadas)
@@ -338,7 +364,13 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
         if indisponiveis:
             _registrar(config, out, None, indisponiveis, observacoes)
             exigir_conferido(indisponiveis)
-        refeito = _refazer(em_out, manifesto, pasta)
+        derivado = _derivar(em_out, manifesto, pasta)
+        if vazias := _particoes_vazias(derivado):
+            itens = _itens_sem_particao(manifesto, derivado, vazias)
+            avisos = [f"particao_sem_artefatos particao={p.value}" for p in vazias]
+            _registrar(config, out, None, itens, [*observacoes, *avisos])
+            exigir_conferido(itens)
+        refeito = _refazer(em_out, manifesto, pasta, derivado)
         itens = _comparar(em_out, manifesto, original, refeito)
         _registrar(config, out, refeito.relatorio, itens, observacoes)
     exigir_conferido(itens)

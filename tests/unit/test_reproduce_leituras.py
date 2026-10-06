@@ -86,13 +86,13 @@ def test_resultado_inconclusivo_ou_igual_pelo_declarado_diz_os_itens_e_o_outro_n
         assert bool(estrago.itens) == (estrago.resultado in COM_ITENS), chave
 
 
-def test_so_o_registro_ilegivel_traz_observacao() -> None:
+def test_so_o_registro_ilegivel_e_o_bruto_sem_permissao_trazem_observacao() -> None:
     com_observacao = {
         chave
         for chave, leitura in LEITURAS.items()
         if any(estrago.observacao for estrago in leitura.estragos.values())
     }
-    assert com_observacao == {"registro"}
+    assert com_observacao == {"registro", "brutos_dbc", "brutos_zip"}
 
 
 def test_nenhuma_raiz_tem_o_mesmo_padrao_em_duas_leituras() -> None:

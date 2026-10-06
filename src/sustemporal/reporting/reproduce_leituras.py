@@ -142,7 +142,7 @@ _DO_DECLARADO = _tres(
     _e(R.IGUAL_PELO_DECLARADO, "conjunto:*", "split:particao:*", "split:rotulos:*")
 )
 _DOS_ORIGINAIS = _e(R.INCONCLUSIVO, "conjunto:*", "insumos:*")
-_DO_INGEST = _e(R.INCONCLUSIVO, "ingest:originais")
+_DO_INGEST = _e(R.INCONCLUSIVO, "ingest:originais", observacao="manifesto_do_ingest")
 
 _DESTINO_NOVO = (
     "o destino é novo e vazio (`reproduce_destino_nao_vazio`; que não se lista ou não se cria "

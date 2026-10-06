@@ -749,8 +749,8 @@ aplica, e o motivo está abaixo):
 | `<raiz_manifestos>/aquisicao.jsonl` | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) |
 | `<raiz_manifestos>/aquisicao.jsonl.ancora` | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) |
 | `<raiz_manifestos>/aquisicao.jsonl.trava` | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) | — |
-| `<raiz_dados>/raw/sha256/*/*.dbc` | `INCONCLUSIVO` (`conjunto:*`, `insumos:*`) | `INCONCLUSIVO` (`ingest:originais`) | `INCONCLUSIVO` (`conjunto:*`, `insumos:*`) |
-| `<raiz_dados>/raw/sha256/*/*.zip` | `INCONCLUSIVO` (`conjunto:*`, `insumos:*`) | `INCONCLUSIVO` (`ingest:originais`) | `INCONCLUSIVO` (`conjunto:*`, `insumos:*`) |
+| `<raiz_dados>/raw/sha256/*/*.dbc` | `INCONCLUSIVO` (`conjunto:*`, `insumos:*`) | `INCONCLUSIVO` (`ingest:originais`), observação `manifesto_do_ingest` | `INCONCLUSIVO` (`conjunto:*`, `insumos:*`) |
+| `<raiz_dados>/raw/sha256/*/*.zip` | `INCONCLUSIVO` (`conjunto:*`, `insumos:*`) | `INCONCLUSIVO` (`ingest:originais`), observação `manifesto_do_ingest` | `INCONCLUSIVO` (`conjunto:*`, `insumos:*`) |
 | `<diretorio_de_trabalho>/catalog/schemas/selecao_versoes.yaml` | saída 2 | saída 2 | saída 2 |
 | `catalog/familias.yaml` | saída 2 | saída 2 | saída 2 |
 | `catalog/rules/*/*.yaml` | saída 2 | saída 2 | saída 2 |

@@ -14,6 +14,7 @@ from tests.fixtures.protocolo_avaliacao import (
     run_agregados,
 )
 from tests.fixtures.protocolo_cli import gravar_insumos
+from tests.fixtures.protocolo_confirmatorio import montar_confirmatorio
 from tests.fixtures.protocolo_dados import Cenario, cenario_baseline
 
 from sustemporal.cli import main
@@ -23,6 +24,7 @@ from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.evaluation import EvaluationReport
 from sustemporal.contracts.experiment import (
     Atributo,
+    CorrecaoMultiplicidade,
     FeatureSpec,
     ModoExecucao,
     Particao,
@@ -542,6 +544,49 @@ def test_confirmatorio_sem_g2_e_recusado_na_biblioteca(tmp_path: Path, cenario: 
                 freeze, "experiments/decisions/g2.yaml", tmp_path / "decisoes"
             ),
         )
+
+
+@pytest.mark.parametrize("correcao", ["HOLM", "BONFERRONI"])
+def test_confirmatorio_recusa_correcao_por_multiplicidade_sem_teste_formal_implementado(
+    tmp_path: Path, cenario: Cenario, correcao: str
+) -> None:
+    """Auditoria final, D2: a correção congelada não mudava nenhum cálculo do relatório."""
+    conf = montar_confirmatorio(
+        tmp_path, cenario, bootstrap={"correcao": correcao, "reamostragens": 50}
+    )
+    with pytest.raises(
+        ConfigInvalida,
+        match=f"^avaliacao_confirmatoria_com_correcao_nao_implementada correcao={correcao} ",
+    ):
+        evaluate_runs(
+            conf.runs,
+            conf.rotulos,
+            conf.cenario.split,
+            tmp_path / "av",
+            bootstrap=conf.manifesto.bootstrap,
+            congelamento=conf.referencia(),
+        )
+    assert not (tmp_path / "av").exists()
+
+
+def test_confirmatorio_sem_teste_formal_avalia_e_declara_a_correcao(
+    tmp_path: Path, cenario: Cenario
+) -> None:
+    conf = montar_confirmatorio(tmp_path, cenario)
+    assert conf.manifesto.bootstrap.correcao is CorrecaoMultiplicidade.SEM_TESTE_FORMAL
+    relatorio = evaluate_runs(
+        conf.runs,
+        conf.rotulos,
+        conf.cenario.split,
+        tmp_path / "av",
+        bootstrap=conf.manifesto.bootstrap,
+        congelamento=conf.referencia(),
+    )
+    assert relatorio.modo is ModoExecucao.CONFIRMATORIO
+    nota = (
+        "correcao_multiplicidade=SEM_TESTE_FORMAL: sem teste formal; intervalos de 95% sem ajuste"
+    )
+    assert nota in relatorio.notas
 
 
 def test_predicoes_de_outra_execucao_nao_entram(tmp_path: Path, cenario: Cenario) -> None:

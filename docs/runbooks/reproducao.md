@@ -302,10 +302,17 @@ congelamento usou a versão de código de teste (seção 4.5); ela não é diver
   diretório "latest". Manifesto ausente, adulterado ou de outro id sai com 2 (`congelamento_*`),
   sem criar o destino.
 - `--offline` é obrigatório (sem ele, saída 2). A config com `runtime.rede_permitida: true` sai com
-  6 antes de abrir qualquer arquivo, e, durante a reprodução, toda conexão e toda resolução de
-  nome, inclusive para a máquina local, falha com `RedeProibida` (saída 6): a guarda substitui
-  `connect`, `connect_ex`, `create_connection` e `getaddrinfo` do `socket` e os restaura ao sair
-  (`sustemporal.reporting.reproduce_rede`).
+  6 antes de abrir qualquer arquivo, e, durante a reprodução, uma guarda no módulo `socket` do
+  Python recusa com `RedeProibida` (saída 6), inclusive para a máquina local: criar socket que não
+  seja `AF_UNIX`; conectar e enviar (`connect`, `connect_ex`, `sendto`, `sendmsg`, `send`, `sendall`
+  e `sendfile`, o datagrama sem conexão inclusive) em socket de rede criado antes dela;
+  `create_connection`; e a resolução de nome (`getaddrinfo`, `gethostbyname`, `gethostbyname_ex`,
+  `gethostbyaddr` e `getnameinfo`). `AF_UNIX` (comunicação local, como o `socketpair`) é permitido, e
+  a guarda restaura tudo ao sair, com ou sem exceção (`sustemporal.reporting.reproduce_rede`). Ela
+  vale para o módulo `socket` do Python no processo: extensão em C que abra socket nativo, o
+  `_socket` usado direto, o descritor cru de um socket aberto (`os.write`, `os.sendfile`) e
+  subprocesso ficam fora, e o DuckDB não instala nem carrega extensões sozinho
+  (`sustemporal.duck.conectar`). Isolamento de verdade é do ambiente (seção 5.5, T14-16).
 - O fluxo é refeito em um diretório novo (`--saida DIR`; padrão
   `<raiz_saidas>/reproducao/<freeze_id>`; um destino que já tem conteúdo, ou que é um arquivo, sai
   com 2): resolução da posição do manifesto de aquisição e das entradas originais (abaixo),
@@ -481,7 +488,7 @@ caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=
   (`<raiz_saidas>/split/insumos/<politica_id>.json`) antes do `freeze` com dados reais (T11 #27,
   T14-14); `reproduce_etapas` refaz as partições e as entradas do TESTE para o fluxo pequeno.
 - A guarda de rede vale para o processo inteiro: a reprodução não convive com outro trabalho de
-  rede no mesmo processo.
+  rede no mesmo processo. O que ela cobre e o que fica fora está na seção 5.1 e nos limites da 5.5.
 - Nada aqui mede escala (SP) nem é resultado empírico: a reprodução sintética é teste de software.
 
 ### 5.4 Propriedades verificadas e os testes
@@ -520,7 +527,7 @@ cada reprodução.
 | Nenhuma comparação perde diferença por interseção, `get` com padrão ou colapso por chave: métrica repetida, campo só do congelamento, partição que só um lado traz, conjunto refeito que o manifesto não tem, saída repetida, campos do split e do relatório e linhagem | `tests/unit/test_reproduce_conjunto_completo.py` |
 | Todo campo do `FreezeManifest`, da config, do `DatasetRef`, do `SplitManifest` e do `EvaluationReport` tem tratamento na varredura, cada comparação diz o que confere antes de projetar, e as tabelas das seções 5.5 e 5.6 são as do módulo | `tests/unit/test_reproduce_varredura.py` |
 | Recusas: destino em uso ou arquivo, sem `--offline`, rede permitida, congelamento inexistente, confirmatório | os testes `test_reproduce_recusa_*`, `test_reproduce_exige_offline`, `test_reproduce_de_congelamento_inexistente_*` e `test_reproduce_nao_reproduz_congelamento_confirmatorio`, e `tests/unit/test_reproduce_recusas.py` |
-| Nenhuma conexão sai do processo | `test_reproduce_roda_sob_a_guarda_de_rede` e `tests/unit/test_reproduce_rede.py` |
+| Nenhum socket de rede abre nem envia durante a reprodução (conexão, datagrama sem conexão, resolução de nome); `AF_UNIX` permitido; tudo restaurado, com ou sem exceção | `test_reproduce_roda_sob_a_guarda_de_rede`, `test_reproduce_recusa_datagrama_de_socket_aberto_antes_da_guarda`, `test_reproduce_recusa_abrir_socket_de_rede_sob_a_guarda` e `tests/unit/test_reproduce_rede.py` |
 | Comparação por hash lógico, contagens e métricas; inconclusivo falha | `tests/unit/test_reproduce_comparacao.py` e `tests/unit/test_reproduce_conferencia.py` (split, originais, notas, ambiente e rodada registrada) |
 | Sintético nunca é confirmatório | `test_sintetico_nunca_e_confirmatorio` |
 
@@ -653,6 +660,12 @@ Arquivos que a cadeia abre e o que os confere:
 
 Limites que ficam (T14-16 em `docs/PENDENCIAS.md`). Nenhum deles dá `IGUAL` falso: a diferença
 vira observação e o conteúdo refeito decide, ou o item sai `INCONCLUSIVO` ou `DIVERGENTE`.
+
+- A guarda de rede (`reproduce_rede`) vale para o módulo `socket` do Python no processo. Extensão em
+  C que abra socket nativo, o `_socket` usado direto, o descritor cru de um socket aberto
+  (`os.write`, `os.sendfile`) e subprocesso ficam fora; o autoload de extensões do DuckDB está
+  desligado pela config (`autoinstall_known_extensions` e `autoload_known_extensions` em
+  `sustemporal.duck.conectar`). Para isolamento de verdade, rode a reprodução em ambiente sem rede.
 
 - `metodos` da config: o `reproduce` sempre refaz os três métodos de validação por regras. Método
   refeito sem execução registrada sai `INCONCLUSIVO` (`original_ausente`); método só registrado

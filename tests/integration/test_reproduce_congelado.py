@@ -6,7 +6,7 @@ e ausência registradas depois dele não entram na reconstrução. Nada aqui é 
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from tests.fixtures.reproducao_fluxo import (
@@ -25,10 +25,19 @@ from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts.artifacts import ResultadoTentativa
 from sustemporal.contracts.experiment import FreezeManifest, Particao
 from sustemporal.errors import ExitCode
-from sustemporal.reporting.reproduce_etapas import competencias_da_particao
+from sustemporal.reporting.reproduce_etapas import (
+    competencias_da_particao,
+    derivar_protocolo,
+    janela_dos_artefatos,
+)
+from sustemporal.rules.ingest import ler_datasets
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Collection, Iterator
+    from pathlib import Path
+
+    from sustemporal.contracts.config import RunConfig
+    from sustemporal.reporting.reproduce_etapas import Derivado
 
 pytestmark = pytest.mark.slow
 
@@ -76,3 +85,33 @@ def test_reproduce_mantem_na_janela_o_arquivo_cuja_competencia_difere_da_das_lin
     assert feita.codigo == ExitCode.OK
     assert feita.conteudo["resultado"] == "IGUAL"
     assert set(feita.situacoes.values()) == {"IGUAL"}
+
+
+def _sem_os_artefatos(
+    derivar: Callable[..., Derivado], artefatos: Collection[str]
+) -> Callable[..., Derivado]:
+    """O `derivar_protocolo` real sobre um ingest sem `artefatos`: a partição deles fica vazia."""
+
+    def refeito(config: RunConfig, pasta: Path, destino: Path, **nomeados: Any) -> Derivado:
+        producao = (ref for ref in ler_datasets(pasta) if ref.schema_id == "sia_pa.v1")
+        restantes = {a for ref in producao for a in ref.artifact_ids} - set(artefatos)
+        janela = janela_dos_artefatos(pasta, destino.parent / "ingest_sem_teste", restantes)
+        return derivar(config, janela, destino, **nomeados)
+
+    return refeito
+
+
+def test_reproduce_com_particao_vazia_e_inconclusivo_e_nao_erro_de_configuracao(
+    fluxo: Fluxo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    particoes = _congelado(fluxo).split.particoes or {}
+    refeito = _sem_os_artefatos(derivar_protocolo, particoes[Particao.TESTE].artifact_ids)
+    monkeypatch.setattr("sustemporal.reporting.reproduce.derivar_protocolo", refeito)
+    destino = fluxo.mundo.raiz / "reproducao_particao_vazia"
+    feita = reproduzir(fluxo, fluxo.configs["teste"], destino)
+    assert feita.codigo == ExitCode.FALHA_OPERACIONAL
+    assert feita.conteudo["relatorio_refeito"] is None
+    assert feita.itens["particao:TESTE"]["situacao"] == "INCONCLUSIVO"
+    assert feita.itens["particao:TESTE"]["detalhe"] == "particao_vazia"
+    assert "particao:CALIBRACAO" not in feita.itens
+    assert "particao_sem_artefatos particao=TESTE" in feita.conteudo["observacoes"]

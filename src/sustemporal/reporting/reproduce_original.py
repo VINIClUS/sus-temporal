@@ -114,11 +114,16 @@ def _execucoes(
 def _registro(config: RunConfig) -> tuple[list[dict[str, Any]], tuple[str, ...]]:
     """As entradas do registro de rodadas e, se ele não abre, a observação que o diz.
 
+    O arquivo é lido antes do `ler_registro`: o que não abre (`OSError`) e o que não decodifica
+    ficam aqui, qualquer que seja o jeito de o `ler_registro` sinalizar o erro de leitura.
+
     Raises:
         FalhaOperacionalErro: registro adulterado ou com bytes que não decodificam.
     """
     caminho = Path(config.runtime.dir_congelamentos) / REGISTRO
     try:
+        if caminho.exists():
+            caminho.read_bytes().decode("utf-8")
         return ler_registro(caminho), ()
     except OSError as erro:
         tipo = type(erro).__name__

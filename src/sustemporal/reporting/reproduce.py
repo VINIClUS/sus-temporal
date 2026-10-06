@@ -73,7 +73,7 @@ from sustemporal.rules.entrada import ARQUIVO_ENTRADA, EntradaValidacao
 from sustemporal.runtime_info import ambiente, versao_codigo
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from sustemporal.contracts import FreezeManifest, RunConfig
     from sustemporal.contracts.evaluation import EvaluationReport
@@ -270,7 +270,9 @@ def _saidas_por_metodo(
     }
 
 
-def _observacoes(config: RunConfig, manifesto: FreezeManifest) -> list[str]:
+def _observacoes(
+    config: RunConfig, manifesto: FreezeManifest, regras: Sequence[RuleSpec]
+) -> list[str]:
     do_ambiente = observacoes_do_ambiente(
         config_igual=hash_protocolo(config) == manifesto.config_hash,
         codigo=versao_codigo(Path.cwd()),
@@ -279,7 +281,7 @@ def _observacoes(config: RunConfig, manifesto: FreezeManifest) -> list[str]:
         congelados=manifesto.ambiente.pacotes,
     )
     catalogos = observacoes_dos_catalogos(
-        manifesto.catalogos_sha256, config.catalogos, manifesto.catalogo_regras_sha256, _regras()
+        manifesto.catalogos_sha256, config.catalogos, manifesto.catalogo_regras_sha256, regras
     )
     return [*do_ambiente, *catalogos]
 
@@ -291,13 +293,15 @@ def _regras() -> list[RuleSpec]:
         raise ConfigInvalida(str(erro)) from erro
 
 
-def _insumos_originais(config: RunConfig, manifesto: FreezeManifest, original: Original) -> Insumos:
+def _insumos_originais(
+    config: RunConfig, manifesto: FreezeManifest, original: Original, regras: Sequence[RuleSpec]
+) -> Insumos:
     """A entrada original de cada política congelada e a política com que refazer cada método."""
     pasta = Path(config.runtime.raiz_saidas) / "split" / "insumos"
     congeladas = manifesto.entradas_validacao or {}
     entradas = conferir_entradas(pasta, congeladas)
     registradas = {metodo: run.politica_id for metodo, run in original.execucoes.items()}
-    politicas = politicas_congeladas(entradas.conferidas, congeladas, registradas, _regras())
+    politicas = politicas_congeladas(entradas.conferidas, congeladas, registradas, regras)
     problemas = {**entradas.problemas, **politicas.problemas}
     return Insumos(entradas.conferidas, problemas, politicas.por_metodo)
 
@@ -341,14 +345,15 @@ def _ingerir_o_original(
     Para (`_parar_se_inconclusivo`) sem a posição do manifesto, sem original, ou com insumo
     original (entrada ou política) que não se confere.
     """
-    insumos = _insumos_originais(config, manifesto, original)
+    regras = _regras()
+    insumos = _insumos_originais(config, manifesto, original, regras)
     resolucao = resolver_manifesto(
         Path(config.runtime.raiz_saidas) / "ingest",
         Path(config.runtime.raiz_manifestos),
         manifesto.datasets,
         configuracao_do_ingest(config),
     )
-    do_ambiente = [*original.observacoes, *_observacoes(config, manifesto)]
+    do_ambiente = [*original.observacoes, *_observacoes(config, manifesto, regras)]
     origem = item_da_origem(config.origem_dados, manifesto.datasets)
     antes = [*_item_do_manifesto(resolucao), *origem]
     if antes:

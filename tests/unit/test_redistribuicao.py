@@ -272,6 +272,17 @@ def test_arquivo_em_data_ou_outputs_reprova_ate_o_readme() -> None:
     ]
 
 
+@pytest.mark.parametrize("caminho", ["data/README.md", "outputs/README.md"])
+def test_gitignore_nao_libera_nem_o_readme_de_data_e_outputs(raiz_git: Path, caminho: str) -> None:
+    ignorado = subprocess.run(
+        ["git", "check-ignore", "--quiet", "--no-index", caminho],
+        cwd=raiz_git,
+        check=False,
+        capture_output=True,
+    )
+    assert ignorado.returncode == 0, f"caminho_liberado_pelo_gitignore caminho={caminho}"
+
+
 @pytest.mark.parametrize(
     "caminho",
     ["x/PASP1801.dbc", "x/PFSP1801.DBF", "x/dados.parquet", "x/PA.ZIP", "x/manual.Pdf", "x/.dbc"],

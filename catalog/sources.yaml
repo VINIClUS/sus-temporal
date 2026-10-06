@@ -67,8 +67,10 @@ fontes:
     confirmacao: A_CONFIRMAR
     referencias: [O11, S18, S19, W8]
     observacao: >-
-      Sem UF. Cada geração (v{AAMMDDhhmm}) listada é uma versão de conteúdo distinta; S19 usa
-      /public/ no lugar de /pub/ (A_CONFIRMAR qual diretório vale).
+      Sem UF. Cada geração (v{AAMMDDhhmm}) listada é requisitada e é uma chave própria na
+      vigilância; a versão de conteúdo vem dos bytes (o artifact_id não usa a geração), então
+      gerações com bytes iguais são a mesma versão. S19 usa /public/ no lugar de /pub/
+      (A_CONFIRMAR qual diretório vale).
 documentos:
   - doc_id: W1
     fonte: DOCUMENTO
@@ -111,7 +113,7 @@ documentos:
     titulo: Ministério da Saúde, SIGTAP — Gerais
     localizador: https://wiki.saude.gov.br/sigtap/index.php/Gerais
     formato: HTML
-    proveniencia: OFICIAL_VISTO_EM_BUSCA
+    proveniencia: SECUNDARIA
   - doc_id: W8
     fonte: DOCUMENTO
     titulo: Ministério da Saúde, SIGTAP — Download

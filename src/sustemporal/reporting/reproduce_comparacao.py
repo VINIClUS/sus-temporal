@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 from sustemporal.contracts.base import json_canonico
 from sustemporal.contracts.evaluation import EvaluationReport
 from sustemporal.errors import FalhaOperacionalErro
-from sustemporal.evaluation.freeze_entrada import campos_divergentes
+from sustemporal.evaluation.freeze_entrada import identidades_da_entrada
 from sustemporal.reporting.reproduce_arquivos import (
     Identidade,
     comparar_execucoes,
@@ -72,6 +72,9 @@ _MAX_TEXTO = 80
 _NORMALIZADO = "NORMALIZADO"
 _AUSENTE_DO_INGEST = "AUSENTE_DO_INGEST"
 _SEM_PARTICAO = "particao_ausente"
+_SEM_CAMPO = object()
+_REFERENCIAS_DO_SPLIT = frozenset({"split_id", "particoes", "rotulos_por_particao"})
+_FORA_DO_RELATORIO = frozenset({"report_id", "criado_em", "metricas", "notas"})
 _SEM_FALHA = frozenset(
     {_NORMALIZADO, "FAMILIA_RESERVADA", "FAMILIARESERVADA", "FORA_DO_RECORTE", "FORA_DO_CORTE"}
 )
@@ -81,21 +84,27 @@ def _chave(metrica: ValorMetrica) -> tuple[str, str]:
     return (metrica.nome, metrica.estrato)
 
 
+def _valores(metricas: Iterable[ValorMetrica]) -> Counter[tuple[str, str, str]]:
+    return Counter((*_chave(m), json_canonico(m.model_dump(mode="json"))) for m in metricas)
+
+
 def comparar_metricas(
     item: str, esperadas: Sequence[ValorMetrica] | None, obtidas: Sequence[ValorMetrica]
 ) -> Comparacao:
     """Métricas iguais campo a campo (numerador, denominador, valor, intervalo), por nome e estrato.
 
-    Sem as esperadas (relatório original ausente) a comparação é inconclusiva.
+    A métrica repetida conta cada vez (multiconjunto, nunca um dicionário por chave). Sem as
+    esperadas (relatório original ausente) a comparação é inconclusiva.
     """
     if esperadas is None:
         return Comparacao(item, Situacao.INCONCLUSIVO, None, str(len(obtidas)), "original_ausente")
-    antigas = {_chave(m): json_canonico(m.model_dump(mode="json")) for m in esperadas}
-    novas = {_chave(m): json_canonico(m.model_dump(mode="json")) for m in obtidas}
-    diferentes = sorted(c for c in antigas.keys() & novas.keys() if antigas[c] != novas[c])
-    faltando = sorted(antigas.keys() - novas.keys())
-    sobrando = sorted(novas.keys() - antigas.keys())
-    esperado, obtido = str(len(antigas)), str(len(novas))
+    antigas, novas = _valores(esperadas), _valores(obtidas)
+    perdidas = {(nome, estrato) for nome, estrato, _ in antigas - novas}
+    a_mais = {(nome, estrato) for nome, estrato, _ in novas - antigas}
+    diferentes = sorted(perdidas & a_mais)
+    faltando = sorted(perdidas - a_mais)
+    sobrando = sorted(a_mais - perdidas)
+    esperado, obtido = str(len(esperadas)), str(len(obtidas))
     if not (diferentes or faltando or sobrando):
         return Comparacao(item, Situacao.IGUAL, esperado, obtido)
     nomes = [f"{n}[{e}]" for n, e in [*diferentes, *faltando, *sobrando][:_MAX_NOMES]]
@@ -112,7 +121,7 @@ def comparar_insumos(
     """A entrada de validação refeita contra a identidade congelada, campo a campo."""
     if congeladas is None:
         return Comparacao(item, Situacao.INCONCLUSIVO, None, None, "politica_sem_insumo_congelado")
-    campos = campos_divergentes(congeladas, entrada)
+    campos = campos_que_diferem(identidades_da_entrada(entrada), congeladas)
     if campos:
         return Comparacao(item, Situacao.DIVERGENTE, None, None, f"campos={','.join(campos)}")
     return Comparacao(
@@ -121,15 +130,46 @@ def comparar_insumos(
 
 
 def campos_que_diferem(a: Mapping[str, object], b: Mapping[str, object]) -> list[str]:
-    """Campos, na ordem de `a` e depois os só de `b`, que um lado não tem ou em que diferem."""
-    raise NotImplementedError
+    """Campos, na ordem de `a` e depois os só de `b`, que um lado não tem ou em que diferem.
+
+    Campo ausente nunca vale o mesmo que valor nulo: nenhuma diferença some por interseção.
+    """
+    nomes = dict.fromkeys([*a, *b])
+    return [nome for nome in nomes if a.get(nome, _SEM_CAMPO) != b.get(nome, _SEM_CAMPO)]
+
+
+def _por_campos(
+    item: str, antigos: Mapping[str, object], novos: Mapping[str, object]
+) -> Comparacao:
+    diferentes = campos_que_diferem(antigos, novos)
+    esperado, obtido = f"{len(antigos)} campos", f"{len(novos)} campos"
+    if not diferentes:
+        return Comparacao(item, Situacao.IGUAL, esperado, obtido)
+    detalhe = f"campos={','.join(diferentes)}"
+    return Comparacao(item, Situacao.DIVERGENTE, esperado, obtido, detalhe)
+
+
+def _campos_do_relatorio(relatorio: EvaluationReport) -> dict[str, object]:
+    campos: dict[str, object] = relatorio.model_dump(mode="json", exclude=set(_FORA_DO_RELATORIO))
+    campos["runs"] = len(relatorio.runs)
+    campos["tabelas"] = sorted(
+        f"{t.schema_id}:{t.linhas}:{t.hash_logico}" for t in relatorio.tabelas
+    )
+    return campos
 
 
 def comparar_relatorio(
     item: str, esperado: EvaluationReport | None, obtido: EvaluationReport
 ) -> Comparacao:
-    """Os campos do relatório refeito contra os do registrado, fora os que dependem de caminho."""
-    raise NotImplementedError
+    """Os campos do relatório refeito contra os do registrado, menos o que o torna único.
+
+    Ficam de fora o `report_id` e as execuções (derivam do caminho), o instante e as métricas e
+    notas (itens próprios); as execuções entram pela quantidade e as tabelas pelo esquema, a
+    contagem e o hash lógico. Sem o original a comparação é inconclusiva.
+    """
+    if esperado is None:
+        return Comparacao(item, Situacao.INCONCLUSIVO, None, None, "original_ausente")
+    return _por_campos(item, _campos_do_relatorio(esperado), _campos_do_relatorio(obtido))
 
 
 _PIOR_PRIMEIRO = (Situacao.DIVERGENTE, Situacao.INCONCLUSIVO, Situacao.BYTES_DIFERENTES)
@@ -164,7 +204,8 @@ def comparar_conjuntos(
 ) -> list[Comparacao]:
     """Os conjuntos do manifesto contra os refeitos, pareados pelo `schema_id`.
 
-    O conjunto congelado que nenhuma etapa refaz (`sem_etapa`) fica inconclusivo.
+    O conjunto congelado que nenhuma etapa refaz (`sem_etapa`) e o refeito que o manifesto não
+    traz (`conjunto_nao_congelado`) ficam inconclusivos: não há o que comparar.
     """
     itens = []
     for esperada in congelados:
@@ -174,34 +215,63 @@ def comparar_conjuntos(
             itens.append(Comparacao(item, Situacao.INCONCLUSIVO, None, None, "sem_etapa"))
         else:
             itens.append(comparar_referencia(item, esperada, obtida))
+    nomes = {esperada.schema_id for esperada in congelados}
+    for schema_id in (nome for nome in refeitos if nome not in nomes):
+        item = f"conjunto:{schema_id}"
+        itens.append(Comparacao(item, Situacao.INCONCLUSIVO, None, None, "conjunto_nao_congelado"))
     return itens
+
+
+def _da_particao(
+    item: str, ref: DatasetRef | None, novo: DatasetRef | None, *, congelada: bool
+) -> Comparacao:
+    if ref is not None and novo is not None:
+        return comparar_referencia(item, ref, novo)
+    if ref is not None:
+        return Comparacao(item, Situacao.DIVERGENTE, ref.hash_logico, None, _SEM_PARTICAO)
+    if not congelada:
+        return Comparacao(item, Situacao.INCONCLUSIVO, None, None, "particao_nao_congelada")
+    return Comparacao(item, Situacao.DIVERGENTE, None, None, "particao_sem_original")
 
 
 def _por_particao(
-    nome: str, esperadas: Mapping[Particao, DatasetRef], obtidas: Mapping[Particao, DatasetRef]
+    nome: str,
+    esperadas: Mapping[Particao, DatasetRef] | None,
+    obtidas: Mapping[Particao, DatasetRef] | None,
 ) -> list[Comparacao]:
-    itens = []
-    for particao, ref in esperadas.items():
-        item = f"split:{nome}:{particao.value}"
-        novo = obtidas.get(particao)
-        if novo is None:
-            itens.append(
-                Comparacao(item, Situacao.DIVERGENTE, ref.hash_logico, None, _SEM_PARTICAO)
-            )
-        else:
-            itens.append(comparar_referencia(item, ref, novo))
-    return itens
+    """Uma partição por item, as congeladas primeiro e depois as que só o refeito traz.
+
+    Sem partições no congelamento (`None`) as refeitas ficam inconclusivas; com elas, a partição
+    que só o refeito traz é divergência.
+    """
+    antigas, novas = esperadas or {}, obtidas or {}
+    return [
+        _da_particao(
+            f"split:{nome}:{particao.value}",
+            antigas.get(particao),
+            novas.get(particao),
+            congelada=esperadas is not None,
+        )
+        for particao in dict.fromkeys([*antigas, *novas])
+    ]
 
 
 def comparar_split(esperado: SplitManifest, obtido: SplitManifest) -> list[Comparacao]:
-    """Id do split e, por partição, a população e os rótulos refeitos contra os congelados."""
+    """Id, demais campos, e por partição a população e os rótulos refeitos contra os congelados.
+
+    Os campos são todos os do manifesto do split menos o id e as referências (que têm itens
+    próprios); um campo novo do contrato entra na comparação sem alterar este módulo.
+    """
     igual = esperado.split_id == obtido.split_id
     situacao = Situacao.IGUAL if igual else Situacao.DIVERGENTE
-    itens = [Comparacao("split:split_id", situacao, esperado.split_id, obtido.split_id)]
-    itens += _por_particao("particao", esperado.particoes or {}, obtido.particoes or {})
-    itens += _por_particao(
-        "rotulos", esperado.rotulos_por_particao or {}, obtido.rotulos_por_particao or {}
-    )
+    antigos = esperado.model_dump(mode="json", exclude=set(_REFERENCIAS_DO_SPLIT))
+    novos = obtido.model_dump(mode="json", exclude=set(_REFERENCIAS_DO_SPLIT))
+    itens = [
+        Comparacao("split:split_id", situacao, esperado.split_id, obtido.split_id),
+        _por_campos("split:campos", antigos, novos),
+    ]
+    itens += _por_particao("particao", esperado.particoes, obtido.particoes)
+    itens += _por_particao("rotulos", esperado.rotulos_por_particao, obtido.rotulos_por_particao)
     return itens
 
 

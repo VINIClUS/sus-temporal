@@ -44,11 +44,13 @@ from sustemporal.reporting.reproduce_comparacao import (
     comparar_metricas,
     comparar_notas,
     comparar_originais,
+    comparar_relatorio,
     comparar_split,
     exigir_conferido,
     observacoes_do_ambiente,
     observacoes_do_ingest,
     resultado_geral,
+    saidas_por_metodo,
 )
 from sustemporal.reporting.reproduce_etapas import (
     Derivado,
@@ -78,7 +80,6 @@ if TYPE_CHECKING:
     from sustemporal.contracts import FreezeManifest, RunConfig
     from sustemporal.contracts.evaluation import EvaluationReport
     from sustemporal.contracts.experiment import RunResult
-    from sustemporal.contracts.records import DatasetRef
     from sustemporal.contracts.rules import RuleSpec
     from sustemporal.contracts.temporal import MetodoId
 
@@ -253,15 +254,6 @@ def _comparar_insumos(
     return itens
 
 
-def _saidas_por_metodo(
-    execucoes: Mapping[MetodoId, RunResult],
-) -> dict[str, dict[str, DatasetRef]]:
-    return {
-        metodo.value: {saida.schema_id: saida for saida in run.saidas}
-        for metodo, run in execucoes.items()
-    }
-
-
 def _observacoes(
     config: RunConfig, manifesto: FreezeManifest, regras: Sequence[RuleSpec]
 ) -> list[str]:
@@ -387,12 +379,13 @@ def _comparar(
         *comparar_split(manifesto.split, refeito.derivado.split),
         *_comparar_insumos(config, manifesto, refeito.teste),
         *comparar_execucoes(
-            _saidas_por_metodo(original.execucoes), _saidas_por_metodo(refeito.avaliadas)
+            saidas_por_metodo(original.execucoes), saidas_por_metodo(refeito.avaliadas)
         ),
         comparar_metricas(
             "metricas", antigo.metricas if antigo else None, refeito.relatorio.metricas
         ),
         comparar_notas("notas", antigo.notas if antigo else None, refeito.relatorio.notas),
+        comparar_relatorio("relatorio:campos", antigo, refeito.relatorio),
     ]
 
 

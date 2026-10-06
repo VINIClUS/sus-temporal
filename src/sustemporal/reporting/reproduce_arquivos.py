@@ -9,6 +9,7 @@ metadados) e são relatados à parte, nunca como divergência. As saídas das ex
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -50,6 +51,7 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 _TABELA = "reproducao_conferencia"
+_MAX_ARTEFATOS = 5
 _RUNTIME = RuntimeConfig(duckdb_threads=1)
 
 
@@ -131,12 +133,31 @@ def _esquema_dos_lados(item: str, antigo: Identidade, refeito: Identidade) -> Co
     return _esquema_divergente(item, entre, "original_e_refeito") if entre else None
 
 
+def _linhagem_diverge(item: str, esperada: DatasetRef, obtida: DatasetRef) -> Comparacao | None:
+    """Divergência se os artefatos de origem das duas referências não são os mesmos.
+
+    A comparação é de multiconjuntos: o mesmo conteúdo vindo de outros arquivos não é a mesma
+    reprodução, e o `dataset_id` das saídas depende do `run_id`, então só os artefatos valem.
+    """
+    antigos, novos = Counter(esperada.artifact_ids), Counter(obtida.artifact_ids)
+    diferentes = sorted(((antigos - novos) + (novos - antigos)).elements())
+    if not diferentes:
+        return None
+    nomes = ",".join(diferentes[:_MAX_ARTEFATOS])
+    detalhe = f"linhagem_diverge diferentes={len(diferentes)} primeiros={nomes}"
+    esperado = f"artefatos={len(esperada.artifact_ids)}"
+    return Comparacao(
+        item, Situacao.DIVERGENTE, esperado, f"artefatos={len(obtida.artifact_ids)}", detalhe
+    )
+
+
 def comparar_referencia(item: str, esperada: DatasetRef, obtida: DatasetRef) -> Comparacao:
     """O conjunto refeito contra o declarado no manifesto e, se existe, contra o arquivo original.
 
     O hash lógico do refeito é recalculado do arquivo, nunca lido do `DatasetRef`. Original
     adulterado (que não confere com o declarado) é divergência, não bytes diferentes. O leiaute
-    dos arquivos é conferido antes do hash (`esquema_divergente`).
+    dos arquivos é conferido antes do hash (`esquema_divergente`) e, depois do conteúdo, a linhagem
+    (`linhagem_diverge`).
     """
     declarado = f"{esperada.linhas}:{esperada.hash_logico}"
     refeito = identidade_do_arquivo(_arquivo(obtida), obtida.schema_id)
@@ -144,6 +165,8 @@ def comparar_referencia(item: str, esperada: DatasetRef, obtida: DatasetRef) -> 
         return _esquema_divergente(item, refeito.divergentes, "refeito")
     if (refeito.linhas, refeito.hash_logico) != (esperada.linhas, esperada.hash_logico):
         return Comparacao(item, Situacao.DIVERGENTE, declarado, _texto(refeito), "refeito_diverge")
+    if (linhagem := _linhagem_diverge(item, esperada, obtida)) is not None:
+        return linhagem
     original = _arquivo_existente(esperada)
     if original is None:
         return Comparacao(item, Situacao.IGUAL, declarado, declarado, "original_ausente")
@@ -177,7 +200,8 @@ def comparar_saida(
 
     Antes, o leiaute completo das duas (nomes, ordem e tipos) tem de ser o do esquema e o mesmo
     nos dois lados: a coluna de identidade ausente, a coluna a mais ou de outro tipo e a ordem
-    trocada são `esquema_divergente`, nunca igualdade pela interseção das colunas.
+    trocada são `esquema_divergente`, nunca igualdade pela interseção das colunas. Com o mesmo
+    conteúdo, os artefatos de origem também têm de ser os mesmos (`linhagem_diverge`).
     """
     caminho = _arquivo_existente(original) if original is not None else None
     if original is None or caminho is None:
@@ -191,6 +215,8 @@ def comparar_saida(
     detalhe = f"sem_colunas={','.join(sorted(sem_colunas))}"
     if (antigo.linhas, antigo.hash_logico) != (refeito.linhas, refeito.hash_logico):
         return Comparacao(item, Situacao.DIVERGENTE, _texto(antigo), _texto(refeito), detalhe)
+    if (linhagem := _linhagem_diverge(item, original, obtida)) is not None:
+        return linhagem
     return Comparacao(item, Situacao.IGUAL, _texto(antigo), _texto(refeito), detalhe)
 
 
@@ -236,15 +262,25 @@ def comparar_execucoes(
 
 
 def saidas_por_esquema(saidas: Iterable[DatasetRef]) -> dict[str, DatasetRef]:
-    """As saídas por `schema_id`; a repetição entra como `<schema_id>#2`, `#3`... na ordem dada."""
-    raise NotImplementedError
+    """As saídas por `schema_id`; a repetição entra como `<schema_id>#2`, `#3`... na ordem dada.
+
+    Nenhuma saída some: duas do mesmo esquema na mesma execução viram duas chaves, e o
+    `schema_id` nunca tem `#`, então a chave repetida não colide com um esquema.
+    """
+    vistas: Counter[str] = Counter()
+    por_esquema: dict[str, DatasetRef] = {}
+    for saida in saidas:
+        vistas[saida.schema_id] += 1
+        vez = vistas[saida.schema_id]
+        por_esquema[saida.schema_id if vez == 1 else f"{saida.schema_id}#{vez}"] = saida
+    return por_esquema
 
 
 def saidas_por_metodo(
     execucoes: Mapping[MetodoId, RunResult],
 ) -> dict[str, dict[str, DatasetRef]]:
     """As saídas de cada execução, por método (`valor`) e `schema_id` (`saidas_por_esquema`)."""
-    raise NotImplementedError
+    return {metodo.value: saidas_por_esquema(run.saidas) for metodo, run in execucoes.items()}
 
 
 def _arquivo(ref: DatasetRef) -> Path:

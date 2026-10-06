@@ -26,12 +26,13 @@ from sustemporal.acquisition.manifest import Manifesto
 from sustemporal.contracts.records import DatasetRef, calcular_dataset_id
 from sustemporal.duck import conectar, identificador_seguro
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro
-from sustemporal.evaluation.freeze_entrada import campos_divergentes
+from sustemporal.evaluation.freeze_entrada import identidades_da_entrada
 from sustemporal.evaluation.labels import CODEBOOK_PA, label_pa
 from sustemporal.evaluation.split import SCHEMA_ENTRADA, build_splits
 from sustemporal.execucoes import raiz_execucoes
 from sustemporal.hashing import hash_logico_relacao
 from sustemporal.ingest.sia_pa import gravar_parquet, produtor
+from sustemporal.reporting.reproduce_comparacao import campos_que_diferem
 from sustemporal.rules.catalog import carregar_esquema
 from sustemporal.rules.entrada import EntradaValidacao
 from sustemporal.rules.ingest import ler_datasets
@@ -329,7 +330,7 @@ def _ler_entrada(caminho: Path) -> EntradaValidacao | str:
 
 
 def _confere(identidades: Mapping[str, str], entrada: EntradaValidacao) -> bool:
-    divergentes = campos_divergentes(identidades, entrada)
+    divergentes = campos_que_diferem(identidades_da_entrada(entrada), identidades)
     return all(campo == "politica" and entrada.politica is None for campo in divergentes)
 
 

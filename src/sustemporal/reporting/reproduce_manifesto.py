@@ -24,8 +24,17 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from sustemporal.contracts.artifacts import ArtifactObservation, ArtifactVersion
+    from sustemporal.contracts.records import DatasetRef
 
-__all__ = ["Recorte", "manifesto_do_congelamento", "observacoes_do_recorte"]
+__all__ = [
+    "Recorte",
+    "Resolucao",
+    "gravar_manifesto",
+    "manifesto_do_congelamento",
+    "observacoes_do_manifesto",
+    "observacoes_do_recorte",
+    "resolver_manifesto",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -109,3 +118,27 @@ def observacoes_do_recorte(recorte: Recorte) -> list[str]:
     if recorte.observacoes:
         itens.append(f"observacoes_posteriores_ao_congelamento_ignoradas n={recorte.observacoes}")
     return itens
+
+
+@dataclass(frozen=True)
+class Resolucao:
+    """O que o `ingest` original leu do manifesto de aquisição, ou por que isso não se sabe."""
+
+    execucao: str = ""
+    linhas: tuple[LinhaManifesto, ...] = ()
+    recorte: Recorte = Recorte(0, 0)
+    motivo: str = ""
+
+
+def resolver_manifesto(
+    raiz_ingest: Path, raiz_origem: Path, congelados: Iterable[DatasetRef]
+) -> Resolucao:
+    raise NotImplementedError
+
+
+def gravar_manifesto(raiz_origem: Path, raiz_destino: Path, resolucao: Resolucao) -> None:
+    raise NotImplementedError
+
+
+def observacoes_do_manifesto(resolucao: Resolucao) -> list[str]:
+    raise NotImplementedError

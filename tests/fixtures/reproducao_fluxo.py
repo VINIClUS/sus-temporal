@@ -12,6 +12,7 @@ import json
 import shutil
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -29,7 +30,12 @@ from sustemporal.contracts.artifacts import (
     SourceRequest,
 )
 from sustemporal.contracts.base import FamiliaFonte
-from sustemporal.contracts.experiment import Particao, RunResult, SplitManifest
+from sustemporal.contracts.experiment import (
+    FreezeManifest,
+    Particao,
+    RunResult,
+    SplitManifest,
+)
 from sustemporal.evaluation.split import SUFIXO_ENTRADAS, build_splits, carregar_spec
 from sustemporal.execucoes import raiz_execucoes
 from sustemporal.reporting.reproduce_etapas import (
@@ -56,6 +62,7 @@ from tests.fixtures.sia_pa_fixtures import dbc_pa
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Collection, Iterator, Mapping
+    from datetime import datetime
 
     import pytest
 
@@ -298,10 +305,14 @@ def chave_do_sia_pa(fluxo: Fluxo, competencia: str) -> ChaveArtefato:
     return versao.chave
 
 
-def coletar(fluxo: Fluxo, chave: ChaveArtefato, conteudo: bytes | None) -> ArtifactObservation:
+def coletar(
+    fluxo: Fluxo, chave: ChaveArtefato, conteudo: bytes | None, *, quando: datetime | None = None
+) -> ArtifactObservation:
     """Coleta local (`file://`) da `chave`, registrada no manifesto de aquisição.
 
     Sem `conteudo` o arquivo não existe, e o manifesto registra a ausência (`NAO_ENCONTRADO`).
+    O instante da observação é o de `quando`, se vier (uma coleta registrada depois do que a
+    observação diz), ou o relógio.
     """
     arquivo = fluxo.mundo.raiz / "coleta_posterior" / chave.nome_original
     arquivo.unlink(missing_ok=True)
@@ -315,38 +326,65 @@ def coletar(fluxo: Fluxo, chave: ChaveArtefato, conteudo: bytes | None) -> Artif
         tamanho_maximo_bytes=1_000_000,
         motivo=MotivoRequisicao.VIGILANCIA,
     )
-    return fetch_source(pedido, fluxo.mundo.raiz / "dados", manifesto=_caminho_do_manifesto(fluxo))
+    relogio = {} if quando is None else {"relogio": lambda: quando}
+    manifesto = _caminho_do_manifesto(fluxo)
+    return fetch_source(pedido, fluxo.mundo.raiz / "dados", manifesto=manifesto, **relogio)
+
+
+def _chave_nova(base: ChaveArtefato, competencia: str) -> ChaveArtefato:
+    return ChaveArtefato(
+        fonte=FamiliaFonte.SIA_PA,
+        uf=base.uf,
+        competencia_arquivo=competencia,
+        parte=base.parte,
+        canal=base.canal,
+        nome_original=f"PASP{competencia[2:]}a.dbc",
+    )
+
+
+def _com_linha_repetida(competencia: str) -> bytes:
+    registros = producao_por_competencia()[competencia]
+    return dbc_pa([*registros, registros[0]])
 
 
 @contextmanager
 def coleta_depois_do_congelamento(fluxo: Fluxo) -> Iterator[list[ArtifactObservation]]:
-    """Três coletas depois do `freeze` e o manifesto de aquisição como estava ao sair.
+    """Seis coletas registradas depois do `ingest` e o manifesto de aquisição como estava ao sair.
 
-    Um arquivo novo do SIA-PA (competência 202403), a republicação de 202401 com outro conteúdo
-    (uma linha repetida) e o arquivo de 202301 que sumiu do local de coleta (ausência).
+    Três têm o instante de agora, depois do `freeze`. As outras três têm o instante de um segundo
+    antes do `freeze`, como uma coleta feita entre o `ingest` e o `freeze` e só registrada depois
+    (a observação diz quando coletou, não quando o manifesto a recebeu). Em cada grupo, um arquivo
+    novo do SIA-PA, a republicação de um arquivo com outro conteúdo (uma linha repetida) e uma
+    ausência (o arquivo sumiu do local de coleta).
     """
     teste, cal = chave_do_sia_pa(fluxo, "202401"), chave_do_sia_pa(fluxo, "202301")
-    nova = ChaveArtefato(
-        fonte=FamiliaFonte.SIA_PA,
-        uf=teste.uf,
-        competencia_arquivo="202403",
-        parte=teste.parte,
-        canal=teste.canal,
-        nome_original="PASP2403a.dbc",
-    )
-    registros = producao_por_competencia()["202401"]
+    antes_do_freeze = _criado_em(fluxo) - timedelta(seconds=1)
     caminho = _caminho_do_manifesto(fluxo)
     arquivos = [caminho, caminho.with_name(f"{caminho.name}.ancora")]
     guardados = [arquivo.read_bytes() for arquivo in arquivos]
     try:
         yield [
-            coletar(fluxo, nova, dbc_pa(producao_do_mes("202403"))),
-            coletar(fluxo, teste, dbc_pa([*registros, registros[0]])),
+            coletar(fluxo, _chave_nova(teste, "202403"), dbc_pa(producao_do_mes("202403"))),
+            coletar(fluxo, teste, _com_linha_repetida("202401")),
             coletar(fluxo, cal, None),
+            coletar(
+                fluxo,
+                _chave_nova(teste, "202404"),
+                dbc_pa(producao_do_mes("202404")),
+                quando=antes_do_freeze,
+            ),
+            coletar(fluxo, cal, _com_linha_repetida("202301"), quando=antes_do_freeze),
+            coletar(fluxo, teste, None, quando=antes_do_freeze),
         ]
     finally:
         for arquivo, conteudo in zip(arquivos, guardados, strict=True):
             arquivo.write_bytes(conteudo)
+
+
+def _criado_em(fluxo: Fluxo) -> datetime:
+    assert fluxo.freeze_id is not None
+    caminho = fluxo.mundo.congelamentos / f"{fluxo.freeze_id}.json"
+    return FreezeManifest.model_validate_json(caminho.read_text(encoding="utf-8")).criado_em
 
 
 def sem_evidencias(

@@ -320,6 +320,16 @@ def test_janela_dos_artefatos_traz_so_o_sia_pa_dos_artefatos_pedidos(
     assert sia_pa.artifact_ids == (cal,)
 
 
+def test_janela_dos_artefatos_traz_todos_os_arquivos_pedidos(
+    ingerido: Fluxo, tmp_path: Path
+) -> None:
+    assert ingerido.ingest is not None
+    dev = artefatos_do_sia_pa(ingerido, "dev")
+    assert len(dev) == 2
+    pasta = janela_dos_artefatos(ingerido.ingest, tmp_path / "dev", dev)
+    assert sorted(a for ref in _sia_pa(pasta) for a in ref.artifact_ids) == list(dev)
+
+
 def test_janela_dos_artefatos_deixa_todos_os_auxiliares_como_estao(
     ingerido: Fluxo, tmp_path: Path
 ) -> None:

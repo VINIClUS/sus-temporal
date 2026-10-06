@@ -88,6 +88,15 @@ def test_recoleta_posterior_sai_e_a_versao_continua(tmp_path: Path) -> None:
     assert _lido(destino) == ({_id(primeira)}, [_obs(primeira)])
 
 
+def test_duas_observacoes_da_mesma_versao_geram_uma_so_linha_de_versao(tmp_path: Path) -> None:
+    primeira, segunda = observar(PA, "202401", "a", 1), observar(PA, "202401", "a", 2)
+    recorte, destino = _copiar(tmp_path, [primeira, segunda], instante(3))
+    assert recorte == Recorte(artefatos=0, observacoes=0)
+    estado = Manifesto(destino / NOME_MANIFESTO_AQUISICAO).ler()
+    assert [linha.tipo.value for linha in estado.linhas] == ["VERSAO", "OBSERVACAO", "OBSERVACAO"]
+    assert _lido(destino) == ({_id(primeira)}, [_obs(primeira), _obs(segunda)])
+
+
 def test_republicacao_posterior_com_outro_conteudo_nao_entra(tmp_path: Path) -> None:
     v1, v2 = observar(PA, "202401", "a", 1), observar(PA, "202401", "b", 5)
     assert _id(v1) != _id(v2)

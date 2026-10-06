@@ -457,6 +457,22 @@ def sem_evidencias(
     return refeita
 
 
+def sem_coluna_na_saida(
+    validar: Callable[..., Mapping[Any, RunResult]], esquema: str, coluna: str
+) -> Callable[..., Any]:
+    """A `validar_janela` real, com a `coluna` tirada do Parquet de `esquema` de cada execução."""
+
+    def refeita(*argumentos: Any, **nomeados: Any) -> dict[Any, RunResult]:
+        execucoes = validar(*argumentos, **nomeados)
+        for run in execucoes.values():
+            for saida in (s for s in run.saidas if s.schema_id == esquema):
+                caminho = Path(saida.caminho)
+                pq.write_table(pq.read_table(caminho).drop_columns([coluna]), caminho)
+        return dict(execucoes)
+
+    return refeita
+
+
 def sem_os_artefatos(
     derivar: Callable[..., Derivado], artefatos: Collection[str]
 ) -> Callable[..., Derivado]:

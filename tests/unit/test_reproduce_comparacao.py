@@ -10,9 +10,12 @@ import shutil
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
+import pyarrow as pa
 import pytest
 
+from sustemporal.contracts.base import OrigemDados
 from sustemporal.contracts.evaluation import IntervaloConfianca, ValorMetrica
+from sustemporal.contracts.records import TipoCanonico
 from sustemporal.errors import FalhaOperacionalErro
 from sustemporal.evaluation.freeze_entrada import identidades_da_entrada
 from sustemporal.reporting.reproduce_comparacao import (
@@ -26,10 +29,24 @@ from sustemporal.reporting.reproduce_comparacao import (
     identidade_do_arquivo,
     resultado_geral,
 )
+from sustemporal.rules.catalog import carregar_esquema
+from tests.fixtures.protocolo_dados import gravar_rotulos, gravar_tabela
 from tests.fixtures.protocolo_insumos import entrada_da_politica
-from tests.fixtures.reproducao_parquet import SCHEMA, gravar, linha
+from tests.fixtures.reproducao_parquet import (
+    ARTEFATO,
+    COLUNAS,
+    SCHEMA,
+    com_as_duas_primeiras_colunas_trocadas,
+    com_coluna_a_mais,
+    com_coluna_como,
+    com_decimais_de_18_digitos,
+    gravar,
+    linha,
+    sem_coluna,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from sustemporal.contracts.records import DatasetRef
@@ -231,6 +248,142 @@ def test_saida_sem_original_ou_com_o_arquivo_ausente_e_inconclusiva(tmp_path: Pa
     shutil.rmtree(tmp_path / "original")
     sem_arquivo = comparar_saida("saida:x", original, obtida)
     assert sem_arquivo.situacao is Situacao.INCONCLUSIVO
+
+
+def _numericas(run_id: str) -> list[dict[str, str]]:
+    """Linhas com `violacoes` em texto que também cabe num inteiro: o hash não vê o tipo."""
+    return [{**item, "run_id": run_id, "violacoes": "1"} for item in LINHAS]
+
+
+ESTRAGOS_DO_LEIAUTE: dict[str, tuple[Callable[[Path], object], str]] = {
+    "sem_run_id": (lambda caminho: sem_coluna(caminho, "run_id"), "run_id"),
+    "coluna_a_mais": (com_coluna_a_mais, "coluna_a_mais"),
+    "outro_tipo": (
+        lambda caminho: com_coluna_como(caminho, "violacoes", pa.int64()),
+        "violacoes",
+    ),
+    "outra_ordem": (com_as_duas_primeiras_colunas_trocadas, "row_id,run_id"),
+}
+SEM_ARTEFATOS = {"artifact_ids": (), "origem": OrigemDados.SINTETICO}
+DECIMAIS_DOS_ROTULOS = ",".join(
+    coluna.nome
+    for coluna in carregar_esquema("sia_pa_rotulos.v1").colunas
+    if coluna.tipo is TipoCanonico.DECIMAL
+)
+
+
+def _rotulos(tmp_path: Path, nome: str) -> DatasetRef:
+    rotulos = {f"{ARTEFATO}#0": "APROVADO_TOTAL", f"{ARTEFATO}#1": "NAO_APROVADO"}
+    return gravar_rotulos(rotulos, tmp_path / nome)
+
+
+@pytest.mark.parametrize("estrago", list(ESTRAGOS_DO_LEIAUTE))
+def test_saida_refeita_com_o_leiaute_estragado_e_divergente_e_nunca_igual(
+    tmp_path: Path, estrago: str
+) -> None:
+    estragar, colunas = ESTRAGOS_DO_LEIAUTE[estrago]
+    original = gravar(_numericas("run_a"), tmp_path / "original" / "s.parquet")
+    obtida = gravar(_numericas("run_b"), tmp_path / "refeito" / "s.parquet")
+    estragar(tmp_path / "refeito" / "s.parquet")
+    resultado = comparar_saida("saida:M_TEMP:agregados_registro.v1", original, obtida)
+    assert resultado.situacao is Situacao.DIVERGENTE
+    assert resultado.detalhe == f"esquema_divergente colunas={colunas} lado=refeito"
+
+
+@pytest.mark.parametrize("estrago", list(ESTRAGOS_DO_LEIAUTE))
+def test_saida_original_com_o_leiaute_estragado_e_divergente_do_lado_do_original(
+    tmp_path: Path, estrago: str
+) -> None:
+    estragar, colunas = ESTRAGOS_DO_LEIAUTE[estrago]
+    original = gravar(_numericas("run_a"), tmp_path / "original" / "s.parquet")
+    obtida = gravar(_numericas("run_b"), tmp_path / "refeito" / "s.parquet")
+    estragar(tmp_path / "original" / "s.parquet")
+    resultado = comparar_saida("saida:M_TEMP:agregados_registro.v1", original, obtida)
+    assert resultado.situacao is Situacao.DIVERGENTE
+    assert resultado.detalhe == f"esquema_divergente colunas={colunas} lado=original"
+
+
+def test_saida_com_decimal_de_outra_precisao_entre_os_lados_e_divergente(tmp_path: Path) -> None:
+    original = _rotulos(tmp_path, "original/r.parquet")
+    obtida = _rotulos(tmp_path, "refeito/r.parquet")
+    com_decimais_de_18_digitos(tmp_path / "refeito" / "r.parquet")
+    resultado = comparar_saida("saida:x", original, obtida, sem_colunas=())
+    assert resultado.situacao is Situacao.DIVERGENTE
+    esperado = f"esquema_divergente colunas={DECIMAIS_DOS_ROTULOS} lado=original_e_refeito"
+    assert resultado.detalhe == esperado
+
+
+def test_saida_cujo_esquema_nao_tem_a_coluna_de_identidade_compara_normalmente(
+    tmp_path: Path,
+) -> None:
+    linhas = [{"evidence_id": f"ev_{i}", "tipo": "CNES", "query_id": "q"} for i in range(3)]
+    original = gravar_tabela(linhas, "evidencias.v1", tmp_path / "o.parquet", **SEM_ARTEFATOS)
+    obtida = gravar_tabela(linhas, "evidencias.v1", tmp_path / "r.parquet", **SEM_ARTEFATOS)
+    resultado = comparar_saida("saida:M_TEMP:evidencias.v1", original, obtida)
+    assert resultado.situacao is Situacao.IGUAL
+    assert resultado.detalhe == "sem_colunas=run_id"
+
+
+def test_coluna_de_tipo_que_o_hash_nao_suporta_e_esquema_divergente_e_nao_erro(
+    tmp_path: Path,
+) -> None:
+    original = gravar(_numericas("run_a"), tmp_path / "original" / "s.parquet")
+    obtida = gravar(_numericas("run_b"), tmp_path / "refeito" / "s.parquet")
+    com_coluna_como(tmp_path / "refeito" / "s.parquet", "violacoes", pa.float64())
+    resultado = comparar_saida("saida:x", original, obtida)
+    assert resultado.situacao is Situacao.DIVERGENTE
+    assert resultado.detalhe == "esquema_divergente colunas=violacoes lado=refeito"
+
+
+@pytest.mark.parametrize("estrago", list(ESTRAGOS_DO_LEIAUTE))
+def test_conjunto_refeito_com_o_leiaute_estragado_e_divergente_e_nunca_igual(
+    tmp_path: Path, estrago: str
+) -> None:
+    estragar, colunas = ESTRAGOS_DO_LEIAUTE[estrago]
+    esperada = gravar(_numericas("run_a"), tmp_path / "original" / "a.parquet")
+    obtida = gravar(_numericas("run_a"), tmp_path / "refeito" / "a.parquet")
+    estragar(tmp_path / "refeito" / "a.parquet")
+    resultado = comparar_referencia("conjunto:x", esperada, obtida)
+    assert resultado.situacao is Situacao.DIVERGENTE
+    assert resultado.detalhe == f"esquema_divergente colunas={colunas} lado=refeito"
+
+
+def test_conjunto_com_o_arquivo_original_de_leiaute_estragado_e_divergente(tmp_path: Path) -> None:
+    esperada = gravar(LINHAS, tmp_path / "original" / "a.parquet")
+    obtida = gravar(LINHAS, tmp_path / "refeito" / "a.parquet")
+    com_coluna_a_mais(tmp_path / "original" / "a.parquet")
+    resultado = comparar_referencia("conjunto:x", esperada, obtida)
+    assert resultado.situacao is Situacao.DIVERGENTE
+    assert resultado.detalhe == "esquema_divergente colunas=coluna_a_mais lado=original"
+
+
+def test_conjunto_com_decimal_de_outra_precisao_entre_original_e_refeito_e_divergente(
+    tmp_path: Path,
+) -> None:
+    esperada = _rotulos(tmp_path, "original/r.parquet")
+    obtida = _rotulos(tmp_path, "refeito/r.parquet")
+    com_decimais_de_18_digitos(tmp_path / "refeito" / "r.parquet")
+    resultado = comparar_referencia("conjunto:x", esperada, obtida)
+    assert resultado.situacao is Situacao.DIVERGENTE
+    esperado = f"esquema_divergente colunas={DECIMAIS_DOS_ROTULOS} lado=original_e_refeito"
+    assert resultado.detalhe == esperado
+
+
+def test_identidade_de_arquivo_com_o_leiaute_estragado_traz_as_colunas_e_nao_calcula_o_hash(
+    tmp_path: Path,
+) -> None:
+    gravar(LINHAS, tmp_path / "a.parquet")
+    com_coluna_a_mais(tmp_path / "a.parquet")
+    identidade = identidade_do_arquivo(tmp_path / "a.parquet", SCHEMA)
+    assert identidade.divergentes == ("coluna_a_mais",)
+    assert (identidade.linhas, identidade.hash_logico) == (0, "")
+
+
+def test_identidade_traz_o_leiaute_fisico_lido_do_arquivo(tmp_path: Path) -> None:
+    gravar(LINHAS, tmp_path / "a.parquet")
+    identidade = identidade_do_arquivo(tmp_path / "a.parquet", SCHEMA)
+    assert identidade.leiaute == tuple((nome, "VARCHAR") for nome in COLUNAS)
+    assert identidade.divergentes == ()
 
 
 def _metrica(nome: str, numerador: int, denominador: int, **extras: object) -> ValorMetrica:

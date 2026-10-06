@@ -32,6 +32,7 @@ from tests.fixtures.reproducao_fluxo import (
     linha_do_ingest,
     metricas_refeitas,
     reproduzir,
+    sem_coluna_na_saida,
     sem_evidencias,
     sem_os_artefatos,
     validar_janelas,
@@ -733,15 +734,17 @@ def test_reproduce_com_a_execucao_registrada_de_outra_politica_e_inconclusivo(fl
 
 DIVERGENTES_DO_CONTEUDO = {"conjunto:sia_pa.v1", "saida:B_ATEND:agregados_registro.v1"}
 DIVERGENTES_DA_SAIDA = {f"saida:{metodo}:{EVIDENCIAS}" for metodo in METODOS}
+DIVERGENTES_DO_ESQUEMA = {f"saida:{metodo}:falhas.v1" for metodo in METODOS}
 
 
 @pytest.fixture(scope="module")
 def reproducao_estragada(fluxo: Fluxo) -> Reproducao:
-    """Uma só reprodução com o original e a reconstrução estragados de três jeitos independentes.
+    """Uma só reprodução com o original e a reconstrução estragados de quatro jeitos independentes.
 
     A união do SIA-PA e os agregados do `B_ATEND` originais têm o conteúdo adulterado, o relatório
-    do registro vira outro (execuções em outra ordem) e a reconstrução deixa de emitir as
-    evidências. Cada estrago dá os seus itens e os testes abaixo leem a mesma reprodução.
+    do registro vira outro (execuções em outra ordem), a reconstrução deixa de emitir as evidências
+    e emite as falhas sem a coluna `run_id`. Cada estrago dá os seus itens e os testes abaixo leem
+    a mesma reprodução.
     """
     uniao = _original_do_congelamento(fluxo, "sia_pa.v1")
     run = fluxo.execucoes[("cal", "atendimento")]
@@ -750,12 +753,14 @@ def reproducao_estragada(fluxo: Fluxo) -> Reproducao:
     original_relatorio = relatorio.read_bytes()
     original_uniao = adulterar_coluna(uniao, "quantidade_apresentada", 99)
     original_agregados = adulterar_coluna(agregados, "resultado", "ABSTENCAO")
-    refeita = sem_evidencias(validar_janela, EVIDENCIAS)
+    sem_evidencias_nem_run_id = sem_coluna_na_saida(
+        sem_evidencias(validar_janela, EVIDENCIAS), "falhas.v1", "run_id"
+    )
     destino = fluxo.mundo.raiz / "reproducao_estragada"
     try:
         _alterar_json(relatorio, runs=list(reversed(json.loads(original_relatorio)["runs"])))
         with pytest.MonkeyPatch.context() as mp:
-            mp.setattr("sustemporal.reporting.reproduce.validar_janela", refeita)
+            mp.setattr("sustemporal.reporting.reproduce.validar_janela", sem_evidencias_nem_run_id)
             return reproduzir(fluxo, fluxo.configs["teste"], destino)
     finally:
         uniao.write_bytes(original_uniao)
@@ -785,6 +790,15 @@ def test_reproduce_com_saida_que_a_reconstrucao_nao_emitiu_e_divergente(
     assert {feita.itens[i]["detalhe"] for i in DIVERGENTES_DA_SAIDA} == {"saida_ausente_no_refeito"}
 
 
+def test_reproduce_com_saida_refeita_sem_a_coluna_de_identidade_e_divergente_de_esquema(
+    reproducao_estragada: Reproducao,
+) -> None:
+    feita = reproducao_estragada
+    assert _com_situacao(feita, "DIVERGENTE") >= DIVERGENTES_DO_ESQUEMA
+    detalhes = {feita.itens[i]["detalhe"] for i in DIVERGENTES_DO_ESQUEMA}
+    assert detalhes == {"esquema_divergente colunas=run_id lado=refeito"}
+
+
 def test_reproduce_com_relatorio_que_nao_e_o_registrado_e_inconclusivo_e_nao_divergente(
     reproducao_estragada: Reproducao,
 ) -> None:
@@ -800,7 +814,7 @@ def test_reproduce_so_os_itens_estragados_saem_diferentes_do_original(
     reproducao_estragada: Reproducao,
 ) -> None:
     feita = reproducao_estragada
-    divergentes = DIVERGENTES_DO_CONTEUDO | DIVERGENTES_DA_SAIDA
+    divergentes = DIVERGENTES_DO_CONTEUDO | DIVERGENTES_DA_SAIDA | DIVERGENTES_DO_ESQUEMA
     iguais = ITENS_DA_REPRODUCAO - divergentes - {"metricas", "notas"}
     assert set(feita.itens) == ITENS_DA_REPRODUCAO
     assert _com_situacao(feita, "DIVERGENTE") == divergentes

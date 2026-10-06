@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from collections.abc import Collection, Mapping
 
     from sustemporal.contracts.records import DatasetRef
+    from sustemporal.reporting.reproduce_esquema import Leiaute
 
 __all__ = [
     "Identidade",
@@ -45,11 +46,17 @@ _RUNTIME = RuntimeConfig(duckdb_threads=1)
 
 @dataclass(frozen=True)
 class Identidade:
-    """Contagem, hash lógico e SHA-256 dos bytes de um Parquet."""
+    """Contagem, hash lógico e SHA-256 dos bytes de um Parquet, e o leiaute físico lido dele.
+
+    `divergentes` traz as colunas em que o leiaute não é o do esquema; nesse caso a contagem e o
+    hash lógico não foram calculados (`0` e vazio).
+    """
 
     linhas: int
     hash_logico: str
     sha256: str
+    leiaute: Leiaute = ()
+    divergentes: tuple[str, ...] = ()
 
 
 def identidade_do_arquivo(

@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from sustemporal.contracts.base import OrigemDados
@@ -86,3 +87,46 @@ def adulterar_coluna(caminho: Path, coluna: str, valor: object) -> bytes:
     valores[0] = valor
     pq.write_table(tabela.set_column(indice, campo, pa.array(valores, campo.type)), caminho)
     return original
+
+
+def _regravar(caminho: Path, tabela: pa.Table) -> bytes:
+    original = caminho.read_bytes()
+    pq.write_table(tabela, caminho)
+    return original
+
+
+def sem_coluna(caminho: Path, coluna: str) -> bytes:
+    """Tira a coluna do arquivo (o leiaute deixa de ser o do esquema); devolve os originais."""
+    return _regravar(caminho, pq.read_table(caminho).drop_columns([coluna]))
+
+
+def com_coluna_a_mais(caminho: Path, nome: str = "coluna_a_mais") -> bytes:
+    """Acrescenta uma coluna de texto que o esquema não tem; devolve os bytes originais."""
+    tabela = pq.read_table(caminho)
+    vazia = pa.array([""] * tabela.num_rows, pa.string())
+    return _regravar(caminho, tabela.append_column(nome, vazia))
+
+
+def com_coluna_como(caminho: Path, coluna: str, tipo: pa.DataType) -> bytes:
+    """Converte a coluna para o `tipo` (os valores precisam caber nele); devolve os originais."""
+    tabela = pq.read_table(caminho)
+    indice = tabela.schema.get_field_index(coluna)
+    convertida = pc.cast(tabela.column(indice), tipo)
+    return _regravar(caminho, tabela.set_column(indice, coluna, convertida))
+
+
+def com_as_duas_primeiras_colunas_trocadas(caminho: Path) -> bytes:
+    """O mesmo conteúdo com a primeira e a segunda colunas na ordem inversa."""
+    tabela = pq.read_table(caminho)
+    nomes = tabela.column_names
+    return _regravar(caminho, tabela.select([nomes[1], nomes[0], *nomes[2:]]))
+
+
+def com_decimais_de_18_digitos(caminho: Path) -> bytes:
+    """Mesmo valor, outro tipo físico: toda coluna DECIMAL(38,2) vira DECIMAL(18,2)."""
+    tabela = pq.read_table(caminho)
+    for indice, campo in enumerate(tabela.schema):
+        if pa.types.is_decimal(campo.type):
+            convertida = pc.cast(tabela.column(indice), pa.decimal128(18, 2))
+            tabela = tabela.set_column(indice, campo.name, convertida)
+    return _regravar(caminho, tabela)

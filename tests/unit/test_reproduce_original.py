@@ -128,6 +128,7 @@ TROCAS = {
         "decisao_g2": G2,
     },
     "origem_dados": {"origem_dados": OrigemDados.REAL},
+    "decisao_g2": {"decisao_g2": G2},
     "runs": {"runs": ("run_a", "run_c")},
     "metricas": {"metricas": (_metrica("m1"), _metrica("m2", nula=True))},
     "metricas_nulas": {"metricas": (_metrica("m1"), _metrica("m2"), _metrica("m3"))},
@@ -140,10 +141,19 @@ def test_relatorio_que_nao_e_o_registrado_vira_original_indisponivel(
 ) -> None:
     original = _lido(tmp_path, _relatorio(**TROCAS[campo]))
     assert original.relatorio is None
-    esperado = {"modo": "modo,origem_dados"}.get(campo, campo)
+    esperado = {"modo": "modo,origem_dados,decisao_g2"}.get(campo, campo)
     assert original.observacoes == (
         f"relatorio_original_nao_confere_com_o_registro campos={esperado}",
     )
+
+
+def test_decisao_g2_do_relatorio_so_confere_com_a_do_registro() -> None:
+    entrada: dict[str, Any] = {"report_id": REPORT, "freeze_id": FREEZE, "modo": "EXPLORATORIO"}
+    entrada |= {"origem_dados": "SINTETICO", "runs": ["run_a", "run_b"], "metricas": 3}
+    entrada |= {"metricas_nulas": 1, "decisao_g2": None}
+    assert campos_que_nao_conferem(_relatorio(), entrada) == []
+    assert campos_que_nao_conferem(_relatorio(decisao_g2=G2), entrada) == ["decisao_g2"]
+    assert campos_que_nao_conferem(_relatorio(), {**entrada, "decisao_g2": G2}) == ["decisao_g2"]
 
 
 def test_execucoes_em_outra_ordem_nao_conferem(tmp_path: Path) -> None:
@@ -223,6 +233,40 @@ def test_execucao_registrada_sem_metodo_fica_de_fora(tmp_path: Path) -> None:
     com_metodo = _execucao(RUN_B, MetodoId.B_ATEND)
     original = _gravar_execucoes(tmp_path, sem_metodo, com_metodo)
     assert dict(original.execucoes) == {MetodoId.B_ATEND: com_metodo}
+
+
+def test_metodo_com_duas_execucoes_registradas_fica_sem_original_e_vira_observacao(
+    tmp_path: Path,
+) -> None:
+    primeira = _execucao(RUN_A, MetodoId.M_TEMP)
+    segunda = _execucao(RUN_B, MetodoId.M_TEMP)
+    outro = _execucao(RUN_C, MetodoId.B_PROC)
+    original = _gravar_execucoes(tmp_path, primeira, segunda, outro)
+    assert dict(original.execucoes) == {MetodoId.B_PROC: outro}
+    assert original.observacoes == ("execucao_registrada_repetida metodo=M_TEMP",)
+
+
+def test_execucao_repetida_do_metodo_conta_uma_observacao_so_e_nao_volta_na_terceira(
+    tmp_path: Path,
+) -> None:
+    execucoes = [_execucao(run, MetodoId.M_TEMP) for run in (RUN_A, RUN_B, RUN_C)]
+    original = _gravar_execucoes(tmp_path, *execucoes)
+    assert dict(original.execucoes) == {}
+    assert original.observacoes == ("execucao_registrada_repetida metodo=M_TEMP",)
+
+
+def test_execucao_repetida_junta_a_observacao_do_relatorio_que_nao_confere(tmp_path: Path) -> None:
+    _registrar(tmp_path, _relatorio(runs=(RUN_A, RUN_B, RUN_C)))
+    _gravar(tmp_path, _relatorio(runs=(RUN_A, RUN_B)))
+    for execucao in (_execucao(RUN_A, MetodoId.B_PROC), _execucao(RUN_B, MetodoId.B_PROC)):
+        pasta = tmp_path / "saidas" / "runs" / execucao.run_id
+        pasta.mkdir(parents=True)
+        (pasta / "run_result.json").write_text(execucao.model_dump_json(), encoding="utf-8")
+    original = ler_original(_config(tmp_path), FREEZE)
+    assert original.observacoes == (
+        "relatorio_original_nao_confere_com_o_registro campos=runs",
+        "execucao_registrada_repetida metodo=B_PROC",
+    )
 
 
 def test_relatorio_que_nao_confere_e_registrado_no_log(

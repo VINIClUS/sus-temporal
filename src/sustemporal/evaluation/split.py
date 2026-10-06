@@ -33,13 +33,21 @@ from sustemporal.yamlio import carregar_yaml
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-__all__ = ["CONFIG_PARTICOES", "SCHEMA_ENTRADA", "SUFIXO_ENTRADAS", "build_splits", "carregar_spec"]
+__all__ = [
+    "CONFIG_PARTICOES",
+    "MARCADOR_PERTENCA_A_DEFINIR",
+    "SCHEMA_ENTRADA",
+    "SUFIXO_ENTRADAS",
+    "build_splits",
+    "carregar_spec",
+]
 
 logger = logging.getLogger(__name__)
 
 CONFIG_PARTICOES = Path("config/splits.yaml")
 SCHEMA_ENTRADA = "sia_pa.v1"
 SUFIXO_ENTRADAS = ".entradas.json"
+MARCADOR_PERTENCA_A_DEFINIR = "pertenca_a_definir"
 _TABELA = "populacao_split"
 _LIMITES_FIXOS = (
     (
@@ -88,9 +96,9 @@ def _sql_classificacao(spec: SplitSpec, cohort: CohortSpec) -> tuple[str, dict[s
     for i, intervalo in enumerate(spec.intervalos):
         parametros[f"p{i}_ini"] = str(intervalo.inicio)
         parametros[f"p{i}_fim"] = str(intervalo.fim)
+        parametros[f"p{i}_nome"] = intervalo.particao.value
         casos.append(
-            f"WHEN competencia_processamento BETWEEN $p{i}_ini AND $p{i}_fim "
-            f"THEN '{intervalo.particao.value}'"
+            f"WHEN competencia_processamento BETWEEN $p{i}_ini AND $p{i}_fim THEN $p{i}_nome"
         )
     instrumentos = ""
     if cohort.instrumentos:
@@ -227,7 +235,9 @@ def _limites(cohort: CohortSpec, agrupadas: int) -> tuple[str, ...]:
         )
     ]
     if cohort.pertenca is PertencaGeografica.A_DEFINIR:
-        extras.append("pertenca_a_definir: aplicada a lista versionada do territorio como fixa")
+        extras.append(
+            f"{MARCADOR_PERTENCA_A_DEFINIR}: aplicada a lista versionada do territorio como fixa"
+        )
     return (*_LIMITES_FIXOS, *extras)
 
 

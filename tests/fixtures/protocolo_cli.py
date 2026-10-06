@@ -55,7 +55,7 @@ def config_yaml(raiz: Path, **extra: str) -> Path:
         f"  raiz_saidas: {raiz / 'saidas'}",
         f"  dir_congelamentos: {raiz / 'frozen'}",
         "bootstrap:",
-        "  correcao: HOLM",
+        "  correcao: SEM_TESTE_FORMAL",
         "  reamostragens: 50",
         "catalogos:",
         f"  esquema_sia_pa: {catalogo_da_config(raiz)}",

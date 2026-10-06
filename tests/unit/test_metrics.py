@@ -7,10 +7,18 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from sustemporal.contracts.experiment import BootstrapSpec, CorrecaoMultiplicidade, Particao
+from sustemporal.contracts.temporal import MetodoId
+from sustemporal.evaluation.metrics import evaluate_runs
 from sustemporal.evaluation.metrics_calculo import LinhaAvaliada, Situacao, calcular_metricas
+from tests.fixtures.protocolo_avaliacao import run_agregados
+from tests.fixtures.protocolo_dados import cenario_baseline
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from sustemporal.contracts.evaluation import ValorMetrica
+    from tests.fixtures.protocolo_dados import Cenario
 
     Metricas = dict[tuple[str, str], ValorMetrica]
 
@@ -243,3 +251,56 @@ def test_linha_sem_situacao_do_metodo_conta_como_abstencao() -> None:
     valores = {(v.nome, v.estrato): v for v in calcular_metricas(linhas, ["M"])}
     assert valores[("M.abstencao", "TOTAL")].numerador == 1
     assert valores[("M.cobertura_verificabilidade", "TOTAL")].numerador == 0
+
+
+@pytest.fixture(scope="module")
+def cenario(tmp_path_factory: pytest.TempPathFactory) -> Cenario:
+    return cenario_baseline(tmp_path_factory.mktemp("cenario"))
+
+
+@pytest.mark.parametrize(
+    ("correcao", "confianca", "nota"),
+    [
+        (
+            CorrecaoMultiplicidade.HOLM,
+            Decimal("0.95"),
+            "correcao_multiplicidade=HOLM: sem teste formal; intervalos de 95% sem ajuste",
+        ),
+        (
+            CorrecaoMultiplicidade.BONFERRONI,
+            Decimal("0.95"),
+            "correcao_multiplicidade=BONFERRONI: sem teste formal; intervalos de 95% sem ajuste",
+        ),
+        (
+            CorrecaoMultiplicidade.SEM_TESTE_FORMAL,
+            Decimal("0.9"),
+            (
+                "correcao_multiplicidade=SEM_TESTE_FORMAL: sem teste formal; intervalos de 90% "
+                "sem ajuste"
+            ),
+        ),
+        (
+            CorrecaoMultiplicidade.A_DEFINIR,
+            Decimal("0.95"),
+            "correcao_multiplicidade=A_DEFINIR: sem teste formal; intervalos de 95% sem ajuste",
+        ),
+    ],
+    ids=["HOLM", "BONFERRONI", "SEM_TESTE_FORMAL", "A_DEFINIR"],
+)
+def test_relatorio_declara_a_correcao_por_multiplicidade_sem_teste_formal_aplicado(
+    tmp_path: Path,
+    cenario: Cenario,
+    correcao: CorrecaoMultiplicidade,
+    confianca: Decimal,
+    nota: str,
+) -> None:
+    """Auditoria final, D2: a correção congelada não muda nenhum cálculo, e o relatório o diz."""
+    assert cenario.split.rotulos_por_particao is not None
+    calibracao = [lp for lp in cenario.linhas if lp.competencia_processamento == "202301"]
+    alertas = {lp.row_id: "ALERTA" for lp in calibracao}
+    run = run_agregados(MetodoId.M_TEMP, alertas, tmp_path / "runs")
+    spec = BootstrapSpec(reamostragens=20, confianca=confianca, correcao=correcao)
+    rotulos = cenario.split.rotulos_por_particao[Particao.CALIBRACAO]
+    relatorio = evaluate_runs([run], rotulos, cenario.split, tmp_path / "av", bootstrap=spec)
+    assert nota in relatorio.notas
+    assert [n for n in relatorio.notas if n.startswith("correcao_multiplicidade=")] == [nota]

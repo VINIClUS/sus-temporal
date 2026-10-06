@@ -48,7 +48,7 @@ from tests.fixtures.protocolo_insumos import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
 
     from sustemporal.contracts import Ambiente, FreezeManifest, RunResult
     from sustemporal.contracts.temporal import PoliticaTemporal
@@ -59,7 +59,7 @@ CATALOGO_SIA_PA = Path(__file__).resolve().parents[2] / "catalog" / "schemas" / 
 CONFIG_PROTOCOLO: dict[str, Any] = {
     "versao": "1",
     "origem_dados": "REAL",
-    "bootstrap": {"correcao": "HOLM", "reamostragens": 50},
+    "bootstrap": {"correcao": "SEM_TESTE_FORMAL", "reamostragens": 50},
     "catalogos": {"esquema_sia_pa": str(CATALOGO_SIA_PA)},
 }
 POLITICA_DO_METODO = {
@@ -225,19 +225,28 @@ def runs_compativeis(
 
 
 def montar_confirmatorio(
-    raiz: Path, cenario: Cenario, *, catalogo: Path = CATALOGO_SIA_PA, **protocolo: Any
+    raiz: Path,
+    cenario: Cenario,
+    *,
+    catalogo: Path = CATALOGO_SIA_PA,
+    bootstrap: Mapping[str, Any] | None = None,
+    **protocolo: Any,
 ) -> Confirmatorio:
     """Congela o protocolo (G0), abre o TESTE (G2) e gera as execuções compatíveis.
 
     `catalogo` é o arquivo de catálogo da config e do congelamento (uma cópia nos testes que o
-    alteram); o estado atual espelha o que foi congelado.
+    alteram); `bootstrap` troca o da config congelada e o da confirmatória; o estado atual
+    espelha o que foi congelado.
     """
     assert cenario.split.rotulos_por_particao is not None
     decisoes = raiz / "decisoes"
     escrever_decisao(decisoes, "G0", "CONTINUAR")
     catalogos = {"esquema_sia_pa": str(catalogo)}
+    da_config: dict[str, Any] = {"catalogos": catalogos}
+    if bootstrap is not None:
+        da_config["bootstrap"] = dict(bootstrap)
     campos: dict[str, Any] = {
-        "config": RunConfig.model_validate({**CONFIG_PROTOCOLO, "catalogos": catalogos}),
+        "config": RunConfig.model_validate({**CONFIG_PROTOCOLO, **da_config}),
         "split": cenario.split,
         "features": FEATURES_PADRAO,
         "dataset": cenario.dataset,
@@ -256,7 +265,7 @@ def montar_confirmatorio(
         relogio=relogio,
     )
     g2 = escrever_decisao(decisoes, "G2", "ABRIR_TESTE", freeze_id=manifesto.freeze_id)
-    config = config_confirmatoria(manifesto.freeze_id, catalogos=catalogos)
+    config = config_confirmatoria(manifesto.freeze_id, **da_config)
     estado = EstadoAtual(
         config=config,
         split=campos["split"],

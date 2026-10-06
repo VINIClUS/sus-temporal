@@ -17,10 +17,17 @@ from typing import TYPE_CHECKING
 from pydantic import ValidationError
 
 from sustemporal.contracts.base import hash_canonico, hash_identidade
-from sustemporal.contracts.experiment import DecisaoPortao, FreezeManifest, Particao, Portao
+from sustemporal.contracts.experiment import (
+    DecisaoPortao,
+    FreezeManifest,
+    Particao,
+    PertencaGeografica,
+    Portao,
+)
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.features import auditar_features
 from sustemporal.evaluation.freeze_entrada import identidades_da_entrada
+from sustemporal.evaluation.split import MARCADOR_PERTENCA_A_DEFINIR
 from sustemporal.gates import DIR_DECISOES, exigir_portao
 from sustemporal.hashing import sha256_arquivo
 from sustemporal.rules.catalog import carregar_esquema, catalogo_sha256
@@ -133,9 +140,10 @@ def congelar(
 
     Raises:
         PortaoRecusado: G0 ausente ou que não libera.
-        ConfigInvalida: protocolo incoerente, com valor A_DEFINIR, código sujo, catálogo
-            ausente ou que a config não declara, política repetida com conteúdo diferente ou
-            insumos que não são os da partição TESTE.
+        ConfigInvalida: protocolo incoerente, com valor A_DEFINIR, pertença A_DEFINIR na coorte
+            da config ou no split, split de outra coorte, código sujo, catálogo ausente ou que a
+            config não declara, política repetida com conteúdo diferente ou insumos que não são
+            os da partição TESTE.
         FalhaOperacionalErro: já existe outro conteúdo sob o mesmo `freeze_id`.
     """
     g0 = exigir_portao(decisoes, Portao.G0, hoje=hoje)
@@ -178,6 +186,7 @@ def _exigir_coerencia(protocolo: Protocolo) -> None:
         raise ConfigInvalida(f"congelamento_split_sem_particoes split={split.split_id}")
     if split.dataset_hash != protocolo.dataset.hash_logico:
         raise ConfigInvalida(f"congelamento_split_de_outro_dataset split={split.split_id}")
+    _exigir_pertenca_definida(protocolo)
     if protocolo.rotulos.schema_id != "sia_pa_rotulos.v1":
         raise ConfigInvalida(f"congelamento_rotulos_invalidos schema={protocolo.rotulos.schema_id}")
     declarados = {nome: Path(caminho) for nome, caminho in protocolo.config.catalogos.items()}
@@ -186,6 +195,24 @@ def _exigir_coerencia(protocolo: Protocolo) -> None:
     esquemas = {carregar_esquema(a.schema_id) for a in protocolo.features.atributos}
     auditar_features(protocolo.features, esquemas)
     _exigir_insumos_do_teste(protocolo)
+
+
+def _exigir_pertenca_definida(protocolo: Protocolo) -> None:
+    """Pertença decidida antes da coorte (plano §7), na config e no split, que é da coorte dela.
+
+    O `build_splits` aplica A_DEFINIR como FIXA e só deixa o limite `pertenca_a_definir`, que
+    vale também para split construído antes desta conferência.
+    """
+    split, coorte = protocolo.split, protocolo.config.coorte
+    if coorte is not None and coorte.pertenca is PertencaGeografica.A_DEFINIR:
+        raise ConfigInvalida(f"congelamento_com_pertenca_a_definir coorte={coorte.cohort_id}")
+    marcador = f"{MARCADOR_PERTENCA_A_DEFINIR}:"
+    if any(limite.startswith(marcador) for limite in split.limites or ()):
+        raise ConfigInvalida(f"congelamento_split_com_pertenca_a_definir split={split.split_id}")
+    if coorte is not None and split.cohort_id != coorte.cohort_id:
+        raise ConfigInvalida(
+            f"congelamento_split_de_outra_coorte split={split.split_id} coorte={coorte.cohort_id}"
+        )
 
 
 def _exigir_insumos_do_teste(protocolo: Protocolo) -> None:

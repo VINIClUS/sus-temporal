@@ -9,8 +9,13 @@ comparações primárias, as margens e a decisão G0 humana que liberou o congel
 ## Comandos
 
 - `sustemporal freeze --config <cfg>`: exige G0 humano em `experiments/decisions/`. Recusa
-  `A_DEFINIR`, código sujo, catálogo ausente e catálogo que a config não declara em
-  `config.catalogos`. Registra o catálogo de regras de `catalog/rules`, as políticas de
+  `A_DEFINIR` no conteúdo do manifesto (a correção por multiplicidade do bootstrap, por
+  exemplo) e a pertença geográfica `A_DEFINIR`, que o manifesto não guarda como campo: na coorte
+  da config (`congelamento_com_pertenca_a_definir`) e no split, que o `build_splits` marca com o
+  limite `pertenca_a_definir` (`congelamento_split_com_pertenca_a_definir`, também para split
+  construído antes desta conferência). Com `coorte` na config, recusa o split de outra coorte
+  (`congelamento_split_de_outra_coorte`). Todas saem com código 2. Recusa ainda código sujo,
+  catálogo ausente e catálogo que a config não declara em `config.catalogos`. Registra o catálogo de regras de `catalog/rules`, as políticas de
   `catalog/policies` e as padrão dos baselines; sem esses campos o manifesto não prova catálogo
   nem política. Lê também os insumos de cada política em `<raiz_saidas>/split/insumos/`
   (seção "Entrada de validação das execuções de regras").

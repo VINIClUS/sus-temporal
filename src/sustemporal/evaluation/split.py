@@ -33,13 +33,21 @@ from sustemporal.yamlio import carregar_yaml
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-__all__ = ["CONFIG_PARTICOES", "SCHEMA_ENTRADA", "SUFIXO_ENTRADAS", "build_splits", "carregar_spec"]
+__all__ = [
+    "CONFIG_PARTICOES",
+    "MARCADOR_PERTENCA_A_DEFINIR",
+    "SCHEMA_ENTRADA",
+    "SUFIXO_ENTRADAS",
+    "build_splits",
+    "carregar_spec",
+]
 
 logger = logging.getLogger(__name__)
 
 CONFIG_PARTICOES = Path("config/splits.yaml")
 SCHEMA_ENTRADA = "sia_pa.v1"
 SUFIXO_ENTRADAS = ".entradas.json"
+MARCADOR_PERTENCA_A_DEFINIR = "pertenca_a_definir"
 _TABELA = "populacao_split"
 _LIMITES_FIXOS = (
     (
@@ -227,7 +235,9 @@ def _limites(cohort: CohortSpec, agrupadas: int) -> tuple[str, ...]:
         )
     ]
     if cohort.pertenca is PertencaGeografica.A_DEFINIR:
-        extras.append("pertenca_a_definir: aplicada a lista versionada do territorio como fixa")
+        extras.append(
+            f"{MARCADOR_PERTENCA_A_DEFINIR}: aplicada a lista versionada do territorio como fixa"
+        )
     return (*_LIMITES_FIXOS, *extras)
 
 

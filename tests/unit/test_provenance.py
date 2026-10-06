@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import json
 import re
+from collections import Counter
 from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -227,6 +228,54 @@ def test_prov_json_e_prov_n_validos_com_relacoes_exigidas(execucao: RunResult) -
     assert bundle.prov_n.rstrip().endswith("endDocument")
     exigir_relacoes(documento)
     assert "inexistência" in json.dumps(conteudo["entity"], ensure_ascii=False)
+
+
+_ID_PROV = r"([^\s,;()]+)"
+_ENTIDADE_PROV_N = re.compile(rf"^\s*entity\({_ID_PROV}", re.MULTILINE)
+_ATIVIDADE_PROV_N = re.compile(rf"^\s*activity\({_ID_PROV}", re.MULTILINE)
+_DERIVACAO_PROV_N = re.compile(
+    rf"^\s*wasDerivedFrom\((?:[^;()]*;\s*)?{_ID_PROV},\s*{_ID_PROV}", re.MULTILINE
+)
+type GrafoProv = tuple[set[str], set[str], Counter[tuple[str, str]]]
+
+
+def _grafo_prov_n(texto: str) -> GrafoProv:
+    return (
+        set(_ENTIDADE_PROV_N.findall(texto)),
+        set(_ATIVIDADE_PROV_N.findall(texto)),
+        Counter(_DERIVACAO_PROV_N.findall(texto)),
+    )
+
+
+def _grafo_prov_json(texto: str) -> GrafoProv:
+    conteudo = json.loads(texto)
+    arestas = conteudo.get("wasDerivedFrom", {}).values()
+    return (
+        set(conteudo.get("entity", {})),
+        set(conteudo.get("activity", {})),
+        Counter((a["prov:generatedEntity"], a["prov:usedEntity"]) for a in arestas),
+    )
+
+
+@pytest.mark.parametrize("linha", LINHAS)
+def test_prov_n_e_prov_json_tem_as_mesmas_entidades_atividades_e_derivacoes(
+    execucao: RunResult, linha: str
+) -> None:
+    explicacao = montar_explicacao(execucao, linha)
+    bundle = explicacao.bundle
+    entidades, atividades, derivacoes = _grafo_prov_n(bundle.prov_n)
+    assert (entidades, atividades, derivacoes) == _grafo_prov_json(explicacao.prov_json)
+    assert set(arestas_exigidas(explicacao.elementos)) <= set(derivacoes)
+    assert {f"sus:{e.evidence_id}" for e in bundle.evidencias} <= entidades
+    versoes = {f"sus:{a}" for s in bundle.selecoes for a in s.artifact_ids}
+    assert versoes
+    assert versoes <= entidades
+    declaradas = json.loads(explicacao.prov_json)["entity"]
+    avaliacoes = {i: e for i, e in declaradas.items() if e.get("sus:tipo") == "avaliacao"}
+    assert set(avaliacoes) <= entidades
+    assert sorted(e["sus:rule_id"] for e in avaliacoes.values()) == sorted(
+        a.rule_id for a in bundle.avaliacoes
+    )
 
 
 def test_prov_sem_derivacao_e_recusado(execucao: RunResult) -> None:

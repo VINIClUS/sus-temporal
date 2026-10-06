@@ -15,7 +15,11 @@ from typing import TYPE_CHECKING
 from sustemporal.contracts.base import OrigemDados
 from sustemporal.evaluation.freeze import hash_das_regras
 from sustemporal.hashing import sha256_arquivo
-from sustemporal.reporting.reproduce_catalogos import item_da_origem, observacoes_dos_catalogos
+from sustemporal.reporting.reproduce_catalogos import (
+    item_da_origem,
+    observacoes_dos_catalogos,
+    origens_do_relatorio,
+)
 from sustemporal.reporting.reproduce_comparacao import Comparacao, Situacao
 from sustemporal.rules.catalog import carregar_regras
 from tests.fixtures.protocolo_insumos import conjunto_sintetico
@@ -138,3 +142,29 @@ def test_conjuntos_de_origens_diferentes_nunca_conferem_com_uma_so() -> None:
 def test_conjuntos_repetidos_da_mesma_origem_contam_uma_vez() -> None:
     conjuntos = [_conjunto(OrigemDados.REAL), _conjunto(OrigemDados.REAL, "b")]
     assert item_da_origem(OrigemDados.REAL, conjuntos) == []
+
+
+def test_o_topo_do_relatorio_traz_a_origem_dos_conjuntos_congelados_e_a_declarada_a_parte() -> None:
+    origens = origens_do_relatorio(OrigemDados.REAL, [_conjunto(OrigemDados.SINTETICO)])
+    assert origens == {"origem_dados": "SINTETICO", "origem_dados_config": "REAL"}
+
+
+def test_config_sem_origem_vale_sintetico_na_declarada_e_a_dos_conjuntos_fica_a_deles() -> None:
+    sintetico = origens_do_relatorio(None, [_conjunto(OrigemDados.SINTETICO)])
+    assert sintetico == {"origem_dados": "SINTETICO", "origem_dados_config": "SINTETICO"}
+    real = origens_do_relatorio(None, [_conjunto(OrigemDados.REAL)])
+    assert real == {"origem_dados": "REAL", "origem_dados_config": "SINTETICO"}
+
+
+def test_conjuntos_de_mais_de_uma_origem_saem_em_ordem_sem_repetir() -> None:
+    conjuntos = [
+        _conjunto(OrigemDados.SINTETICO, "a"),
+        _conjunto(OrigemDados.REAL, "b"),
+        _conjunto(OrigemDados.SINTETICO, "c"),
+    ]
+    assert origens_do_relatorio(None, conjuntos)["origem_dados"] == "REAL,SINTETICO"
+
+
+def test_sem_conjuntos_congelados_o_topo_nao_tem_origem_e_a_declarada_segue() -> None:
+    origens = origens_do_relatorio(OrigemDados.REAL, [])
+    assert origens == {"origem_dados": None, "origem_dados_config": "REAL"}

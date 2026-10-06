@@ -214,6 +214,20 @@ def test_saida_refeita_ilegivel_segue_sendo_falha_operacional(tmp_path: Path) ->
         comparar_saida("saida:x", original, obtida)
 
 
+def test_saida_com_os_mesmos_run_id_e_outros_bytes_e_igual_e_os_bytes_nao_se_comparam(
+    tmp_path: Path,
+) -> None:
+    """Auditoria F1: só o conjunto refeito contra o declarado relata bytes diferentes."""
+    original = gravar(_com_run("run_a"), tmp_path / "original" / "s.parquet")
+    obtida = gravar(_com_run("run_a"), tmp_path / "refeito" / "s.parquet", compressao="zstd")
+    assert (tmp_path / "original" / "s.parquet").read_bytes() != (
+        tmp_path / "refeito" / "s.parquet"
+    ).read_bytes()
+    resultado = comparar_saida("saida:M_TEMP:agregados_registro.v1", original, obtida)
+    assert resultado.situacao is Situacao.IGUAL
+    assert resultado.detalhe == "sem_colunas=run_id"
+
+
 def test_saida_com_outro_run_id_e_o_mesmo_conteudo_e_igual(tmp_path: Path) -> None:
     original = gravar(_com_run("run_a"), tmp_path / "original" / "s.parquet")
     obtida = gravar(_com_run("run_b"), tmp_path / "refeito" / "s.parquet")

@@ -26,13 +26,16 @@ from sustemporal.contracts.experiment import (
     TipoExecucao,
 )
 from sustemporal.contracts.temporal import MetodoId
+from sustemporal.errors import FalhaOperacionalErro
 from sustemporal.evaluation.cli import REGISTRO
-from sustemporal.evaluation.freeze_registro import registrar_execucao
+from sustemporal.evaluation.freeze_registro import ler_registro, registrar_execucao
 from sustemporal.reporting.reproduce_original import (
     Original,
     campos_que_nao_conferem,
     ler_original,
 )
+from sustemporal.reporting.reproduce_varredura import Dano
+from tests.fixtures.reproducao_estragos import estragado
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -275,3 +278,94 @@ def test_relatorio_que_nao_confere_e_registrado_no_log(
     with caplog.at_level(logging.WARNING, logger="sustemporal.reporting.reproduce_original"):
         _lido(tmp_path, _relatorio(runs=("run_a", "run_c")))
     assert f"relatorio_original_nao_confere report={REPORT} campos=runs" in caplog.messages
+
+
+@pytest.mark.parametrize(
+    ("dano", "erro"),
+    [(Dano.DIRETORIO, "IsADirectoryError"), (Dano.PERMISSAO, "PermissionError")],
+)
+def test_registro_que_nao_abre_deixa_a_rodada_sem_original_e_diz_por_que(
+    tmp_path: Path, dano: Dano, erro: str
+) -> None:
+    _registrar(tmp_path, _relatorio())
+    _gravar(tmp_path, _relatorio())
+    with estragado(tmp_path / "congelamentos" / REGISTRO, dano):
+        original = ler_original(_config(tmp_path), FREEZE)
+    assert (original.relatorio, dict(original.execucoes)) == (None, {})
+    assert original.observacoes == (f"registro_ilegivel erro={erro}",)
+
+
+def _ler_registro_que_traduz_o_erro_de_leitura(registro: Path) -> list[dict[str, Any]]:
+    """O `ler_registro` que põe o erro de leitura em `registro_adulterado` (auditoria F4, S5)."""
+    try:
+        return ler_registro(registro)
+    except (OSError, UnicodeDecodeError) as erro:
+        raise FalhaOperacionalErro(f"registro_adulterado erro={type(erro).__name__}") from erro
+
+
+@pytest.mark.parametrize(
+    ("dano", "erro"),
+    [(Dano.DIRETORIO, "IsADirectoryError"), (Dano.PERMISSAO, "PermissionError")],
+)
+def test_registro_que_nao_abre_segue_sem_original_mesmo_se_o_ler_registro_traduz_o_erro(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, dano: Dano, erro: str
+) -> None:
+    alvo = "sustemporal.reporting.reproduce_original.ler_registro"
+    monkeypatch.setattr(alvo, _ler_registro_que_traduz_o_erro_de_leitura)
+    _registrar(tmp_path, _relatorio())
+    _gravar(tmp_path, _relatorio())
+    with estragado(tmp_path / "congelamentos" / REGISTRO, dano):
+        original = ler_original(_config(tmp_path), FREEZE)
+    assert (original.relatorio, dict(original.execucoes)) == (None, {})
+    assert original.observacoes == (f"registro_ilegivel erro={erro}",)
+
+
+def test_registro_com_bytes_que_nao_decodificam_e_registro_adulterado(tmp_path: Path) -> None:
+    _registrar(tmp_path, _relatorio())
+    _gravar(tmp_path, _relatorio())
+    with (
+        estragado(tmp_path / "congelamentos" / REGISTRO, Dano.BYTES),
+        pytest.raises(FalhaOperacionalErro, match=r"^registro_adulterado erro=UnicodeDecodeError$"),
+    ):
+        ler_original(_config(tmp_path), FREEZE)
+
+
+def test_registro_ilegivel_registra_o_arquivo_e_o_erro_no_log(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    caminho = tmp_path / "congelamentos" / REGISTRO
+    _registrar(tmp_path, _relatorio())
+    with (
+        caplog.at_level(logging.WARNING, logger="sustemporal.reporting.reproduce_original"),
+        estragado(caminho, Dano.DIRETORIO),
+    ):
+        ler_original(_config(tmp_path), FREEZE)
+    assert f"registro_ilegivel caminho={caminho} erro=IsADirectoryError" in caplog.messages
+
+
+@pytest.mark.parametrize("dano", list(Dano))
+def test_relatorio_original_que_nao_abre_e_original_indisponivel_sem_observacao(
+    tmp_path: Path, dano: Dano
+) -> None:
+    _registrar(tmp_path, _relatorio())
+    _gravar(tmp_path, _relatorio())
+    with estragado(tmp_path / "saidas" / "avaliacao" / FREEZE / f"{REPORT}.json", dano):
+        original = ler_original(_config(tmp_path), FREEZE)
+    assert (original.relatorio, original.observacoes) == (None, ())
+
+
+@pytest.mark.parametrize("dano", list(Dano))
+def test_execucao_registrada_que_nao_abre_fica_sem_original_e_as_outras_seguem(
+    tmp_path: Path, dano: Dano
+) -> None:
+    primeira, segunda = _execucao(RUN_A, MetodoId.M_TEMP), _execucao(RUN_B, MetodoId.B_ATEND)
+    _registrar(tmp_path, _relatorio(runs=(RUN_A, RUN_B)))
+    _gravar(tmp_path, _relatorio(runs=(RUN_A, RUN_B)))
+    for execucao in (primeira, segunda):
+        pasta = tmp_path / "saidas" / "runs" / execucao.run_id
+        pasta.mkdir(parents=True)
+        (pasta / "run_result.json").write_text(execucao.model_dump_json(), encoding="utf-8")
+    with estragado(tmp_path / "saidas" / "runs" / RUN_A / "run_result.json", dano):
+        original = ler_original(_config(tmp_path), FREEZE)
+    assert dict(original.execucoes) == {MetodoId.B_ATEND: segunda}
+    assert original.observacoes == ()

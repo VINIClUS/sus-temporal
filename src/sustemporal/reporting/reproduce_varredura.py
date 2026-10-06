@@ -7,13 +7,25 @@ os campos que as comparações projetam ou deixam de fora (`DatasetRef`, `SplitM
 `EvaluationReport`), e `COMPARACOES` diz o que cada comparação confere antes de projetar. Um
 teste percorre os campos dos contratos e falha se um campo novo ficar sem tratamento, como em
 `freeze_conferencia.CAMPOS_DO_MANIFESTO`; campo lido e não conferido é limite declarado (T14-16),
-com efeito conservador: divergência ou inconclusão, nunca reprodução falsa.
+com efeito conservador: divergência ou inconclusão, nunca reprodução falsa. `LEITURAS` (em
+`reproduce_leituras`, por causa do limite de tamanho do arquivo, e reexportada daqui) lista os
+arquivos que a cadeia abre e o resultado de cada um que não abre.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+
+from sustemporal.reporting.reproduce_leituras import (
+    LEITURAS,
+    Dano,
+    Estrago,
+    Leitura,
+    Origem,
+    Raiz,
+    Resultado,
+)
 
 __all__ = [
     "CAMPOS_DA_CONFIG",
@@ -22,9 +34,16 @@ __all__ = [
     "CAMPOS_DO_RELATORIO",
     "CAMPOS_DO_SPLIT",
     "COMPARACOES",
+    "LEITURAS",
     "Conferencia",
     "Conferido",
+    "Dano",
+    "Estrago",
     "Fonte",
+    "Leitura",
+    "Origem",
+    "Raiz",
+    "Resultado",
     "Tratamento",
 ]
 
@@ -257,7 +276,8 @@ COMPARACOES: dict[str, Conferido] = {
     "saida:*": Conferido(
         "o leiaute completo dos dois lados, inclusive a coluna `run_id`; os esquemas e os métodos "
         "pela união; a saída repetida (`<esquema>#2`); o hash lógico e a linhagem",
-        "os valores de `run_id`, que derivam do caminho, e só depois do leiaute",
+        "os valores de `run_id`, que derivam do caminho, e só depois do leiaute; e os bytes do "
+        "arquivo, que o `run_id` gravado muda por construção",
     ),
     "insumos:*": Conferido(
         "a união dos campos da identidade da entrada: o campo só do congelamento, ou só da "

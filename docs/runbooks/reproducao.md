@@ -394,6 +394,22 @@ congelamento usou a versão de código de teste (seção 4.5); ela não é diver
 - Os catálogos que a config declara e o catálogo de regras têm o SHA-256 no manifesto. A
   reprodução usa os de agora, e a diferença é observação (`catalogos_diferentes_do_congelado`,
   `catalogo_de_regras_diferente_do_congelado`): o conteúdo refeito decide se é igual ou divergente.
+- Arquivo que a cadeia abre e não consegue ler (diretório no lugar do arquivo, falta de permissão,
+  bytes que não decodificam ou truncados) nunca vira traceback, `DIVERGENTE` nem `IGUAL` sem
+  justificativa; a falta de arquivo necessário é verificação inconclusiva, nunca violação. O que é
+  original (manifesto de aquisição e a trava dele, registro de rodadas, relatório, execuções,
+  saídas, insumos, execução do `ingest` e arquivos brutos) deixa o item `INCONCLUSIVO` e o
+  `reproducao.json` é gravado: `manifesto_ilegivel erro=<Tipo>` ou `manifesto_corrompido` no
+  `manifesto:aquisicao`, `registro_ilegivel erro=<Tipo>` nas observações (sem registro não há
+  relatório nem execução original), `original_ilegivel arquivo=<relativo a raiz_dados>` no item
+  `ingest:originais` (arquivo bruto sem permissão). O que é entrada da config ou do repositório
+  (config, congelamento, catálogo de fontes, território e os catálogos de `catalog/`) sai 2 com
+  `chave=valor`: o erro de cada leitor, ou `reproduce_entrada_ilegivel arquivo=... erro=... onde=...`
+  para o que nenhum leitor trata (`sustemporal.reporting.reproduce_leitura`), e
+  `reproduce_saida_ilegivel` (saída 5) se o arquivo é do destino da própria reprodução. O registro de
+  rodadas adulterado, inclusive com bytes que não decodificam, segue falha operacional
+  (`registro_adulterado`, saída 5, sem `reproducao.json`). A tabela da seção 5.5 diz o resultado de
+  cada arquivo e cada dano, e `tests/integration/test_reproduce_leituras.py` estraga cada um.
 
 ### 5.2 O que é comparado
 
@@ -402,7 +418,8 @@ congelamento usou a versão de código de teste (seção 4.5); ela não é diver
 | `conjunto:sia_pa.v1` e `conjunto:sia_pa_rotulos.v1` | o leiaute do Parquet (nomes, ordem e tipos), linhas e hash lógico da união e dos rótulos refeitos, e a linhagem (`artifact_ids`); o conjunto refeito que o manifesto não traz sai `INCONCLUSIVO` (`conjunto_nao_congelado`) | o declarado no manifesto e, se o arquivo original existe, o arquivo |
 | `split:split_id`, `split:campos`, `split:particao:<P>` e `split:rotulos:<P>` | id do split (que leva a especificação, a coorte, as fontes, os rótulos e os artefatos inspecionados); todos os outros campos do manifesto do split, juntos em `split:campos` (`spec`, `dataset_hash`, contagens e hashes por partição, artefatos inspecionados e de TESTE, `cohort_id`, `exclusoes` e `limites`); e o leiaute, as linhas, o hash lógico e a linhagem de cada partição e dos rótulos dela, pela união das partições das duas pontas | o split do manifesto |
 | `insumos:<politica>` | cada campo da `EntradaValidacao` do TESTE refeita (`dataset`, `snapshots`, `auxiliares`, `selecoes`, `cobertura`, `integridade`, `politica_documentada`, `politica` e `identidade_adicional`), pela identidade de cada campo (a união dos campos das duas pontas: o que só o congelamento traz também diverge); antes de refazer, que a entrada original da política confira, que a política congelada se resolva (`politica_congelada_*` e `politica_registrada_diferente`) e a disponibilidade dos artefatos dos `auxiliares` (CNES e SIGTAP) | `entradas_validacao` do manifesto, gravada de `split/insumos/<politica_id>.json`; os artefatos e a política, dessa entrada original |
-| `manifesto:aquisicao` | só aparece quando a posição do manifesto de aquisição que o `ingest` original leu, ou a configuração com que ele rodou, não se sabe ou não é a do refeito: sempre `INCONCLUSIVO`, com o motivo em `detalhe` (`ingest_original_ausente`, `ingest_original_sem_posicao`, `ingest_original_ambiguo`, `ingest_original_sem_configuracao`, `ingest_original_com_configuracao_diferente`, `manifesto_menor_que_o_lido_pelo_ingest`, `manifesto_diferente_do_lido_pelo_ingest`, `posicao_do_ingest_no_meio_de_uma_transacao` ou `manifesto_corrompido`) | `manifesto_lido.json` e `configuracao_ingest.json` da execução do `ingest` que produziu o SIA-PA congelado |
+| `manifesto:aquisicao` | só aparece quando a posição do manifesto de aquisição que o `ingest` original leu, ou a configuração com que ele rodou, não se sabe ou não é a do refeito: sempre `INCONCLUSIVO`, com o motivo em `detalhe` (`ingest_original_ausente`, `ingest_original_sem_posicao`, `ingest_original_ambiguo`, `ingest_original_sem_configuracao`, `ingest_original_com_configuracao_diferente`, `manifesto_menor_que_o_lido_pelo_ingest`, `manifesto_diferente_do_lido_pelo_ingest`, `posicao_do_ingest_no_meio_de_uma_transacao`, `manifesto_corrompido` ou `manifesto_ilegivel erro=<Tipo>`: diretório no lugar do manifesto ou da trava, sem permissão) | `manifesto_lido.json` e `configuracao_ingest.json` da execução do `ingest` que produziu o SIA-PA congelado |
+| `ingest:originais` | só aparece quando o `ingest` refeito não consegue ler um arquivo bruto do manifesto de aquisição (sem permissão): sempre `INCONCLUSIVO` (`original_ilegivel arquivo=<relativo a raiz_dados> erro=<Tipo>`), e a reprodução para aí | o arquivo bruto que o manifesto aponta |
 | `origem_dados` | só aparece quando a `origem_dados` da config (sem ela, `SINTETICO`) não é a dos conjuntos congelados: sempre `INCONCLUSIVO` (`origem_dados_diferente_do_congelado`) | a `origem_dados` dos `datasets` do manifesto |
 | `saida:<METODO>:<esquema>` | o leiaute completo (nomes, ordem e tipos), linhas e hash lógico das cinco saídas de cada método, **sem os valores da coluna `run_id`**, e a linhagem, pela união dos esquemas das duas execuções (e dos métodos); a saída repetida na mesma execução vira `<esquema>#2`, `#3`... | as saídas da execução original |
 | `metricas` | cada métrica por nome e estrato (numerador, denominador, valor e intervalo), como multiconjunto: a métrica repetida conta cada vez | o relatório da rodada registrada |
@@ -431,14 +448,14 @@ diz o que cada comparação confere antes de projetar e o que deixa de fora.
 | `IGUAL` | linhas e hash lógico coincidem (e os bytes, se há arquivo original legível; sem ele, `detalhe` `original_ausente` ou `original_ilegivel` e vale o hash declarado no manifesto) | 0 |
 | `BYTES_DIFERENTES_HASH_LOGICO_IGUAL` | mesmo conteúdo, bytes de Parquet diferentes (compressão, ordem ou metadados); é relatado e não é falha | 0 |
 | `DIVERGENTE` | conteúdo diferente; inclui original que não confere com o declarado, saída registrada que a reconstrução não emitiu (`saida_ausente_no_refeito`, por exemplo `evidencias.v1`), saída nova que a execução registrada não tem (`saida_sem_original`), método que a reconstrução não refez, leiaute de Parquet diferente do esquema ou entre as duas pontas (`esquema_divergente`), linhagem diferente (`linhagem_diverge`), partição que só o refeito traz (`particao_sem_original`) e campos diferentes (`campos=<lista>` em `split:campos`, `relatorio:campos` e `insumos:<politica>`) | 5 (`reproducao_divergente`) |
-| `INCONCLUSIVO` | falta o original para comparar (relatório, execução ou saída ausente, truncada ou fora do contrato), a posição do manifesto de aquisição que o `ingest` original leu não se sabe, ou a configuração com que ele rodou não é a do refeito (item `manifesto:aquisicao`), a origem dos dados da config não é a dos conjuntos congelados (item `origem_dados`), o relatório da rodada registrada não bate com a entrada do registro (`metricas` e `notas`), a entrada original da política em `split/insumos` falta, não lê ou foi alterada (`entrada_original_ausente`, `_ilegivel` ou `_alterada`, item `insumos:<politica>`), a política congelada de um método não se resolve ou não se confere (`politica_congelada_indisponivel`, `_alterada`, `_com_outro_id`, `_ambigua` ou `politica_registrada_diferente`, item `insumos:<politica>`), a partição refeita (avaliada ou TESTE) não tem artefatos (`particao_vazia`, item `particao:<P>`) ou o conjunto refeito não está no manifesto (`conjunto_nao_congelado`), o congelamento não traz as partições refeitas (`particao_nao_congelada`) ou o ingest refeito não normalizou um artefato do SIA-PA congelado ou dos auxiliares das entradas congeladas, CNES e SIGTAP (`originais_indisponiveis`: arquivo ausente, truncado, em quarentena ou com leiaute incompatível; nos auxiliares o item é `insumos:<politica>`); nunca é violação, mas também não conta como reproduzido | 5 (`reproducao_inconclusiva`) |
+| `INCONCLUSIVO` | falta o original para comparar (relatório, execução ou saída ausente, truncada ou fora do contrato), a posição do manifesto de aquisição que o `ingest` original leu não se sabe, ou a configuração com que ele rodou não é a do refeito (item `manifesto:aquisicao`), a origem dos dados da config não é a dos conjuntos congelados (item `origem_dados`), o manifesto de aquisição não abre ou um arquivo bruto não abre (`manifesto_ilegivel`, item `ingest:originais`), o relatório da rodada registrada não bate com a entrada do registro (`metricas` e `notas`), a entrada original da política em `split/insumos` falta, não lê ou foi alterada (`entrada_original_ausente`, `_ilegivel` ou `_alterada`, item `insumos:<politica>`), a política congelada de um método não se resolve ou não se confere (`politica_congelada_indisponivel`, `_alterada`, `_com_outro_id`, `_ambigua` ou `politica_registrada_diferente`, item `insumos:<politica>`), a partição refeita (avaliada ou TESTE) não tem artefatos (`particao_vazia`, item `particao:<P>`) ou o conjunto refeito não está no manifesto (`conjunto_nao_congelado`), o congelamento não traz as partições refeitas (`particao_nao_congelada`) ou o ingest refeito não normalizou um artefato do SIA-PA congelado ou dos auxiliares das entradas congeladas, CNES e SIGTAP (`originais_indisponiveis`: arquivo ausente, truncado, em quarentena ou com leiaute incompatível; nos auxiliares o item é `insumos:<politica>`); nunca é violação, mas também não conta como reproduzido | 5 (`reproducao_inconclusiva`) |
 
 O `resultado` geral é a pior situação dos itens. `reproducao.json` é gravado antes da falha
 (`freeze_id`, `modo`, `origem_dados`, `resultado`, `relatorio_refeito`, `observacoes` e as
 `comparacoes`, cada uma com `item`, `situacao`, `esperado`, `obtido` e `detalhe`), e a mensagem de
 erro traz a contagem e os primeiros itens. Códigos de saída: 0 reproduzido; 2 config sem
 `freeze_id` ou com outro, sem `--offline`, confirmatória, destino em uso, manifesto ou entradas
-locais ausentes ou inválidas; 5 divergência ou item inconclusivo; 6 rede.
+locais ausentes, ilegíveis ou inválidas; 5 divergência ou item inconclusivo; 6 rede.
 
 `observacoes` registra o que difere sem ser, por si, divergência de conteúdo:
 `ingest_sem_tabela artefatos=N estados=...` (o ingest refeito deixou artefatos sem tabela: arquivo
@@ -447,7 +464,7 @@ ausente, quarentena ou falha; explica os itens `INCONCLUSIVO` de `originais_indi
 manifesto de aquisição que a reprodução leu),
 `artefatos_depois_do_ingest_ignorados n=...` e `observacoes_depois_do_ingest_ignoradas n=...` (o que
 o manifesto atual tem depois dessa posição e a cópia deixou de fora), `particao_sem_artefatos
-particao=...` (a partição refeita não tem artefatos), `relatorio_original_nao_confere_com_o_registro campos=...` (o relatório lido não é o que o registro descreve), `execucao_registrada_repetida metodo=...` (o método tem duas execuções registradas e fica sem original), `catalogos_diferentes_do_congelado catalogos=...` e `catalogo_de_regras_diferente_do_congelado` (o SHA-256 de um catálogo, ou do catálogo de regras, difere do congelado), `config_diferente_da_congelada` (o hash do
+particao=...` (a partição refeita não tem artefatos), `relatorio_original_nao_confere_com_o_registro campos=...` (o relatório lido não é o que o registro descreve), `execucao_registrada_repetida metodo=...` (o método tem duas execuções registradas e fica sem original), `registro_ilegivel erro=<Tipo>` (o registro de rodadas não abre: sem rodada, sem relatório nem execução original), `catalogos_diferentes_do_congelado catalogos=...` e `catalogo_de_regras_diferente_do_congelado` (o SHA-256 de um catálogo, ou do catálogo de regras, difere do congelado), `config_diferente_da_congelada` (o hash do
 protocolo da config usada difere do congelado, por exemplo com outro número de threads ou outros
 caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=<commit>` e
 `pacotes_diferentes_do_congelado pacotes=<lista>`. Leia-as junto do resultado.
@@ -489,6 +506,20 @@ caminhos de `runtime`), `codigo_diferente_do_congelado congelado=<commit> atual=
   T14-14); `reproduce_etapas` refaz as partições e as entradas do TESTE para o fluxo pequeno.
 - A guarda de rede vale para o processo inteiro: a reprodução não convive com outro trabalho de
   rede no mesmo processo. O que ela cobre e o que fica fora está na seção 5.1 e nos limites da 5.5.
+- A varredura das leituras (seção 5.5) estraga os arquivos do mundo temporário de verdade. O
+  catálogo do clone (`catalog/`) só falha na abertura, por um gancho de auditoria do Python
+  (`sys.addaudithook`): um teste não estraga o repositório. Onde o processo lê arquivo sem permissão
+  (root com `CAP_DAC_OVERRIDE`) o dano `PERMISSAO` do mundo temporário é pulado, com o motivo; no CI
+  do GitHub (usuário comum) ele roda. A auditoria vê o que o Python abre: leitura que só uma
+  extensão em C fizesse escaparia dela (os Parquet comparados passam por `open` no SHA-256 do
+  arquivo). O destino da reprodução não é varrido: é novo e vazio, e o que se perde durante a
+  execução sai `reproduce_saida_ilegivel` (saída 5). A união, os rótulos e as partições originais
+  que não abrem seguem `IGUAL` pelo hash que o congelamento declara, com `original_ausente` ou
+  `original_ilegivel` no detalhe: o arquivo é só a segunda conferência (limite de T14-12).
+- A leitura do manifesto de aquisição (`Manifesto.ler`, do `acquire`) abre a trava em modo de
+  acréscimo, então `<raiz_manifestos>` em mídia só de leitura não se lê: o item `manifesto:aquisicao`
+  sai `INCONCLUSIVO` (`manifesto_ilegivel erro=PermissionError` ou `OSError`), e não mais com
+  traceback. Reproduzir de uma cópia só de leitura pede a trava gravável (T14-16).
 - Nada aqui mede escala (SP) nem é resultado empírico: a reprodução sintética é teste de software.
 
 ### 5.4 Propriedades verificadas e os testes
@@ -528,6 +559,7 @@ cada reprodução.
 | Todo campo do `FreezeManifest`, da config, do `DatasetRef`, do `SplitManifest` e do `EvaluationReport` tem tratamento na varredura, cada comparação diz o que confere antes de projetar, e as tabelas das seções 5.5 e 5.6 são as do módulo | `tests/unit/test_reproduce_varredura.py` |
 | Recusas: destino em uso ou arquivo, sem `--offline`, rede permitida, congelamento inexistente, confirmatório | os testes `test_reproduce_recusa_*`, `test_reproduce_exige_offline`, `test_reproduce_de_congelamento_inexistente_*` e `test_reproduce_nao_reproduz_congelamento_confirmatorio`, e `tests/unit/test_reproduce_recusas.py` |
 | Nenhum socket de rede abre nem envia durante a reprodução (conexão, datagrama sem conexão, resolução de nome); `AF_UNIX` permitido; tudo restaurado, com ou sem exceção | `test_reproduce_roda_sob_a_guarda_de_rede`, `test_reproduce_recusa_datagrama_de_socket_aberto_antes_da_guarda`, `test_reproduce_recusa_abrir_socket_de_rede_sob_a_guarda` e `tests/unit/test_reproduce_rede.py` |
+| Arquivo que a cadeia abre e não consegue ler (diretório no lugar, sem permissão, bytes que não decodificam ou truncados) nunca é traceback, `DIVERGENTE` nem `IGUAL` sem justificativa, e o resultado é o da tabela da seção 5.5: `INCONCLUSIVO` com o `reproducao.json` (originais), saída 2 com `chave=valor` (entradas da config e do repositório) ou falha operacional (registro adulterado); uma auditoria das aberturas falha se a cadeia abre arquivo sem linha na tabela | `tests/integration/test_reproduce_leituras.py` (um cenário por leitura e dano, os independentes juntos numa reprodução só), `tests/unit/test_reproduce_leituras.py` (a tabela e o runbook), `tests/unit/test_reproduce_leitura.py` (a tradução do que nenhum leitor trata), `tests/unit/test_reproducao_estragos.py` (os estragos e a restauração) e, nos leitores próprios, `tests/unit/test_reproduce_manifesto.py` (manifesto, âncora e trava) e `tests/unit/test_reproduce_original.py` (registro, relatório e execução) |
 | Comparação por hash lógico, contagens e métricas; inconclusivo falha | `tests/unit/test_reproduce_comparacao.py` e `tests/unit/test_reproduce_conferencia.py` (split, originais, notas, ambiente e rodada registrada) |
 | Sintético nunca é confirmatório | `test_sintetico_nunca_e_confirmatorio` |
 
@@ -642,21 +674,103 @@ congelamento ou a saída da execução registrada que se compara):
 | `notas` | ORIGINAL | ITEM | `notas`: multiconjunto |
 | `criado_em` | NENHUMA | NENHUMA | instante da execução; o conteúdo decide |
 
-Arquivos que a cadeia abre e o que os confere:
+Arquivos que a cadeia abre, o que os confere e o que acontece quando um deles não abre. As tabelas
+saem, linha a linha, de `LEITURAS` (`sustemporal.reporting.reproduce_varredura`, definida em
+`reproduce_leituras.py` por causa do limite de tamanho do arquivo): cada linha é um arquivo, ou um
+grupo de arquivos do mesmo leitor, na ordem em que a cadeia os lê. Uma auditoria das aberturas de uma
+reprodução (`tests/integration/test_reproduce_leituras.py`) falha se a cadeia abre arquivo sem linha
+aqui. `config/splits.yaml` e `experiments/decisions` não entram: a cadeia não os lê (a especificação
+do split vem do manifesto).
 
-| Arquivo | Quem lê | Fonte | Conferência |
+| Arquivo | Quem lê | Fonte | O que o confere |
 |---|---|---|---|
-| `<dir_congelamentos>/<freeze_id>.json` | `carregar_freeze` | `--freeze` | id recomputado do conteúdo; adulterado ou de outro id sai 2 |
-| `<dir_congelamentos>/registro_execucoes.jsonl` | `ler_registro`, `rodada_registrada` | o congelamento e o modo | cadeia de hashes; adulterado é falha operacional; sem rodada, não há original |
-| `<raiz_saidas>/avaliacao/<freeze_id>/<report_id>.json` | `ler_original` | o `report_id` do registro | tem de bater com a entrada do registro; senão, original indisponível |
-| `<raiz_saidas>/runs/<run_id>/run_result.json` e as saídas | `ler_original`, `comparar_execucoes` | os `runs` do registro | `run_id` coerente com a pasta; saídas por hash lógico; ausente, `INCONCLUSIVO` |
-| `<raiz_saidas>/split/insumos/<politica>.json` | `conferir_entradas`, `politicas_congeladas` | `entradas_validacao` e `politicas_sha256` | identidade campo a campo; a política, também contra a execução registrada |
-| `<raiz_saidas>/ingest/execucao_*/` (`datasets.jsonl`, `manifesto_lido.json`, `configuracao_ingest.json`) | `resolver_manifesto` | o SIA-PA congelado | execução pelo SIA-PA; posição e configuração do `ingest` refeito |
-| `<raiz_manifestos>/aquisicao.jsonl` e a âncora | `resolver_manifesto`, `gravar_manifesto` | a posição que o `ingest` leu | prefixo até essa posição, com a cadeia e o hash da última linha |
-| `<raiz_dados>/...` (arquivos brutos) | o `ingest` refeito | o manifesto de aquisição | SHA-256 do bruto; ausente, truncado ou em quarentena, `INCONCLUSIVO` |
-| catálogos da config, `catalog/rules` e `catalog/policies` | `ingest`, `validate`, regras | a config e o diretório de trabalho | SHA-256 no manifesto (observação); fontes e leiaute, também pela configuração gravada |
-| `config/splits.yaml`, `catalog/schemas/selecao_versoes.yaml` e `experiments/decisions` | split, `validate` e portões | o diretório de trabalho (T14-15) | só pelo `split_id` e pela identidade dos insumos |
-| versão do código e pacotes | `observacoes_do_ambiente` | o repositório e o ambiente | observação; o conteúdo refeito decide |
+| `<config>` | `load_config` | `--config` | ilegível ou inválida sai 2 antes de abrir outro arquivo |
+| `<dir_congelamentos>/frz_*.json` | `carregar_freeze` | `--freeze` | id recomputado do conteúdo; ausente, ilegível, adulterado ou de outro id sai 2 |
+| `<catalogos.fontes>` | `configuracao_do_ingest`, `ingest` | `catalogos.fontes` da config | SHA-256 na configuração gravada do `ingest`: ilegível sai 2; outro conteúdo, `manifesto:aquisicao` inconclusivo |
+| `<piloto.territorio>` | `ingest`, `validate` | `piloto.territorio` da config | recorte territorial na identidade dos insumos; ilegível sai 2 |
+| `<dir_congelamentos>/registro_execucoes.jsonl` | `ler_registro`, `rodada_registrada` | o congelamento e o modo | cadeia de hashes; adulterado é falha operacional; que não abre, não há original |
+| `<raiz_saidas>/avaliacao/*/rep_*.json` | `ler_original` | o `report_id` do registro | tem de bater com a entrada do registro; senão, original indisponível |
+| `<raiz_saidas>/runs/*/run_result.json` | `ler_original` | os `runs` do registro | `run_id` coerente com a pasta; que não abre, a execução fica sem original |
+| `<raiz_saidas>/runs/*/*.parquet` | `comparar_execucoes` | as saídas do `run_result.json` | leiaute e hash lógico das cinco saídas; que não abre, `INCONCLUSIVO` |
+| `<raiz_saidas>/split/ds_*.parquet` e `<raiz_saidas>/split/rotulos/ds_*.parquet` e `<raiz_saidas>/split/entradas/ds_*.parquet` | `comparar_referencia`, `comparar_split` | o `DatasetRef` do manifesto (caminho absoluto) | vale o hash declarado no congelamento; o arquivo original é a segunda conferência |
+| `<raiz_saidas>/split/insumos/*.json` | `conferir_entradas`, `politicas_congeladas` | `entradas_validacao` e `politicas_sha256` | identidade campo a campo; a política, também contra a execução registrada |
+| `<raiz_saidas>/ingest/execucao_*/datasets.jsonl` | `resolver_manifesto` | o SIA-PA congelado | acha a execução do `ingest` pelo SIA-PA; que não abre, a execução não é candidata |
+| `<raiz_saidas>/ingest/execucao_*/manifesto_lido.json` | `resolver_manifesto` | a execução do `ingest` | linhas e hash da última linha do manifesto que o `ingest` leu |
+| `<raiz_saidas>/ingest/execucao_*/configuracao_ingest.json` | `resolver_manifesto` | a execução do `ingest` | a configuração com que o `ingest` rodou tem de ser a do refeito |
+| `<raiz_manifestos>/aquisicao.jsonl` | `resolver_manifesto`, `gravar_manifesto` | a posição que o `ingest` leu | prefixo até essa posição, com a cadeia e o hash da última linha; corrompido ou ilegível, a posição não se sabe |
+| `<raiz_manifestos>/aquisicao.jsonl.ancora` | `Manifesto.ler` | o manifesto de aquisição | sequência e hash da última linha gravada; ilegível ou divergente é manifesto corrompido |
+| `<raiz_manifestos>/aquisicao.jsonl.trava` | `Manifesto.ler` | o manifesto de aquisição | trava de leitura compartilhada; que não abre, o manifesto não se lê |
+| `<raiz_dados>/raw/sha256/*/*.dbc` | o `ingest` refeito (SIA-PA, CNES) | o manifesto de aquisição | SHA-256 do bruto; ausente ou truncado, `originais_indisponiveis`; sem permissão, `ingest:originais` |
+| `<raiz_dados>/raw/sha256/*/*.zip` | o `ingest` refeito (SIGTAP) | o manifesto de aquisição | SHA-256 do bruto; ausente ou truncado, `originais_indisponiveis`; sem permissão, `ingest:originais` |
+| `<diretorio_de_trabalho>/catalog/schemas/selecao_versoes.yaml` | `validate` (`temporal.lote`) | o diretório de trabalho (T14-15) | esquema da seleção de versões; ilegível sai 2 |
+| `catalog/familias.yaml` | `carregar_regras`, `build_coverage` | o repositório | famílias de fonte que as regras e a cobertura usam; ilegível sai 2 |
+| `catalog/rules/*/*.yaml` | `carregar_regras` | o repositório | SHA-256 do catálogo no manifesto (observação); ilegível sai 2 |
+| `catalog/schemas/sia_pa.yaml` e `catalog/schemas/cnes_estab_cbo.yaml` e `catalog/schemas/sigtap_proc_registro.yaml` e `catalog/schemas/sigtap_proc_ocupacao.yaml` e `catalog/schemas/sigtap_procedimento.yaml` | `carregar_regras` | o repositório | esquemas das tabelas que as regras leem; ilegível sai 2 |
+| `catalog/policies/M_TEMP_PADRAO.yaml` e `catalog/policies/*.yaml` | `politicas_congeladas` | o repositório | a política congelada tem de ser a padrão do método ou a do catálogo de mesmo conteúdo |
+| `catalog/layouts/sia_pa.yaml` | `configuracao_do_ingest`, `ingest` | `catalogos.leiaute_sia_pa` ou o repositório | SHA-256 na configuração gravada do `ingest`; ilegível sai 2 |
+| `catalog/layouts/cnes.yaml` | o `ingest` refeito (CNES) | o repositório | leiaute dos arquivos do CNES; ilegível sai 2 |
+| `catalog/layouts/sigtap.yaml` | o `ingest` refeito (SIGTAP) | o repositório | leiaute das tabelas do SIGTAP; ilegível sai 2 |
+| `catalog/schemas/cnes_estabelecimento.yaml` e `catalog/schemas/sigtap_registro.yaml` | o `ingest` refeito (normalização do CNES ST e do SIGTAP) | o repositório | esquemas das tabelas normalizadas; sem abrir, sai 2; com bytes que não decodificam, o `ingest` põe o artefato em `FALHA_NORMALIZACAO` (`originais_indisponiveis`) |
+| `catalog/schemas/cobertura.yaml` | `build_coverage` (o `ingest` refeito) | o repositório | esquema da tabela de cobertura; ilegível sai 2 |
+| `catalog/labels/sia_pa.yaml` e `catalog/schemas/sia_pa_rotulos.yaml` | `derivar_protocolo` (rótulos) | o repositório | livro de códigos dos rótulos do SIA-PA e o esquema deles; ilegível sai 2 |
+| `catalog/schemas/selecao_versoes.yaml` e `catalog/schemas/agregados_registro.yaml` | `validate` | o repositório | esquemas das saídas da validação; ilegível sai 2 |
+| `catalog/schemas/avaliacoes.yaml` e `catalog/schemas/evidencias.yaml` e `catalog/schemas/falhas.yaml` | `identidade_do_arquivo` | o repositório | leiaute esperado de cada saída comparada; ilegível sai 2 |
+| `<saida>/*` | o `ingest`, `derivar_protocolo`, `validate` e a avaliação refeitos | a própria reprodução | o que a reprodução grava e relê no destino novo |
+| `<clone>/*.py` e `<clone>/*.pyc` e `<clone>/*.sql` | o interpretador, as regras em SQL | o clone | versão do código e pacotes em `observacoes_do_ambiente` (observação) |
+| `<tmp>/tmp*` | o `ingest` refeito (descompressão do DBC) | o próprio processo | o conteúdo vem do bruto já conferido pelo SHA-256 |
+
+A varredura estraga cada linha de três jeitos, de verdade no mundo temporário (os catálogos do clone
+só falham na abertura, seção 5.3): diretório no lugar do arquivo, sem permissão e bytes que não
+decodificam (texto) ou arquivo truncado (binário). Estraga o primeiro arquivo que a cadeia lê em
+cada linha, com estas exceções: os três insumos, os conjuntos originais e as cinco saídas de um método
+(o `B_ATEND`) saem juntos, a execução original é a do `M_TEMP`, e os brutos são os do SIA-PA, do CNES
+PF e do CNES ST num cenário e o do SIGTAP noutro. Os arquivos independentes que só pesam no fim da
+reprodução saem estragados juntos numa reprodução só; os que a param cedo rodam um por vez. O
+resultado de cada dano (`saída 2`: erro com `chave=valor`;
+`INCONCLUSIVO`: os itens de `reproducao.json` e a saída 5; `IGUAL` pelo hash declarado: o arquivo
+original é só a segunda conferência, e sem ele vale o hash do congelamento; `—`: o dano não se
+aplica, e o motivo está abaixo):
+
+| Arquivo | Diretório no lugar | Sem permissão | Bytes ilegíveis |
+|---|---|---|---|
+| `<config>` | saída 2 | saída 2 | saída 2 |
+| `<dir_congelamentos>/frz_*.json` | saída 2 | saída 2 | saída 2 |
+| `<catalogos.fontes>` | saída 2 | saída 2 | `INCONCLUSIVO` (`manifesto:aquisicao`) |
+| `<piloto.territorio>` | saída 2 | saída 2 | saída 2 |
+| `<dir_congelamentos>/registro_execucoes.jsonl` | `INCONCLUSIVO` (`metricas`, `notas`, `relatorio:campos`, `saida:*`), observação `registro_ilegivel` | `INCONCLUSIVO` (`metricas`, `notas`, `relatorio:campos`, `saida:*`), observação `registro_ilegivel` | falha operacional (saída 5) |
+| `<raiz_saidas>/avaliacao/*/rep_*.json` | `INCONCLUSIVO` (`metricas`, `notas`, `relatorio:campos`) | `INCONCLUSIVO` (`metricas`, `notas`, `relatorio:campos`) | `INCONCLUSIVO` (`metricas`, `notas`, `relatorio:campos`) |
+| `<raiz_saidas>/runs/*/run_result.json` | `INCONCLUSIVO` (`saida:*`) | `INCONCLUSIVO` (`saida:*`) | `INCONCLUSIVO` (`saida:*`) |
+| `<raiz_saidas>/runs/*/*.parquet` | `INCONCLUSIVO` (`saida:*`) | `INCONCLUSIVO` (`saida:*`) | `INCONCLUSIVO` (`saida:*`) |
+| `<raiz_saidas>/split/ds_*.parquet` e `<raiz_saidas>/split/rotulos/ds_*.parquet` e `<raiz_saidas>/split/entradas/ds_*.parquet` | `IGUAL` pelo hash declarado (`conjunto:*`, `split:particao:*`, `split:rotulos:*`) | `IGUAL` pelo hash declarado (`conjunto:*`, `split:particao:*`, `split:rotulos:*`) | `IGUAL` pelo hash declarado (`conjunto:*`, `split:particao:*`, `split:rotulos:*`) |
+| `<raiz_saidas>/split/insumos/*.json` | `INCONCLUSIVO` (`insumos:*`) | `INCONCLUSIVO` (`insumos:*`) | `INCONCLUSIVO` (`insumos:*`) |
+| `<raiz_saidas>/ingest/execucao_*/datasets.jsonl` | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) |
+| `<raiz_saidas>/ingest/execucao_*/manifesto_lido.json` | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) |
+| `<raiz_saidas>/ingest/execucao_*/configuracao_ingest.json` | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) |
+| `<raiz_manifestos>/aquisicao.jsonl` | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) |
+| `<raiz_manifestos>/aquisicao.jsonl.ancora` | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) |
+| `<raiz_manifestos>/aquisicao.jsonl.trava` | `INCONCLUSIVO` (`manifesto:aquisicao`) | `INCONCLUSIVO` (`manifesto:aquisicao`) | — |
+| `<raiz_dados>/raw/sha256/*/*.dbc` | `INCONCLUSIVO` (`conjunto:*`, `insumos:*`) | `INCONCLUSIVO` (`ingest:originais`) | `INCONCLUSIVO` (`conjunto:*`, `insumos:*`) |
+| `<raiz_dados>/raw/sha256/*/*.zip` | `INCONCLUSIVO` (`conjunto:*`, `insumos:*`) | `INCONCLUSIVO` (`ingest:originais`) | `INCONCLUSIVO` (`conjunto:*`, `insumos:*`) |
+| `<diretorio_de_trabalho>/catalog/schemas/selecao_versoes.yaml` | saída 2 | saída 2 | saída 2 |
+| `catalog/familias.yaml` | saída 2 | saída 2 | saída 2 |
+| `catalog/rules/*/*.yaml` | saída 2 | saída 2 | saída 2 |
+| `catalog/schemas/sia_pa.yaml` e `catalog/schemas/cnes_estab_cbo.yaml` e `catalog/schemas/sigtap_proc_registro.yaml` e `catalog/schemas/sigtap_proc_ocupacao.yaml` e `catalog/schemas/sigtap_procedimento.yaml` | saída 2 | saída 2 | saída 2 |
+| `catalog/policies/M_TEMP_PADRAO.yaml` e `catalog/policies/*.yaml` | `INCONCLUSIVO` (`insumos:*`) | `INCONCLUSIVO` (`insumos:*`) | `INCONCLUSIVO` (`insumos:*`) |
+| `catalog/layouts/sia_pa.yaml` | saída 2 | saída 2 | `INCONCLUSIVO` (`manifesto:aquisicao`) |
+| `catalog/layouts/cnes.yaml` | saída 2 | saída 2 | saída 2 |
+| `catalog/layouts/sigtap.yaml` | saída 2 | saída 2 | saída 2 |
+| `catalog/schemas/cnes_estabelecimento.yaml` e `catalog/schemas/sigtap_registro.yaml` | saída 2 | saída 2 | `INCONCLUSIVO` (`insumos:*`) |
+| `catalog/schemas/cobertura.yaml` | saída 2 | saída 2 | saída 2 |
+| `catalog/labels/sia_pa.yaml` e `catalog/schemas/sia_pa_rotulos.yaml` | saída 2 | saída 2 | saída 2 |
+| `catalog/schemas/selecao_versoes.yaml` e `catalog/schemas/agregados_registro.yaml` | saída 2 | saída 2 | saída 2 |
+| `catalog/schemas/avaliacoes.yaml` e `catalog/schemas/evidencias.yaml` e `catalog/schemas/falhas.yaml` | saída 2 | saída 2 | saída 2 |
+
+Fora da varredura de danos, com o motivo:
+
+- `<raiz_manifestos>/aquisicao.jsonl.trava`: o conteúdo não conta, só a abertura do arquivo de trava
+- `<saida>/*`: o destino é novo e vazio (`reproduce_destino_nao_vazio`; que não se lista ou não se cria sai 2, `reproduce_destino_ilegivel`): nada de fora o estraga antes de a reprodução gravá-lo, e o que se perde durante a execução sai falha operacional (`reproduce_saida_ilegivel`)
+- `<clone>/*.py` e `<clone>/*.pyc` e `<clone>/*.sql`: é o código que roda: a instalação do pacote não é entrada da reprodução
+- `<tmp>/tmp*`: temporário que o próprio processo grava e lê na mesma chamada
 
 Limites que ficam (T14-16 em `docs/PENDENCIAS.md`). Nenhum deles dá `IGUAL` falso: a diferença
 vira observação e o conteúdo refeito decide, ou o item sai `INCONCLUSIVO` ou `DIVERGENTE`.

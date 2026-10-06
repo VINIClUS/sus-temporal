@@ -217,7 +217,8 @@ def test_validar_janela_roda_as_tres_politicas_e_grava_em_runs(derivado: Fluxo) 
     config = derivado.config("teste")
     janela = derivado.mundo.saidas / "janelas" / "teste"
     janela = _janela(derivado, janela, ("202401",))
-    execucoes = validar_janela(config, janela)
+    padrao = dict.fromkeys((MetodoId.M_TEMP, MetodoId.B_ATEND, MetodoId.B_PROC))
+    execucoes = validar_janela(config, janela, padrao)
     assert set(execucoes) == {MetodoId.M_TEMP, MetodoId.B_ATEND, MetodoId.B_PROC}
     assert {run.politica_id for run in execucoes.values()} == POLITICAS
     assert all(run.estado is EstadoExecucao.CONCLUIDA for run in execucoes.values())

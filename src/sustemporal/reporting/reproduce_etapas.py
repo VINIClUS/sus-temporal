@@ -35,7 +35,6 @@ from sustemporal.ingest.sia_pa import gravar_parquet, produtor
 from sustemporal.rules.catalog import carregar_esquema
 from sustemporal.rules.entrada import EntradaValidacao
 from sustemporal.rules.ingest import ler_datasets
-from sustemporal.rules.insumos import METODOS_DE_VALIDACAO
 from sustemporal.rules.validate_ingest import validar_ingest
 
 if TYPE_CHECKING:
@@ -274,28 +273,23 @@ def derivar_protocolo(
 
 
 def validar_janela(
-    config: RunConfig,
-    janela: Path,
-    politicas: Mapping[MetodoId, str | None] | None = None,
+    config: RunConfig, janela: Path, politicas: Mapping[MetodoId, str | None]
 ) -> dict[MetodoId, RunResult]:
     """`validate --ingest` da janela, um método por vez, gravado em `raiz_execucoes(config)`.
 
     `politicas` dá, por método, o `config.politica_id` com que ele roda (`None`: a padrão do
-    método) e diz quais métodos rodam; sem ele, os três rodam com a config como veio. O
-    `validate` recusa a `politica_id` de um método em outro, por isso ela vai por método.
+    método) e diz quais métodos rodam. O `validate` recusa a `politica_id` de um método em outro,
+    por isso ela vai por método.
 
     Raises:
         ConfigInvalida: catálogo, política, manifesto, território ou pasta inválidos.
     """
     saida = raiz_execucoes(config)
-    por_metodo = dict.fromkeys(METODOS_DE_VALIDACAO, config.politica_id)
-    if politicas is not None:
-        por_metodo = dict(politicas)
     return {
         metodo: validar_ingest(
             janela, metodo, config.model_copy(update={"politica_id": politica_id}), saida
         )
-        for metodo, politica_id in por_metodo.items()
+        for metodo, politica_id in politicas.items()
     }
 
 

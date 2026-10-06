@@ -14,6 +14,7 @@ import pytest
 from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.manifest import Manifesto, ManifestoCorrompido
 from sustemporal.contracts import FamiliaFonte, ResultadoTentativa
+from sustemporal.errors import ConfigInvalida
 from sustemporal.reporting.reproduce_manifesto import (
     Recorte,
     manifesto_do_congelamento,
@@ -182,6 +183,14 @@ def test_manifesto_de_origem_corrompido_e_recusado(tmp_path: Path) -> None:
     caminho.write_text(caminho.read_text(encoding="utf-8").replace("202402", "202403"))
     with pytest.raises(ManifestoCorrompido):
         manifesto_do_congelamento(origem, tmp_path / "destino", instante(9))
+
+
+def test_a_copia_nunca_e_gravada_sobre_o_manifesto_de_origem(tmp_path: Path) -> None:
+    origem = _origem(tmp_path, [observar(PA, "202401", "a", 1), observar(PA, "202402", "b", 5)])
+    antes = {n: (origem / n).read_bytes() for n in (NOME_MANIFESTO_AQUISICAO, ANCORA)}
+    with pytest.raises(ConfigInvalida, match=r"^manifesto_do_congelamento_sobre_a_origem raiz="):
+        manifesto_do_congelamento(origem, origem, instante(3))
+    assert {n: (origem / n).read_bytes() for n in antes} == antes
 
 
 def test_a_origem_nao_e_alterada(tmp_path: Path) -> None:

@@ -766,4 +766,4 @@ for o mesmo, o teste exige que os itens dele sejam exatamente estes.
 | T11 | 1-30 | 30 | b12f79f362d973e24a411a6726e201c5a5d6c06627dac5dd10bbabe96a3fd00a |
 | T12 | i1-i7 | 7 | f6454780722eb379be317e9853861ef3bbf5ca3f8889802fcfa48f35ada1543c |
 | T13 | 1-6, 8, b1-b5 | 12 | 73d222a03774e97c9698daad4678de33e52906d918061b7b3ba751f12fd0ba15 |
-| T14 | 1-16 | 16 | 38bd5d8ccbb2afaa3c756269794fd02469e3f14d6feef7ff1930ad858f558471 |
+| T14 | 1-16 | 16 | 7cc49e5ec0206376ab7fd6aba1de182f62f3f50dccf8425368d2a6edb6ef168a |

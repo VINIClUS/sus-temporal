@@ -276,7 +276,8 @@ COMPARACOES: dict[str, Conferido] = {
     "saida:*": Conferido(
         "o leiaute completo dos dois lados, inclusive a coluna `run_id`; os esquemas e os métodos "
         "pela união; a saída repetida (`<esquema>#2`); o hash lógico e a linhagem",
-        "os valores de `run_id`, que derivam do caminho, e só depois do leiaute",
+        "os valores de `run_id`, que derivam do caminho, e só depois do leiaute; e os bytes do "
+        "arquivo, que o `run_id` gravado muda por construção",
     ),
     "insumos:*": Conferido(
         "a união dos campos da identidade da entrada: o campo só do congelamento, ou só da "

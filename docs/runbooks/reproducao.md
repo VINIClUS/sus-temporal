@@ -52,8 +52,9 @@ num clone normal de `main` (com a referência `origin/main`) ela registra
 28 min 33 s, com 4.221 testes passando e 1 desmarcado (medido em 2026-10-06 numa máquina de 4
 núcleos, depois da rodada 4 do #37; a rodada 5 acrescentou testes, e o tempo e a contagem dela estão
 no corpo do PR); o tempo varia com a máquina e a carga. O CI do GitHub tem
-limite de 30 minutos e já levou 27 min 53 s (#37, rodada 2), 24 min 12 s (rodada 3) e 28 min 32 s (rodada 4): a suíte
-está perto dele, e cada teste novo que refaz o fluxo todo (cerca de 25 s) pesa.
+limite de 45 minutos (30 até o #39) e já levou 27 min 53 s (#37, rodada 2), 24 min 12 s (rodada 3),
+28 min 32 s (rodada 4) e 20 min 52 s (rodada 8): a suíte tem folga, mas cada teste novo que refaz o
+fluxo todo (cerca de 25 s) pesa.
 
 Recortes úteis: `uv run pytest tests/unit -q` (rápido) e `uv run pytest tests/integration -q`
 (CLI e FTP local). O `pytest` exclui por padrão os marcadores `network`, `real_data` e `perf`, e o
@@ -310,8 +311,9 @@ congelamento usou a versão de código de teste (seção 4.5); ela não é diver
   `gethostbyaddr` e `getnameinfo`). `AF_UNIX` (comunicação local, como o `socketpair`) é permitido, e
   a guarda restaura tudo ao sair, com ou sem exceção (`sustemporal.reporting.reproduce_rede`). Ela
   vale para o módulo `socket` do Python no processo: extensão em C que abra socket nativo, o
-  `_socket` usado direto, o descritor cru de um socket aberto (`os.write`, `os.sendfile`) e
-  subprocesso ficam fora, e o DuckDB não instala nem carrega extensões sozinho
+  `_socket` usado direto, o descritor cru de um socket aberto (`os.write`, `os.sendfile`), o socket
+  TLS (`ssl.SSLSocket`) aberto antes da guarda, que escreve pelo OpenSSL sem passar pelos métodos
+  de `socket.socket`, e subprocesso ficam fora, e o DuckDB não instala nem carrega extensões sozinho
   (`sustemporal.duck.conectar`). Isolamento de verdade é do ambiente (seção 5.5, T14-16).
 - O fluxo é refeito em um diretório novo (`--saida DIR`; padrão
   `<raiz_saidas>/reproducao/<freeze_id>`; um destino que já tem conteúdo, ou que é um arquivo, sai
@@ -445,13 +447,13 @@ diz o que cada comparação confere antes de projetar e o que deixa de fora.
 
 | Situação | Significa | Saída |
 |---|---|---|
-| `IGUAL` | linhas e hash lógico coincidem (e os bytes, se há arquivo original legível; sem ele, `detalhe` `original_ausente` ou `original_ilegivel` e vale o hash declarado no manifesto) | 0 |
-| `BYTES_DIFERENTES_HASH_LOGICO_IGUAL` | mesmo conteúdo, bytes de Parquet diferentes (compressão, ordem ou metadados); é relatado e não é falha | 0 |
+| `IGUAL` | linhas e hash lógico coincidem; nos itens que comparam o arquivo refeito com o declarado (`conjunto:*`, `split:particao:*` e `split:rotulos:*`) também os bytes, se há arquivo original legível (sem ele, `detalhe` `original_ausente` ou `original_ilegivel` e vale o hash declarado no manifesto); nos itens `saida:*` os bytes não se comparam, porque o `run_id` gravado difere por construção, e decide o hash lógico sem os valores dessa coluna | 0 |
+| `BYTES_DIFERENTES_HASH_LOGICO_IGUAL` | só nos itens `conjunto:*`, `split:particao:*` e `split:rotulos:*`: mesmo conteúdo, bytes de Parquet diferentes (compressão, ordem ou metadados); é relatado e não é falha. Os itens `saida:*` não o dão | 0 |
 | `DIVERGENTE` | conteúdo diferente; inclui original que não confere com o declarado, saída registrada que a reconstrução não emitiu (`saida_ausente_no_refeito`, por exemplo `evidencias.v1`), saída nova que a execução registrada não tem (`saida_sem_original`), método que a reconstrução não refez, leiaute de Parquet diferente do esquema ou entre as duas pontas (`esquema_divergente`), linhagem diferente (`linhagem_diverge`), partição que só o refeito traz (`particao_sem_original`) e campos diferentes (`campos=<lista>` em `split:campos`, `relatorio:campos` e `insumos:<politica>`) | 5 (`reproducao_divergente`) |
 | `INCONCLUSIVO` | falta o original para comparar (relatório, execução ou saída ausente, truncada ou fora do contrato), a posição do manifesto de aquisição que o `ingest` original leu não se sabe, ou a configuração com que ele rodou não é a do refeito (item `manifesto:aquisicao`), a origem dos dados da config não é a dos conjuntos congelados (item `origem_dados`), o manifesto de aquisição não abre ou um arquivo bruto não abre (`manifesto_ilegivel`, item `ingest:originais`), o relatório da rodada registrada não bate com a entrada do registro (`metricas` e `notas`), a entrada original da política em `split/insumos` falta, não lê ou foi alterada (`entrada_original_ausente`, `_ilegivel` ou `_alterada`, item `insumos:<politica>`), a política congelada de um método não se resolve ou não se confere (`politica_congelada_indisponivel`, `_alterada`, `_com_outro_id`, `_ambigua` ou `politica_registrada_diferente`, item `insumos:<politica>`), a partição refeita (avaliada ou TESTE) não tem artefatos (`particao_vazia`, item `particao:<P>`) ou o conjunto refeito não está no manifesto (`conjunto_nao_congelado`), o congelamento não traz as partições refeitas (`particao_nao_congelada`) ou o ingest refeito não normalizou um artefato do SIA-PA congelado ou dos auxiliares das entradas congeladas, CNES e SIGTAP (`originais_indisponiveis`: arquivo ausente, truncado, em quarentena ou com leiaute incompatível; nos auxiliares o item é `insumos:<politica>`); nunca é violação, mas também não conta como reproduzido | 5 (`reproducao_inconclusiva`) |
 
 O `resultado` geral é a pior situação dos itens. `reproducao.json` é gravado antes da falha
-(`freeze_id`, `modo`, `origem_dados`, `resultado`, `relatorio_refeito`, `observacoes` e as
+(`freeze_id`, `modo`, `origem_dados` (a dos conjuntos do manifesto congelado), `origem_dados_config` (a declarada na config, e `SINTETICO` sem declaração), `resultado`, `relatorio_refeito`, `observacoes` e as
 `comparacoes`, cada uma com `item`, `situacao`, `esperado`, `obtido` e `detalhe`), e a mensagem de
 erro traz a contagem e os primeiros itens. Códigos de saída: 0 reproduzido; 2 config sem
 `freeze_id` ou com outro, sem `--offline`, confirmatória, destino em uso, manifesto ou entradas
@@ -545,7 +547,7 @@ cada reprodução.
 | Coleta nova, republicação com outro conteúdo e ausência registradas depois do `ingest` não alteram a reprodução (igual, com a observação do que ficou de fora), seja qual for o instante da observação: depois do `freeze` ou antes dele, como uma coleta feita entre o `ingest` e o `freeze` | `test_reproduce_ignora_o_que_foi_coletado_depois_do_congelamento` e `test_reproduce_ignora_o_que_foi_coletado_entre_o_ingest_e_o_congelamento` (a reprodução padrão do módulo roda com seis coletas registradas depois do `ingest`, três de cada tipo de instante) e `tests/unit/test_reproduce_manifesto.py` (execução do `ingest` pelo SIA-PA congelado, mesma posição que não é ambiguidade, posição que o manifesto não tem, prefixo com a mesma cadeia e âncora) |
 | Sem saber o que o `ingest` leu do manifesto (execução ausente, ambígua, sem posição, hash diferente, além do fim), a reprodução é inconclusiva no item `manifesto:aquisicao` e para antes do `ingest`, junto das entradas originais que não conferem | `test_reproduce_sem_saber_o_que_o_ingest_leu_do_manifesto_e_inconclusivo_e_nao_divergente` (cinco casos) e `test_reproduce_sem_o_ingest_original_relata_tambem_a_entrada_que_nao_confere` |
 | Arquivo cuja competência difere da das linhas fica na janela e reproduz igual; partição sem artefatos é inconclusiva, não erro de configuração | `test_reproduce_mantem_na_janela_o_arquivo_cuja_competencia_difere_da_das_linhas`, `test_reproduce_com_particao_vazia_e_inconclusivo_e_nao_erro_de_configuracao` e os `test_janela_dos_artefatos_*` e `test_competencias_da_janela_*` de `tests/integration/test_reproduce_etapas.py` |
-| 4 threads dão as mesmas saídas e métricas; bytes diferentes com hash lógico igual saem como tais | `test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual` |
+| 4 threads dão as mesmas saídas e métricas; bytes diferentes com hash lógico igual saem como tais nos conjuntos e nas partições (`conjunto:*` e `split:*`), e nas saídas (`saida:*`) os bytes não se comparam | `test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual` |
 | Divergência de conteúdo falha (saída 5) e nomeia os itens | `test_reproduce_falha_e_nomeia_os_itens_quando_o_conteudo_original_diverge` |
 | Original do SIA-PA ausente é inconclusão (saída 5), não divergência nem reprodução | `test_reproduce_com_original_do_sia_pa_ausente_e_inconclusivo_e_nao_divergente` |
 | CNES (PF e ST) ou SIGTAP ausente é inconclusão em `insumos:<politica>` (saída 5), sem item divergente, e o fluxo para antes de refazer | `test_reproduce_com_original_auxiliar_ausente_e_inconclusivo_e_nao_divergente` (uma execução por família) e `tests/unit/test_reproduce_insumos.py` |
@@ -777,7 +779,9 @@ vira observação e o conteúdo refeito decide, ou o item sai `INCONCLUSIVO` ou 
 
 - A guarda de rede (`reproduce_rede`) vale para o módulo `socket` do Python no processo. Extensão em
   C que abra socket nativo, o `_socket` usado direto, o descritor cru de um socket aberto
-  (`os.write`, `os.sendfile`) e subprocesso ficam fora; o autoload de extensões do DuckDB está
+  (`os.write`, `os.sendfile`), o socket TLS (`ssl.SSLSocket`) aberto antes da guarda, que escreve
+  pelo OpenSSL sem passar pelos métodos de `socket.socket` (a CLI não o abre), e subprocesso ficam
+  fora; o autoload de extensões do DuckDB está
   desligado pela config (`autoinstall_known_extensions` e `autoload_known_extensions` em
   `sustemporal.duck.conectar`). Para isolamento de verdade, rode a reprodução em ambiente sem rede.
 
@@ -813,7 +817,7 @@ repetida, o campo que só o congelamento tem). A tabela sai de `COMPARACOES` em
 | `split:campos` | todos os campos do manifesto do split, menos o id e as referências; campo novo do contrato entra sozinho | nada |
 | `split:particao:*` | as partições da população pela união das chaves (`particao_ausente`, `particao_sem_original`, `particao_nao_congelada`) e, em cada uma, o leiaute, o hash lógico e a linhagem | `caminho` e `produzido_por` |
 | `split:rotulos:*` | as partições dos rótulos, como `split:particao:*` | `caminho` e `produzido_por` |
-| `saida:*` | o leiaute completo dos dois lados, inclusive a coluna `run_id`; os esquemas e os métodos pela união; a saída repetida (`<esquema>#2`); o hash lógico e a linhagem | os valores de `run_id`, que derivam do caminho, e só depois do leiaute |
+| `saida:*` | o leiaute completo dos dois lados, inclusive a coluna `run_id`; os esquemas e os métodos pela união; a saída repetida (`<esquema>#2`); o hash lógico e a linhagem | os valores de `run_id`, que derivam do caminho, e só depois do leiaute; e os bytes do arquivo, que o `run_id` gravado muda por construção |
 | `insumos:*` | a união dos campos da identidade da entrada: o campo só do congelamento, ou só da entrada refeita, é divergência | nada |
 | `metricas` | o multiconjunto de (nome, estrato, valor): a métrica repetida conta cada vez | nada |
 | `notas` | o multiconjunto das notas: a nota repetida conta cada vez | nada |

@@ -1,8 +1,9 @@
-"""Catálogos que o congelamento registrou, contra os que a reprodução usa agora (T14).
+"""Catálogos e origem dos dados que o congelamento registrou, contra os que a config declara (T14).
 
 O manifesto guarda o SHA-256 de cada catálogo que a config declara e o do catálogo de regras. A
 reprodução usa os de agora: se diferem, a diferença vira observação (não impede a conferência: o
-conteúdo refeito decide se o resultado é igual ou divergente).
+conteúdo refeito decide se o resultado é igual ou divergente). A origem dos dados da config tem de
+ser a dos conjuntos congelados; senão a reprodução é inconclusiva.
 """
 
 from __future__ import annotations
@@ -10,15 +11,18 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from sustemporal.contracts.base import OrigemDados
 from sustemporal.evaluation.freeze import hash_das_regras
 from sustemporal.hashing import sha256_arquivo
+from sustemporal.reporting.reproduce_comparacao import Comparacao, Situacao
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Iterable, Mapping, Sequence
 
+    from sustemporal.contracts.records import DatasetRef
     from sustemporal.contracts.rules import RuleSpec
 
-__all__ = ["observacoes_dos_catalogos"]
+__all__ = ["item_da_origem", "observacoes_dos_catalogos"]
 
 
 def _sha256(caminho: str | None) -> str | None:
@@ -49,3 +53,18 @@ def observacoes_dos_catalogos(
     if regras_congeladas is not None and hash_das_regras(regras) != regras_congeladas:
         observacoes.append("catalogo_de_regras_diferente_do_congelado")
     return observacoes
+
+
+def item_da_origem(origem: OrigemDados | None, datasets: Iterable[DatasetRef]) -> list[Comparacao]:
+    """Item inconclusivo se a origem dos dados da config não é a dos conjuntos congelados.
+
+    Sem `origem_dados` na config vale `SINTETICO`, como no `ingest`.
+    """
+    congeladas = sorted({dataset.origem_dados.value for dataset in datasets})
+    obtida = (origem or OrigemDados.SINTETICO).value
+    if congeladas == [obtida]:
+        return []
+    detalhe = "origem_dados_diferente_do_congelado"
+    return [
+        Comparacao("origem_dados", Situacao.INCONCLUSIVO, ",".join(congeladas), obtida, detalhe)
+    ]

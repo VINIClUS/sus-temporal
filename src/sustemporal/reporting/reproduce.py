@@ -25,7 +25,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from sustemporal.contracts.base import OrigemDados
 from sustemporal.contracts.experiment import ModoExecucao, Particao
 from sustemporal.errors import ConfigInvalida, ExitCode, FalhaOperacionalErro, RedeProibida
 from sustemporal.evaluation.freeze import carregar_freeze, hash_protocolo
@@ -33,7 +32,7 @@ from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
 from sustemporal.execucoes import raiz_execucoes
 from sustemporal.ingest import cli as ingest_cli
 from sustemporal.ingest.cli import configuracao_do_ingest
-from sustemporal.reporting.reproduce_catalogos import observacoes_dos_catalogos
+from sustemporal.reporting.reproduce_catalogos import item_da_origem, observacoes_dos_catalogos
 from sustemporal.reporting.reproduce_comparacao import (
     Comparacao,
     Situacao,
@@ -321,18 +320,6 @@ def _item_do_manifesto(resolucao: Resolucao) -> list[Comparacao]:
     return [Comparacao(ITEM_MANIFESTO, Situacao.INCONCLUSIVO, None, None, resolucao.motivo)]
 
 
-def _item_da_origem(config: RunConfig, manifesto: FreezeManifest) -> list[Comparacao]:
-    """Item inconclusivo se a origem dos dados da config não é a dos conjuntos congelados."""
-    congeladas = sorted({dataset.origem_dados.value for dataset in manifesto.datasets})
-    obtida = (config.origem_dados or OrigemDados.SINTETICO).value
-    if congeladas == [obtida]:
-        return []
-    detalhe = "origem_dados_diferente_do_congelado"
-    return [
-        Comparacao("origem_dados", Situacao.INCONCLUSIVO, ",".join(congeladas), obtida, detalhe)
-    ]
-
-
 def _parar_se_inconclusivo(
     config: RunConfig, out: Path, itens: list[Comparacao], observacoes: list[str]
 ) -> None:
@@ -362,7 +349,8 @@ def _ingerir_o_original(
         configuracao_do_ingest(config),
     )
     do_ambiente = [*original.observacoes, *_observacoes(config, manifesto)]
-    antes = [*_item_do_manifesto(resolucao), *_item_da_origem(config, manifesto)]
+    origem = item_da_origem(config.origem_dados, manifesto.datasets)
+    antes = [*_item_do_manifesto(resolucao), *origem]
     if antes:
         itens = [*antes, *comparar_entradas_originais(insumos.problemas)]
         _parar_se_inconclusivo(config, out, itens, do_ambiente)

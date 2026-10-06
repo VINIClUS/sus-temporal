@@ -59,6 +59,7 @@ from sustemporal.reporting.reproduce_etapas import (
     derivar_protocolo,
     validar_janela,
 )
+from sustemporal.rules.catalog import carregar_regras
 from sustemporal.temporal.politicas import DIRETORIO_POLITICAS
 
 if TYPE_CHECKING:
@@ -668,6 +669,81 @@ def test_reproduce_com_origem_dos_dados_diferente_da_congelada_e_inconclusivo(
     assert (item["esperado"], item["obtido"]) == ("SINTETICO", "REAL")
     assert item["detalhe"] == "origem_dados_diferente_do_congelado"
     assert not (destino / "ingest").exists()
+
+
+def _relatorio_registrado(fluxo: Fluxo) -> Path:
+    (arquivo,) = (fluxo.mundo.saidas / "avaliacao" / _freeze(fluxo)).glob("rep_*.json")
+    return arquivo
+
+
+def _execucao_registrada(fluxo: Fluxo, metodo: str) -> Path:
+    """O `run_result.json` do método na rodada que o registro descreve."""
+    registrados = json.loads(_relatorio_registrado(fluxo).read_text(encoding="utf-8"))["runs"]
+    arquivos = [fluxo.mundo.saidas / "runs" / run_id / "run_result.json" for run_id in registrados]
+    metodos = {json.loads(a.read_text(encoding="utf-8"))["metodo"]: a for a in arquivos}
+    return metodos[metodo]
+
+
+def test_reproduce_com_a_execucao_registrada_de_outra_politica_e_inconclusivo(fluxo: Fluxo) -> None:
+    arquivo = _execucao_registrada(fluxo, "B_ATEND")
+    guardado = arquivo.read_bytes()
+    destino = fluxo.mundo.raiz / "reproducao_execucao_de_outra_politica"
+    try:
+        _alterar_json(arquivo, politica_id="B_PROC")
+        feita = reproduzir(fluxo, fluxo.configs["teste"], destino)
+    finally:
+        arquivo.write_bytes(guardado)
+    assert feita.codigo == ExitCode.FALHA_OPERACIONAL
+    assert feita.conteudo.get("resultado") == "INCONCLUSIVO"
+    assert feita.situacoes == {f"insumos:{POLITICA_ESTRAGADA}": "INCONCLUSIVO"}
+    detalhe = feita.itens[f"insumos:{POLITICA_ESTRAGADA}"]["detalhe"]
+    assert detalhe == "politica_registrada_diferente registrada=B_PROC"
+    assert not (destino / "janelas").exists()
+
+
+def test_reproduce_com_relatorio_que_nao_e_o_registrado_e_inconclusivo_e_nao_divergente(
+    fluxo: Fluxo,
+) -> None:
+    arquivo = _relatorio_registrado(fluxo)
+    guardado = arquivo.read_bytes()
+    destino = fluxo.mundo.raiz / "reproducao_relatorio_trocado"
+    try:
+        _alterar_json(arquivo, runs=list(reversed(json.loads(guardado)["runs"])))
+        feita = reproduzir(fluxo, fluxo.configs["teste"], destino)
+    finally:
+        arquivo.write_bytes(guardado)
+    assert feita.codigo == ExitCode.FALHA_OPERACIONAL
+    assert feita.conteudo.get("resultado") == "INCONCLUSIVO"
+    inconclusivos = {i for i, situacao in feita.situacoes.items() if situacao == "INCONCLUSIVO"}
+    assert inconclusivos == {"metricas", "notas"}
+    assert "DIVERGENTE" not in feita.situacoes.values()
+    assert feita.conteudo["relatorio_refeito"].startswith("rep_")
+    observacao = "relatorio_original_nao_confere_com_o_registro campos=runs"
+    assert observacao in feita.conteudo["observacoes"]
+
+
+def test_reproduce_com_catalogo_que_o_congelamento_nao_tinha_e_observacao_e_reproduz_igual(
+    fluxo: Fluxo,
+) -> None:
+    extra = fluxo.mundo.raiz / "catalogo_extra.yaml"
+    extra.write_text("extra: 1\n", encoding="utf-8")
+    texto = fluxo.configs["teste"].read_text(encoding="utf-8")
+    com_extra = fluxo.mundo.raiz / "config_catalogo_extra.yaml"
+    com_extra.write_text(texto.replace("catalogos:\n", f"catalogos:\n  extra: {extra}\n"))
+    feita = reproduzir(fluxo, com_extra, fluxo.mundo.raiz / "reproducao_catalogo_extra")
+    assert feita.codigo == ExitCode.OK
+    assert feita.conteudo["resultado"] == "IGUAL"
+    assert "catalogos_diferentes_do_congelado catalogos=extra" in feita.conteudo["observacoes"]
+
+
+def test_reproduce_com_catalogo_de_regras_diferente_do_congelado_registra_a_observacao(
+    fluxo: Fluxo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    regras = carregar_regras()
+    monkeypatch.setattr("sustemporal.reporting.reproduce._regras", lambda: regras[:-1])
+    feita = reproduzir(fluxo, fluxo.configs["teste"], fluxo.mundo.raiz / "reproducao_sem_regra")
+    assert "catalogo_de_regras_diferente_do_congelado" in feita.conteudo["observacoes"]
+    assert feita.conteudo["resultado"] != "DIVERGENTE"
 
 
 def test_reproduce_sem_o_ingest_original_relata_tambem_a_entrada_que_nao_confere(

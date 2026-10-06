@@ -7,6 +7,7 @@ contagem das métricas); um relatório válido que não é o registrado é origi
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any
@@ -16,7 +17,15 @@ import pytest
 from sustemporal.contracts.base import OrigemDados
 from sustemporal.contracts.config import RunConfig
 from sustemporal.contracts.evaluation import EvaluationReport, ValorMetrica
-from sustemporal.contracts.experiment import ModoExecucao
+from sustemporal.contracts.experiment import (
+    Ambiente,
+    CodeVersion,
+    EstadoExecucao,
+    ModoExecucao,
+    RunResult,
+    TipoExecucao,
+)
+from sustemporal.contracts.temporal import MetodoId
 from sustemporal.evaluation.cli import REGISTRO
 from sustemporal.evaluation.freeze_registro import registrar_execucao
 from sustemporal.reporting.reproduce_original import (
@@ -31,6 +40,9 @@ if TYPE_CHECKING:
 FREEZE = "frz_" + "a" * 64
 OUTRO_FREEZE = "frz_" + "b" * 64
 REPORT = "rep_" + "c" * 64
+RUN_A = "val_" + "a" * 40
+RUN_B = "val_" + "b" * 40
+RUN_C = "val_" + "c" * 40
 G2 = "experiments/decisions/g2.yaml"
 INSTANTE = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -170,3 +182,52 @@ def test_entrada_sem_um_campo_do_registro_nao_confere_com_o_relatorio() -> None:
     entrada: dict[str, Any] = {"report_id": REPORT}
     campos = campos_que_nao_conferem(_relatorio(), entrada)
     assert campos == ["freeze_id", "modo", "origem_dados", "runs", "metricas", "metricas_nulas"]
+
+
+def _execucao(run_id: str, metodo: MetodoId | None) -> RunResult:
+    return RunResult(
+        run_id=run_id,
+        tipo=TipoExecucao.VALIDACAO,
+        metodo=metodo,
+        modo=ModoExecucao.EXPLORATORIO,
+        config_hash="a" * 64,
+        codigo=CodeVersion(commit="abc", sujo=False, versao_pacote="0.1"),
+        ambiente=Ambiente(python="3.12", plataforma="linux"),
+        estado=EstadoExecucao.CONCLUIDA,
+        iniciado_em=INSTANTE,
+        origem_dados=OrigemDados.SINTETICO,
+    )
+
+
+def _gravar_execucoes(tmp_path: Path, *execucoes: RunResult) -> Original:
+    """Registra uma rodada com os três `run_id` e grava só as `execucoes` dadas."""
+    relatorio = _relatorio(runs=(RUN_A, RUN_B, RUN_C))
+    _registrar(tmp_path, relatorio)
+    _gravar(tmp_path, relatorio)
+    for execucao in execucoes:
+        pasta = tmp_path / "saidas" / "runs" / execucao.run_id
+        pasta.mkdir(parents=True)
+        (pasta / "run_result.json").write_text(execucao.model_dump_json(), encoding="utf-8")
+    return ler_original(_config(tmp_path), FREEZE)
+
+
+def test_execucao_registrada_que_nao_existe_nao_impede_ler_as_seguintes(tmp_path: Path) -> None:
+    primeira = _execucao(RUN_A, MetodoId.M_TEMP)
+    terceira = _execucao(RUN_C, MetodoId.B_PROC)
+    original = _gravar_execucoes(tmp_path, primeira, terceira)
+    assert dict(original.execucoes) == {MetodoId.M_TEMP: primeira, MetodoId.B_PROC: terceira}
+
+
+def test_execucao_registrada_sem_metodo_fica_de_fora(tmp_path: Path) -> None:
+    sem_metodo = _execucao(RUN_A, None)
+    com_metodo = _execucao(RUN_B, MetodoId.B_ATEND)
+    original = _gravar_execucoes(tmp_path, sem_metodo, com_metodo)
+    assert dict(original.execucoes) == {MetodoId.B_ATEND: com_metodo}
+
+
+def test_relatorio_que_nao_confere_e_registrado_no_log(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    with caplog.at_level(logging.WARNING, logger="sustemporal.reporting.reproduce_original"):
+        _lido(tmp_path, _relatorio(runs=("run_a", "run_c")))
+    assert f"relatorio_original_nao_confere report={REPORT} campos=runs" in caplog.messages

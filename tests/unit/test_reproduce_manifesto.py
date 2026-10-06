@@ -489,6 +489,12 @@ def test_campo_a_mais_na_configuracao_gravada_tambem_diferencia(tmp_path: Path) 
     assert motivo == "ingest_original_com_configuracao_diferente campos=novo_campo"
 
 
+def test_campo_a_mais_em_varias_candidatas_sai_uma_vez_so(tmp_path: Path) -> None:
+    origem, uniao = _com_configuracao(tmp_path, "execucao_1", "execucao_2", novo_campo="x")
+    motivo = _resolver(tmp_path, origem, uniao, configuracao=CONFIGURACAO).motivo
+    assert motivo == "ingest_original_com_configuracao_diferente campos=novo_campo"
+
+
 def test_todas_as_candidatas_tem_de_ter_a_configuracao_do_refeito(tmp_path: Path) -> None:
     origem, uniao = _com_configuracao(tmp_path, "execucao_1")
     _execucao(

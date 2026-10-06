@@ -7,6 +7,7 @@ código limpo e a decisão G0 são de teste, escritos só no diretório temporá
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import shutil
@@ -19,6 +20,7 @@ from typing import TYPE_CHECKING, Any
 import pyarrow.parquet as pq
 import pytest
 
+from sustemporal import yamlio
 from sustemporal.acquisition.cli import NOME_MANIFESTO_AQUISICAO
 from sustemporal.acquisition.fetch import fetch_source
 from sustemporal.acquisition.manifest import Manifesto
@@ -109,6 +111,28 @@ def adquirir_e_ingerir(fluxo: Fluxo) -> None:
 def _runs(fluxo: Fluxo, janela: str) -> set[str]:
     raiz = raiz_execucoes(fluxo.config(janela))
     return {p.name for p in raiz.glob("val_*")} if raiz.is_dir() else set()
+
+
+@contextmanager
+def yaml_em_memoria() -> Iterator[None]:
+    """Cada texto YAML dos catálogos é lido uma vez e devolvido em cópia.
+
+    O fluxo relê os mesmos catálogos (esquemas e regras) centenas de vezes por reprodução, em YAML
+    de Python puro: com a memória o mundo leva cerca de 22 s em vez de 34 s e cada reprodução, 15 s
+    em vez de 22 s. O texto é a chave, então um catálogo alterado é lido de novo, e o que falha ao
+    ler não é guardado.
+    """
+    original = yamlio.carregar_texto_yaml
+    lidos: dict[str, Any] = {}
+
+    def memorizado(texto: str) -> Any:
+        if texto not in lidos:
+            lidos[texto] = original(texto)
+        return copy.deepcopy(lidos[texto])
+
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setattr(yamlio, "carregar_texto_yaml", memorizado)
+        yield
 
 
 @contextmanager

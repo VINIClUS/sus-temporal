@@ -19,6 +19,7 @@ from tests.fixtures.reproducao_fluxo import (
     derivar,
     iniciar,
     validar_janelas,
+    yaml_em_memoria,
 )
 
 from sustemporal.contracts.base import OrigemDados
@@ -46,6 +47,12 @@ if TYPE_CHECKING:
     from sustemporal.contracts.experiment import SplitManifest
 
 pytestmark = pytest.mark.slow
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _catalogos_em_memoria() -> Iterator[None]:
+    with yaml_em_memoria():
+        yield
 
 
 @pytest.fixture(scope="module")

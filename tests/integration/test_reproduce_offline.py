@@ -35,6 +35,7 @@ from tests.fixtures.reproducao_fluxo import (
     sem_evidencias,
     sem_os_artefatos,
     validar_janelas,
+    yaml_em_memoria,
 )
 from tests.fixtures.reproducao_mundo import (
     COMPETENCIAS,
@@ -97,6 +98,12 @@ ITENS_DA_REPRODUCAO = {
 }
 BYTES_DIFERENTES = "BYTES_DIFERENTES_HASH_LOGICO_IGUAL"
 EVIDENCIAS = "evidencias.v1"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _catalogos_em_memoria() -> Iterator[None]:
+    with yaml_em_memoria():
+        yield
 
 
 @pytest.fixture(scope="module")

@@ -76,8 +76,14 @@ class MotivoInconclusao(StrEnum):
     POLITICA_NAO_RESOLVIDA = "POLITICA_NAO_RESOLVIDA"
 
 
+def _bool_estrito(valor: object, campo: str) -> bool:
+    if not isinstance(valor, bool):
+        raise TypeError(f"decidir_estado_exige_bool campo={campo} tipo={type(valor).__name__}")
+    return valor
+
+
 def decidir_estado(
-    aplicabilidade: Aplicabilidade,
+    aplicabilidade: Aplicabilidade | str,
     insumos_completos: bool,
     incompatibilidade: Booleano | None,
     motivos: Iterable[MotivoInconclusao],
@@ -88,14 +94,23 @@ def decidir_estado(
         NAO_APLICAVEL só com não aplicabilidade demonstrada; VIOLACAO só com aplicabilidade
         conhecida, insumos completos, nenhum motivo de inconclusão e incompatibilidade
         demonstrada; INCONCLUSIVO em qualquer lacuna.
+
+    Raises:
+        ValueError: aplicabilidade fora de `Aplicabilidade` (texto é normalizado pelo enum).
+        TypeError: insumos_completos ou incompatibilidade não nula que não seja `bool`.
     """
-    if aplicabilidade is Aplicabilidade.NAO_APLICAVEL_DEMONSTRADA:
+    normalizada = Aplicabilidade(aplicabilidade)
+    completos = _bool_estrito(insumos_completos, "insumos_completos")
+    incompativel = None
+    if incompatibilidade is not None:
+        incompativel = _bool_estrito(incompatibilidade, "incompatibilidade")
+    if normalizada is Aplicabilidade.NAO_APLICAVEL_DEMONSTRADA:
         return EstadoAvaliacao.NAO_APLICAVEL
-    if aplicabilidade is Aplicabilidade.DESCONHECIDA:
+    if normalizada is Aplicabilidade.DESCONHECIDA:
         return EstadoAvaliacao.INCONCLUSIVO
-    if not insumos_completos or tuple(motivos) or incompatibilidade is None:
+    if not completos or tuple(motivos) or incompativel is None:
         return EstadoAvaliacao.INCONCLUSIVO
-    return EstadoAvaliacao.VIOLACAO if incompatibilidade else EstadoAvaliacao.CONFORME
+    return EstadoAvaliacao.VIOLACAO if incompativel else EstadoAvaliacao.CONFORME
 
 
 class FamiliaRegra(StrEnum):

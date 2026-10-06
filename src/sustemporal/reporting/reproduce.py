@@ -51,11 +51,11 @@ from sustemporal.reporting.reproduce_comparacao import (
 )
 from sustemporal.reporting.reproduce_etapas import (
     Derivado,
-    competencias_da_particao,
+    competencias_da_janela,
     derivar_protocolo,
     entradas_congeladas,
     estados_do_ingest,
-    janela_do_ingest,
+    janela_dos_artefatos,
     validar_janela,
 )
 from sustemporal.reporting.reproduce_manifesto import (
@@ -147,11 +147,10 @@ def _ingerir(config: RunConfig) -> Path:
 def _validar_particao(
     config: RunConfig, pasta: Path, derivado: Derivado, particao: Particao
 ) -> Mapping[MetodoId, RunResult]:
-    refs = derivado.split.particoes or {}
-    competencias = competencias_da_particao(refs[particao])
-    da_janela = _da_janela(config, competencias)
+    ref = (derivado.split.particoes or {})[particao]
+    da_janela = _da_janela(config, competencias_da_janela(config, ref))
     destino = Path(config.runtime.raiz_saidas) / "janelas" / particao.value.lower()
-    janela = janela_do_ingest(da_janela, pasta, destino, competencias)
+    janela = janela_dos_artefatos(pasta, destino, ref.artifact_ids)
     return validar_janela(da_janela, janela)
 
 

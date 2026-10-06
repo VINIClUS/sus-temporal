@@ -2,7 +2,9 @@
 
 O `validate --ingest` exige que a produção da pasta do ingest seja toda do recorte do piloto, e o
 protocolo avalia partições (DESENVOLVIMENTO, CALIBRACAO e TESTE) de uma série maior. A janela é a
-pasta do ingest com só o SIA-PA dos arquivos das competências pedidas: o `validate` sobre ela lê a
+pasta do ingest com só o SIA-PA dos arquivos pedidos, por competência do arquivo
+(`janela_do_ingest`) ou pelos artefatos que a partição registra (`janela_dos_artefatos`, a da
+reprodução: o arquivo pode ter competência diferente da das linhas): o `validate` sobre ela lê a
 mesma população da partição (o hash lógico confere, e `reproduce` o compara). Não há comando de CLI
 para estas etapas; elas valem para o fluxo pequeno e para o que o `freeze` consome em
 `<raiz_saidas>/split` (pendência T11 #27).
@@ -96,6 +98,21 @@ def _na_janela(
     return False
 
 
+def _competencia_por_artefato(config: RunConfig) -> dict[str, str]:
+    versoes = _manifesto(config).ler().versoes
+    return {
+        a: str(v.chave.competencia_arquivo)
+        for a, v in versoes.items()
+        if v.chave.competencia_arquivo
+    }
+
+
+def _gravar_janela(refs: Iterable[DatasetRef], destino: Path) -> None:
+    linhas = [ref.model_dump_json() for ref in refs]
+    destino.mkdir(parents=True, exist_ok=True)
+    (destino / "datasets.jsonl").write_text("".join(f"{linha}\n" for linha in linhas), "utf-8")
+
+
 def janela_do_ingest(
     config: RunConfig, pasta: Path, destino: Path, competencias: Collection[str]
 ) -> Path:
@@ -110,28 +127,55 @@ def janela_do_ingest(
             arquivos de janelas diferentes.
     """
     pedidas = {str(c) for c in competencias}
-    versoes = _manifesto(config).ler().versoes
-    competencia_por_artefato = {
-        a: str(v.chave.competencia_arquivo)
-        for a, v in versoes.items()
-        if v.chave.competencia_arquivo
-    }
+    competencia_por_artefato = _competencia_por_artefato(config)
     refs = [
         ref for ref in ler_datasets(pasta) if _na_janela(ref, competencia_por_artefato, pedidas)
     ]
-    linhas = [ref.model_dump_json() for ref in refs]
-    destino.mkdir(parents=True, exist_ok=True)
-    (destino / "datasets.jsonl").write_text("".join(f"{linha}\n" for linha in linhas), "utf-8")
+    _gravar_janela(refs, destino)
     logger.info("janela_do_ingest destino=%s competencias=%s", destino, sorted(pedidas))
     return destino
 
 
+def _dos_artefatos(ref: DatasetRef, pedidos: set[str]) -> bool:
+    if ref.schema_id != SCHEMA_ENTRADA:
+        return True
+    do_dataset = set(ref.artifact_ids)
+    if do_dataset <= pedidos:
+        return True
+    if do_dataset & pedidos:
+        raise ConfigInvalida(f"janela_com_dataset_misto dataset={ref.dataset_id}")
+    return False
+
+
 def janela_dos_artefatos(pasta: Path, destino: Path, artefatos: Collection[str]) -> Path:
-    raise NotImplementedError("janela_dos_artefatos")
+    """Pasta com o `datasets.jsonl` do ingest só com o SIA-PA dos artefatos pedidos.
+
+    Os conjuntos que não são SIA-PA ficam todos. A janela é pelos artefatos que a partição registra
+    (`DatasetRef.artifact_ids`), nunca pelo mês: o arquivo pode ter competência diferente da das
+    linhas. Sem artefatos pedidos não há produção, e o `validate` a recusa.
+
+    Raises:
+        ConfigInvalida: ingest ilegível ou conjunto SIA-PA com artefatos de dentro e de fora.
+    """
+    pedidos = set(artefatos)
+    refs = [ref for ref in ler_datasets(pasta) if _dos_artefatos(ref, pedidos)]
+    _gravar_janela(refs, destino)
+    logger.info("janela_dos_artefatos destino=%s artefatos=%d", destino, len(pedidos))
+    return destino
 
 
 def competencias_da_janela(config: RunConfig, particao: DatasetRef) -> tuple[str, ...]:
-    raise NotImplementedError("competencias_da_janela")
+    """Competências do piloto da janela da partição: as dos arquivos e as das linhas.
+
+    O `validate --ingest` exige a competência de cada arquivo no piloto e recorta as linhas pelas
+    competências de processamento dele; num arquivo cuja competência difere da das linhas, as duas
+    entram.
+
+    Raises:
+        ConfigInvalida: artefato da partição que o manifesto de aquisição não tem.
+    """
+    dos_arquivos = _competencias_do_dataset(particao, _competencia_por_artefato(config))
+    return tuple(sorted(dos_arquivos | set(competencias_da_particao(particao))))
 
 
 def competencias_da_particao(particao: DatasetRef) -> tuple[str, ...]:

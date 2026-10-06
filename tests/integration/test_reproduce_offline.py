@@ -31,7 +31,7 @@ from tests.fixtures.reproducao_fluxo import (
     reproduzir,
     validar_janelas,
 )
-from tests.fixtures.reproducao_mundo import COMPETENCIAS, comando, escrever_config
+from tests.fixtures.reproducao_mundo import COMPETENCIAS, JANELAS, comando, escrever_config
 from tests.fixtures.reproducao_parquet import adulterar_coluna, reordenar_linhas
 
 from sustemporal.acquisition.manifest import Manifesto
@@ -300,7 +300,7 @@ def test_reproduce_refaz_o_split_com_os_artefatos_inspecionados_do_congelamento(
 def test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual(
     fluxo: Fluxo, reproducao: Reproducao
 ) -> None:
-    config = escrever_config(fluxo.mundo, "teste4", ("202401",), threads=4)
+    config = escrever_config(fluxo.mundo, "teste4", JANELAS["teste"], threads=4)
     rotulos = _original_do_congelamento(fluxo, "sia_pa_rotulos.v1")
     original = reordenar_linhas(rotulos)
     try:

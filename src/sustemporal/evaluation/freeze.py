@@ -24,7 +24,7 @@ from sustemporal.evaluation.freeze_entrada import identidades_da_entrada
 from sustemporal.gates import DIR_DECISOES, exigir_portao
 from sustemporal.hashing import sha256_arquivo
 from sustemporal.rules.catalog import carregar_esquema, catalogo_sha256
-from sustemporal.runtime_info import ambiente, versao_codigo
+from sustemporal.runtime_info import RAIZ_DO_PACOTE, ambiente, versao_codigo
 from sustemporal.yamlio import carregar_yaml
 
 if TYPE_CHECKING:
@@ -141,7 +141,7 @@ def congelar(
     g0 = exigir_portao(decisoes, Portao.G0, hoje=hoje)
     _exigir_coerencia(protocolo)
     entradas_validacao = _entradas_validacao(protocolo)
-    raiz = Path.cwd()
+    raiz = RAIZ_DO_PACOTE
     try:
         manifesto = FreezeManifest.criar(
             criado_em=(relogio or _agora)(),

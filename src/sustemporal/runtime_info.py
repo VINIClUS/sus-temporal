@@ -12,6 +12,10 @@ from pathlib import Path
 
 from sustemporal.contracts.experiment import Ambiente, CodeVersion
 
+# Raiz do checkout que contém o pacote: o código e o `uv.lock` registrados são os dele, nunca os
+# do diretório de trabalho (rodar de outra pasta não troca o commit registrado).
+RAIZ_DO_PACOTE = Path(__file__).resolve().parents[2]
+
 PACOTES_RELEVANTES = (
     "sus-temporal",
     "duckdb",
@@ -91,7 +95,7 @@ def _hash_diferencas(raiz: Path) -> str | None:
     return resumo.hexdigest()
 
 
-def versao_codigo(raiz: Path) -> CodeVersion:
+def versao_codigo(raiz: Path = RAIZ_DO_PACOTE) -> CodeVersion:
     commit = _git(raiz, "rev-parse", "HEAD")
     estado = _git(raiz, "status", "--porcelain", "--untracked-files=all")
     sujo = commit is None or estado is None or bool(estado)
@@ -110,7 +114,7 @@ def _versao(pacote: str) -> str:
         return "ausente"
 
 
-def ambiente(raiz: Path) -> Ambiente:
+def ambiente(raiz: Path = RAIZ_DO_PACOTE) -> Ambiente:
     trava = raiz / "uv.lock"
     return Ambiente(
         python=platform.python_version(),

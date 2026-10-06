@@ -403,9 +403,14 @@ anterior continua sendo o registro do código que a produziu. A imutabilidade co
 `out/<run_id>/`: no `--ingest`, as relações derivadas (`runs/entradas/`) e as seleções
 (`runs/selecoes/`) são preparadas antes do motor e nomeadas pelo conteúdo. Das duas opções
 registradas em ORQ-05 e T14-11 (incluir o código no `run_id`, ou recusar a sobrescrita), vale a
-segunda: o id continua derivado só de insumos e configuração, em vez de mudar a cada commit. O
-limite é o da `versao_codigo`: sem git, o `CodeVersion` é `desconhecido` e `sujo`, sem
-`diff_sha256`, e duas execuções nessa condição comparam iguais.
+segunda: o id continua derivado só de insumos e configuração, em vez de mudar a cada commit. A
+versão é a do checkout que contém o pacote (`RAIZ_DO_PACOTE`, em `runtime_info`), nunca a do
+diretório de trabalho: rodar de outra pasta (`cd $MUNDO; uv run --project $REPO ...`) registra o
+commit e o `uv.lock` do checkout, no motor, no `freeze`, no `evaluate`, no baseline e no
+`reproduce`. O limite é o da `versao_codigo`: com o pacote fora de um checkout git (instalado sem
+`.git`), o `CodeVersion` é `desconhecido` e `sujo`, sem `diff_sha256`, e duas execuções nessa
+condição comparam iguais, como duas árvores sujas do mesmo commit cujo `diff_sha256` não pôde ser
+calculado (pendência em `docs/pendencias/T07.md`).
 
 ## 8. Limites declarados
 - Testes sintéticos verificam a implementação contra esta especificação, não a hipótese empírica.

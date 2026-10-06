@@ -43,6 +43,7 @@ from tests.fixtures.contrafactual_execucao import (
     Execucao,
     executar_validacao_sintetica,
 )
+from tests.fixtures.explicacao_estragos import ESTRAGOS_FORA_DO_ESQUEMA, estragar_saida_gravada
 
 if TYPE_CHECKING:
     from sustemporal.contracts.experiment import RunResult
@@ -277,6 +278,29 @@ def test_run_result_nao_utf8_e_recusa_de_execucao(
         ContextoIndisponivel, match=r"contrafactual_sem_contexto .*execucao_ilegivel"
     ):
         _contexto(execucao)
+
+
+def _saida_do_contrafactual(execucao: Execucao, row: str) -> int | str:
+    """Código de saída; exceção que escapa vira texto, para falhar por asserção."""
+    try:
+        return _rodar(execucao, row)
+    except Exception as erro:
+        return f"excecao={type(erro).__name__}"
+
+
+@pytest.mark.parametrize("estrago", sorted(ESTRAGOS_FORA_DO_ESQUEMA))
+def test_saida_fora_do_esquema_da_saida_2_e_remove_o_resultado_anterior(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, estrago: str
+) -> None:
+    execucao = executar_validacao_sintetica(tmp_path)
+    assert _rodar(execucao, execucao.ausencia) == 0
+    destino = _destino(execucao, execucao.ausencia)
+    assert (destino / "contrafactual.json").exists()
+    run_result = _pasta_da_execucao(execucao) / "run_result.json"
+    estragar_saida_gravada(run_result, estrago, execucao.ausencia)
+    assert _saida_do_contrafactual(execucao, execucao.ausencia) == 2
+    assert "counterfactual_recusado erro=saida_incoerente_com_contrato" in caplog.text
+    assert not destino.exists()
 
 
 @pytest.mark.parametrize(

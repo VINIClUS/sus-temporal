@@ -54,6 +54,7 @@ from tests.fixtures.explicacao_cenario import (
     cenario_diferencial,
     executar_cenario,
 )
+from tests.fixtures.explicacao_estragos import ESTRAGOS_FORA_DO_ESQUEMA, estragar_saida_gravada
 from tests.fixtures.regras_cenario import reemitir
 from tests.fixtures.regras_execucao import regras_so_de_c, saida
 from tests.fixtures.regras_exemplos import ART_SIA
@@ -673,6 +674,74 @@ def test_cli_recusa_remove_explicacao_anterior(tmp_path: Path) -> None:
     _reescrever(saida(execucao, "avaliacoes.v1"), lambda linha: linha | {"motivos": "X"})
     assert executar_explain(args, config) == ExitCode.CONFIG_INVALIDA
     assert not destino.exists()
+
+
+def _saida_do_explain(args: argparse.Namespace, config: RunConfig) -> int | str:
+    """Código de saída do `explain`; exceção que escapa vira texto, para falhar por asserção."""
+    try:
+        return executar_explain(args, config)
+    except Exception as erro:
+        return f"excecao={type(erro).__name__}"
+
+
+@pytest.mark.parametrize("estrago", sorted(ESTRAGOS_FORA_DO_ESQUEMA))
+def test_cli_saida_fora_do_esquema_sai_com_2_e_remove_a_explicacao_anterior(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, estrago: str
+) -> None:
+    execucao = _publicar(tmp_path)
+    args, config = _args(execucao.run_id, LINHA_VIOLACAO), _config(tmp_path)
+    assert executar_explain(args, config) == ExitCode.OK
+    destino = diretorio_explicacao(tmp_path, execucao.run_id, LINHA_VIOLACAO)
+    assert destino.is_dir()
+    estragar_saida_gravada(_run_result(tmp_path, execucao), estrago, LINHA_VIOLACAO)
+    assert _saida_do_explain(args, config) == ExitCode.CONFIG_INVALIDA
+    assert "explain_recusado erro=saida_incoerente_com_contrato" in caplog.text
+    assert not destino.exists()
+
+
+_LINHA_EVIDENCIA: dict[str, object] = {
+    "evidence_id": "ev_sintetica",
+    "tipo": "VINCULO_ENCONTRADO",
+    "query_id": "estabelecimento_cbo.existencia",
+    "sql_sha256": "0" * 64,
+    "parametros": '{"cbo":"225125","cnes":"1234567"}',
+    "dataset_id": f"ds_{'0' * 64}",
+    "hash_logico": HASH_FALSO,
+    "artifact_ids": ART_SIA,
+    "cobertura": "DISPONIVEL",
+    "integridade": "OK",
+    "n_resultados": 1,
+    "chaves_amostra": '["1234567|225125"]',
+}
+
+
+def _erro_ao_ler(linha: dict[str, object]) -> Exception | None:
+    """Exceção de `ler_evidencia`, de qualquer tipo, ou `None`: falha por asserção."""
+    try:
+        ler_evidencia(linha)
+    except Exception as erro:
+        return erro
+    return None
+
+
+@pytest.mark.parametrize(
+    ("coluna", "valor"),
+    [
+        ("parametros", "7"),
+        ("parametros", "[]"),
+        ("parametros", '"cbo"'),
+        ("chaves_amostra", "7"),
+        ("chaves_amostra", '"1234567|225125"'),
+        ("chaves_amostra", "{}"),
+    ],
+)
+def test_ler_evidencia_recusa_parametros_que_nao_sao_objeto_e_chaves_que_nao_sao_lista(
+    coluna: str, valor: str
+) -> None:
+    assert _erro_ao_ler(_LINHA_EVIDENCIA) is None
+    erro = _erro_ao_ler(_LINHA_EVIDENCIA | {coluna: valor})
+    assert isinstance(erro, ValueError), repr(erro)
+    assert "evidencia_incoerente_com_contrato" in str(erro)
 
 
 def test_cli_recusa_run_relativo_mesmo_com_execucao_alcancavel(

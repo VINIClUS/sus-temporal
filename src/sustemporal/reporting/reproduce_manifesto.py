@@ -165,6 +165,19 @@ def _recorte(atual: EstadoManifesto, mantidas: tuple[LinhaManifesto, ...]) -> Re
     )
 
 
+def _manifesto_atual(raiz_origem: Path) -> EstadoManifesto | str:
+    """O manifesto de `raiz_origem` ou o motivo de não se poder lê-lo: corrompido ou ilegível."""
+    caminho = raiz_origem / NOME_MANIFESTO_AQUISICAO
+    try:
+        return Manifesto(caminho).ler()
+    except (ManifestoCorrompido, UnicodeDecodeError) as erro:
+        logger.warning("manifesto_corrompido caminho=%s erro=%s", caminho, type(erro).__name__)
+        return "manifesto_corrompido"
+    except OSError as erro:
+        logger.warning("manifesto_ilegivel caminho=%s erro=%s", caminho, type(erro).__name__)
+        return f"manifesto_ilegivel erro={type(erro).__name__}"
+
+
 def resolver_manifesto(
     raiz_ingest: Path,
     raiz_origem: Path,
@@ -177,7 +190,8 @@ def resolver_manifesto(
     `sia_pa.v1`) é o dos `congelados`; candidatas com a mesma posição não são ambiguidade. Nada é
     gravado. Sem execução, com candidata sem posição legível, com posições diferentes ou com uma
     posição que o manifesto atual não tem (linhas a mais, hash da última diferente ou fim no meio
-    de uma transação), `motivo` diz por quê.
+    de uma transação), ou com o manifesto atual corrompido ou ilegível (diretório no lugar, sem
+    permissão, bytes que não decodificam), `motivo` diz por quê.
     """
     candidatas, execucoes = _candidatas(raiz_ingest, _sia_pa(congelados))
     if not candidatas:
@@ -187,10 +201,9 @@ def resolver_manifesto(
         return Resolucao(motivo=motivo)
     if configuracao is not None and (motivo := _configuracao_diferente(candidatas, configuracao)):
         return Resolucao(motivo=motivo)
-    try:
-        atual = Manifesto(raiz_origem / NOME_MANIFESTO_AQUISICAO).ler()
-    except ManifestoCorrompido:
-        return Resolucao(motivo="manifesto_corrompido")
+    atual = _manifesto_atual(raiz_origem)
+    if isinstance(atual, str):
+        return Resolucao(motivo=atual)
     mantidas = _ate_a_posicao(atual, posicao)
     if isinstance(mantidas, str):
         return Resolucao(motivo=mantidas)

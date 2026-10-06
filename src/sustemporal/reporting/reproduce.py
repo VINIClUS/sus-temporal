@@ -61,6 +61,7 @@ from sustemporal.reporting.reproduce_etapas import (
     janela_dos_artefatos,
     validar_janela,
 )
+from sustemporal.reporting.reproduce_leitura import arquivo_sob, entradas_legiveis
 from sustemporal.reporting.reproduce_manifesto import (
     Resolucao,
     gravar_manifesto,
@@ -91,6 +92,7 @@ DIRETORIO_REPRODUCAO = "reproducao"
 DIRETORIO_MANIFESTOS = "manifestos"
 RELATORIO = "reproducao.json"
 ITEM_MANIFESTO = "manifesto:aquisicao"
+ITEM_ORIGINAIS = "ingest:originais"
 PARTICOES_REFEITAS = (Particao.CALIBRACAO, Particao.TESTE)
 
 
@@ -139,9 +141,13 @@ def _exigir_reprodutivel(config: RunConfig) -> str:
 
 
 def _exigir_destino_novo(out: Path) -> None:
-    if out.exists() and (not out.is_dir() or any(out.iterdir())):
-        raise ConfigInvalida(f"reproduce_destino_nao_vazio caminho={out}")
-    out.mkdir(parents=True, exist_ok=True)
+    try:
+        if out.exists() and (not out.is_dir() or any(out.iterdir())):
+            raise ConfigInvalida(f"reproduce_destino_nao_vazio caminho={out}")
+        out.mkdir(parents=True, exist_ok=True)
+    except OSError as erro:
+        detalhe = f"caminho={out} erro={type(erro).__name__}"
+        raise ConfigInvalida(f"reproduce_destino_ilegivel {detalhe}") from erro
 
 
 def _config_em(config: RunConfig, out: Path) -> RunConfig:
@@ -308,6 +314,15 @@ def _item_do_manifesto(resolucao: Resolucao) -> list[Comparacao]:
     return [Comparacao(ITEM_MANIFESTO, Situacao.INCONCLUSIVO, None, None, resolucao.motivo)]
 
 
+def _original_ilegivel(erro: OSError, config: RunConfig) -> list[Comparacao]:
+    """O item do arquivo bruto que o `ingest` refeito não leu (vazio se o erro é de outro)."""
+    arquivo = arquivo_sob(erro, Path(config.runtime.raiz_dados))
+    if arquivo is None:
+        return []
+    detalhe = f"original_ilegivel arquivo={arquivo} erro={type(erro).__name__}"
+    return [Comparacao(ITEM_ORIGINAIS, Situacao.INCONCLUSIVO, None, None, detalhe)]
+
+
 def _parar_se_inconclusivo(
     config: RunConfig, out: Path, itens: list[Comparacao], observacoes: list[str]
 ) -> None:
@@ -346,7 +361,13 @@ def _ingerir_o_original(
     gravar_manifesto(
         Path(config.runtime.raiz_manifestos), Path(em_out.runtime.raiz_manifestos), resolucao
     )
-    pasta = _ingerir(em_out)
+    try:
+        pasta = _ingerir(em_out)
+    except OSError as erro:
+        itens_do_original = _original_ilegivel(erro, config)
+        avisos = [*observacoes_do_manifesto(resolucao), *do_ambiente]
+        _parar_se_inconclusivo(config, out, itens_do_original, avisos)
+        raise
     estados = estados_do_ingest(pasta)
     observacoes = [
         *observacoes_do_manifesto(resolucao),
@@ -415,8 +436,8 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
     """Refaz o fluxo do congelamento em `out` e o compara com o congelado e o registrado.
 
     Raises:
-        ConfigInvalida: config sem `freeze_id`, confirmatória, `out` já usado ou entradas locais
-            ausentes ou inválidas.
+        ConfigInvalida: config sem `freeze_id`, confirmatória, `out` já usado ou que não se lista
+            nem se cria, ou entradas locais ausentes, ilegíveis ou inválidas.
         RedeProibida: config com `rede_permitida` ou qualquer tentativa de conexão.
         FalhaOperacionalErro: conteúdo refeito diferente do congelado ou do original, saída que
             só uma das execuções emitiu, ou item sem original para comparar (artefato do SIA-PA ou
@@ -428,7 +449,7 @@ def reproduce(config: RunConfig, out: Path) -> EvaluationReport:
     manifesto = carregar_freeze(Path(config.runtime.dir_congelamentos), freeze_id)
     _exigir_destino_novo(out)
     em_out = _config_em(config, out)
-    with sem_rede():
+    with sem_rede(), entradas_legiveis(out):
         original = ler_original(config, freeze_id)
         preparado = _ingerir_o_original(config, em_out, out, manifesto, original)
         derivado = _derivar(em_out, manifesto, preparado.pasta)

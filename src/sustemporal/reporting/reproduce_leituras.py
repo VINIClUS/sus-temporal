@@ -145,9 +145,9 @@ _DOS_ORIGINAIS = _e(R.INCONCLUSIVO, "conjunto:*", "insumos:*")
 _DO_INGEST = _e(R.INCONCLUSIVO, "ingest:originais")
 
 _DESTINO_NOVO = (
-    "o destino é novo e vazio (`reproduce_destino_nao_vazio`): nada de fora o estraga antes de a "
-    "reprodução gravá-lo, e o que se perde durante a execução sai falha operacional "
-    "(`reproduce_saida_ilegivel`)"
+    "o destino é novo e vazio (`reproduce_destino_nao_vazio`; que não se lista ou não se cria "
+    "sai 2, `reproduce_destino_ilegivel`): nada de fora o estraga antes de a reprodução gravá-lo, "
+    "e o que se perde durante a execução sai falha operacional (`reproduce_saida_ilegivel`)"
 )
 _CODIGO = "é o código que roda: a instalação do pacote não é entrada da reprodução"
 _TEMPORARIO = "temporário que o próprio processo grava e lê na mesma chamada"

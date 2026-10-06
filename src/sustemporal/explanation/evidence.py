@@ -107,9 +107,13 @@ def ler_evidencia(linha: Mapping[str, object]) -> Evidence:
     """Evidence a partir de uma linha de `evidencias.v1` (JSON canônico e listas com ';').
 
     Raises:
-        ValueError: parâmetro nulo ou linha incoerente com o contrato.
+        ValueError: parâmetro nulo, `parametros` que não é objeto, `chaves_amostra` que não é
+            lista, ou linha incoerente com o contrato.
     """
     parametros = json.loads(str(linha["parametros"] or "{}"))
+    chaves = json.loads(str(linha["chaves_amostra"] or "[]"))
+    if not isinstance(parametros, dict) or not isinstance(chaves, list):
+        raise ValueError(f"evidencia_incoerente_com_contrato evidencia={linha['evidence_id']}")
     if any(valor is None for valor in parametros.values()):
         raise ValueError(f"evidencia_parametro_nulo evidencia={linha['evidence_id']}")
     return Evidence.model_validate(
@@ -121,7 +125,7 @@ def ler_evidencia(linha: Mapping[str, object]) -> Evidence:
             "cobertura": linha["cobertura"],
             "integridade": linha["integridade"],
             "n_resultados": linha["n_resultados"],
-            "chaves_amostra": tuple(json.loads(str(linha["chaves_amostra"] or "[]"))),
+            "chaves_amostra": tuple(chaves),
         }
     )
 

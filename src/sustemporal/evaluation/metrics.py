@@ -18,9 +18,15 @@ from typing import TYPE_CHECKING
 from sustemporal.contracts.base import hash_canonico
 from sustemporal.contracts.config import RuntimeConfig
 from sustemporal.contracts.evaluation import EvaluationReport, TipoMetrica, ValorMetrica
-from sustemporal.contracts.experiment import BootstrapSpec, ModoExecucao, Particao, Portao
+from sustemporal.contracts.experiment import (
+    BootstrapSpec,
+    CorrecaoMultiplicidade,
+    ModoExecucao,
+    Particao,
+    Portao,
+)
 from sustemporal.duck import conectar
-from sustemporal.errors import FalhaOperacionalErro, PortaoRecusado
+from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro, PortaoRecusado
 from sustemporal.evaluation.bootstrap import intervalo_diferenca, intervalo_razao
 from sustemporal.evaluation.freeze_conferencia import verificar_congelamento_completo
 from sustemporal.evaluation.metrics_calculo import (
@@ -70,6 +76,9 @@ _BLOCOS_TEMPORAIS = "sensibilidade_blocos_temporais"
 _CASAS = Decimal("0.000001")
 _SEM_CNES = "SEM_CNES"
 _SEM_COMPETENCIA = "SEM_COMPETENCIA"
+_CORRECOES_COM_TESTE_FORMAL = frozenset(
+    {CorrecaoMultiplicidade.HOLM, CorrecaoMultiplicidade.BONFERRONI}
+)
 NOTAS = (
     (
         "populacao_alvo_estabelecimento: o bootstrap sorteia estabelecimentos (CNES) inteiros, "
@@ -313,6 +322,12 @@ def _bootstrap(
             "avaliacao_confirmatoria_com_bootstrap_diferente_do_congelado "
             f"freeze={manifesto.freeze_id}"
         )
+    correcao = manifesto.bootstrap.correcao
+    if correcao in _CORRECOES_COM_TESTE_FORMAL:
+        raise ConfigInvalida(
+            "avaliacao_confirmatoria_com_correcao_nao_implementada "
+            f"correcao={correcao.value} freeze={manifesto.freeze_id}"
+        )
     return manifesto.bootstrap
 
 
@@ -336,6 +351,15 @@ def _id_do_relatorio(
     return f"rep_{hash_canonico(conteudo)}"
 
 
+def _nota_de_correcao(spec: BootstrapSpec) -> str:
+    """Nenhum teste formal está implementado: a correção congelada não muda nenhum cálculo."""
+    nivel = format((spec.confianca * 100).normalize(), "f")
+    return (
+        f"correcao_multiplicidade={spec.correcao.value}: sem teste formal; "
+        f"intervalos de {nivel}% sem ajuste"
+    )
+
+
 def _notas(
     particao: Particao, spec: BootstrapSpec, coberturas: Sequence[Cobertura]
 ) -> tuple[str, ...]:
@@ -343,6 +367,7 @@ def _notas(
         *NOTAS,
         f"particao={particao.value}",
         f"reamostragens={spec.reamostragens}",
+        _nota_de_correcao(spec),
         *notas_de_cobertura(coberturas),
     )
 
@@ -366,6 +391,8 @@ def evaluate_runs(
             sem manifesto e estado do avaliador, ou com bootstrap, split, estado ou execução
             incompatível com o congelamento, execução incompleta, sem método primário, que não
             cobre todos os registros do TESTE ou que repete o resultado de um (método, row_id).
+        ConfigInvalida: confirmatório congelado com correção HOLM ou BONFERRONI, que exige
+            testes formais ainda não implementados.
         FalhaOperacionalErro: entrada ilegível ou diferente do `DatasetRef`.
     """
     if not runs:

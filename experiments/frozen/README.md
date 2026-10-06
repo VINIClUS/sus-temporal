@@ -83,7 +83,7 @@ divergência. A biblioteca (`evaluate_runs`) repete a conferência antes de ler 
 | `datasets` | `entradas` | `entradas` | estado: cada dataset do avaliador é do congelamento; execução: entradas `sia_pa.v1` e de rótulos congeladas, com a população da partição TESTE entre elas (o baseline pode trazer outras partições); auxiliares, seleções e cobertura não entram no manifesto |
 | `split` | `split` | não se aplica | comparado por inteiro, não só pelo `split_id`, que não deriva do conteúdo |
 | `features` | `features` | não se aplica | lista positiva de atributos |
-| `bootstrap` | `bootstrap` | não se aplica | o `evaluate_runs` confirmatório usa o do manifesto e recusa outro (`avaliacao_confirmatoria_com_bootstrap_diferente_do_congelado`) |
+| `bootstrap` | `bootstrap` | não se aplica | o `evaluate_runs` confirmatório usa o do manifesto e recusa outro (`avaliacao_confirmatoria_com_bootstrap_diferente_do_congelado`); nenhum teste formal está implementado, então recusa também a correção HOLM ou BONFERRONI (`avaliacao_confirmatoria_com_correcao_nao_implementada`, código 2; pendência T11 #32), e todo relatório traz a nota `correcao_multiplicidade=<valor>: sem teste formal; intervalos de 95% sem ajuste` |
 | `metricas` | `metricas` | não se aplica | as métricas do avaliador (`METRICAS_PROTOCOLO`) |
 | `comparacoes_primarias` | `comparacoes` | `metodos` | as do avaliador; o confirmatório exige a execução de cada método (M_TEMP, B_ATEND e B_PROC) e, se falta algum, recusa (`avaliacao_confirmatoria_sem_metodo_das_comparacoes_primarias`) |
 | `margens` | informativo | informativo | a avaliação não usa margens de relevância prática (pendência T11 #2) |

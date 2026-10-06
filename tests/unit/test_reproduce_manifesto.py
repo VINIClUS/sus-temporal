@@ -473,6 +473,21 @@ def test_bytes_que_nao_decodificam_na_leitura_do_manifesto_tambem_sao_corrupcao(
     assert _resolver(tmp_path, origem, uniao).motivo == "manifesto_corrompido"
 
 
+def test_manifesto_corrompido_registra_o_arquivo_e_o_erro_no_log(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    origem, (a, _b, _c) = _tres(tmp_path)
+    uniao = _conjunto(_id(a))
+    _execucao(tmp_path / "ingest", "execucao_1", [uniao], _posicao(origem, 2))
+    caminho = origem / NOME_MANIFESTO_AQUISICAO
+    with (
+        caplog.at_level(logging.WARNING, logger="sustemporal.reporting.reproduce_manifesto"),
+        estragado(caminho, Dano.BYTES),
+    ):
+        _resolver(tmp_path, origem, uniao)
+    assert f"manifesto_corrompido caminho={caminho} erro=ManifestoCorrompido" in caplog.messages
+
+
 def test_manifesto_ilegivel_registra_o_arquivo_e_o_erro_no_log(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

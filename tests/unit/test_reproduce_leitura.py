@@ -16,7 +16,9 @@ import pytest
 
 from sustemporal.errors import ConfigInvalida, FalhaOperacionalErro, RedeProibida
 from sustemporal.reporting.reproduce_leitura import arquivo_sob, entradas_legiveis
+from sustemporal.reporting.reproduce_leituras import Dano
 from sustemporal.rules.catalog import CatalogoInvalido, carregar_esquema
+from tests.fixtures.reproducao_estragos import estragado
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -69,6 +71,17 @@ def test_a_mensagem_diz_a_funcao_do_projeto_que_estava_lendo(tmp_path: Path) -> 
         entradas_legiveis(tmp_path / "saida"),
     ):
         carregar_esquema("nao_existe", tmp_path)
+
+
+def test_a_funcao_do_projeto_e_a_mais_funda_da_pilha_e_nao_a_primeira(tmp_path: Path) -> None:
+    esquema = tmp_path / "x.yaml"
+    esquema.write_text("a: 1\n", encoding="utf-8")
+    with (
+        estragado(esquema, Dano.BYTES),
+        pytest.raises(ConfigInvalida, match=r"erro=UnicodeDecodeError onde=yamlio\.carregar_yaml$"),
+        entradas_legiveis(tmp_path / "saida"),
+    ):
+        carregar_esquema("x", tmp_path)
 
 
 def test_a_mensagem_sem_funcao_do_projeto_traz_o_hifen(tmp_path: Path) -> None:

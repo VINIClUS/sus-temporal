@@ -7,13 +7,25 @@ os campos que as comparações projetam ou deixam de fora (`DatasetRef`, `SplitM
 `EvaluationReport`), e `COMPARACOES` diz o que cada comparação confere antes de projetar. Um
 teste percorre os campos dos contratos e falha se um campo novo ficar sem tratamento, como em
 `freeze_conferencia.CAMPOS_DO_MANIFESTO`; campo lido e não conferido é limite declarado (T14-16),
-com efeito conservador: divergência ou inconclusão, nunca reprodução falsa.
+com efeito conservador: divergência ou inconclusão, nunca reprodução falsa. `LEITURAS` (em
+`reproduce_leituras`, por causa do limite de tamanho do arquivo, e reexportada daqui) lista os
+arquivos que a cadeia abre e o resultado de cada um que não abre.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+
+from sustemporal.reporting.reproduce_leituras import (
+    LEITURAS,
+    Dano,
+    Estrago,
+    Leitura,
+    Origem,
+    Raiz,
+    Resultado,
+)
 
 __all__ = [
     "CAMPOS_DA_CONFIG",
@@ -22,10 +34,16 @@ __all__ = [
     "CAMPOS_DO_RELATORIO",
     "CAMPOS_DO_SPLIT",
     "COMPARACOES",
+    "LEITURAS",
     "Conferencia",
     "Conferido",
     "Dano",
+    "Estrago",
     "Fonte",
+    "Leitura",
+    "Origem",
+    "Raiz",
+    "Resultado",
     "Tratamento",
 ]
 
@@ -49,14 +67,6 @@ class Conferencia(StrEnum):
     INDIRETA = "INDIRETA"
     RECUSA = "RECUSA"
     NENHUMA = "NENHUMA"
-
-
-class Dano(StrEnum):
-    """O que se faz a um arquivo que a cadeia abre para ele não abrir."""
-
-    DIRETORIO = "DIRETORIO"
-    PERMISSAO = "PERMISSAO"
-    BYTES = "BYTES"
 
 
 @dataclass(frozen=True)

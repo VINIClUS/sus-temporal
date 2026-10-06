@@ -47,8 +47,6 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.slow
 
-POLITICAS = {"m_temp_nao_resolvida", "b_atend_exploratoria", "b_proc_exploratoria"}
-
 
 @pytest.fixture(scope="module")
 def ingerido(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Fluxo]:
@@ -212,20 +210,6 @@ def test_derivar_protocolo_recusa_ingest_sem_sia_pa(derivado: Fluxo, tmp_path: P
         derivar_protocolo(derivado.config("teste"), vazio, tmp_path / "split", spec=spec)
 
 
-def test_validar_janela_roda_as_tres_politicas_e_grava_em_runs(derivado: Fluxo) -> None:
-    assert derivado.ingest is not None
-    config = derivado.config("teste")
-    janela = derivado.mundo.saidas / "janelas" / "teste"
-    janela = _janela(derivado, janela, ("202401",))
-    padrao = dict.fromkeys((MetodoId.M_TEMP, MetodoId.B_ATEND, MetodoId.B_PROC))
-    execucoes = validar_janela(config, janela, padrao)
-    assert set(execucoes) == {MetodoId.M_TEMP, MetodoId.B_ATEND, MetodoId.B_PROC}
-    assert {run.politica_id for run in execucoes.values()} == POLITICAS
-    assert all(run.estado is EstadoExecucao.CONCLUIDA for run in execucoes.values())
-    for run in execucoes.values():
-        assert ler_execucao(raiz_execucoes(config), run.run_id) == run
-
-
 def test_validar_janela_refaz_cada_metodo_com_a_politica_pedida(derivado: Fluxo) -> None:
     config = derivado.config("teste_cohort")
     janela = _janela(derivado, derivado.mundo.saidas / "janelas" / "teste_politicas", ("202401",))
@@ -237,6 +221,8 @@ def test_validar_janela_refaz_cada_metodo_com_a_politica_pedida(derivado: Fluxo)
         MetodoId.B_PROC: "b_proc_exploratoria",
     }
     assert all(run.estado is EstadoExecucao.CONCLUIDA for run in execucoes.values())
+    for run in execucoes.values():
+        assert ler_execucao(raiz_execucoes(config), run.run_id) == run
 
 
 def test_validar_janela_so_refaz_os_metodos_pedidos(derivado: Fluxo) -> None:

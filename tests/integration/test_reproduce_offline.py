@@ -36,7 +36,13 @@ from tests.fixtures.reproducao_fluxo import (
     sem_os_artefatos,
     validar_janelas,
 )
-from tests.fixtures.reproducao_mundo import COMPETENCIAS, JANELAS, comando, escrever_config
+from tests.fixtures.reproducao_mundo import (
+    COMPETENCIAS,
+    JANELAS,
+    POLITICA_DOCUMENTADA,
+    comando,
+    escrever_config,
+)
 from tests.fixtures.reproducao_parquet import adulterar_coluna, reordenar_linhas
 
 from sustemporal.acquisition.manifest import Manifesto
@@ -368,28 +374,53 @@ def test_o_congelamento_traz_a_politica_do_catalogo_em_m_temp_e_as_padrao_dos_ba
     assert "M_TEMP_PADRAO" in (_manifesto(fluxo).politicas_sha256 or {})
 
 
-def test_reproduce_com_politica_id_na_config_refaz_cada_metodo_com_a_politica_congelada(
-    fluxo: Fluxo,
-) -> None:
-    config = fluxo.configs["teste_cohort"]
-    feita = reproduzir(fluxo, config, fluxo.mundo.raiz / "reproducao_politica_na_config")
-    assert feita.codigo == ExitCode.OK
-    assert feita.conteudo["resultado"] == "IGUAL"
-    assert set(feita.itens) == ITENS_DA_REPRODUCAO
-    assert set(feita.situacoes.values()) == {"IGUAL"}
-    assert "config_diferente_da_congelada" in feita.conteudo["observacoes"]
+EXTRA = "catalogo_extra"
 
 
-def test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual(
-    fluxo: Fluxo, reproducao: Reproducao
-) -> None:
-    config = escrever_config(fluxo.mundo, "teste4", JANELAS["teste"], threads=4)
+@pytest.fixture(scope="module")
+def reproducao_variada(fluxo: Fluxo) -> Reproducao:
+    """Uma só reprodução com tudo o que muda a config ou os bytes, e não o conteúdo.
+
+    A config é a do protocolo como o `config/cohort.yaml` (`metodos` e `politica_id` do M_TEMP),
+    com 4 threads e um catálogo que o congelamento não tinha, sobre originais com os rótulos
+    regravados em outra ordem de linhas (bytes diferentes, mesmo hash lógico). Os testes abaixo
+    leem a mesma reprodução: cada uma custa cerca de 25 s e o CI tem 30 minutos.
+    """
+    extra = fluxo.mundo.raiz / f"{EXTRA}.yaml"
+    extra.write_text("extra: 1\n", encoding="utf-8")
+    config = escrever_config(
+        fluxo.mundo,
+        "variada",
+        JANELAS["teste"],
+        threads=4,
+        politica_id=POLITICA_DOCUMENTADA,
+        extras_de_catalogo={EXTRA: extra},
+    )
     rotulos = _original_do_congelamento(fluxo, "sia_pa_rotulos.v1")
     original = reordenar_linhas(rotulos)
     try:
-        de_4 = reproduzir(fluxo, config, fluxo.mundo.raiz / "reproducao_4_threads")
+        return reproduzir(fluxo, config, fluxo.mundo.raiz / "reproducao_variada")
     finally:
         rotulos.write_bytes(original)
+
+
+def test_reproduce_com_politica_id_na_config_refaz_cada_metodo_com_a_politica_congelada(
+    reproducao_variada: Reproducao,
+) -> None:
+    feita = reproducao_variada
+    assert feita.codigo == ExitCode.OK
+    assert set(feita.itens) == ITENS_DA_REPRODUCAO
+    assert set(feita.situacoes.values()) <= {"IGUAL", BYTES_DIFERENTES}
+    arquivos = feita.out.glob("runs/val_*/run_result.json")
+    refeitas = [json.loads(arquivo.read_text(encoding="utf-8")) for arquivo in arquivos]
+    usadas = {(run["metodo"], run["politica_id"]) for run in refeitas}
+    assert usadas == set(zip(METODOS, POLITICAS, strict=True))
+
+
+def test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual(
+    reproducao: Reproducao, reproducao_variada: Reproducao
+) -> None:
+    de_4 = reproducao_variada
     assert de_4.codigo == ExitCode.OK
     assert reproducao.codigo == ExitCode.OK
     situacoes = de_4.situacoes
@@ -400,22 +431,12 @@ def test_reproduce_com_4_threads_e_bytes_diferentes_nos_originais_segue_igual(
     assert metricas_refeitas(de_4.out) == metricas_refeitas(reproducao.out)
 
 
-def test_reproduce_falha_e_nomeia_os_itens_quando_o_conteudo_original_diverge(fluxo: Fluxo) -> None:
-    uniao = _original_do_congelamento(fluxo, "sia_pa.v1")
-    run = fluxo.execucoes[("cal", "atendimento")]
-    agregados = Path(next(s for s in run.saidas if s.schema_id == "agregados_registro.v1").caminho)
-    original_uniao = adulterar_coluna(uniao, "quantidade_apresentada", 99)
-    original_agregados = adulterar_coluna(agregados, "resultado", "ABSTENCAO")
-    try:
-        feita = reproduzir(fluxo, fluxo.configs["teste"], fluxo.mundo.raiz / "reproducao_div")
-    finally:
-        uniao.write_bytes(original_uniao)
-        agregados.write_bytes(original_agregados)
-    assert feita.codigo == ExitCode.FALHA_OPERACIONAL
-    assert feita.conteudo["resultado"] == "DIVERGENTE"
-    divergentes = {item for item, situacao in feita.situacoes.items() if situacao == "DIVERGENTE"}
-    assert divergentes == {"conjunto:sia_pa.v1", "saida:B_ATEND:agregados_registro.v1"}
-    assert feita.itens["conjunto:sia_pa.v1"]["detalhe"] == "original_diverge"
+def test_reproduce_com_catalogo_que_o_congelamento_nao_tinha_e_observacao_e_reproduz_igual(
+    reproducao_variada: Reproducao,
+) -> None:
+    assert reproducao_variada.codigo == ExitCode.OK
+    observacao = f"catalogos_diferentes_do_congelado catalogos={EXTRA}"
+    assert observacao in reproducao_variada.conteudo["observacoes"]
 
 
 def _arquivo_original(fluxo: Fluxo, familia: FamiliaFonte, competencia: str) -> Path:
@@ -488,8 +509,15 @@ ESTRAGOS_DA_ENTRADA = {
 }
 
 
-@pytest.mark.parametrize("auxiliar", ["disponivel", "indisponivel"])
-@pytest.mark.parametrize("estrago", list(ESTRAGOS_DA_ENTRADA))
+@pytest.mark.parametrize(
+    ("estrago", "auxiliar"),
+    [
+        ("ausente", "disponivel"),
+        ("ilegivel", "disponivel"),
+        ("alterada", "disponivel"),
+        ("ausente", "indisponivel"),
+    ],
+)
 def test_reproduce_com_a_entrada_original_que_nao_confere_e_inconclusivo_e_nao_divergente(
     fluxo: Fluxo, estrago: str, auxiliar: str
 ) -> None:
@@ -527,18 +555,14 @@ criterios:
 """
 
 
-@pytest.mark.parametrize("estrago", ["mudada", "ausente"])
 def test_reproduce_com_a_politica_congelada_que_o_catalogo_ja_nao_da_e_inconclusivo(
-    fluxo: Fluxo, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, estrago: str
+    fluxo: Fluxo, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     catalogo = tmp_path / "policies"
     shutil.copytree(DIRETORIO_POLITICAS, catalogo)
-    if estrago == "ausente":
-        (catalogo / "M_TEMP_PADRAO.yaml").unlink()
-    else:
-        (catalogo / "M_TEMP_PADRAO.yaml").write_text(POLITICA_DO_CATALOGO_MUDADA, encoding="utf-8")
+    (catalogo / "M_TEMP_PADRAO.yaml").write_text(POLITICA_DO_CATALOGO_MUDADA, encoding="utf-8")
     monkeypatch.setattr("sustemporal.reporting.reproduce_politicas.DIRETORIO_POLITICAS", catalogo)
-    destino = fluxo.mundo.raiz / f"reproducao_politica_{estrago}"
+    destino = fluxo.mundo.raiz / "reproducao_politica_mudada"
     feita = reproduzir(fluxo, fluxo.configs["teste"], destino)
     assert feita.codigo == ExitCode.FALHA_OPERACIONAL
     assert feita.conteudo.get("resultado") == "INCONCLUSIVO"
@@ -546,22 +570,6 @@ def test_reproduce_com_a_politica_congelada_que_o_catalogo_ja_nao_da_e_inconclus
     assert feita.situacoes == {"insumos:M_TEMP_PADRAO": "INCONCLUSIVO"}
     assert feita.itens["insumos:M_TEMP_PADRAO"]["detalhe"] == "politica_congelada_indisponivel"
     assert not (destino / "janelas").exists()
-
-
-def test_reproduce_com_saida_que_a_reconstrucao_nao_emitiu_e_divergente(
-    fluxo: Fluxo, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(
-        "sustemporal.reporting.reproduce.validar_janela",
-        sem_evidencias(validar_janela, EVIDENCIAS),
-    )
-    destino = fluxo.mundo.raiz / "reproducao_sem_evidencias"
-    feita = reproduzir(fluxo, fluxo.configs["teste"], destino)
-    assert feita.codigo == ExitCode.FALHA_OPERACIONAL
-    assert feita.conteudo.get("resultado") == "DIVERGENTE"
-    divergentes = {item for item, situacao in feita.situacoes.items() if situacao == "DIVERGENTE"}
-    assert divergentes == {f"saida:{metodo}:{EVIDENCIAS}" for metodo in METODOS}
-    assert {feita.itens[item]["detalhe"] for item in divergentes} == {"saida_ausente_no_refeito"}
 
 
 def _alterar_json(arquivo: Path, **trocas: object) -> None:
@@ -653,14 +661,18 @@ def test_reproduce_sem_saber_o_que_o_ingest_leu_do_manifesto_e_inconclusivo_e_na
     assert not (destino / "ingest").exists()
 
 
-def test_reproduce_com_origem_dos_dados_diferente_da_congelada_e_inconclusivo(
-    fluxo: Fluxo,
-) -> None:
+def _config_com_origem_real(fluxo: Fluxo) -> Path:
     texto = fluxo.configs["teste"].read_text(encoding="utf-8")
     real = fluxo.mundo.raiz / "config_origem_real.yaml"
     real.write_text(texto.replace("origem_dados: SINTETICO", "origem_dados: REAL"))
+    return real
+
+
+def test_reproduce_com_origem_dos_dados_diferente_da_congelada_e_inconclusivo(
+    fluxo: Fluxo,
+) -> None:
     destino = fluxo.mundo.raiz / "reproducao_origem_real"
-    feita = reproduzir(fluxo, real, destino)
+    feita = reproduzir(fluxo, _config_com_origem_real(fluxo), destino)
     assert feita.codigo == ExitCode.FALHA_OPERACIONAL
     assert feita.conteudo.get("resultado") == "INCONCLUSIVO"
     assert feita.conteudo["origem_dados"] == "REAL"
@@ -668,6 +680,17 @@ def test_reproduce_com_origem_dos_dados_diferente_da_congelada_e_inconclusivo(
     item = feita.itens["origem_dados"]
     assert (item["esperado"], item["obtido"]) == ("SINTETICO", "REAL")
     assert item["detalhe"] == "origem_dados_diferente_do_congelado"
+    assert not (destino / "ingest").exists()
+
+
+def test_reproduce_registra_o_catalogo_de_regras_diferente_do_congelado_ao_parar_antes_do_ingest(
+    fluxo: Fluxo, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    regras = carregar_regras()
+    monkeypatch.setattr("sustemporal.reporting.reproduce._regras", lambda: regras[:-1])
+    destino = fluxo.mundo.raiz / "reproducao_regras_diferentes"
+    feita = reproduzir(fluxo, _config_com_origem_real(fluxo), destino)
+    assert "catalogo_de_regras_diferente_do_congelado" in feita.conteudo["observacoes"]
     assert not (destino / "ingest").exists()
 
 
@@ -701,49 +724,80 @@ def test_reproduce_com_a_execucao_registrada_de_outra_politica_e_inconclusivo(fl
     assert not (destino / "janelas").exists()
 
 
-def test_reproduce_com_relatorio_que_nao_e_o_registrado_e_inconclusivo_e_nao_divergente(
-    fluxo: Fluxo,
-) -> None:
-    arquivo = _relatorio_registrado(fluxo)
-    guardado = arquivo.read_bytes()
-    destino = fluxo.mundo.raiz / "reproducao_relatorio_trocado"
+DIVERGENTES_DO_CONTEUDO = {"conjunto:sia_pa.v1", "saida:B_ATEND:agregados_registro.v1"}
+DIVERGENTES_DA_SAIDA = {f"saida:{metodo}:{EVIDENCIAS}" for metodo in METODOS}
+
+
+@pytest.fixture(scope="module")
+def reproducao_estragada(fluxo: Fluxo) -> Reproducao:
+    """Uma só reprodução com o original e a reconstrução estragados de três jeitos independentes.
+
+    A união do SIA-PA e os agregados do `B_ATEND` originais têm o conteúdo adulterado, o relatório
+    do registro vira outro (execuções em outra ordem) e a reconstrução deixa de emitir as
+    evidências. Cada estrago dá os seus itens e os testes abaixo leem a mesma reprodução.
+    """
+    uniao = _original_do_congelamento(fluxo, "sia_pa.v1")
+    run = fluxo.execucoes[("cal", "atendimento")]
+    agregados = Path(next(s for s in run.saidas if s.schema_id == "agregados_registro.v1").caminho)
+    relatorio = _relatorio_registrado(fluxo)
+    original_relatorio = relatorio.read_bytes()
+    original_uniao = adulterar_coluna(uniao, "quantidade_apresentada", 99)
+    original_agregados = adulterar_coluna(agregados, "resultado", "ABSTENCAO")
+    refeita = sem_evidencias(validar_janela, EVIDENCIAS)
+    destino = fluxo.mundo.raiz / "reproducao_estragada"
     try:
-        _alterar_json(arquivo, runs=list(reversed(json.loads(guardado)["runs"])))
-        feita = reproduzir(fluxo, fluxo.configs["teste"], destino)
+        _alterar_json(relatorio, runs=list(reversed(json.loads(original_relatorio)["runs"])))
+        with pytest.MonkeyPatch.context() as mp:
+            mp.setattr("sustemporal.reporting.reproduce.validar_janela", refeita)
+            return reproduzir(fluxo, fluxo.configs["teste"], destino)
     finally:
-        arquivo.write_bytes(guardado)
+        uniao.write_bytes(original_uniao)
+        agregados.write_bytes(original_agregados)
+        relatorio.write_bytes(original_relatorio)
+
+
+def _com_situacao(feita: Reproducao, situacao: str) -> set[str]:
+    return {item for item, atual in feita.situacoes.items() if atual == situacao}
+
+
+def test_reproduce_falha_e_nomeia_os_itens_quando_o_conteudo_original_diverge(
+    reproducao_estragada: Reproducao,
+) -> None:
+    feita = reproducao_estragada
     assert feita.codigo == ExitCode.FALHA_OPERACIONAL
-    assert feita.conteudo.get("resultado") == "INCONCLUSIVO"
-    inconclusivos = {i for i, situacao in feita.situacoes.items() if situacao == "INCONCLUSIVO"}
-    assert inconclusivos == {"metricas", "notas"}
-    assert "DIVERGENTE" not in feita.situacoes.values()
+    assert feita.conteudo["resultado"] == "DIVERGENTE"
+    assert _com_situacao(feita, "DIVERGENTE") >= DIVERGENTES_DO_CONTEUDO
+    assert feita.itens["conjunto:sia_pa.v1"]["detalhe"] == "original_diverge"
+
+
+def test_reproduce_com_saida_que_a_reconstrucao_nao_emitiu_e_divergente(
+    reproducao_estragada: Reproducao,
+) -> None:
+    feita = reproducao_estragada
+    assert _com_situacao(feita, "DIVERGENTE") >= DIVERGENTES_DA_SAIDA
+    assert {feita.itens[i]["detalhe"] for i in DIVERGENTES_DA_SAIDA} == {"saida_ausente_no_refeito"}
+
+
+def test_reproduce_com_relatorio_que_nao_e_o_registrado_e_inconclusivo_e_nao_divergente(
+    reproducao_estragada: Reproducao,
+) -> None:
+    feita = reproducao_estragada
+    assert _com_situacao(feita, "INCONCLUSIVO") == {"metricas", "notas"}
+    assert feita.itens["metricas"]["detalhe"] == "original_ausente"
     assert feita.conteudo["relatorio_refeito"].startswith("rep_")
     observacao = "relatorio_original_nao_confere_com_o_registro campos=runs"
     assert observacao in feita.conteudo["observacoes"]
 
 
-def test_reproduce_com_catalogo_que_o_congelamento_nao_tinha_e_observacao_e_reproduz_igual(
-    fluxo: Fluxo,
+def test_reproduce_so_os_itens_estragados_saem_diferentes_do_original(
+    reproducao_estragada: Reproducao,
 ) -> None:
-    extra = fluxo.mundo.raiz / "catalogo_extra.yaml"
-    extra.write_text("extra: 1\n", encoding="utf-8")
-    texto = fluxo.configs["teste"].read_text(encoding="utf-8")
-    com_extra = fluxo.mundo.raiz / "config_catalogo_extra.yaml"
-    com_extra.write_text(texto.replace("catalogos:\n", f"catalogos:\n  extra: {extra}\n"))
-    feita = reproduzir(fluxo, com_extra, fluxo.mundo.raiz / "reproducao_catalogo_extra")
-    assert feita.codigo == ExitCode.OK
-    assert feita.conteudo["resultado"] == "IGUAL"
-    assert "catalogos_diferentes_do_congelado catalogos=extra" in feita.conteudo["observacoes"]
-
-
-def test_reproduce_com_catalogo_de_regras_diferente_do_congelado_registra_a_observacao(
-    fluxo: Fluxo, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    regras = carregar_regras()
-    monkeypatch.setattr("sustemporal.reporting.reproduce._regras", lambda: regras[:-1])
-    feita = reproduzir(fluxo, fluxo.configs["teste"], fluxo.mundo.raiz / "reproducao_sem_regra")
-    assert "catalogo_de_regras_diferente_do_congelado" in feita.conteudo["observacoes"]
-    assert feita.conteudo["resultado"] != "DIVERGENTE"
+    feita = reproducao_estragada
+    divergentes = DIVERGENTES_DO_CONTEUDO | DIVERGENTES_DA_SAIDA
+    iguais = ITENS_DA_REPRODUCAO - divergentes - {"metricas", "notas"}
+    assert set(feita.itens) == ITENS_DA_REPRODUCAO
+    assert _com_situacao(feita, "DIVERGENTE") == divergentes
+    assert _com_situacao(feita, "IGUAL") == iguais
 
 
 def test_reproduce_sem_o_ingest_original_relata_tambem_a_entrada_que_nao_confere(

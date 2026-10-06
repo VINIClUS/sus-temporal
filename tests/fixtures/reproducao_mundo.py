@@ -148,17 +148,21 @@ def escrever_config(
     threads: int = 1,
     rede: bool = False,
     politica_id: str | None = None,
+    extras_de_catalogo: Mapping[str, Path] | None = None,
 ) -> Path:
     """Configuração do fluxo: mesmos caminhos e catálogos, só o recorte do piloto muda.
 
-    Com `politica_id` a config traz também a lista dos três métodos, como o `config/cohort.yaml`.
+    Com `politica_id` a config traz também a lista dos três métodos, como o `config/cohort.yaml`;
+    `extras_de_catalogo` acrescenta catálogos (nome e arquivo) que o congelamento não tinha.
     """
     lista = ", ".join(f'"{c}"' for c in competencias)
+    extras = [f"  {nome}: {caminho}" for nome, caminho in (extras_de_catalogo or {}).items()]
     linhas = [
         'versao: "1"',
         "origem_dados: SINTETICO",
         "catalogos:",
         f"  fontes: {mundo.fontes}",
+        *extras,
         "runtime:",
         f"  raiz_dados: {mundo.raiz / 'dados'}",
         f"  raiz_manifestos: {mundo.raiz / 'manifestos'}",

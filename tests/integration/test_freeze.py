@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -15,7 +16,14 @@ from tests.fixtures.protocolo_avaliacao import (
 )
 from tests.fixtures.protocolo_cli import gravar_insumos
 from tests.fixtures.protocolo_confirmatorio import montar_confirmatorio
-from tests.fixtures.protocolo_dados import Cenario, cenario_baseline
+from tests.fixtures.protocolo_dados import (
+    SPEC_PADRAO,
+    Cenario,
+    cenario_baseline,
+    coorte,
+    fontes_identidade,
+    gravar_territorio,
+)
 
 from sustemporal.cli import main
 from sustemporal.config import load_config
@@ -42,6 +50,7 @@ from sustemporal.evaluation.freeze_registro import (
     registrar_execucao,
 )
 from sustemporal.evaluation.metrics import ReferenciaCongelamento, evaluate_runs
+from sustemporal.evaluation.split import build_splits
 from sustemporal.runtime_info import ambiente
 
 if TYPE_CHECKING:
@@ -127,6 +136,77 @@ def test_recusa_protocolo_com_valor_a_definir(tmp_path: Path, cenario: Cenario) 
             codigo=CODIGO_LIMPO,
             relogio=relogio,
         )
+
+
+def _congelar_protocolo(tmp_path: Path, protocolo: Protocolo) -> FreezeManifest:
+    escrever_decisao(tmp_path / "decisoes", "G0", "CONTINUAR")
+    return congelar(
+        protocolo,
+        tmp_path / "frozen",
+        decisoes=tmp_path / "decisoes",
+        codigo=CODIGO_LIMPO,
+        relogio=relogio,
+    )
+
+
+def _coorte_da_config(**campos: str) -> dict[str, str]:
+    """A coorte do split do cenário, como a config do protocolo a declararia."""
+    base = {
+        "cohort_id": "coorte_sintetica",
+        "uf": "SP",
+        "territorio": "territorio.yaml",
+        "pertenca": "FIXA",
+        "inicio": "201801",
+        "fim": "202512",
+    }
+    return {**base, **campos}
+
+
+@pytest.mark.parametrize(
+    ("coorte_da_config", "motivo"),
+    [
+        (
+            {"pertenca": "A_DEFINIR"},
+            "congelamento_com_pertenca_a_definir coorte=coorte_sintetica",
+        ),
+        (
+            {"cohort_id": "outra_coorte"},
+            "congelamento_split_de_outra_coorte split=spl_[0-9a-f]+ coorte=outra_coorte",
+        ),
+    ],
+    ids=["pertenca_a_definir", "outra_coorte"],
+)
+def test_recusa_config_com_pertenca_a_definir_ou_de_outra_coorte(
+    tmp_path: Path, cenario: Cenario, coorte_da_config: dict[str, str], motivo: str
+) -> None:
+    """Auditoria final, D1: a coorte da config entra no manifesto só pelo `config_hash`."""
+    protocolo = _protocolo(cenario, coorte=_coorte_da_config(**coorte_da_config))
+    with pytest.raises(ConfigInvalida, match=f"^{motivo}$"):
+        _congelar_protocolo(tmp_path, protocolo)
+    assert not (tmp_path / "frozen").exists()
+
+
+def test_congela_com_a_coorte_do_split_e_pertenca_fixa(tmp_path: Path, cenario: Cenario) -> None:
+    manifesto = _congelar_protocolo(tmp_path, _protocolo(cenario, coorte=_coorte_da_config()))
+    assert manifesto.split.cohort_id == "coorte_sintetica"
+
+
+def test_recusa_split_construido_com_pertenca_a_definir(tmp_path: Path, cenario: Cenario) -> None:
+    """Auditoria final, D1: o split guarda a pertença só no limite `pertenca_a_definir`."""
+    split = build_splits(
+        cenario.dataset,
+        coorte(gravar_territorio(tmp_path / "territorio.yaml"), pertenca="A_DEFINIR"),
+        tmp_path / "split",
+        spec=SPEC_PADRAO,
+        fonte_por_artefato=fontes_identidade(list(cenario.linhas)),
+        rotulos=cenario.rotulos,
+    )
+    protocolo = replace(_protocolo(cenario), split=split)
+    with pytest.raises(
+        ConfigInvalida, match=f"^congelamento_split_com_pertenca_a_definir split={split.split_id}$"
+    ):
+        _congelar_protocolo(tmp_path, protocolo)
+    assert not (tmp_path / "frozen").exists()
 
 
 def _compativel(manifesto: FreezeManifest, cenario: Cenario, **trocas: Any) -> None:

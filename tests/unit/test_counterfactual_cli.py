@@ -45,6 +45,7 @@ from tests.fixtures.contrafactual_execucao import (
     Execucao,
     executar_validacao_sintetica,
 )
+from tests.fixtures.explicacao_estragos import ESTRAGOS_FORA_DO_ESQUEMA, estragar_saida_gravada
 from tests.fixtures.regras_cenario import reemitir
 
 _INCLUIR = "INCLUIR_CBO_NO_ESTABELECIMENTO"
@@ -325,6 +326,29 @@ def test_cli_recusa_saida_incoerente_e_remove_o_resultado_anterior(
     _conforme_sem_evidencia(execucao)
     assert _codigo_ou_excecao(execucao, execucao.ausencia) == 2
     assert "counterfactual_recusado erro=template_sem_referencia" in caplog.text
+    assert not destino.exists()
+
+
+def _saida_do_contrafactual(execucao: Execucao, row: str) -> int | str:
+    """Código de saída; exceção que escapa vira texto, para falhar por asserção."""
+    try:
+        return _rodar(execucao, row)
+    except Exception as erro:
+        return f"excecao={type(erro).__name__}"
+
+
+@pytest.mark.parametrize("estrago", sorted(ESTRAGOS_FORA_DO_ESQUEMA))
+def test_saida_fora_do_esquema_da_saida_2_e_remove_o_resultado_anterior(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture, estrago: str
+) -> None:
+    execucao = executar_validacao_sintetica(tmp_path)
+    assert _rodar(execucao, execucao.ausencia) == 0
+    destino = _destino(execucao, execucao.ausencia)
+    assert (destino / "contrafactual.json").exists()
+    run_result = _pasta_da_execucao(execucao) / "run_result.json"
+    estragar_saida_gravada(run_result, estrago, execucao.ausencia)
+    assert _saida_do_contrafactual(execucao, execucao.ausencia) == 2
+    assert "counterfactual_recusado erro=saida_incoerente_com_contrato" in caplog.text
     assert not destino.exists()
 
 

@@ -152,6 +152,7 @@ class ExplanationBundle(ContratoBase):
                 raise ValueError(f"afirmacao_sem_referencia_valida bundle={self.bundle_id}")
 
     def _violacoes_sustentadas(self) -> None:
+        """VIOLACAO cita ao menos uma ausência sustentada: nas quatro famílias é a única prova."""
         por_id = {e.evidence_id: e for e in self.evidencias}
         for avaliacao in self.avaliacoes:
             if avaliacao.estado is not EstadoAvaliacao.VIOLACAO:
@@ -160,7 +161,8 @@ class ExplanationBundle(ContratoBase):
             if any(e is None for e in citadas):
                 raise ValueError(f"violacao_cita_evidencia_ausente bundle={self.bundle_id}")
             presentes = [e for e in citadas if e is not None]
-            if any(_nao_sustenta(e) for e in presentes):
+            sustentada = any(e.sustenta_ausencia for e in presentes)
+            if not sustentada or any(_nao_sustenta(e) for e in presentes):
                 raise ValueError(f"violacao_sem_ausencia_sustentada bundle={self.bundle_id}")
             if not all(e.utilizavel for e in presentes):
                 raise ValueError(

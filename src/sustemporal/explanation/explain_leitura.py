@@ -15,6 +15,7 @@ from sustemporal.contracts.records import ProductionRecord, RowLocator
 from sustemporal.contracts.rules import AgregadoRegistro, MotivoInconclusao, RuleEvaluation
 from sustemporal.contracts.temporal import CompetenciaArquivo, SelecaoVersao
 from sustemporal.explanation.evidence import ler_evidencia
+from sustemporal.rules.catalog import carregar_esquema
 from sustemporal.rules.conteudo import ConteudoDivergente, verificar_conteudo
 
 if TYPE_CHECKING:
@@ -92,6 +93,22 @@ def _linhas(
         raise ExplicacaoIndisponivel(f"saida_ilegivel erro={type(erro).__name__}") from erro
 
 
+def _exigir_colunas(con: duckdb.DuckDBPyConnection, ref: DatasetRef) -> None:
+    """Nomes físicos iguais aos do esquema: o hash lógico não vê coluna fora dele."""
+    descricao = _linhas(con, "DESCRIBE SELECT * FROM read_parquet($c)", {"c": ref.caminho})
+    fisicas = [str(coluna["column_name"]) for coluna in descricao]
+    esperadas = [c.nome for c in carregar_esquema(ref.schema_id).colunas]
+    diferencas = {
+        "faltam": [nome for nome in esperadas if nome not in fisicas],
+        "sobram": [nome for nome in fisicas if nome not in esperadas],
+    }
+    detalhe = " ".join(f"{chave}={','.join(nomes)}" for chave, nomes in diferencas.items() if nomes)
+    if detalhe:
+        raise ExplicacaoIndisponivel(
+            f"saida_incoerente_com_contrato schema={ref.schema_id} {detalhe}"
+        )
+
+
 def _exigir_mesma_execucao(con: duckdb.DuckDBPyConnection, ref: DatasetRef, run_id: str) -> None:
     alheias = _linhas(
         con,
@@ -118,7 +135,7 @@ def _selecao(linha: dict[str, Any]) -> SelecaoVersao:
 
 
 def _avaliacao(linha: dict[str, Any], selecoes: list[dict[str, Any]]) -> RuleEvaluation:
-    proprias = [s for s in selecoes if s["rule_id"] == linha["rule_id"]]
+    proprias = [_selecao(s) for s in selecoes if s["rule_id"] == linha["rule_id"]]
     return RuleEvaluation(
         **{c: linha[c] for c in ("run_id", "row_id", "rule_id", "versao", "politica_id")},
         metodo=linha["metodo"],
@@ -127,7 +144,7 @@ def _avaliacao(linha: dict[str, Any], selecoes: list[dict[str, Any]]) -> RuleEva
         insumos_completos=linha["insumos_completos"],
         incompatibilidade_demonstrada=linha["incompatibilidade_demonstrada"],
         motivos=tuple(MotivoInconclusao(m) for m in _lista(linha["motivos"])),
-        selecoes=tuple(_selecao(s) for s in sorted(proprias, key=lambda s: s["fonte"])),
+        selecoes=tuple(sorted(proprias, key=lambda s: s.fonte)),
         evidence_ids=_lista(linha["evidence_ids"]),
     )
 
@@ -169,10 +186,9 @@ def _ler(
 
 
 def _montar(linhas: dict[str, list[dict[str, Any]]], run: RunResult, row_id: str) -> SaidasRegistro:
-    avaliacoes = tuple(
-        _avaliacao(linha, linhas["selecao_versoes.v1"])
-        for linha in sorted(linhas["avaliacoes.v1"], key=lambda a: a["rule_id"])
-    )
+    """Valida cada linha antes de ordenar: chave nula é recusa, nunca TypeError."""
+    lidas = [_avaliacao(linha, linhas["selecao_versoes.v1"]) for linha in linhas["avaliacoes.v1"]]
+    avaliacoes = tuple(sorted(lidas, key=lambda a: a.rule_id))
     agregado = _agregado(linhas["agregados_registro.v1"], row_id)
     if agregado != AgregadoRegistro.agregar(run.run_id, row_id, avaliacoes):
         raise ExplicacaoIndisponivel(f"agregado_divergente run={run.run_id} row={row_id}")
@@ -188,11 +204,13 @@ def ler_saidas(con: duckdb.DuckDBPyConnection, run: RunResult, row_id: str) -> S
     """Avaliações, seleções, evidências e agregado do registro, conferidos contra os DatasetRef.
 
     Raises:
-        ExplicacaoIndisponivel: saída ausente, alheia, divergente, ou registro sem avaliação.
+        ExplicacaoIndisponivel: saída ausente, alheia, divergente, fora do esquema (coluna
+            ausente ou valor fora do contrato), ou registro sem avaliação.
     """
     refs = {schema_id: _saida(run, schema_id) for schema_id in _SAIDAS}
     for ref in refs.values():
         _conferir(con, ref)
+        _exigir_colunas(con, ref)
     for schema_id in _COM_RUN_ID:
         _exigir_mesma_execucao(con, refs[schema_id], run.run_id)
     linhas = _ler(con, refs, row_id)
